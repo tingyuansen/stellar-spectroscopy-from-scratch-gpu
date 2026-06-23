@@ -31,17 +31,17 @@ md(r"""# Lecture 9 — Hydrostatic Equilibrium & Temperature Structure
 
 **Learning objectives.** By the end of this lecture you will be able to:
 
-- State **hydrostatic equilibrium** as a differential equation in optical depth, $dP/d\tau = g/\kappa$, and explain why the column mass and the pressure are two sides of the same balance.
-- Recall the **grey/Hopf temperature law** $T(\tau)$ from the first lecture, and see it as the *input* to the structure rather than something handed down.
-- Build the production code's **80-layer optical-depth grid** (the literal ATLAS12 card defaults) and say why the cold start integrates with a placeholder opacity $\kappa\equiv1$.
-- Integrate hydrostatic equilibrium in **log pressure** with a **predictor-corrector** multistep, apply the **radiation-pressure correction** $P_{\rm gas}=P_{\rm total}-P_{\rm rad}$, and reproduce the reference grey atmosphere — temperature, gas pressure, and column mass — to **machine precision**, sharpening the first lecture's one-line $P=g\tau$ estimate to the last bit.""")
+- Explain why the first lecture's closed-form $P_{\rm total}=g\tau$ was only the **cold-start approximation** ($\kappa\equiv1$), and why getting the last digits right takes an actual integration.
+- Set up the **radiation-pressure correction** $P_{\rm gas}=P_{\rm total}-P_{\rm rad}$ and explain why the structure code carries it even where it is negligible.
+- Integrate hydrostatic equilibrium in **log pressure** and write the chain rule cleanly, $\Delta p = (g/\kappa)(\tau/P_{\rm total})\,\Delta\ln\tau$, so the math matches the code.
+- Implement the production code's **predictor-corrector** multistep integrator — including its boundary seed and its evaluate-then-check convergence ordering — and reproduce the reference grey atmosphere's gas pressure and column mass to **machine precision**, closing the residual the first lecture deferred.""")
 
 # ── introduction ───────────────────────────────────────────────────────────
 md(r"""## Introduction: building the atmosphere we have been given
 
-For eight lectures the **model atmosphere** has been a given. We took its run of temperature, gas pressure, and density with depth — the columns of a `.atm` file — and on top of it built the equation of state, the continuous and line opacities, and the radiative-transfer solver, until we reproduced the solar spectrum to machine precision. But where did that atmosphere come from? A model atmosphere is fixed by two physical requirements: **hydrostatic equilibrium**, that the gas neither collapses under its own weight nor blows away, and **radiative equilibrium**, that the energy carried outward by radiation is conserved at every depth. This lecture builds the first of those. It is the start of the **inverse half** of the course: instead of taking the structure and computing the spectrum, we compute the structure itself from the two numbers that define a star — its effective temperature $T_{\rm eff}$ and its surface gravity $\log g$.
+For eight lectures the **model atmosphere** has been a given. We took its run of temperature, gas pressure, and density with depth — the columns of a `.atm` file — and on top of it built the equation of state, the continuous and line opacities, and the radiative-transfer solver, until we reproduced the solar spectrum to machine precision. But where did that atmosphere come from? A model atmosphere is fixed by two physical requirements: **hydrostatic equilibrium**, that the gas neither collapses under its own weight nor blows away, and **radiative equilibrium**, that the energy carried outward by radiation is conserved at every depth. This lecture builds the first of those. It is the start of the **inverse half** of the course: instead of taking the structure and computing the spectrum, we compute the structure itself from the two numbers that fix the grey cold start of a star — its effective temperature $T_{\rm eff}$ and its surface gravity $\log g$. (A full model also depends on composition, microturbulence, and the convection treatment; in the simplified grey setup here, $T_{\rm eff}$ and $\log g$ are enough.)
 
-The first lecture already wrote down a temperature structure: the **grey atmosphere**, $T(\tau)$ from the Hopf function. It also estimated the pressure with a one-line analytic integral, $P_{\rm total}=g\tau$, and noted that this agreed with the reference to about one part in $10^{5}$ — close, but not exact, with the residual deferred to "when we rebuild hydrostatic equilibrium in full." This is that rebuild. We reproduce the exact pressure integrator the reference uses — a predictor-corrector that solves the same hydrostatic equation in log pressure — and the last digits fall into place: temperature, gas pressure, and column mass, all bit-for-bit identical to the reference grey model that ATLAS12 starts its own iteration from.""")
+Lecture 1 already built most of the pieces we need here, and we will lean on them rather than re-derive them. It wrote down the **grey/Hopf temperature law** $T(\tau)$, laid out the **80-layer optical-depth grid**, and introduced **hydrostatic equilibrium** in optical depth, $dP/d\tau = g/\kappa$. It also took one shortcut: on the cold start it set $\kappa\equiv1$, integrated the balance by hand to the one-line result $P_{\rm total}=g\tau$, and found it agreed with the reference only to about one part in $10^{5}$ — close, but not exact, with the residual deferred to "when we rebuild hydrostatic equilibrium in full." **That is the one genuinely new thing this lecture does.** We recap the temperature and the grid quickly, then spend our effort where Lecture 1 stopped: on why $P=g\tau$ was just the $\kappa\equiv1$ cold-start approximation, and on the exact predictor-corrector that integrates the same equation in log pressure. With that integrator in hand the last digits fall into place — gas pressure and column mass become bit-for-bit identical to the reference grey model that ATLAS12 starts its own iteration from.""")
 
 # ── the imports + reference ────────────────────────────────────────────────
 md(r"""## Setup and the reference
@@ -62,86 +62,71 @@ print(f"target: grey atmosphere for Teff = {TEFF:.0f} K, log g = {LOGG}  ->  g =
 print(f"reference arrays: {[k for k in REF.files]}")''')
 
 # ── hydrostatic equilibrium ─────────────────────────────────────────────────
-md(r"""## Hydrostatic equilibrium in optical depth
+md(r"""## Hydrostatic equilibrium, in the form the codes integrate (Lecture 1)
 
-A static atmosphere obeys a single balance: at every depth, the upward push of the pressure gradient supports the weight of the gas above. In terms of geometric height $z$ (increasing outward) and mass density $\rho$,
-
-$$
-\frac{dP}{dz} = -\rho\,g,
-$$
-
-with $g$ the surface gravity, taken constant across the thin photosphere. The structure codes do not work in height, though — they work in **optical depth** $\tau$, because that is the variable the radiation field cares about. Recall from the first lecture that optical depth is built from the opacity per gram $\kappa$ and the **column mass** $\rho x$ (grams of material above a square centimetre), with $d\tau = \kappa\,d(\rho x)$ and $d(\rho x) = -\rho\,dz$. Substituting,
+The first lecture introduced hydrostatic equilibrium — the balance between the pressure gradient and the weight of the overlying gas — and rewrote it in **optical depth** $\tau$, the variable the radiation field cares about, as
 
 $$
-\frac{dP}{d\tau} = \frac{g}{\kappa}
+\frac{dP}{d\tau} = \frac{g}{\kappa}.
 $$
 
-This is hydrostatic equilibrium in the form the codes integrate. Read it as a statement about the column mass: since $dP/d(\rho x) = g$, the total pressure is just $g$ times the column mass, $P_{\rm total} = g\cdot\rho x$ — the weight per unit area of everything above. The optical-depth form makes the opacity explicit: where the gas is more opaque (large $\kappa$), a given range of $\tau$ spans less pressure, because you reach optical depth one in less material.
+We take that as our starting point. Read it as a statement about the column mass: since $dP/d(\rho x) = g$, the total pressure is just $g$ times the column mass, $P_{\rm total} = g\cdot\rho x$ — the weight per unit area of everything above. Here $\rho x$ is the **column mass**, the grams of material above a square centimetre; Kurucz calls this quantity `RHOX` and it functions as a single compound symbol $m=\int_z^\infty\rho\,dz$, *not* the local density $\rho$ multiplied by a depth coordinate $x$. The optical-depth form makes the opacity explicit: where the gas is more opaque (large $\kappa$), a given range of $\tau$ spans less pressure, because you reach optical depth one in less material. In this atmosphere-construction context, $\tau$ means **Rosseland** optical depth and $\kappa$ the **Rosseland-mean opacity**, unless stated otherwise.
 
-To integrate it we need two things: the temperature at every depth (which sets $P_{\rm rad}$ and, through the equation of state, the density), and the opacity $\kappa(\tau)$. We take them in turn.""")
+So far this is all Lecture 1. What that lecture did *not* do is integrate the equation properly: it set $\kappa\equiv1$ and read off $P_{\rm total}=g\tau$ in one line. The rest of this lecture does the integration for real. To do it we need two inputs at every depth — the temperature (which sets $P_{\rm rad}$ and, through the equation of state, the density) and the opacity $\kappa(\tau)$ — so we recap those two first, then build the integrator.""")
 
 # ── the temperature law ─────────────────────────────────────────────────────
-md(r"""## The temperature: the grey/Hopf law, revisited
+md(r"""## Recap (Lecture 1): the grey/Hopf temperature
 
-The temperature structure is the *input* to the pressure integration, so we start there — with the grey law from the first lecture. For a grey atmosphere (opacity independent of wavelength) in radiative equilibrium, the transfer equation can be solved exactly for the temperature, giving
-
-$$
-T^4(\tau) = \tfrac{3}{4}\,T_{\rm eff}^4\,\big[\tau + q(\tau)\big],
-$$
-
-where $q(\tau)$ is the **Hopf function**, rising slowly from $q(0)=1/\sqrt3\approx0.577$ to $q(\infty)\approx0.710$. The production code uses Kurucz's polynomial fit to $q$,
-
-$$
-T(\tau) = T_{\rm eff}\,\Big[\tfrac{3}{4}\big(0.710 + \tau - 0.1331\,e^{-3.4488\,\tau}\big)\Big]^{1/4}.
-$$
-
-The three constants — $0.710$, $0.1331$, $3.4488$ — are the fit: $0.710$ is the deep limit of $q$, and the exponential term bends the curve down at the surface toward $1/\sqrt3$. We met this in the first lecture and reproduced it to the bit; we reproduce it again here, since it feeds the pressure. A floor of $10^{-300}$ guards the fourth root against an underflow to a negative bracket — it never triggers for a real atmosphere but keeps the routine safe.""")
+The temperature structure is the *input* to the pressure integration. Lecture 1 derived it in full from the grey transfer equation; here we only need the result, so this is a one-paragraph recap. The grey/Hopf law is $T(\tau) = T_{\rm eff}\,[\tfrac34(0.710 + \tau - 0.1331\,e^{-3.4488\tau})]^{1/4}$ — Kurucz's analytic (exponential) fit to the Hopf function $q(\tau)$, with $q$ rising from $1/\sqrt3\approx0.577$ at the surface to $0.710$ deep down (see Lecture 1 for the derivation and the $\tau=2/3$ photosphere check). The code below is the identical fit from Lecture 1: it evaluates the bracket $\tfrac34(\tau+q)$, floors it at $10^{-300}$ so the fourth root can never see a negative argument (a safety guard that never triggers for a real atmosphere), and takes the $1/4$ power. We re-include it here because it feeds the pressure integration that follows.""")
 
 code(r'''def grey_temperature(teff, tau):
-    """Eddington-Kurucz grey T(tau): a polynomial fit to the Hopf function q(tau)."""
+    """Eddington-Kurucz grey T(tau): Kurucz's analytic fit to the Hopf function q(tau)."""
     bracket = 0.75 * (0.710 + tau - 0.1331 * np.exp(-3.4488 * tau))   # (3/4)(tau + q(tau))
     return float(teff) * np.power(np.maximum(bracket, 1e-300), 0.25)  # T = Teff * bracket^(1/4)''')
 
 # ── the optical-depth grid ──────────────────────────────────────────────────
-md(r"""## The optical-depth grid: 80 layers, the ATLAS12 card defaults
+md(r"""## Recap (Lecture 1): the optical-depth grid
 
-We discretise the atmosphere on a grid of optical depth. The production code's grey start uses the literal ATLAS12 `CALCULATE` card defaults: **80 layers**, the first at $\log\tau = -6.875$, spaced **$0.125$ dex** apart. That spans from $\tau\approx1.3\times10^{-7}$ at the very top of the atmosphere to $\tau\approx3\times10^{2}$ deep below the photosphere — nearly ten decades, fine enough to integrate the hydrostatic equation accurately and wide enough to bracket the line- and continuum-forming region (which sits near $\tau\sim1$).
+The same grid the first lecture used. It is the literal ATLAS12 `CALCULATE` card defaults — **80 layers** uniform in $\log\tau$, the first at $\log\tau=-6.875$ and spaced **$0.125$ dex** apart, spanning nearly ten decades from $\tau\sim10^{-7}$ at the top to $\tau\sim10^{2}$ deep below the photosphere (Lecture 1 explains why this range and spacing). The one fact we will use heavily below: because the grid is uniform in $\log\tau$, the log-tau step is a *constant*, and it becomes the natural increment of the integration.
 
-The grid is uniform in $\log\tau$, so the **log-tau step** $\Delta\log\tau$ is a constant. We will integrate the pressure in log-pressure against this log-tau grid, so this constant step is the natural increment of the integration.""")
+The code builds the grid by raising 10 to the linear ramp $\log\tau_j = -6.875 + 0.125\,j$ for $j=0\dots79$, then evaluates the recapped temperature law on it. The print line spot-checks the endpoints and the photosphere.""")
 
 code(r'''NRHOX, TAU1LG, STEPLG = 80, -6.875, 0.125      # ATLAS12 CALCULATE card defaults
-j = np.arange(NRHOX, dtype=np.float64)
+j = np.arange(NRHOX, dtype=np.float64)           # layer index 0..79
 tau = np.power(10.0, TAU1LG + j * STEPLG)        # 80 layers, 0.125 dex apart, surface -> deep
-T = grey_temperature(TEFF, tau)
+T = grey_temperature(TEFF, tau)                  # grey/Hopf temperature on the grid (recap above)
 print(f"{NRHOX} layers,  tau = {tau[0]:.3e} .. {tau[-1]:.3e}")
 print(f"T(top) = {T[0]:.1f} K    T(tau~1) ~ {grey_temperature(TEFF, 1.0):.1f} K    T(bottom) = {T[-1]:.1f} K")''')
 
-md(r"""The grid and the temperature are the first two reference arrays, and they match to the bit straight away — they are the same Hopf fit on the same grid the first lecture built.""")
+md(r"""The grid and the temperature are the first two reference arrays, and they match to the bit straight away — they are the same Hopf fit on the same grid the first lecture built. We confirm that with a small helper, `check`, that we will reuse for the full benchmark: it computes the worst relative difference against the reference array and flags `bit-exact` when the two are equal to the last bit.""")
 
 code(r'''def check(name, got, ref):
+    """Report max|relative diff| between a from-scratch array and the reference; flag bit-exact."""
     got, ref = np.asarray(got, float), np.asarray(ref, float)
-    m = np.abs(ref) > 0
+    m = np.abs(ref) > 0                                       # mask out exact zeros (no relative diff)
     rel = np.zeros_like(ref); rel[m] = np.abs(got[m] - ref[m]) / np.abs(ref[m])
     tag = "bit-exact" if np.array_equal(got, ref) else f"max|rel| = {rel.max():.2e}"
     print(f"  {name:12s}  {tag}")
     return rel.max()
 
-check("grey_tau", tau, REF["grey_tau"])
-check("grey_T",   T,   REF["grey_T"])''')
+check("grey_tau", tau, REF["grey_tau"])                       # same grid as Lecture 1 -> bit-exact
+check("grey_T",   T,   REF["grey_T"])                         # same Hopf fit  as Lecture 1 -> bit-exact''')
 
 # ── radiation pressure ──────────────────────────────────────────────────────
 md(r"""## Radiation pressure
 
-The total pressure has two parts, gas and radiation: $P_{\rm total} = P_{\rm gas} + P_{\rm rad}$. The hydrostatic balance supports the **total**, but the equation of state and the line opacities care about the **gas** pressure, so we will need to subtract $P_{\rm rad}$ at the end. Radiation pressure of an isotropic field is $P_{\rm rad} = \tfrac{4\sigma}{3c}T^4 = a_{\rm rad}T^4$ with $a_{\rm rad}\approx7.566\times10^{-15}\,\mathrm{erg\,cm^{-3}\,K^{-4}}$; the production code carries the combination as the constant $\tfrac13 a_{\rm rad} = 2.521\times10^{-15}$ (the field is integrated with the Eddington factor $\tfrac13$ already folded in). It also floors the temperature inside the fourth power at $T_{\rm eff}^4/2$, so the radiation pressure never drops below a fixed fraction of its photospheric value in the cool upper layers — a stabiliser that keeps the cold start well behaved.
+This is new content — Lecture 1 mentioned $P_{\rm rad}$ in passing but the integrator here actually carries it, so it is worth getting the definition exactly right. The total pressure has two parts, gas and radiation: $P_{\rm total} = P_{\rm gas} + P_{\rm rad}$. The hydrostatic balance supports the **total**, but the equation of state and the line opacities care about the **gas** pressure, so we will subtract $P_{\rm rad}$ at the end.
+
+Be careful with the coefficient. The radiation **energy density** of an isotropic field is $a_{\rm rad}T^4$ with $a_{\rm rad}\approx7.566\times10^{-15}\,\mathrm{erg\,cm^{-3}\,K^{-4}}$, but the isotropic radiation **pressure** is one third of that, $P_{\rm rad}=\tfrac13 a_{\rm rad}T^4 = \tfrac{4\sigma}{3c}T^4$. Kurucz carries the pressure coefficient $\tfrac13 a_{\rm rad}$ as the constant $2.521\times10^{-15}$. The code also floors the temperature inside the fourth power at $T_{\rm eff}^4/2$, so $P_{\rm rad}$ never drops below a fixed fraction of its photospheric value in the cool upper layers — a stabiliser that keeps the cold start well behaved:
 
 $$
 P_{\rm rad}(\tau) = 2.521\times10^{-15}\,\max\!\big(T^4,\ \tfrac12 T_{\rm eff}^4\big).
 $$
 
-In a cool dwarf like the Sun the radiation pressure is utterly negligible next to the gas pressure — parts in $10^{8}$ — but the integrator carries it, and reproducing the reference to the bit means carrying it too. What matters for the hydrostatic integration is the **run** of $P_{\rm rad}$ relative to the surface, $P_{\rm rad}(\tau) - P_{\rm rad}(0)$, since only the *gradient* of pressure enters the balance.""")
+For this solar cold start the radiation-pressure *correction to the hydrostatic run* is small, but it is retained because the reference code retains it and because it matters in hotter, lower-gravity atmospheres. What enters the integration is the **run** of $P_{\rm rad}$ relative to the surface, $P_{\rm rad}(\tau)-P_{\rm rad}(0)$, since only the *gradient* of pressure matters. The code therefore keeps two arrays: `pradk` is the absolute radiation pressure at each layer, while `prad = pradk - pradk[0]` is the depth-dependent increment relative to the top layer (so `prad[0]` is exactly zero by construction). The hydrostatic integration only ever needs this increment; the surface constant is absorbed into the boundary pressure. The turbulent pressure `pturb` is zero on the cold start.""")
 
-code(r'''pradk = 2.521e-15 * np.maximum(T ** 4, TEFF ** 4 / 2.0)   # radiation pressure with Kurucz's floor
-prad = pradk - pradk[0]                                    # run relative to the surface layer
+code(r'''pradk = 2.521e-15 * np.maximum(T ** 4, TEFF ** 4 / 2.0)   # absolute radiation pressure, Kurucz's floor
+prad = pradk - pradk[0]                                    # depth-dependent run relative to top (prad[0]=0)
 pturb = np.zeros(NRHOX)                                    # turbulent pressure: zero on the cold start
 print(f"P_rad(top) = {pradk[0]:.3e}   P_rad(bottom) = {pradk[-1]:.3e} dyn/cm^2   (gas ~1e5, so ~1e-8 of it)")''')
 
@@ -155,24 +140,24 @@ The production code breaks the loop with a **cold start**. On the very first pas
 # ── log pressure ────────────────────────────────────────────────────────────
 md(r"""## Integrating in log pressure, and why
 
-We integrate $dP/d\tau = g/\kappa$ down the grid. The natural move would be to step in $P$ directly, but two facts make **log pressure** the better variable. First, the pressure spans many decades from the top of the atmosphere to the bottom — eight or nine — so a fixed step in $P$ would be hopelessly coarse at the top and wastefully fine at the bottom, while a step in $\log P$ resolves every decade equally. Second, the grid is uniform in $\log\tau$, and on the cold start with $\kappa$ constant the solution $P=g\tau$ is a power law, so $\log P$ is *linear* in $\log\tau$ — the integrand is smoothest in log-log variables, where a low-order multistep formula is most accurate.
+Now the new work begins: the actual integration of $dP/d\tau = g/\kappa$ down the grid. The natural move would be to step in $P$ directly, but two facts make **log pressure** the better variable. First, the pressure spans eight or nine decades from the top of the atmosphere to the bottom, so a fixed step in $P$ would be hopelessly coarse at the top and wastefully fine at the bottom, while a step in $\log P$ resolves every decade equally. Second, the grid is uniform in $\log\tau$, and on the cold start with $\kappa$ constant the solution $P=g\tau$ is a power law, so $\log P$ is *linear* in $\log\tau$ — the integrand is smoothest in log-log variables, where a low-order multistep formula is most accurate.
 
-Writing $p \equiv \log P_{\rm total}$ and using $d\log\tau$ as the increment, the chain rule turns hydrostatic equilibrium into
-
-$$
-\frac{dp}{d\log\tau}
-= \frac{1}{P_{\rm total}}\frac{dP_{\rm total}}{d\tau}\,\frac{d\tau}{d\log\tau}
-= \frac{1}{P_{\rm total}}\,\frac{g}{\kappa}\,(\tau\ln10\cdot 10^{\log\tau}/\dots)
-= \frac{g}{\kappa}\,\frac{\tau}{P_{\rm total}}\,\Delta\!\ln\tau\big/\Delta\!\ln\tau,
-$$
-
-which collapses to the clean per-step derivative the code uses,
+The chain rule is cleanest in natural logs. Let $p\equiv\ln P_{\rm total}$ and $u\equiv\ln\tau$. Then, applying $d/du$ through $p$, $P_{\rm total}$, and $\tau$ in turn,
 
 $$
-\Delta p_j \;=\; \frac{g}{\kappa_j}\,\frac{\tau_j}{P_{{\rm total},j}}\,\Delta\!\ln\tau,
+\frac{dp}{du}
+= \frac{1}{P_{\rm total}}\,\frac{dP_{\rm total}}{d\tau}\,\frac{d\tau}{du}
+= \frac{1}{P_{\rm total}}\,\frac{g}{\kappa}\,\tau
+= \frac{g}{\kappa}\,\frac{\tau}{P_{\rm total}},
 $$
 
-the change in $\log P$ across one log-tau step. (We use natural logs internally for the step $\Delta\ln\tau = \ln(\tau_{j+1}/\tau_j)$, which is the same constant for every interval since the grid is uniform in $\log\tau$.) We will compute this derivative — call it `dplog` — at each layer and use it both to **predict** the next layer's pressure and to **correct** it.""")
+using $dP_{\rm total}/d\tau = g/\kappa$ from hydrostatic equilibrium and $d\tau/du = \tau$ (since $u=\ln\tau$). Multiplying by the constant step $\Delta u = \Delta\ln\tau$ gives the discrete increment the code uses — the change in $\ln P$ across one log-tau step,
+
+$$
+\Delta p_j \;=\; \frac{g}{\kappa_j}\,\frac{\tau_j}{P_{{\rm total},j}}\,\Delta\ln\tau .
+$$
+
+The step $\Delta\ln\tau = \ln(\tau_{j+1}/\tau_j)$ is the same constant for every interval because the grid is uniform in $\log\tau$ (its value is $\ln 10 \times 0.125$). We will compute this derivative — call it `dplog` — at each layer and use it both to **predict** the next layer's pressure and to **correct** it. The cell below just forms that constant step and confirms it equals $\ln 10 \times 0.125$.""")
 
 code(r'''dlg_tau = np.log(tau[1] / tau[0])    # natural-log tau step, constant across the uniform grid
 print(f"d(ln tau) per layer = {dlg_tau:.6f}   (= ln(10) * 0.125 = {np.log(10)*0.125:.6f})")''')
@@ -180,7 +165,7 @@ print(f"d(ln tau) per layer = {dlg_tau:.6f}   (= ln(10) * 0.125 = {np.log(10)*0.
 # ── predictor-corrector ─────────────────────────────────────────────────────
 md(r"""## The predictor-corrector integrator
 
-We integrate layer by layer from the top down, carrying a short **history** of the last few values of $p=\log P$ and of the derivative $\Delta p$. Each layer is done in two stages.
+This is the heart of the lecture — the exact integrator that replaces Lecture 1's one-line $P=g\tau$. We integrate layer by layer from the top down, carrying a short **history** of the last few values of $p=\ln P$ and of the derivative $\Delta p$. Each layer is done in two stages, predict then correct.
 
 **Predictor.** Extrapolate $p_j$ from the history. The very first layer ($j=0$) has no history, so its pressure is set directly from the seeded boundary opacity, $p_0 = \ln(g\,\tau_0/\kappa_0)$ with $\kappa_0=0.1$. The next three layers ($j\le3$) use a one-step extrapolation $p_j = p_{j-1} + \Delta p_{j-1}$, because the history is not yet long enough for the full formula. From the fifth layer on, a four-term multistep predictor combines the value four layers back with a weighted blend of the last three derivatives,
 
@@ -188,38 +173,32 @@ $$
 p_j^{\rm pred} = \frac{3\,p_{j-4} + 8\,\Delta p_{j-1} - 4\,\Delta p_{j-2} + 8\,\Delta p_{j-3}}{3}.
 $$
 
-These integer coefficients are a standard explicit Adams-type formula tuned to this log-log grid; they reach back several layers because the integrand is so smooth there that a long stencil pays off.
+These are the Kurucz/ATLAS multistep coefficients; they play the same role as an explicit Adams-type predictor on this smooth log-log grid, reaching back several layers because the integrand is smooth enough there that a long stencil pays off.
 
 **Corrector.** With a trial $p_j$ in hand, evaluate the total pressure $P_{{\rm total},j}=e^{p_j}$, subtract the radiation (and turbulent) pressure to get the gas pressure, look up the opacity ($\kappa_j=1$ on the cold start), and form the derivative $\Delta p_j = (g/\kappa_j)(\tau_j/P_{{\rm total},j})\,\Delta\ln\tau$. A corrector formula (analogous integer weights) then produces a refined estimate $p_j^{\rm new}$ from $p_j$ and the freshly computed derivative, and we average the two, $p_j \leftarrow \tfrac12(p_j^{\rm new}+p_j)$, iterating until the change is below $5\times10^{-5}$.
 
-One ordering detail is what makes this reproduce the reference *to the bit*, and it is worth stating plainly. The code **evaluates and stores** $P_{\rm total}$, the gas pressure, the opacity, and the derivative from the current trial $p_j$ *first*, and only *then* tests for convergence. So on the step where the loop decides it is done, the stored pressure is the one from the last *predictor*, not from a further-refined corrector — the corrector that would have nudged it is computed but not applied to the stored value. Matching this "evaluate-then-check" order is the difference between agreeing to five decimals and agreeing to all of them.""")
+One ordering detail is what makes this reproduce the reference *to the bit*, and it is worth stating plainly. The code **evaluates and stores** $P_{\rm total}$, the gas pressure, the opacity, and the derivative from the current trial $p_j$ *first*, and only *then* tests for convergence. So on the iteration where the loop decides it is done, the stored pressure is the trial value at the *start* of that iteration — not a further-refined corrector. (If the loop runs more than once, that trial value is itself the averaged corrector from the previous iteration; the corrector that would have nudged it once more is computed but never applied to the stored value.) Matching this "evaluate-then-check" order is the difference between agreeing to five decimals and agreeing to all of them.""")
+
+md(r"""We implement this in two cells. The first, `ttaup`, is the **set-up wrapper**: it allocates the output arrays (opacity, total pressure, gas pressure), forms the constant log-tau step, zeroes the rolling history, and seeds the boundary opacity at the top layer ($\kappa_0=0.1$, unless a positive surface $P_{\rm rad}$ asks for a smaller value). It then hands everything to the per-layer loop. Note `prad[0]` is zero here on the cold start, so the seed is the plain $\kappa_0=0.1$; the conditional only matters for warm restarts. The integrator is **sequential in the layer index** — the history couples each layer to the previous few — so it cannot be vectorised across layers, and that is why it is a Python loop rather than an array expression.""")
 
 code(r'''def ttaup(t, tau, prad, pturb, grav):
-    """Integrate dP/dtau = g/kappa over the tau grid in LOG pressure (Kurucz TTAUP).
-
-    Sequential and order-dependent in the layer index j (the history couples each layer
-    to the previous few, so this cannot be vectorised across layers). Returns the opacity,
-    the total pressure, and the gas pressure at every layer.
-    """
+    """Set up arrays + boundary seed for the log-pressure hydrostatic integration (Kurucz TTAUP)."""
     n = t.size
-    abstd  = np.zeros(n)             # opacity kappa_Ross at each layer (== 1 on the cold start)
-    ptotal = np.zeros(n)            # total pressure P_total = exp(log P)
-    pgas   = np.zeros(n)            # gas pressure  P_gas = P_total - P_rad - P_turb
-    dlg_tau = np.log(tau[1] / tau[0]) if n > 1 else 0.0   # constant log-tau step
-
+    abstd  = np.zeros(n)            # opacity kappa_Ross at each layer (== 1 on the cold start)
+    ptotal = np.zeros(n)           # total pressure  P_total = exp(log P)
+    pgas   = np.zeros(n)           # gas pressure    P_gas   = P_total - P_rad - P_turb
+    dlg_tau = np.log(tau[1] / tau[0]) if n > 1 else 0.0   # constant log-tau step (= ln10 * 0.125)
     # rolling history of log P (plog1..plog4) and of the derivative dplog (dplog1..dplog3)
     plog1 = plog2 = plog3 = plog4 = 0.0
     dplog1 = dplog2 = dplog3 = 0.0
-
     # seed opacity at the top layer (kappa_0 = 0.1) to set the boundary pressure
     abstd[0] = 0.1
-    if prad[0] > 0.0:
+    if prad[0] > 0.0:              # warm-restart guard; prad[0]==0 on the cold start, so no-op here
         abstd[0] = min(0.1, grav * tau[0] / max(prad[0], 1e-300) / 2.0)
     return _ttaup_loop(t, tau, prad, pturb, grav, n, abstd, ptotal, pgas, dlg_tau,
-                       plog1, plog2, plog3, plog4, dplog1, dplog2, dplog3)
-print("predictor-corrector defined (the per-layer loop is in the next cell)")''')
+                       plog1, plog2, plog3, plog4, dplog1, dplog2, dplog3)''')
 
-md(r"""The per-layer loop is the engine; we keep it in its own cell so each piece is visible. For each layer $j$ it runs the predictor, then the corrector loop, then shifts the history forward by one. Watch the two markers in the comments: **predict**, then the inner loop where we **evaluate-then-check**.""")
+md(r"""The second cell is the **engine**: the per-layer loop. It has to stay in one cell because it is a single function — the layer-to-layer history makes it inherently sequential, so it cannot be split or vectorised — but its three parts are marked by comment banners. For each layer $j$ it runs the **predictor** (extrapolate $\ln P$ from the history), then the **corrector** inner loop (the `evaluate-then-check` ordering: store $P_{\rm total}$, gas pressure, opacity, and derivative *first*, then test convergence), then shifts the history forward by one. Read the comment banners as a map of the algorithm above.""")
 
 code(r'''def _ttaup_loop(t, tau, prad, pturb, grav, n, abstd, ptotal, pgas, dlg_tau,
                 plog1, plog2, plog3, plog4, dplog1, dplog2, dplog3):
@@ -231,7 +210,6 @@ code(r'''def _ttaup_loop(t, tau, prad, pturb, grav, n, abstd, ptotal, pgas, dlg_
             plog = plog1 + dplog1                                     # short history: one-step
         else:
             plog = (3.0*plog4 + 8.0*dplog1 - 4.0*dplog2 + 8.0*dplog3) / 3.0   # 4-term multistep
-
         # ---- CORRECTOR loop: EVALUATE the stored values, THEN check convergence ----
         error, dplog, itn = 1.0, 0.0, 1
         while True:
@@ -244,7 +222,7 @@ code(r'''def _ttaup_loop(t, tau, prad, pturb, grav, n, abstd, ptotal, pgas, dlg_
             dplog = grav / abstd[j] * tau[j] / ptotal[j] * dlg_tau   # d(log P) across one log-tau step
             itn += 1
             if itn > 1000 or error <= 5.0e-5:              # converged (or out of iterations): STOP
-                break                                       # -> the STORED values use this predictor
+                break                                       # -> STORED values use this trial plog
             # corrector estimate, using the just-computed dplog:
             if j == 0:
                 pnew = np.log(max(grav / abstd[j] * tau[j], 1e-300))
@@ -253,14 +231,12 @@ code(r'''def _ttaup_loop(t, tau, prad, pturb, grav, n, abstd, ptotal, pgas, dlg_
             else:
                 pnew = (126.0*plog1 - 14.0*plog3 + 9.0*plog4
                         + 42.0*dplog + 108.0*dplog1 - 54.0*dplog2 + 24.0*dplog3) / 121.0
-            error = abs(pnew - plog)
+            error = abs(pnew - plog)                       # convergence test for the NEXT iteration
             plog = 0.5 * (pnew + plog)                     # average predictor and corrector
-
         # ---- shift the history forward one layer ----
         plog4, plog3, plog2, plog1 = plog3, plog2, plog1, plog
         dplog3, dplog2, dplog1 = dplog2, dplog1, dplog
-    return abstd, ptotal, pgas
-print("per-layer loop defined")''')
+    return abstd, ptotal, pgas''')
 
 # ── run it ──────────────────────────────────────────────────────────────────
 md(r"""## Running the integrator
@@ -273,10 +249,10 @@ $$
 
 the weight per unit area of everything above — which is the depth variable the `.atm` file is tabulated against and the one the opacity and transfer lectures integrate over.""")
 
-code(r'''abstd, ptotal, P_gas = ttaup(T, tau, prad, pturb, g_cgs)
+code(r'''abstd, ptotal, P_gas = ttaup(T, tau, prad, pturb, g_cgs)   # run the predictor-corrector integrator
 RHOX = ptotal / g_cgs                       # column mass [g cm^-2] = total pressure / gravity
-print(f"P_gas:  top = {P_gas[0]:.4e}   bottom = {P_gas[-1]:.4e} dyn/cm^2")
-print(f"RHOX:   top = {RHOX[0]:.4e}   bottom = {RHOX[-1]:.4e} g/cm^2")''')
+print(f"P_gas:  top = {P_gas[0]:.4e}   bottom = {P_gas[-1]:.4e} dyn/cm^2")   # gas pressure run
+print(f"RHOX:   top = {RHOX[0]:.4e}   bottom = {RHOX[-1]:.4e} g/cm^2")        # column-mass run''')
 
 # ── benchmark ───────────────────────────────────────────────────────────────
 md(r"""## Benchmark: machine precision
@@ -284,12 +260,12 @@ md(r"""## Benchmark: machine precision
 Now the comparison the first lecture deferred. We check the gas pressure and the column mass against the reference grey structure, layer by layer. The first lecture's one-line estimate $P=g\tau$ matched these to $\sim2\times10^{-5}$; reproducing the exact predictor-corrector — in log pressure, with the evaluate-then-check ordering, carrying the radiation-pressure correction — closes that gap to the last bit.""")
 
 code(r'''print("grey model atmosphere vs reference/L1.npz:")
-e_tau  = check("grey_tau",  tau,   REF["grey_tau"])
-e_T    = check("grey_T",    T,     REF["grey_T"])
-e_pgas = check("grey_pgas", P_gas, REF["grey_pgas"])
-e_rhox = check("grey_rhox", RHOX,  REF["grey_rhox"])
-worst = max(e_tau, e_T, e_pgas, e_rhox)
-allbit = all(np.array_equal(a, REF[k]) for a, k in
+e_tau  = check("grey_tau",  tau,   REF["grey_tau"])    # grid       (recap, matched in L1)
+e_T    = check("grey_T",    T,     REF["grey_T"])      # temperature (recap, matched in L1)
+e_pgas = check("grey_pgas", P_gas, REF["grey_pgas"])   # gas pressure  -- the residual L1 deferred
+e_rhox = check("grey_rhox", RHOX,  REF["grey_rhox"])   # column mass   -- the residual L1 deferred
+worst = max(e_tau, e_T, e_pgas, e_rhox)                # worst relative diff over all four arrays
+allbit = all(np.array_equal(a, REF[k]) for a, k in     # True only if every array is bit-identical
              [(tau,"grey_tau"), (T,"grey_T"), (P_gas,"grey_pgas"), (RHOX,"grey_rhox")])
 print(f"\nworst max|rel| over all four arrays = {worst:.2e}")
 print(f"all four arrays bit-exact = {allbit}")''')
@@ -300,14 +276,15 @@ md(r"""How much did the exact integrator change from the one-line estimate? Let 
 
 code(r'''P_analytic = g_cgs * tau                              # the first lecture's one-line estimate
 fig, ax = plt.subplots(1, 2, figsize=(11, 4.1))
+# left: the grey solar structure -- gas pressure and column mass vs log tau
 ax[0].plot(np.log10(tau), np.log10(P_gas), color="C0", lw=1.6, label=r"$P_{\rm gas}$ (exact integrator)")
 ax[0].plot(np.log10(tau), np.log10(RHOX),  color="C3", lw=1.2, ls="--", label=r"$\rho x$ (column mass)")
 ax[0].set_xlabel(r"$\log_{10}\tau$"); ax[0].set_ylabel(r"$\log_{10}$ [cgs]")
 ax[0].set_title("Grey solar structure"); ax[0].legend(loc="upper left")
-
-resid = np.abs(P_analytic - P_gas) / P_gas
+# right: fractional gap between the one-line estimate and the exact integral
+resid = np.abs(P_analytic - P_gas) / P_gas             # |P=g*tau  -  exact| / exact
 ax[1].semilogy(np.log10(tau), resid, color="C2", lw=1.4)
-ax[1].axhline(2e-5, color="0.6", ls=":", lw=1.0)
+ax[1].axhline(2e-5, color="0.6", ls=":", lw=1.0)       # the ~2e-5 level L1 reported
 ax[1].set_xlabel(r"$\log_{10}\tau$"); ax[1].set_ylabel(r"$|P_{g\tau} - P_{\rm gas}|\,/\,P_{\rm gas}$")
 ax[1].set_title(r"where the one-line $P=g\tau$ differed")
 fig.tight_layout(); plt.show()
