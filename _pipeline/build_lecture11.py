@@ -39,7 +39,7 @@ md(r"""# Lecture 11 — Convection & the Converged Atmosphere
 - Implement **mixing-length theory** (Kurucz's `CONVEC`): the adiabatic gradient $\nabla_{\rm ad}$, the superadiabaticity $\Delta = \nabla - \nabla_{\rm ad}$, the convective velocity and the **convective flux** $F_{\rm conv}$, with the thermodynamic derivatives taken from **finite differences** of the equation of state and the optically-thick efficiency factor $\tau_b^2/(2+\tau_b^2)$.
 - See that convection is **negligible in the line-forming layers** but reshapes the **deep-layer** structure, and that its flux feeds back into the temperature correction.
 - State the **convergence criterion** — flux constancy, measured as $\max|\Delta T/T|$ over the deep layers — and read the iteration history of a real model converging.
-- Run the loop from the **grey start** to the converged continuum-only solar model (28 iterations) and reproduce one from-scratch iteration of it to **machine precision** — the new convective flux, the corrected temperature, and the column mass — closing the loop the first lecture opened.""")
+- Inspect the full **grey-start-to-convergence history** (28 iterations, shipped as the reference) and reproduce one from-scratch iteration from the converged model to the **precision floor of the reference** — the new convective flux, the corrected temperature, and the column mass — closing the loop the first lecture opened.""")
 
 # ── introduction ───────────────────────────────────────────────────────────
 md(r"""## Introduction: from one correction step to a finished atmosphere
@@ -55,9 +55,9 @@ We reuse, unchanged, every engine the book has built: the continuum opacity **KA
 # ── setup and the reference ──────────────────────────────────────────────────
 md(r"""## Setup and the reference
 
-We import only NumPy and Matplotlib. The benchmark target is `reference/converged_ref.npz`, produced once by the production code on the solar parameters ($T_{\rm eff}=5770$ K, $\log g=4.44$) in the clean configuration this book uses: **continuum opacity only** (no line blanketing, so no multi-gigabyte line lists), **convection on** (mixing length $1.25$), and **serial** execution so the result is bit-reproducible. The production code was run from the **grey start** of Lecture 9 all the way to convergence — flux constant to a part in $10^4$ over the deep layers — which took **28 iterations**.
+We import only NumPy and Matplotlib. The benchmark target is `reference/converged_ref.npz`, produced once by the production code on the solar parameters ($T_{\rm eff}=5770$ K, $\log g=4.44$) in the clean configuration this book uses: **continuum opacity only** (no line blanketing, so no multi-gigabyte line lists), **convection on** (mixing length $1.25$), and **serial** execution so the result is bit-reproducible. The production code was run from the **grey start** of Lecture 9 all the way to convergence — stopped when the deep-layer temperature correction fell below $10^{-4}$, the proxy ATLAS uses for flux constancy — which took **28 iterations**.
 
-The file ships three things. First, the **converged model** itself ($T$, column mass `rhox`, pressure, electron density, Rosseland opacity, and the convective flux `flxcnv`). Second, the **convergence history** — $\max|\Delta T/T|$ per iteration — so we can plot a real model settling. Third, everything one from-scratch iteration *from the converged model* needs: the per-frequency **continuum opacity** (the Lecture-3 KAPP output, a given input), the equation-of-state **finite-difference samples** the convection kernel needs (`edens1..4`, `rho1..4` — the electron density and mass density at $T,P\pm0.1\%$, treated as given so we need not re-run the full EOS), and the convective inputs (`ptotal`, `rho`, `pradk`, `prad`, `abross`).""")
+The file ships three things. First, the **converged model** itself ($T$, column mass `rhox`, pressure, electron density, Rosseland opacity, and the convective flux `flxcnv`). Second, the **convergence history** — $\max|\Delta T/T|$ per iteration — so we can plot a real model settling. Third, everything one from-scratch iteration *from the converged model* needs: the per-frequency **continuum opacity** (the Lecture-3 KAPP output, a given input), the equation-of-state **finite-difference samples** the convection kernel needs (`edens1..4`, `rho1..4` — ATLAS's internal-energy quantity `edens` and the mass density `rho`, each sampled at $T,P\pm0.1\%$, treated as given so we need not re-run the full EOS; `edens` already includes ATLAS's radiation-energy contribution), and the convective inputs (`ptotal`, `rho`, `pradk`, `prad`, `abross`).""")
 
 code(r'''import pathlib
 import numpy as np
@@ -82,7 +82,7 @@ Radiative (plus convective) equilibrium demands that the **total** flux — radi
 
 $$\max_{j}\ \left|\frac{T^{(N)}_j - T^{(N-1)}_j}{T^{(N)}_j}\right| < 10^{-4},$$
 
-the maximum fractional temperature change taken over the **deep layers** (ATLAS's `checkconv` uses layers 40–75 of the 80-layer grid — the upper layers are noisier and settle last in absolute terms but are irrelevant to the energy balance). The loop stops when this drops below $10^{-4}$, after a minimum number of iterations. The reference shipped that history; here it is.""")
+the maximum fractional temperature change taken over the **deep layers** (ATLAS's `checkconv` uses layers 40–75 of the 80-layer grid — the upper layers are noisier and settle last in absolute terms but are less diagnostic of the global energy balance, so ATLAS does not use them as the stopping criterion). The loop stops when this drops below $10^{-4}$, after a minimum number of iterations. The reference shipped that history; here it is.""")
 
 code(r'''dlnt  = REF["dlnt_history"]    # max|dT/T| over deep layers 40..75, per iteration
 dtmax = REF["dtmax_history"]   # max|dT/T| over ALL layers, per iteration (top layers settle last)
@@ -195,7 +195,9 @@ def _nz_signed(x, eps=1e-300):
 # ── constants and the converged model ────────────────────────────────────────
 md(r"""## Constants and the converged model
 
-We use exactly the constants ATLAS uses. We then load the **converged model** as the starting point of our from-scratch iteration: temperature `T`, column mass `rhox`, gas pressure `p_in`, mass density `rho_in`, and the convective and radiative pressures. The single number that sets the energy balance is the target Eddington flux $H = \sigma T_{\rm eff}^4/(4\pi)$; the **total** flux (radiative + convective) must equal this at every layer.""")
+We use exactly the constants ATLAS uses. We then load the **converged model** as the starting point of our from-scratch iteration: temperature `T`, column mass `rhox`, gas pressure `p_in`, mass density `rho_in`, and the convective and radiative pressures. The single number that sets the energy balance is the target Eddington flux $H = \sigma T_{\rm eff}^4/(4\pi)$; the **total** flux (radiative + convective) must equal this at every layer.
+
+A note on notation, to keep a factor of $4\pi$ straight. Throughout the code `flux` and `flxrad` are **Eddington fluxes** $H = F/4\pi$ (flux per steradian). The convection routine instead returns a **physical flux** $F_{\rm conv}$, so the temperature correction divides it by $4\pi$ before adding it to $H$, and the flux-constancy plots multiply $H$ by $4\pi$ to show the physical flux $F$.""")
 
 code(r'''SIGMA  = 5.6697e-5     # Stefan-Boltzmann constant [erg cm^-2 s^-1 K^-4]
 PLANCK = 6.6256e-27    # Planck constant h [erg s]
@@ -344,7 +346,7 @@ print(f"swept {nf} continuum frequencies; flux at surface = {flxrad[0]:.4e}, dee
 
 md(r"""## The Rosseland optical-depth scale and its lookup table
 
-The Rosseland mean opacity follows from the accumulator, $\kappa_{\rm Ross} = (4\sigma/\pi)\,T^3/\texttt{ross\_acc}$, and integrating it against the column mass gives the Rosseland optical-depth scale $\tau_{\rm Ross}$ (Lecture 10). We also build the **`ROSSTAB`** table now: a $(\log T,\log P,\log\kappa)$ table assembled from this iteration's $(T,P,\kappa_{\rm Ross})$ at every layer, with a nearest-neighbour-per-quadrant bilinear lookup. Convection reads it for the opacity *inside* a convective cell, where the temperature is offset from the layer mean; the hydrostatic density correction reads it too. It is the same table Lecture 10 introduced.""")
+The Rosseland mean opacity follows from the accumulator, $\kappa_{\rm Ross} = (4\sigma/\pi)\,T^3/\texttt{ross\_acc}$, and integrating it against the column mass gives the Rosseland optical-depth scale $\tau_{\rm Ross}$ (Lecture 10). We also build the **`ROSSTAB`** table now: a $(\log T,\log P,\log\kappa)$ table assembled from this iteration's $(T,P,\kappa_{\rm Ross})$ at every layer, with a nearest-neighbour-per-quadrant bilinear lookup. Because a convective parcel is evaluated at $T\pm\delta T$, not exactly at the layer's mean $T$, we cannot just read $\kappa_{\rm Ross}$ off the one-dimensional depth grid; `ROSSTAB` supplies an approximate local opacity at the off-grid $(T\pm\delta T, P)$. Convection reads it for the opacity *inside* a convective cell; the hydrostatic density correction reads it too. It is the same table Lecture 10 introduced.""")
 
 code(r'''abross = (4.0*SIGMA/3.14159) * T**3 / np.maximum(ross_acc, 1e-300)   # Rosseland mean [cm^2/g]
 tauros = integ(rhox, abross, abross[0]*rhox[0])                       # Rosseland optical depth
@@ -393,7 +395,7 @@ print(f"kappa_Ross spans {abross.min():.3e} to {abross.max():.3e} cm^2/g; tau_Ro
 # ── convection: the physics ──────────────────────────────────────────────────
 md(r"""## Why the deep photosphere convects
 
-Consider a small parcel of gas nudged upward. It expands to match the falling pressure of its new surroundings; because the expansion is fast compared to radiative exchange, it cools **adiabatically**, along the gradient $\nabla_{\rm ad} = (d\ln T/d\ln P)_{\rm ad}$. Meanwhile the surrounding atmosphere has its own temperature gradient $\nabla = d\ln T/d\ln P$, set by how radiation actually carries the flux. If the *ambient* gas cools faster with height than the parcel does — that is, if $\nabla > \nabla_{\rm ad}$ — then after the nudge the parcel is **hotter, hence less dense**, than its new surroundings, so buoyancy keeps pushing it up. The atmosphere is **convectively unstable** (the Schwarzschild criterion). The excess $\Delta = \nabla - \nabla_{\rm ad}$ is the **superadiabaticity**; where it is positive, convection switches on.
+Consider a small parcel of gas nudged upward. It expands to match the falling pressure of its new surroundings; because the expansion is fast compared to radiative exchange, it cools **adiabatically**, along the gradient $\nabla_{\rm ad} = (d\ln T/d\ln P)_{\rm ad}$. Meanwhile the surrounding atmosphere has its own temperature gradient $\nabla = d\ln T/d\ln P$, set by the current atmospheric structure and how the flux is actually transported. Before convection switches on, all the flux is radiative, so this ambient gradient equals the **radiative gradient** $\nabla_{\rm rad}$ — the gradient that would be needed if radiation alone carried the entire flux. If the *ambient* gas cools faster with height than the parcel does — that is, if $\nabla_{\rm rad} > \nabla_{\rm ad}$ — then after the nudge the parcel is **hotter, hence less dense**, than its new surroundings, so buoyancy keeps pushing it up. The atmosphere is **convectively unstable** (the Schwarzschild criterion). The excess $\Delta = \nabla - \nabla_{\rm ad}$ is the **superadiabaticity**; where it is positive, convection switches on.
 
 In the Sun this happens **below** the visible photosphere, where hydrogen is partially ionized: ionization soaks up energy, flattening $\nabla_{\rm ad}$, while the steeply rising opacity steepens $\nabla$, and the two together drive $\Delta > 0$. The upper, line-forming layers stay radiative ($\Delta < 0$), which is why our spectrum in Lectures 1–8 never needed convection. ATLAS encodes this in **mixing-length theory**: convective parcels are imagined to rise one *mixing length* $\ell = \alpha_{\rm ML} H_P$ (here $\alpha_{\rm ML}=1.25$ pressure scale heights) before dissolving and dumping their heat. From $\Delta$, the thermodynamics, and $\ell$ it computes a convective velocity and a **convective flux** $F_{\rm conv}$.
 
@@ -401,7 +403,7 @@ In the Sun this happens **below** the visible photosphere, where hydrogen is par
 
 md(r"""### The thermodynamic derivatives, from finite differences
 
-Mixing-length theory needs four thermodynamic derivatives at each layer: how the internal energy and the mass density respond to temperature and to pressure, $(\partial E/\partial T)_P$, $(\partial\rho/\partial T)_P$, $(\partial E/\partial P)_T$, $(\partial\rho/\partial P)_T$. In a partially-ionized gas these have no simple closed form — they depend on the full Saha/Boltzmann equilibrium (Lecture 2). ATLAS computes them by **finite differences**: it re-runs the equation of state at $T\pm0.1\%$ and at $P\pm0.1\%$ and differences the resulting electron density and mass density. We ship those four pairs of samples (`edens1..4`, `rho1..4`) as a given input — re-deriving the full EOS here would just repeat Lecture 2 — and form the derivatives. The factor $500 = 1/(2\times0.001)$ is the central-difference denominator; the electron-density samples already carry the radiation-energy term ATLAS adds.""")
+Mixing-length theory needs four thermodynamic derivatives at each layer: how the internal energy and the mass density respond to temperature and to pressure, $(\partial E/\partial T)_P$, $(\partial\rho/\partial T)_P$, $(\partial E/\partial P)_T$, $(\partial\rho/\partial P)_T$. In a partially-ionized gas these have no simple closed form — they depend on the full Saha/Boltzmann equilibrium (Lecture 2). ATLAS computes them by **finite differences**: it re-runs the equation of state at $T\pm0.1\%$ and at $P\pm0.1\%$ and differences the resulting internal-energy quantity `edens` and mass density `rho`. We ship those four pairs of samples (`edens1..4`, `rho1..4`) as a given input — re-deriving the full EOS here would just repeat Lecture 2 — and form the derivatives by central differencing. The perturbation is **fractional** ($\pm0.1\%$ of $T$ and of $P$), so the absolute step is $\Delta T = 2\times0.001\,T = 0.002\,T$, and the central difference is $\partial E/\partial T \approx (E_+ - E_-)/(0.002\,T) = (E_+ - E_-)\times 500/T$ — which is exactly the code's `* 500.0 / T` (and likewise `* 500.0 / p_in` for the pressure derivatives): the constant $500 = 1/(2\times0.001)$ is the central-difference denominator and the division by $T$ (or $P$) converts the fractional spacing into the absolute one. The `edens` samples already carry the radiation-energy term ATLAS adds.""")
 
 code(r'''ed1 = REF["edens1"]; ed2 = REF["edens2"]; ed3 = REF["edens3"]; ed4 = REF["edens4"]   # EDENS at T+, T-, P+, P-
 r1  = REF["rho1"];   r2  = REF["rho2"];   r3  = REF["rho3"];   r4  = REF["rho4"]        # RHO   at T+, T-, P+, P-
@@ -414,7 +416,24 @@ print(f"thermodynamic derivatives formed from EOS finite differences at T,P +-0.
 
 md(r"""### The mixing-length kernel
 
-This is Kurucz's `CONVEC`, depth by depth. For each layer it builds the gradients and thermodynamics, tests the Schwarzschild criterion, and — where the layer convects — runs a short inner loop for the convective flux. The loop is genuinely coupled: the convective efficiency depends on how opaque a cell is (the optical-thickness factor $\tau_b^2/(2+\tau_b^2)$, where $\tau_b=\kappa\rho\ell$ is the cell's optical thickness — optically thin cells radiate their heat away before delivering it and carry little flux), and the cell opacity depends on the temperature excess $\delta T$ the loop is solving for, read from `ROSSTAB` at $T\pm\delta T$. Thirty iterations with under-relaxation settle it. The single body below is one algorithm and stays whole; the comments mark each physical step. Two ATLAS conventions: the top `NCONV = 36` layers are **forced non-convective** (the surface is radiative by construction), and the deep flux is capped so a cell cannot carry more than the cell's heat content allows.""")
+This is Kurucz's `CONVEC`, depth by depth. For each layer it builds the gradients and thermodynamics, tests the Schwarzschild criterion, and — where the layer convects — runs a short inner loop for the convective flux. The loop is genuinely coupled: the convective efficiency depends on how opaque a cell is (the optical-thickness factor $\tau_b^2/(2+\tau_b^2)$, where $\tau_b=\kappa\rho\ell$ is the cell's optical thickness — optically thin cells radiate their heat away before delivering it and carry little flux), and the cell opacity depends on the temperature excess $\delta T$ (`deltat`) the loop is solving for, read from `ROSSTAB` at $T\pm\delta T$ (the `dplus`/`dminus` lookups). Thirty iterations with under-relaxation settle it.
+
+In pseudocode, the per-layer logic is:
+
+```
+for each layer j:
+    form the gradients ∇ and ∇_ad and the thermodynamics (c_P, sound speed, H_P)
+    if j < NCONV or ∇ ≤ ∇_ad:  continue        # forced radiative, or Schwarzschild-stable
+    estimate the velocity scale and the flux scale ρ c_P T ℓ
+    repeat ~30 times (under-relaxed):
+        look up the cell opacity at T ± δT in ROSSTAB
+        form the optical-thickness efficiency τ_b²/(2+τ_b²)
+        update the convective velocity, the flux F_conv, and δT
+    cap F_conv at the cell's heat content
+zero the top NCONV layers (surface patch)
+```
+
+The single body below is one algorithm and stays whole; the comments mark each physical step against this outline. Two ATLAS conventions: the top `NCONV = 36` layers are **forced non-convective** (the surface is radiative by construction), and the deep flux is capped so a cell cannot carry more than the cell's heat content allows.""")
 
 code(r'''def high_from_rhox(rhox, rho):
     """Integrate geometric height from column mass and density (Fortran HIGH)."""
@@ -497,7 +516,7 @@ md(r"""The convective flux is **zero throughout the line-forming layers** ($\tau
 # ── superadiabaticity plot ───────────────────────────────────────────────────
 md(r"""### Seeing the Schwarzschild criterion
 
-The clearest picture of convection is the two gradients side by side. Where the **actual** gradient $\nabla$ (set by radiation) exceeds the **adiabatic** gradient $\nabla_{\rm ad}$, the gas convects; the gap between them is the superadiabaticity $\Delta$ that drives it. The convective flux (shaded) tracks exactly the region where $\nabla > \nabla_{\rm ad}$.""")
+The clearest picture of convection is the two gradients side by side. Where the **actual** gradient $\nabla$ (set by the current structure and energy transport, equal to $\nabla_{\rm rad}$ before convection switches on) exceeds the **adiabatic** gradient $\nabla_{\rm ad}$, the gas convects; the gap between them is the superadiabaticity $\Delta$ that drives it. The convective flux (shaded) tracks exactly the region where $\nabla > \nabla_{\rm ad}$.""")
 
 code(r'''fig, ax = plt.subplots(1, 2, figsize=(11, 4.1))
 x = np.log10(tauros)
@@ -516,7 +535,7 @@ fig.tight_layout(); plt.show()''')
 # ── TCORR with convection ────────────────────────────────────────────────────
 md(r"""## The temperature correction, now with convection
 
-The temperature correction of Lecture 10 — $T_1 = \Delta T_{\rm flux} + \Delta T_\Lambda + \Delta T_{\rm surf}$ — gains the convective flux in three places. (1) The **flux error** it drives toward zero is now the *total* flux $H + F_{\rm conv}/4\pi$ minus the target, not the radiative flux alone. (2) The Avrett–Krook denominator picks up a **convective-efficiency** term `ddel` (how strongly $F_{\rm conv}$ responds to a temperature change), so the correction knows that in a convective layer some of the flux adjustment comes for free from convection. (3) The convective flux is **smoothed** with a 1–2–1 filter and its top two layers zeroed before use, since the raw layer-by-layer flux is noisy. Everything else — the local-$\Lambda$ surface term, the surface-boundary term, the monotonicity clamp, and the hydrostatic density correction via `TTAUP` — is carried over from Lecture 10 unchanged. We are at the converged fixed point (`iter_index = 1`), so the damping/acceleration logic is skipped.""")
+The temperature correction of Lecture 10 — $T_1 = \Delta T_{\rm flux} + \Delta T_\Lambda + \Delta T_{\rm surf}$ — gains the convective flux in three places. (1) The **flux error** it drives toward zero is now the *total* flux $H + F_{\rm conv}/4\pi$ minus the target, not the radiative flux alone. (2) The Avrett–Krook denominator picks up a **convective-efficiency** term `ddel` (how strongly $F_{\rm conv}$ responds to a temperature change), so the correction knows that in a convective layer some of the flux adjustment comes for free from convection. (3) The convective flux is **smoothed** with a 1–2–1 filter and its top two layers explicitly re-zeroed before use, since the raw layer-by-layer flux is noisy. (`CONVEC` already forced the top layers to zero, but the 1–2–1 spatial filter would otherwise bleed deep convective flux upward into the purely radiative boundary layers, so they must be re-zeroed after smoothing.) Note also that TCORR uses *both* convective-flux arrays: the physically used flux `flxcnv` (zeroed in the top `NCONV` layers and smoothed) drives the total-flux defect, while ATLAS retains the **pre-patch array `flxcnv0`** — the convective flux before the top layers were zeroed — to gate parts of the temperature-correction response. Everything else — the local-$\Lambda$ surface term, the surface-boundary term, the monotonicity clamp, and the hydrostatic density correction via `TTAUP` — is carried over from Lecture 10 unchanged. We are at the converged fixed point (`iter_index = 1`), so the damping/acceleration logic is skipped.""")
 
 code(r'''def ttaup(t, tau, prad, grav, rfun):
     """Hydrostatic re-integration on a tau grid, opacity from ROSSTAB (Lecture 10 TTAUP).
@@ -651,7 +670,7 @@ print(f"self-consistency vs converged model: median dT/T = {rT_self:.2e}")''')
 
 md(r"""## The benchmark
 
-The new convection physics — the convective flux `flxcnv` and the gradients — is pure float64 and matches the production code to **machine precision** ($\sim10^{-10}$ or better; the gradients to $\sim10^{-16}$). The full step — temperature *and* column mass — reproduces pykurucz's single step from the same converged input to **machine precision** (T $\sim10^{-9}$, column mass $\sim10^{-8}$); the residual is the float32 $\Lambda$-iteration inside JOSH (the one single-precision step in the whole pipeline, Lecture 8), which jitters the flux at the ULP level and averages out.
+The new convection physics — the convective flux `flxcnv` and the gradients — is pure float64: the gradients reach genuine **float64 machine precision** ($\sim10^{-16}$), and the convective flux matches the production code to $\sim10^{-10}$. The full step — temperature *and* column mass — reproduces pykurucz's single step from the same converged input to the **precision floor of the reference** (T $\sim10^{-9}$, column mass $\sim10^{-8}$); that floor is set by the float32 $\Lambda$-iteration inside JOSH (the one single-precision step in the whole pipeline, Lecture 8), which jitters the flux at the ULP level and averages out — single-precision-level agreement, not float64 machine epsilon.
 
 A word on the second number we printed. Comparing our step instead to the **converged model itself** gives a median $\sim10^{-6}$ in the deep temperature — but the *top* layers and the column mass differ at the $\sim10^{-3}$ level. That is not an error: it is what "converged" means. ATLAS stops when the **deep-layer** $\max|\Delta T/T| < 10^{-4}$; one more step is *not* an exact no-op everywhere — the thin upper layers and the density keep drifting at the $10^{-3}$ level, which is precisely why `checkconv` looks only at the deep layers. The machine-precision claim is the engine-fidelity comparison (vs the same single step); the self-consistency comparison confirms the model sits at the convergence criterion.""")
 
@@ -723,7 +742,7 @@ md(r"""## Practice exercises
 
 **4. Reading the convergence history.** From `dlnt_history`, estimate the *convergence rate* (the ratio of successive deep-layer $\max|\Delta T/T|$ values once past the first few iterations). Is it geometric? Roughly how many more iterations would a $10^{-6}$ threshold have required? Why does the all-layer metric (`dtmax_history`) stall above the deep-layer one?
 
-**5. Convection off.** Set `cv` to all-zero convective arrays (or run `convec` with `mixlth = 0`) and redo the fixed-point check against the converged model. The temperature should now *fail* to reproduce in the deep layers. By how much does the deep temperature move, and at what optical depth does the discrepancy appear? This is the structural imprint of convection — invisible at the surface, decisive in the interior.""")
+**5. Convection off.** Re-run `convec` with `mixlth = 0` (or construct a copy of `cv` in which the flux-related arrays are zeroed but every key `tcorr_mode3` reads is still present, so it does not hit a missing-key error) and redo the fixed-point check against the converged model. The temperature should now *fail* to reproduce in the deep layers. By how much does the deep temperature move, and at what optical depth does the discrepancy appear? This is the structural imprint of convection — invisible at the surface, decisive in the interior.""")
 
 md(r"""## Further reading
 
