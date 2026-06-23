@@ -11,16 +11,17 @@ against pykurucz** (`/Users/ysting/pykurucz`, ATLAS12+SYNTHE). Rendered in the
 *Agents for Astronomy* house format.
 
 ## Current phase
-**✅ RESTRUCTURED (2026-06-23): continuum merged + final renumber done.** The two continuum
-lectures (old L3 physics + old L4 KAPP) are now ONE machine-precise **L3 "Continuous Opacity"**;
-everything renumbered to the FINAL scheme (1 grey · 2 EOS · 3 continuum · 4 single line · 5 line
-list · 6 hydrogen Stark · 7 formal solution · 8 JOSH · 9 hydrostatic atmosphere). All 9 rebuilt,
-0 exec errors, all HTML render, 0 katex-error, numpy/matplotlib/pathlib only. Registries
-(build.py / book-data.js / index.html) and PASSDOWN parity table updated to 1–9.
-Next: re-commit/push the restructure; then build the rest (Part IV L10 radiative eq, Part V
-molecules/capstone L11–12). NOTE: the older "PUBLISHED, pushed (commit aa11b21)" state below
-predates THIS restructure — the working tree is now ahead of that pushed commit.
-- Repo (PRIVATE): https://github.com/tingyuansen/stellar-spectroscopy-from-scratch  (branch main, commit aa11b21)
+**✅ PARTS I–IV COMPLETE (2026-06-23): 11 lectures, all revised + illustrated + machine-precise + pushed.**
+Forward synthesis (atmosphere given → spectrum, L1–8) AND building the atmosphere (L9 hydrostatic,
+L10 radiative-eq/TCORR, L11 convection+convergence → the params→atmosphere milestone). Every lecture:
+bite-size cells, ~30–44% comments, implementation-explaining markdown, GPT-5.5+Gemini-3.1-pro-preview
+critic applied, redundancy trimmed (content map), no boxed equations, schematics s1–s10 embedded,
+benchmarks byte-identical, numpy/matplotlib/pathlib only. Pages deploys via GitHub Actions workflow
+(legacy Jekyll builder was failing) — site + all images live.
+**NEXT: Part V — L12 Molecular Equilibrium & Molecular Bands (NEEDS pykurucz scripts/download_data.py
+~5GB; FLAG/confirm before fetching), L13 capstone + lean-pykurucz 4-star HR test (end-to-end
+~identical to pykurucz; also needs the line/molecular data for non-solar stars + broader wavelength).**
+- Repo (PRIVATE): https://github.com/tingyuansen/stellar-spectroscopy-from-scratch  (branch main; latest pushed each lecture)
 - Public Pages: https://tingyuansen.github.io/stellar-spectroscopy-from-scratch/  (Pages works on this private repo)
 - git: book repo is now under version control. `.gitignore` excludes .venv/node_modules; the
   reference/*.npz ARE committed (66 MB total, no LFS). pykurucz still untouched/unpushed.
