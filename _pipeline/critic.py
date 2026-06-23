@@ -62,7 +62,7 @@ def lecture_text(n):
 def ask_gpt(body):
     from openai import OpenAI
     c = OpenAI(base_url="https://litellm.cloud.osu.edu", api_key=os.environ["LITELLM_API_KEY"])
-    r = c.chat.completions.create(model=GPT_MODEL, max_tokens=4000,
+    r = c.chat.completions.create(model=GPT_MODEL, max_tokens=16000,
         messages=[{"role":"user","content":PROMPT.format(body=body)}])
     return r.choices[0].message.content
 

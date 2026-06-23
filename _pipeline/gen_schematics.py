@@ -81,6 +81,29 @@ FIGS = {
    "scattering fraction a' with a small curved loop-back arrow above it labeled 'repeat until converged' (this box 4 is the "
    "single amber element, the heart of the method). Arrow to box 5 'SURFACE FLUX: weighted sum over depth'. "
    "Caption 'the moment solver: scattering handled by iteration'." + S,
+ "s8_hydrostatic.png":
+   "Building a grey model atmosphere from two numbers. On the left, two labelled inputs 'Teff' and 'log g'. "
+   "An arrow to a vertical stack of plane-parallel layers (an optical-depth axis 'tau' increasing downward on the "
+   "left of the stack). Two things are computed down the stack: a curved arrow labelled 'grey temperature law T(tau)' "
+   "and, the amber element, a downward arrow labelled 'integrate dP/dtau = g/kappa' showing pressure P accumulating "
+   "as the weight of the gas above. Output on the right: three small curves labelled 'T vs depth', 'P vs depth', "
+   "'density vs depth' — ALL THREE rising/INCREASING to the right (deeper means hotter, higher pressure, and denser; "
+   "every curve goes up toward the right, none decreasing). "
+   "Caption 'from Teff and log g to the run of temperature and pressure with depth'." + S,
+ "s9_tcorr.png":
+   "The temperature-correction loop that enforces radiative equilibrium. A cycle of rounded boxes connected by arrows "
+   "going clockwise: 'temperature T(tau)' -> 'compute the radiative flux at every depth (solve transfer)' -> "
+   "'is the flux constant with depth?' -> 'correct the temperature: Delta T' -> back to 'temperature T(tau)'. "
+   "A small inset plot shows flux-vs-depth NOT flat (sloping) becoming flat after iteration. The 'correct the "
+   "temperature' box is the single amber element. Caption 'nudge T until the radiative flux is constant with depth "
+   "(radiative equilibrium)'." + S,
+ "s10_convection.png":
+   "Why deep layers convect, and the converged model. A vertical atmosphere column split into two zones by a dashed "
+   "line: the upper zone labelled 'radiative photosphere (where the spectral lines form)' with a straight upward arrow "
+   "'energy carried by radiation'; the lower, deeper zone labelled 'convection zone' with small rounded rising and "
+   "sinking blobs and the amber label 'energy carried by rising/sinking gas (mixing-length convection)'. A short "
+   "caption arrow notes 'convection is negligible where the lines form, but sets the deep structure'. "
+   "Caption 'in the deep layers convection carries the flux; iterating gives the converged model'." + S,
 }
 
 for fn, prompt in FIGS.items():

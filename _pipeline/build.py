@@ -24,6 +24,7 @@ LECTURES = {
     8: dict(slug="Lecture8", title="The JOSH Solver: Production Radiative Transfer", lecturer="Yuan-Sen Ting", affil=AFFIL),
     9: dict(slug="Lecture9", title="Hydrostatic Equilibrium &amp; Temperature Structure", lecturer="Yuan-Sen Ting", affil=AFFIL),
     10: dict(slug="Lecture10", title="Radiative Equilibrium &amp; Temperature Correction", lecturer="Yuan-Sen Ting", affil=AFFIL),
+    11: dict(slug="Lecture11", title="Convection &amp; the Converged Atmosphere", lecturer="Yuan-Sen Ting", affil=AFFIL),
 }
 
 

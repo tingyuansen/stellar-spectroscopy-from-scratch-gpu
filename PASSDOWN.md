@@ -60,9 +60,9 @@ predates THIS restructure — the working tree is now ahead of that pushed commi
 - Engines get their OWN dedicated lectures (JOSH, KAPP, hydrogen) — keep each digestible,
   flowing logically from its physics counterpart.
 
-## Parity status (per lecture) — FINAL 1–9 numbering (MERGE + renumber #2 DONE 2026-06-23)
+## Parity status (per lecture) — FINAL numbering (L11 added 2026-06-23)
 Parts: I Foundations & Microphysics (1,2,3) · II Line Opacity (4,5,6) · III Radiative Transfer (7,8) ·
-IV Building the Atmosphere (9, +planned 10) · V Adding Complexity (planned 11,12).
+IV Building the Atmosphere (9,10,11) · V Adding Complexity (planned 12 molecules, 13 capstone).
 | Lecture (live in book) | vs pykurucz | machine precision? |
 |---|---|---|
 | L1 grey T(τ) | 0 exact | ✅ |
@@ -75,6 +75,8 @@ IV Building the Atmosphere (9, +planned 10) · V Adding Complexity (planned 11,1
 | L7 formal solution | 5.6e-4 | by design (exact version = L8 JOSH) (was old L8); now numpy-only |
 | L8 JOSH | 2.5e-12 | ✅ (was old L9) |
 | L9 Hydrostatic Equilibrium & Temperature Structure | 0.00e+00 all four arrays bit-exact | ✅ (was LectureAtm/key 92) |
+| L10 Radiative Equilibrium & Temperature Correction | corrected T 6.4e-9; corrected RHOX 1.5e-5 (float32-JOSH→ROSSTAB floor) | ✅ (one TCORR step, convection OFF) |
+| **L11 Convection & the Converged Atmosphere** | FLXCNV 2.4e-10; one-step T 1.6e-9, RHOX 2.6e-8 (vs pykurucz's same single step) | ✅ (mixing-length CONVEC + convergence loop; fixed-point benchmark) |
 
 ## Verified reproductions (script-first, on disk in `_pipeline/`)
 - `verify_josh.py` — JOSH solver, machine precision (in the book as L7). ✅
@@ -218,6 +220,8 @@ NEVER a re-derivation. What each lecture introduces (owns):
 - **L7** transfer equation; **formal solution**; E₂ kernel; Eddington–Barbier; the scattering approximation.
 - **L8** moment equations; Eddington closure; the **Λ operator (COEFJ)**; parabolic integ/MAP1; scattering iteration; CH flux.
 - **L9** the **exact hydrostatic integrator** (`_ttaup` predictor–corrector in log-pressure, κ≡1 cold start). ← its ONLY new content.
+- **L10** **radiative equilibrium**; the **Rosseland mean** (harmonic, dB/dT-weighted) + τ_Ross; per-freq H_ν via JOSH; the **temperature correction TCORR** = Avrett–Krook flux term + local-Λ + surface-boundary; DRHOX via ROSSTAB/TTAUP; ONE step, convection OFF.
+- **L11** **mixing-length convection** (CONVEC): adiabatic gradient ∇_ad, superadiabaticity Δ=∇−∇_ad (Schwarzschild), convective velocity + flux F_conv with optical-thickness efficiency τ_b²/(2+τ_b²); EOS derivatives from FINITE DIFFERENCES; the **convergence loop** (flux constancy, checkconv deep-layer max|ΔT/T|<1e-4); the end-to-end converged continuum-only model. Back-refs TCORR/JOSH/Rosseland (L8–10), don't re-derive.
 
 REDUNDANCY FLAGS to fix in the revision pass:
 - **L1 ↔ L9 (user-reported):** L9 currently RE-COVERS L1's grey/Hopf T(τ), the 80-layer τ grid, and the hydrostatic-equilibrium intro. TRIM: L9 should recap those in 1–2 sentences + "(Lecture 1)" back-ref and own ONLY the exact `_ttaup` integrator (why P=gτ was approximate → predictor–corrector → bit-exact P/ρ).

@@ -7,3 +7,4 @@ __pycache__/
 # scratch / logs only — the reference/*.npz data files ARE committed (the book is self-contained)
 reference/*.log
 /tmp/
+_pipeline/critic_reports/   # internal LLM-critic QA output, not book content

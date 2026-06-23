@@ -38,7 +38,8 @@ window.BOOK = {
       blurb: "Stop taking the model atmosphere as given: build its structure from hydrostatic and radiative equilibrium.",
       chapters: [
         { n: 9, slug: "Lecture9", type: "html", title: "Hydrostatic Equilibrium & Temperature Structure", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
-        { n: 10, slug: "Lecture10", type: "html", title: "Radiative Equilibrium & Temperature Correction", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
+        { n: 10, slug: "Lecture10", type: "html", title: "Radiative Equilibrium & Temperature Correction", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
+        { n: 11, slug: "Lecture11", type: "html", title: "Convection & the Converged Atmosphere", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
       ]
     }
   ]
