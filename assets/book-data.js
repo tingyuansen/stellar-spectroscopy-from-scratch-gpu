@@ -47,7 +47,8 @@ window.BOOK = {
       blurb: "Beyond the warm Sun: cool stars form molecules and TiO bands carve their spectra, then the whole pipeline runs end to end across the HR diagram.",
       chapters: [
         { n: 12, slug: "Lecture12", type: "html", title: "Molecular Equilibrium & Molecular Bands", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
-        { n: 13, slug: "Lecture13", type: "html", title: "The Capstone: A Spectrum from Stellar Parameters, End to End", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
+        { n: 13, slug: "Lecture13", type: "html", title: "Molecular Chemistry: the Coupled Equilibrium and Continuous Opacity", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
+        { n: 14, slug: "Lecture14", type: "html", title: "The Capstone: A Spectrum from Stellar Parameters, End to End", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
       ]
     }
   ]

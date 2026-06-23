@@ -145,6 +145,17 @@ FIGS = {
    "triplet dip (Mg b); the M dwarf a saw-toothed TiO molecular band with a sharp head — this M-dwarf TiO thumbnail is "
    "the single amber element. Use only horizontal text, no rotated or vertical labels. "
    "Caption 'one pipeline, built from the whole book, reproduces stars across the HR diagram'." + S,
+ "s13_molchem.png":
+   "Two panels on cool-star molecular chemistry. LEFT, titled 'a coupled equilibrium': a central cluster of "
+   "labelled circular reservoirs of atoms — O, C, H, Ti — and a separate small pool of free electrons (e-), with "
+   "thin arrows pulling atoms OUT of the pools INTO several molecule nodes drawn as small rounded boxes labelled "
+   "'CO', 'OH', 'H2O', 'TiO', 'H2', 'H-', each arrow tying a molecule back to the atom pools it draws from; a short "
+   "note reads 'every molecule competes for the same atoms (and H- ties in the electrons), so none can be solved "
+   "alone'. RIGHT, titled 'collision-induced absorption': two H2 molecules drifting together into a brief collision "
+   "complex with a transient induced dipole shown as a small double-headed arrow between them, absorbing a wavy "
+   "infrared photon; beside it a smooth opacity-versus-wavelength curve that rises into the near-infrared (this "
+   "near-IR opacity rise is the single amber element). Use only horizontal text, no rotated or vertical labels. "
+   "Caption 'in cool stars the chemistry is coupled, and colliding H2 pairs absorb in the infrared'." + S,
 }
 
 for fn, prompt in FIGS.items():

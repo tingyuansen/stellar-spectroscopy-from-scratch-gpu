@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Lecture 13 — The Capstone: A Spectrum from Stellar Parameters, End to End.
+"""Lecture 14 — The Capstone: A Spectrum from Stellar Parameters, End to End.
 
 Assembles the from-scratch engines of Lectures 1-12 into ONE lean pipeline and runs it
 across the HR diagram: a hot dwarf (Balmer/Stark), the Sun (metals), a giant (low-gravity
@@ -14,13 +14,13 @@ import nbformat
 from nbformat.v4 import new_notebook, new_markdown_cell, new_code_cell
 
 BOOK = Path(__file__).resolve().parent.parent
-OUT = BOOK / "content" / "Lecture13.ipynb"
+OUT = BOOK / "content" / "Lecture14.ipynb"
 cells = []
 def md(s): cells.append(new_markdown_cell(s))
 def code(s): cells.append(new_code_cell(s))
 
 # ── title + objectives ───────────────────────────────────────────────────────
-md(r"""# Lecture 13 — The Capstone: A Spectrum from Stellar Parameters, End to End
+md(r"""# Lecture 14 — The Capstone: A Spectrum from Stellar Parameters, End to End
 
 *Stellar Spectroscopy from Scratch — rebuilding the physics of ATLAS and SYNTHE from first principles*
 
