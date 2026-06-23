@@ -122,9 +122,11 @@ FIGS = {
    "A vertical two-way arrow links the panels, labelled 'formation balance: Ti + O <-> TiO, favoured when it is cool "
    "(a Saha-like equilibrium set by temperature and the dissociation energy D0)'. RIGHT: the spectral consequence on "
    "shared axes (x-axis 'wavelength', y-axis 'absorption'). A few WIDELY-SPACED tall narrow spikes labelled 'isolated "
-   "atomic lines'; beside them a DENSE picket fence of many short lines that pile up at one edge into a sharp vertical "
-   "step, labelled 'millions of molecular rovibrational lines blend into a BAND with a sharp bandhead' — this molecular "
-   "band with its bandhead is the single amber element. Use only horizontal text, no rotated or vertical labels. "
+   "atomic lines'; beside them a DENSE picket fence of many short lines that pile up at the LEFT (SHORT-wavelength) "
+   "edge into a sharp vertical step — the BANDHEAD — with the band then degrading toward LONGER wavelengths to the "
+   "RIGHT (a red-degraded band, the way real TiO bands run: sharp head on the blue side, tailing to the red), labelled "
+   "'millions of molecular rovibrational lines blend into a BAND with a sharp bandhead' — this molecular band with its "
+   "bandhead is the single amber element. Use only horizontal text, no rotated or vertical labels. "
    "Caption 'in cool stars atoms lock into molecules, whose bands reshape the spectrum'." + S,
  "s12_capstone.png":
    "A capstone figure: ONE pipeline produces the spectra of four very different stars. LEFT, a compact vertical "
