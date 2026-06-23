@@ -115,6 +115,17 @@ FIGS = {
    "sinking blobs and the amber label 'energy carried by rising/sinking gas (mixing-length convection)'. A short "
    "caption arrow notes 'convection is negligible where the lines form, but sets the deep structure'. "
    "Caption 'in the deep layers convection carries the flux; iterating gives the converged model'." + S,
+ "s11_molecules.png":
+   "Molecular equilibrium and molecular bands in cool stars. LEFT, two stacked panels comparing gas at two "
+   "temperatures. Top panel labelled 'HOT gas': two separate free atoms drawn as small labelled circles 'Ti' and 'O' "
+   "moving apart. Bottom panel labelled 'COOL gas': the same two atoms bound together into one molecule labelled 'TiO'. "
+   "A vertical two-way arrow links the panels, labelled 'formation balance: Ti + O <-> TiO, favoured when it is cool "
+   "(a Saha-like equilibrium set by temperature and the dissociation energy D0)'. RIGHT: the spectral consequence on "
+   "shared axes (x-axis 'wavelength', y-axis 'absorption'). A few WIDELY-SPACED tall narrow spikes labelled 'isolated "
+   "atomic lines'; beside them a DENSE picket fence of many short lines that pile up at one edge into a sharp vertical "
+   "step, labelled 'millions of molecular rovibrational lines blend into a BAND with a sharp bandhead' — this molecular "
+   "band with its bandhead is the single amber element. Use only horizontal text, no rotated or vertical labels. "
+   "Caption 'in cool stars atoms lock into molecules, whose bands reshape the spectrum'." + S,
 }
 
 for fn, prompt in FIGS.items():

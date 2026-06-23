@@ -41,6 +41,13 @@ window.BOOK = {
         { n: 10, slug: "Lecture10", type: "html", title: "Radiative Equilibrium & Temperature Correction", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
         { n: 11, slug: "Lecture11", type: "html", title: "Convection & the Converged Atmosphere", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
       ]
+    },
+    {
+      name: "Part V", title: "Adding Complexity",
+      blurb: "Beyond the warm Sun: cool stars form molecules, and TiO bands carve their spectra.",
+      chapters: [
+        { n: 12, slug: "Lecture12", type: "html", title: "Molecular Equilibrium & Molecular Bands", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
+      ]
     }
   ]
 };

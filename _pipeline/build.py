@@ -25,6 +25,7 @@ LECTURES = {
     9: dict(slug="Lecture9", title="Hydrostatic Equilibrium &amp; Temperature Structure", lecturer="Yuan-Sen Ting", affil=AFFIL),
     10: dict(slug="Lecture10", title="Radiative Equilibrium &amp; Temperature Correction", lecturer="Yuan-Sen Ting", affil=AFFIL),
     11: dict(slug="Lecture11", title="Convection &amp; the Converged Atmosphere", lecturer="Yuan-Sen Ting", affil=AFFIL),
+    12: dict(slug="Lecture12", title="Molecular Equilibrium &amp; Molecular Bands", lecturer="Yuan-Sen Ting", affil=AFFIL),
 }
 
 

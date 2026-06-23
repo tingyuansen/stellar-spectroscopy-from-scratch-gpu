@@ -65,9 +65,12 @@ def voigt(v, a, h0, h1, h2):
     iv = np.clip((av * 200.0 + 0.5).astype(np.int64), 0, h0.size - 1)
     H0 = h0[iv]; H1 = h1[iv]; H2 = h2[iv]
 
-    # branch A: a < 0.2  (and a separate |v|>10 asymptote)
+    # branch A: a < 0.2  (and a separate |v|>10 asymptote). The |v|>10 form
+    # divides by v*v; v==0 entries are masked out by np.where, so silence the
+    # harmless divide-by-zero that the eager-evaluated branch would otherwise log.
     small = (H2 * a + H1) * a + H0
-    small = np.where(av > 10.0, 0.5642 * a / (v * v), small)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        small = np.where(av > 10.0, 0.5642 * a / (v * v), small)
 
     # branch B: a > 1.4  or  a+|v| > 3.2  (Lorentzian asymptote)
     aa = a * a; vv = v * v
@@ -180,7 +183,7 @@ def accumulate_depth(buf, cont_row, wavelength, ci, mol_wl, xnfdop, dop_val,
         maxstep[zero_k] = 1_000_000
         far_max = int(maxstep.max()) if maxstep.size else 0
         far_alive = do_far.copy()
-        for ns in range(int(n10dop.min()) + 1 if False else 1, far_max + 1):
+        for ns in range(1, far_max + 1):
             # only steps strictly greater than each line's n10dop and <= its maxstep
             active = far_alive & (ns > n10dop) & (ns <= maxstep)
             if not np.any(active):
@@ -189,13 +192,22 @@ def accumulate_depth(buf, cont_row, wavelength, ci, mol_wl, xnfdop, dop_val,
                 continue
             pval = x_far / (float(ns) * float(ns))
             ir = ci + ns; ib = ci - ns
-            okr = active & (ir >= 0) & (ir < n_wl)
-            okb = active & (ib >= 0) & (ib < n_wl)
+            on_r = (ir >= 0) & (ir < n_wl)
+            on_b = (ib >= 0) & (ib < n_wl)
+            okr = active & on_r
+            okb = active & on_b
             np.add.at(buf, ir[okr], pval[okr])
             np.add.at(buf, ib[okb], pval[okb])
-            # production breaks a line only when BOTH ends leave the grid; with a
-            # finite maxstep the ns<=maxstep guard already bounds every line.
-            far_alive &= active | (ns <= n10dop)
+            # Production breaks a line's far wing the FIRST time NEITHER end is on
+            # the grid (synthe.for / _accumulate_mol_fused_batch: `if not red_on and
+            # not blue_on: break`). For a line whose center lies off the grid (e.g.
+            # several hundred bins red of the red edge), every far-wing step up to
+            # the offset has BOTH ends off-grid, so production stops immediately and
+            # the line contributes nothing in the far wing — it never "re-enters" the
+            # grid at a later step. We replicate that hard, irreversible break: once
+            # a line records a step with neither end on-grid, kill it for good.
+            kill = active & ~(on_r | on_b)
+            far_alive &= ~kill
 
 
 def compute_mol_opacity(npz, dt, m, L4):
@@ -295,9 +307,15 @@ def main():
     print(f"    nonzero reference points: {mask.sum():,}")
 
     print("\n(3) emergent spectrum (mol opacity + continuum -> JOSH):")
-    spectrum_check(npz, dt, mol_mine)
+    spec_rel = spectrum_check(npz, dt, mol_mine)
 
-    ok = rel.max() < 1e-6 or np.median(rel) == 0.0
+    # Both subsystems must reach their documented float floors:
+    #   * band opacity max rel < 1e-6 (achieved ~4e-11 — a float64 accumulation
+    #     floor: ~1e6 overlapping line wings summed by np.add.at in a different
+    #     order than the production chunked/fastmath kernel);
+    #   * spectrum max rel < 1e-6 (achieved ~1e-8 — the float32 JOSH-iteration
+    #     floor, identical to the Lecture 8 JOSH benchmark).
+    ok = (rel.max() < 1e-6 or np.median(rel) == 0.0) and spec_rel < 1e-6
     print("\n" + "=" * 70)
     print("RESULT: machine precision" if ok else "RESULT: NOT machine precision")
     print("=" * 70)
@@ -326,23 +344,81 @@ def _parcoe(f, x):
 
 
 def _integ(x, f, start):
-    nn = f.size; out = np.zeros(nn)
+    """Cumulative integral of f dx using each interval's LEFT-point parabola.
+
+    Faithful port of the Fortran INTEG (== pykurucz josh_solver._integ): the
+    interval [x_i, x_{i+1}] uses the parabola coefficients at the LEFT node i,
+    not at i+1 as a naive trapezoid blend would.  Matching this exactly is what
+    takes the spectrum to machine precision.
+    """
     a, b, c = _parcoe(f, x)
-    out[0] = start
-    for j in range(1, nn):
-        x1 = x[j-1]; x2 = x[j]
-        out[j] = out[j-1] + (a[j]*(x2-x1) + b[j]*(x2*x2-x1*x1)/2.0
-                             + c[j]*(x2**3-x1**3)/3.0)
+    nn = f.size
+    out = np.zeros(nn); out[0] = start
+    for i in range(nn - 1):
+        dx = x[i+1] - x[i]
+        term = a[i] + 0.5*b[i]*(x[i+1]+x[i]) + (c[i]/3.0)*((x[i+1]+x[i])*x[i+1] + x[i]*x[i])
+        out[i+1] = out[i] + term*dx
     return out
 
 
 def _map1(xold, fold, xnew):
-    """Parabolic interpolation (Fortran MAP1) of fold(xold) onto xnew."""
-    a, b, c = _parcoe(fold, xold)
-    out = np.empty(xnew.size)
-    j = np.clip(np.searchsorted(xold, xnew) - 1, 0, xold.size - 1)
-    out = a[j] + b[j] * xnew + c[j] * xnew * xnew
-    return out
+    """Exact port of the Fortran MAP1 parabolic interpolation (== pykurucz
+    josh_solver._map1_kernel), with the l/ll forward/backward-parabola state
+    machine and curvature-weighted blend.  A naive `searchsorted` + single
+    parabola does NOT reproduce it (it leaves a ~4e-4 systematic in the flux);
+    the weighted forward/backward blend below is what closes that gap.
+    """
+    nold = xold.size; nnew = xnew.size
+    fnew = np.zeros(nnew)
+    if nold == 0 or nnew == 0:
+        return fnew
+    xo = np.empty(nold+1); fo = np.empty(nold+1)
+    xo[1:] = xold; fo[1:] = fold
+    l = 2; ll = 0
+    cfor = bfor = afor = cbac = bbac = abac = a = b = c = 0.0
+    for k in range(1, nnew+1):
+        xk = xnew[k-1]
+        while True:
+            if xk < xo[l]:
+                if l == ll:
+                    break
+                if l == 2 or l == 3:
+                    l = min(nold, l); c = 0.0
+                    b = (fo[l]-fo[l-1])/(xo[l]-xo[l-1]); a = fo[l]-xo[l]*b; ll = l
+                    break
+                l1 = l-1
+                if l > ll+1 or l == 3 or l == 4:
+                    l2 = l-2
+                    d = (fo[l1]-fo[l2])/(xo[l1]-xo[l2])
+                    cbac = fo[l]/((xo[l]-xo[l1])*(xo[l]-xo[l2])) + \
+                           (fo[l2]/(xo[l]-xo[l2]) - fo[l1]/(xo[l]-xo[l1]))/(xo[l1]-xo[l2])
+                    bbac = d - (xo[l1]+xo[l2])*cbac
+                    abac = fo[l2] - xo[l2]*d + xo[l1]*xo[l2]*cbac
+                    if l >= nold:
+                        c, b, a, ll = cbac, bbac, abac, l
+                        break
+                else:
+                    cbac, bbac, abac = cfor, bfor, afor
+                    if l == nold:
+                        c, b, a, ll = cbac, bbac, abac, l
+                        break
+                # label 25: build the forward parabola, then curvature-blend.
+                d = (fo[l]-fo[l1])/(xo[l]-xo[l1])
+                cfor = fo[l+1]/((xo[l+1]-xo[l])*(xo[l+1]-xo[l1])) + \
+                       (fo[l1]/(xo[l+1]-xo[l1]) - fo[l]/(xo[l+1]-xo[l]))/(xo[l]-xo[l1])
+                bfor = d - (xo[l]+xo[l1])*cfor
+                afor = fo[l1] - xo[l1]*d + xo[l]*xo[l1]*cfor
+                wt = abs(cfor)/(abs(cfor)+abs(cbac)) if abs(cfor) != 0.0 else 0.0
+                a = afor + wt*(abac-afor); b = bfor + wt*(bbac-bfor); c = cfor + wt*(cbac-cfor)
+                ll = l
+                break
+            l += 1
+            if l > nold:
+                l = min(nold, l); c = 0.0
+                b = (fo[l]-fo[l-1])/(xo[l]-xo[l-1]); a = fo[l]-xo[l]*b; ll = l
+                break
+        fnew[k-1] = a + (b + c*xk)*xk
+    return fnew
 
 
 def spectrum_check(npz, dt, mol_mine):
@@ -371,33 +447,55 @@ def spectrum_check(npz, dt, mol_mine):
     sline = line_src.astype(np.float64)
 
     coefj_diag = np.diag(COEFJ).copy()
+    MAXIT = 51  # Fortran JOSH iteration cap (== pykurucz MAX_ITER)
+
+    def _iterate(xs, xalpha, xsbar_mod, diag):
+        """COEFJ scattering iteration — float32, BACKWARD sweep (Fortran JOSH).
+
+        This is Gauss-Seidel, not Jacobi: each XS[k] is updated in place from
+        k=n-1 down to 0, so the matrix-vector product within one sweep sees the
+        already-updated neighbours.  Reproducing the sweep DIRECTION and the
+        in-place update (not a single `COEFJ @ XS` Jacobi step) is essential —
+        a vectorized simultaneous update leaves a ~4e-4 systematic in the flux.
+        """
+        coefj = COEFJ.astype(np.float32); xs = xs.astype(np.float32)
+        xal = xalpha.astype(np.float32); xsb = xsbar_mod.astype(np.float32)
+        dg = diag.astype(np.float32); tol = np.float32(TOL); eps = np.float32(EPS)
+        n = xs.size
+        for _ in range(MAXIT):
+            iferr = 0
+            for k in range(n - 1, -1, -1):
+                delxs = 0.0
+                for mm in range(n):
+                    delxs += coefj[k, mm] * xs[mm]
+                delxs = (delxs * xal[k] + xsb[k] - xs[k]) / dg[k]
+                if (abs(delxs / xs[k]) if xs[k] != 0.0 else np.inf) > tol:
+                    iferr = 1
+                xs[k] = max(xs[k] + delxs, eps)
+            if iferr == 0:
+                break
+        return xs.astype(np.float64)
 
     def solve(acol, scol, alcol, slcol, sgc, sgl):
         abtot = np.maximum(acol + alcol + sgc + sgl, EPS)
         alpha = np.clip((sgc + sgl) / abtot, 0.0, 1.0)
         denom = acol + alcol
         snubar = np.where(denom > 0.0, (acol * scol + alcol * slcol) / denom, scol)
-        r = rhox.copy()
-        if r[0] > r[-1]:
-            r = r[::-1]; abtot = abtot[::-1]; snubar = snubar[::-1]; alpha = alpha[::-1]
-        taunu = _integ(r, abtot, abtot[0] * r[0])
-        xsbar = _map1(taunu, snubar, XTAU)
+        if rhox.size > 1 and rhox[0] > rhox[-1]:
+            r = rhox[::-1]; ab = abtot[::-1]
+            taunu = _integ(r, ab, ab[-1] * r[-1])
+            snubar = snubar[::-1]; alpha = alpha[::-1]
+        else:
+            taunu = _integ(rhox, abtot, abtot[0] * rhox[0])
+        xsbar = np.maximum(_map1(taunu, snubar, XTAU), EPS)
         xalpha = np.clip(_map1(taunu, alpha, XTAU), 0.0, 1.0)
-        xsbar = np.maximum(xsbar, EPS)
         below = XTAU < taunu[0]
-        xsbar[below] = snubar[0]; xalpha[below] = alpha[0]
+        if np.any(below):
+            xsbar[below] = max(snubar[0], EPS); xalpha[below] = np.clip(alpha[0], 0.0, 1.0)
         xsmod = xsbar * (1.0 - xalpha)
         diag = 1.0 - xalpha * coefj_diag
-        XS = xsbar.astype(np.float32)
-        xa32 = xalpha.astype(np.float32); xm32 = xsmod.astype(np.float32)
-        cj32 = COEFJ.astype(np.float32); dg32 = diag.astype(np.float32)
-        for _ in range(MAXIT):
-            jbar = cj32 @ XS
-            delxs = (jbar * xa32 + xm32 - XS) / dg32
-            XS = XS + delxs
-            if np.sum(np.abs(delxs / np.maximum(np.abs(XS), 1e-30))) < TOL:
-                break
-        return float(CH @ XS.astype(np.float64))
+        xs = _iterate(xsbar.copy(), xalpha, xsmod, diag)
+        return float(np.dot(CH, xs))
 
     nwl = wavelength.size
     ft = np.empty(nwl); fc = np.empty(nwl)
@@ -410,6 +508,7 @@ def spectrum_check(npz, dt, mol_mine):
     print(f"    normalised spectrum (flux_total/flux_continuum) vs reference:")
     print(f"      REL ERR:  max {rel.max():.3e}   median {np.median(rel):.3e}")
     print(f"      band depth: deepest reference {ref_norm.min():.4f}  reproduced {norm.min():.4f}")
+    return float(rel.max())
 
 
 if __name__ == "__main__":
