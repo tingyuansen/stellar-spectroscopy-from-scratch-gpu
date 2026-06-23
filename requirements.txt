@@ -1,0 +1,13 @@
+# Runtime for the lecture notebooks — they are self-contained: they import only
+# numpy + matplotlib and load the shipped reference/*.npz data files. No pykurucz.
+numpy
+matplotlib
+
+# Building the book (assembling notebooks with nbformat, executing with nbconvert):
+nbformat
+nbconvert
+jupyter
+
+# Rendering the executed notebooks to HTML fragments uses Node, not Python:
+#   npm install        # installs marked / katex / highlight.js (see package.json)
+#   python _pipeline/build.py 1 2 3 4 5 6 7 8 9

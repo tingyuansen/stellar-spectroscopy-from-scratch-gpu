@@ -1,0 +1,9 @@
+.venv/
+node_modules/
+__pycache__/
+*.pyc
+.DS_Store
+.ipynb_checkpoints/
+# scratch / logs only — the reference/*.npz data files ARE committed (the book is self-contained)
+reference/*.log
+/tmp/

@@ -1,0 +1,55 @@
+#!/usr/bin/env python
+"""Build lectures: execute the notebook, then render it to a content/*.html fragment.
+
+  python _pipeline/build.py            # build all registered lectures
+  python _pipeline/build.py 1          # build lecture 1
+  python _pipeline/build.py 1 --no-exec  # re-render only (skip execution)
+
+The lecture registry below mirrors assets/book-data.js (keep them in sync).
+"""
+import subprocess, sys
+from pathlib import Path
+
+BOOK = Path(__file__).resolve().parent.parent
+AFFIL = "Max Planck Institute for Astronomy &amp; The Ohio State University"
+
+LECTURES = {
+    1: dict(slug="Lecture1", title="Overview &amp; a First Model Atmosphere", lecturer="Yuan-Sen Ting", affil=AFFIL),
+    2: dict(slug="Lecture2", title="The Equation of State", lecturer="Yuan-Sen Ting", affil=AFFIL),
+    3: dict(slug="Lecture3", title="Continuous Opacity", lecturer="Yuan-Sen Ting", affil=AFFIL),
+    4: dict(slug="Lecture4", title="The KAPP Continuum Engine", lecturer="Yuan-Sen Ting", affil=AFFIL),
+    5: dict(slug="Lecture5", title="Line Opacity I: A Single Line", lecturer="Yuan-Sen Ting", affil=AFFIL),
+    6: dict(slug="Lecture6", title="Line Opacity II: The Line List", lecturer="Yuan-Sen Ting", affil=AFFIL),
+    7: dict(slug="Lecture7", title="Hydrogen Lines: Stark Broadening", lecturer="Yuan-Sen Ting", affil=AFFIL),
+    8: dict(slug="Lecture8", title="Radiative Transfer &amp; the Emergent Spectrum", lecturer="Yuan-Sen Ting", affil=AFFIL),
+    9: dict(slug="Lecture9", title="The JOSH Solver: Production Radiative Transfer", lecturer="Yuan-Sen Ting", affil=AFFIL),
+}
+
+
+def build(n: int, execute: bool = True) -> None:
+    m = LECTURES[n]
+    nb = BOOK / "content" / f"{m['slug']}.ipynb"
+    if not nb.exists():
+        raise FileNotFoundError(nb)
+    if execute:
+        print(f"[exec] {nb.name}")
+        subprocess.run(
+            [sys.executable, "-m", "jupyter", "nbconvert", "--to", "notebook",
+             "--execute", "--inplace", "--ExecutePreprocessor.timeout=900",
+             "--ExecutePreprocessor.kernel_name=python3", str(nb)],
+            check=True,
+        )
+    out = BOOK / "content" / f"{m['slug']}.html"
+    print(f"[render] {out.name}")
+    subprocess.run(
+        ["node", str(BOOK / "_pipeline" / "render_fragment.js"), str(nb), str(out),
+         str(n), m["title"], m["lecturer"], m["affil"]],
+        check=True,
+    )
+
+
+if __name__ == "__main__":
+    ns = [int(a) for a in sys.argv[1:] if a.isdigit()] or list(LECTURES)
+    no_exec = "--no-exec" in sys.argv
+    for n in ns:
+        build(n, execute=not no_exec)
