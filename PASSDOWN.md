@@ -225,3 +225,15 @@ REDUNDANCY FLAGS to fix in the revision pass:
 - Watch **Saha** (L2) reused in L3 (H⁻) — fine, but back-ref L2.
 - Watch L3 internal: the merged physics-half and engine-half both touch H⁻/Rayleigh/Thomson — H⁻ Saha is derived once (good); ensure the engine half references it, not re-derives.
 RULE: the revision pass (bite-size + comments + critic prose) ALSO trims redundancy and fixes flow against this map. Update this map whenever a lecture is added/changed.
+
+## REVISION PASS — ✅ COMPLETE (2026-06-23) across all 10 lectures
+GPT-5.5 + Gemini-3.1-pro-preview critic run on all (reports in `_pipeline/critic_reports/`). Each
+lecture got: bite-size cells, comment density ~doubled, implementation-explaining markdown,
+redundancy trimmed with back-references, all critic items applied — every benchmark BYTE-IDENTICAL,
+0 errors, 0 boxed, numpy-only. Comment density before→after: L2 24→40, L3 20→35, L4 22→44,
+L5 21→40, L6 19→44, L7 15→41, L8 17→42, L9 26→34; L1 already the 30% standard (unrevised).
+L10 (new, TCORR): corrected T machine-precise (6.4e-9); corrected RHOX 1.5e-5 = float32-JOSH→
+nearest-neighbor-ROSSTAB floor — KEPT DOCUMENTED (user-approved; doesn't propagate in the
+converging iteration, invisible in the emergent spectrum, faithful to pykurucz).
+NEXT (Part IV cont.): convergence + convection → end-to-end converged model; then Part V molecules
+(needs ~5GB line data); then capstone + lean-pykurucz 4-star HR test. All committed/pushed.
