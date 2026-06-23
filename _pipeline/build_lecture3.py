@@ -459,6 +459,8 @@ code(r'''def map1(xold, fold, xnew):
         fnew[k - 1] = a + (b + c*xk)*xk                    # evaluate the (blended) parabola at xk
     return fnew''')
 
+md(r"""`linter` is the simpler of the two: straight linear interpolation that *extrapolates* past either end rather than clamping (the Fortran `LINTER`). For each target point it advances a cursor to the bracketing source interval, forms the linear weight, and evaluates — the H$^-$ free-free table is read with two nested `linter` calls (wavelength, then temperature).""")
+
 code(r'''def linter(xold, yold, xnew):
     """Linear interpolation/EXTRAPOLATION (Fortran LINTER) - no clamping at the ends."""
     nold, nnew = xold.size, xnew.size
@@ -604,6 +606,8 @@ code(r'''def hminus_tables():
 FFLOG, WFFLOG = hminus_tables()
 NTHETAFF = HMINOP_THETAFF.size''')
 
+md(r"""With the tables prepared, `hminus_opacity` assembles the H$^-$ opacity per gram at one frequency. It builds the Saha prefactor `xhmin` (the per-gram H$^-$ count, with the $0.754\ \mathrm{eV}$ detachment energy in the exponent), evaluates the **free-free** by interpolating the log-table first in wavelength (`linter`) for every $\theta$ column and then in temperature for each layer, and the **bound-free** by reading the cross-section table with `map1` above the $1.6\ \mathrm{\mu m}$ threshold, applying the stimulated-emission factor to it.""")
+
 code(r'''def hminus_opacity(freq, pops, ehvkt, stim, bnu):
     """H- bound-free (MAP1 table) + free-free (two nested linear interps). cm^2/g per layer."""
     temp = pops["temperature"]; rho = np.maximum(pops["mass_density"], 1e-30)
@@ -725,6 +729,8 @@ def rayleigh_G(f):
         return HRAYOP_GAVRILAMCD[0]
     if f <= FREQ_LYMAN: return HRAYOP_GAVRILALYMANCONT[0]  # at the Lyman edge
     return map1(HRAYOP_FGAVRILALYMANCONT, HRAYOP_GAVRILALYMANCONT, np.array([f/FREQ_LYMAN]))[0]   # Lyman continuum (MAP1)''')
+
+md(r"""`scattering_opacity` turns the Gavrila factor into the two scattering coefficients per gram. For **Rayleigh** it reads $G(\nu)$ from `rayleigh_G`, squares it into the cross-section $6.65\times10^{-25}\,G^2$, and weights it by the ground-state neutral-H density (the stage total divided by the partition function); for **Thomson** it multiplies the grey electron cross-section by $n_e$. Both are returned per layer, divided by the mass density.""")
 
 code(r'''def scattering_opacity(freq, pops):
     """Rayleigh (Gavrila, off ground-state neutral H) + Thomson (off electrons). cm^2/g per layer."""
@@ -852,6 +858,8 @@ code(r'''def si2op(freq, freqlg, temp, tlog):
         result[jl] = np.exp(val) * 6.0                        # exp() back from log, x6 partition factor
     return result''')
 
+md(r"""Before the helium routine itself, we tabulate the He I bound-free levels it sums over. Each entry carries the level's threshold wavenumber, statistical weight, energy, and index; they are split by principal quantum number because the $n=5,4$ groups use a simple $\nu^{-3}$ cross-section while the $n=3,2$ groups carry their own fitted polynomial coefficients (the `cf` pairs), exactly as the production `HE1OP` table stores them.""")
+
 code(r'''# He I bound-free levels grouped by principal quantum number n (threshold wavenumber, weight,
 # energy, level index). The n=3,2 groups carry their own cross-section polynomial coefficients.
 HE1_N5 = [(4368.190,3.0,193942.57,28),(4388.260,9.0,193922.5,27),(4388.260,27.0,193922.5,26),
@@ -919,6 +927,8 @@ code(r'''def helium_opacity(freq, pops, ehvkt, stim, hckt):
     cff2 = coulff(2, f, np.log(f), temp, tlog)              # ff Gaunt factor for charge Z=2
     ahe2 = h2 + 3.6919e8*4.0/np.sqrt(temp)*cff2/f*xne/f*pops["he3_mode11"]/f*stim/rho
     return ahe1, ahe2''')
+
+md(r"""`hot_and_si2` evaluates the last two absorption terms. The **hot-star** term (`HOTOP`) builds a multi-charge free-free by summing the Coulomb Gaunt factor over ionic charge $q=1\dots5$ weighted by the charge-squared populations, then adds each tabulated bound-free transition above threshold (kept only when it beats 1% of the free-free). The **Si II** term (`LUKEOP`) calls the `si2op` Peach-table lookup above, weighted by the Si II population. Both are at the $10^{-5}$ level in the Sun but part of the exact sum.""")
 
 code(r'''def hot_and_si2(freq, pops, stim, tkev, tlog):
     """HOTOP (multi-charge free-free + bound-free transitions) + Si II (Peach). cm^2/g per layer."""
