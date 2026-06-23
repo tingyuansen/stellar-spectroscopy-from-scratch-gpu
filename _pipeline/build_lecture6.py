@@ -79,21 +79,25 @@ We load the same three reference files the rest of the book uses, and pull out o
 code(r'''import pathlib, math
 import numpy as np
 import matplotlib.pyplot as plt
+
 # plotting defaults shared with the rest of the book
 plt.rcParams.update({"figure.figsize": (7.2, 4.3), "figure.dpi": 120, "savefig.facecolor": "white",
     "axes.grid": True, "grid.alpha": 0.25, "axes.axisbelow": True,
     "font.size": 11, "axes.titlesize": 12.5, "axes.labelsize": 11.5})
 
+# the three reference files: line catalog + Stark tables + ground truth, the depth state, the continuum
 REF = pathlib.Path("..") / "reference"
-C   = np.load(REF / "full_lines_data.npz", allow_pickle=True)   # line catalog + Stark tables + ground truth
-A   = np.load(REF / "atmosphere.npz", allow_pickle=True)        # depth state (80 layers)
-D   = np.load(REF / "diag.npz")                                  # continuum + the synthesis grid
+C   = np.load(REF / "full_lines_data.npz", allow_pickle=True)
+A   = np.load(REF / "atmosphere.npz", allow_pickle=True)
+D   = np.load(REF / "diag.npz")
 
+# pull out only what the hydrogen engine needs
 wl   = D["wavelength"]                                           # nm, 500-510 nm synthesis grid
 cont = D["continuum_absorption"] + D["continuum_scattering"]     # total continuum (depth, wl), cm^2/g
 T    = A["temperature"]                                          # K, surface -> deep
 n_depths = T.size
 gt_ahline = C["gt_ahline"]                                       # ground-truth hydrogen-line opacity (depth, wl)
+
 print(f"loaded: window {wl[0]:.1f}-{wl[-1]:.1f} nm, {wl.size} points x {n_depths} layers")''')
 
 md(r"""Now pick out the hydrogen lines from the catalog. A line is hydrogen if its type code is $-1$ or $-2$; we keep the neutral stage (ion $=1$). The three that survive in this window are H$\beta$, H$\gamma$, H$\delta$.""")
@@ -101,8 +105,10 @@ md(r"""Now pick out the hydrogen lines from the catalog. A line is hydrogen if i
 code(r'''# select the hydrogen Balmer lines: type -1/-2, neutral (ion 1)
 lt  = C["cat_line_types"].astype(np.int64); ion = C["cat_ion"].astype(np.int64)
 hidx = np.where(np.isin(lt, [-1, -2]) & (ion == 1))[0]
+
 for i in hidx:
-    nl, nu = int(C["cat_n_lower"][i]), int(C["cat_n_upper"][i])   # lower/upper principal quantum number
+    # lower/upper principal quantum number, then the human-readable Balmer name
+    nl, nu = int(C["cat_n_lower"][i]), int(C["cat_n_upper"][i])
     name = {4: "H-beta", 5: "H-gamma", 6: "H-delta"}.get(nu, f"n={nl}->{nu}")
     print(f"  {name:8s}: n={nl}->{nu}  lambda={C['cat_wl'][i]:8.3f} nm  gf={C['cat_gf'][i]:.4e}")''')
 
@@ -140,12 +146,14 @@ n, m   = 2, 4
 gnm    = (m*m - n*n) / (m*m * n*n)            # 1/n^2 - 1/m^2
 freqnm = RYDH * gnm                            # line-centre frequency (Hz)
 xknm   = C["htab_xknmtb"][n-1, (m-n)-1]        # tabulated Stark constant K_nm
-dbeta  = C_LIGHT_AA / (freqnm * freqnm * xknm) # the beta scale factor (finite, not a differential)
+# the beta scale factor: a finite conversion factor, not a differential
+dbeta  = C_LIGHT_AA / (freqnm * freqnm * xknm)
 
 # how big is beta at 505 nm, deep vs photosphere?
 freq_505 = C_LIGHT_AA / 5050.0                 # 505 nm in Angstrom
 for di, lab in [(int(np.argmin(np.abs(T-6400))), "photosphere ~6400K"), (n_depths-1, "deepest ~30000K")]:
-    beta = abs(freq_505 - freqnm) / fo[di] * dbeta   # detuning in units of the Stark splitting
+    # detuning at 505 nm expressed in units of the typical Stark splitting
+    beta = abs(freq_505 - freqnm) / fo[di] * dbeta
     print(f"{lab:22s}: ne={xne[di]:.2e}  F0={fo[di]:.3e}  beta(505nm)={beta:7.2f}")
 print(f"\\nH-beta centre = {C_LIGHT_AA/freqnm/10:.3f} nm,  dbeta = {dbeta:.4e}")''')
 
@@ -217,33 +225,44 @@ code(r'''def sofbeta(beta, p, n, m, propbm, c_arr, d_arr, pp_arr, beta_arr):
     if beta <= 0.0:
         return 0.0
     b2 = beta*beta; sb = math.sqrt(beta); corr = 1.0
+
     if beta <= 500.0:
-        mmn = m - n                                  # select the table column for this transition
+        # select the table column for this transition
+        mmn = m - n
         indx = 2*(n-1) + mmn if (n <= 3 and mmn <= 2) else 7
         indx = min(max(indx, 1), 7)
+
         # bracket the pressure parameter p in the pp grid -> two-point interpolation weights
         im = min(int(5.0*p) + 1, 4); im = max(im, 1); ip = im + 1
         wtp = min(max(5.0*(p - pp_arr[im-1]), 0.0), 1.0); wtm = 1.0 - wtp   # p-interpolation weights
+
         if beta <= 25.12:                            # near/moderate: tabulated correction + analytic blend
             # bracket beta in the beta grid (searchsorted) -> linear weights along beta
             j = int(np.searchsorted(beta_arr, beta)); j = min(max(j, 1), beta_arr.shape[0]-1)
             jm, jp = j-1, j
             denom = beta_arr[jp] - beta_arr[jm]
             wtb = 0.0 if denom <= 0.0 else (beta - beta_arr[jm])/denom; wtbm = 1.0 - wtb
+
             # bilinear interpolation in (p, beta): interpolate in p at each beta node, then in beta
             cbp = propbm[indx-1, ip-1, jp]*wtp + propbm[indx-1, im-1, jp]*wtm
             cbm = propbm[indx-1, ip-1, jm]*wtp + propbm[indx-1, im-1, jm]*wtm
             corr = 1.0 + cbp*wtb + cbm*wtbm
+
+            # blend the near-centre and asymptotic analytic forms with that correction
             wt = min(max(0.5*(10.0 - beta), 0.0), 1.0)                        # near<->asymptotic blend weight
             pr1 = 8.0/(83.0 + (2.0 + 0.95*b2)*beta) if beta <= 10.0 else 0.0   # near-centre form
             pr2 = (1.5/sb + 27.0/b2)/b2 if beta >= 8.0 else 0.0                # asymptotic form
             return (pr1*wt + pr2*(1.0 - wt)) * corr
-        cc = c_arr[im-1, indx-1]*wtp + c_arr[ip-1, indx-1]*wtm                 # wing: c,d correction (p-interp)
+
+        # wing (25.12 < beta <= 500): asymptotic form times the c,d correction (interpolated in p)
+        cc = c_arr[im-1, indx-1]*wtp + c_arr[ip-1, indx-1]*wtm
         dd = d_arr[im-1, indx-1]*wtp + d_arr[ip-1, indx-1]*wtm
         denom2 = cc + beta*sb
         if denom2 == 0.0: denom2 = 1e-30                                       # guard divide-by-zero
         corr = 1.0 + dd/denom2
-    return (1.5/sb + 27.0/b2)/b2 * corr              # far wing: bare Holtsmark beta^-5/2 tail
+
+    # far wing (beta > 500): the bare Holtsmark beta^-5/2 tail
+    return (1.5/sb + 27.0/b2)/b2 * corr
 print("sofbeta ready")''')
 
 md(r"""The factor in front, $\tfrac{1}{\beta^{2}}\big(\tfrac{1.5}{\sqrt\beta}+\tfrac{27}{\beta^{2}}\big)$, is the asymptotic Holtsmark profile: at large $\beta$ the leading term $1.5\,\beta^{-5/2}$ is exactly the $\Delta\nu^{-5/2}$ power law we anticipated, since $\beta \propto \Delta\nu$. The tables `corr` adjust it in the transition region where the simple power law is not yet accurate.""")
@@ -289,6 +308,8 @@ code(r'''def hydrogen_line_profile(n, m, delta_lambda_nm, hyd, tabs, foff, fwt, 
         resont += _hf_nm(1, n)/xn/(1.0 - 1.0/xn2)
     resont *= 3.579e-24/gnm                                          # resonance (self) broadening
     vdw   = 4.45e-26/gnm * (xm2*(7.0*xm2 + 5.0))**0.4                # van der Waals coefficient
+
+    # assemble the named half-widths the profile compares
     hwvdw = vdw*t3nhe + 2.0*vdw*t3nh2                                # scaled by He + H2 perturbers
     hwrad = radamp                                                  # radiative half-width
     stark = 1.6678e-18 * freqnm * xknm                              # linear-Stark half-width scale
@@ -330,15 +351,20 @@ code(r'''def _profile_pieces(n, m, freq, freqnm, del_freq, dop, hwlor, hwres, hw
     hhw = freqnm * hwlor                                           # Lorentzian half-width in frequency
     lorentz = (hhw/math.pi/(del_freq*del_freq + hhw*hhw) * 1.77245 * dop) if hhw > 0.0 else 0.0
     # --- (3a) electron-impact width gamma (impact-broadening Lorentzian in beta) ---
+    # blend the low- and high-density impact factors by an electron-density weight
     y1num = 320.0 if m > 3 else (550.0 if m == 2 else 380.0)        # impact-width numerator per upper level
     y1wht = 1.0e14 if mmn <= 3 else 1.0e13                          # default electron-density threshold
     if mmn <= 2 and 1 <= n <= 2 and n <= y1wtm.shape[0] and mmn <= y1wtm.shape[1]:
         y1wht = y1wtm[n-1, mmn-1]                                   # tabulated threshold for low transitions
     wty1 = 1.0/(1.0 + max(ne, 0.0)/max(y1wht, 1e-30))               # electron-density weight
     y1_scal = y1num*y1s*wty1 + y1b*(1.0 - wty1)                     # blend low- and high-density factors
+
+    # the two impact-width coefficients, the detuning, and the scaled detunings y1, y2
     c1 = c1d*c1con*y1_scal; c2 = c2d*c2con                          # the two impact-width coefficients
     beta = del_freq/max(fo, 1e-30) * dbeta                          # the dimensionless detuning
     y1 = c1*beta; y2 = c2*beta*beta                                 # scaled detunings for the impact width
+
+    # the width gamma: a simple analytic form at low y1, the exponential-integral form when valid
     g1 = 6.77*math.sqrt(max(c1, 1e-30))                            # impact-width scale
     ratio = math.sqrt(c2)/max(c1, 1e-30) if (c1 > 0.0 and c2 > 0.0) else 0.0
     log_term = math.log(max(ratio, 1e-30)) if ratio > 0.0 else 0.0
@@ -385,19 +411,27 @@ vturb_cms = A["turbulent_velocity"]
 def hydrogen_state(di):
     """All per-depth coefficients the HPROF4 profile needs, for layer di."""
     temp = max(float(T[di]), 1.0); ne_d = float(xne[di]); x16 = ne_d**(1.0/6.0)   # sixth root of ne
+
+    # the Holtsmark field and the pressure parameter that indexes the Stark tables
     fo_d  = x16**4 * 1.25e-9                                  # Holtsmark field
     pp    = x16 * 0.08989 / math.sqrt(temp)                   # pressure parameter (table index)
+
+    # the impact-width factors and coefficients (T and ne dependence of electron-collision broadening)
     y1b   = 2.0/(1.0 + 0.012/temp*math.sqrt(ne_d/temp))       # high-density blend factor
     t43   = (temp/1.0e4)**0.3                                 # weak T scaling, reused below
     y1s   = t43 / x16                                         # low-density impact factor
     c1d   = fo_d * 78940.0 / temp                             # impact-width T-coefficient
     c2d   = fo_d**2 / 5.96e-23 / ne_d                         # impact-width ne-coefficient
+
+    # the small high-density corrections
     gcon1 = 0.2 + 0.09*math.sqrt(max(temp/1e4, 1e-12))/(1.0 + ne_d/1.0e13)   # high-density correction 1
     gcon2 = 0.2/(1.0 + ne_d/1.0e15)                                          # high-density correction 2
+
     # Doppler width of hydrogen: thermal + turbulence, in units of c (built as in Lectures 4-5)
     vth   = math.sqrt(2.0*KBOLTZ*temp/(MASS_H*AMU)) / C_CMS   # thermal velocity / c
     vtb   = (float(vturb_cms[di])/1e5) / C_KMS                # turbulent velocity / c
     dopph = math.sqrt(vth*vth + vtb*vtb)                      # combined Doppler width / c
+
     return dict(t3nhe=t43*float(xnf_he1[di]), t3nh2=t43*float(xnf_h2[di]),
                 fo=fo_d, dopph=dopph, c1d=c1d, c2d=c2d, y1s=y1s, y1b=y1b,
                 gcon1=gcon1, gcon2=gcon2, pp=pp, ne=ne_d,

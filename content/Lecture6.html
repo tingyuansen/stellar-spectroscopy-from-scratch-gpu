@@ -29,42 +29,50 @@
         <button class="copy-btn" type="button" data-code="import pathlib, math
 import numpy as np
 import matplotlib.pyplot as plt
+
 # plotting defaults shared with the rest of the book
 plt.rcParams.update({&quot;figure.figsize&quot;: (7.2, 4.3), &quot;figure.dpi&quot;: 120, &quot;savefig.facecolor&quot;: &quot;white&quot;,
     &quot;axes.grid&quot;: True, &quot;grid.alpha&quot;: 0.25, &quot;axes.axisbelow&quot;: True,
     &quot;font.size&quot;: 11, &quot;axes.titlesize&quot;: 12.5, &quot;axes.labelsize&quot;: 11.5})
 
+# the three reference files: line catalog + Stark tables + ground truth, the depth state, the continuum
 REF = pathlib.Path(&quot;..&quot;) / &quot;reference&quot;
-C   = np.load(REF / &quot;full_lines_data.npz&quot;, allow_pickle=True)   # line catalog + Stark tables + ground truth
-A   = np.load(REF / &quot;atmosphere.npz&quot;, allow_pickle=True)        # depth state (80 layers)
-D   = np.load(REF / &quot;diag.npz&quot;)                                  # continuum + the synthesis grid
+C   = np.load(REF / &quot;full_lines_data.npz&quot;, allow_pickle=True)
+A   = np.load(REF / &quot;atmosphere.npz&quot;, allow_pickle=True)
+D   = np.load(REF / &quot;diag.npz&quot;)
 
+# pull out only what the hydrogen engine needs
 wl   = D[&quot;wavelength&quot;]                                           # nm, 500-510 nm synthesis grid
 cont = D[&quot;continuum_absorption&quot;] + D[&quot;continuum_scattering&quot;]     # total continuum (depth, wl), cm^2/g
 T    = A[&quot;temperature&quot;]                                          # K, surface -&gt; deep
 n_depths = T.size
 gt_ahline = C[&quot;gt_ahline&quot;]                                       # ground-truth hydrogen-line opacity (depth, wl)
+
 print(f&quot;loaded: window {wl[0]:.1f}-{wl[-1]:.1f} nm, {wl.size} points x {n_depths} layers&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">import</span> pathlib, math
 <span class="hljs-keyword">import</span> numpy <span class="hljs-keyword">as</span> np
 <span class="hljs-keyword">import</span> matplotlib.pyplot <span class="hljs-keyword">as</span> plt
+
 <span class="hljs-comment"># plotting defaults shared with the rest of the book</span>
 plt.rcParams.update({<span class="hljs-string">&quot;figure.figsize&quot;</span>: (<span class="hljs-number">7.2</span>, <span class="hljs-number">4.3</span>), <span class="hljs-string">&quot;figure.dpi&quot;</span>: <span class="hljs-number">120</span>, <span class="hljs-string">&quot;savefig.facecolor&quot;</span>: <span class="hljs-string">&quot;white&quot;</span>,
     <span class="hljs-string">&quot;axes.grid&quot;</span>: <span class="hljs-literal">True</span>, <span class="hljs-string">&quot;grid.alpha&quot;</span>: <span class="hljs-number">0.25</span>, <span class="hljs-string">&quot;axes.axisbelow&quot;</span>: <span class="hljs-literal">True</span>,
     <span class="hljs-string">&quot;font.size&quot;</span>: <span class="hljs-number">11</span>, <span class="hljs-string">&quot;axes.titlesize&quot;</span>: <span class="hljs-number">12.5</span>, <span class="hljs-string">&quot;axes.labelsize&quot;</span>: <span class="hljs-number">11.5</span>})
 
+<span class="hljs-comment"># the three reference files: line catalog + Stark tables + ground truth, the depth state, the continuum</span>
 REF = pathlib.Path(<span class="hljs-string">&quot;..&quot;</span>) / <span class="hljs-string">&quot;reference&quot;</span>
-C   = np.load(REF / <span class="hljs-string">&quot;full_lines_data.npz&quot;</span>, allow_pickle=<span class="hljs-literal">True</span>)   <span class="hljs-comment"># line catalog + Stark tables + ground truth</span>
-A   = np.load(REF / <span class="hljs-string">&quot;atmosphere.npz&quot;</span>, allow_pickle=<span class="hljs-literal">True</span>)        <span class="hljs-comment"># depth state (80 layers)</span>
-D   = np.load(REF / <span class="hljs-string">&quot;diag.npz&quot;</span>)                                  <span class="hljs-comment"># continuum + the synthesis grid</span>
+C   = np.load(REF / <span class="hljs-string">&quot;full_lines_data.npz&quot;</span>, allow_pickle=<span class="hljs-literal">True</span>)
+A   = np.load(REF / <span class="hljs-string">&quot;atmosphere.npz&quot;</span>, allow_pickle=<span class="hljs-literal">True</span>)
+D   = np.load(REF / <span class="hljs-string">&quot;diag.npz&quot;</span>)
 
+<span class="hljs-comment"># pull out only what the hydrogen engine needs</span>
 wl   = D[<span class="hljs-string">&quot;wavelength&quot;</span>]                                           <span class="hljs-comment"># nm, 500-510 nm synthesis grid</span>
 cont = D[<span class="hljs-string">&quot;continuum_absorption&quot;</span>] + D[<span class="hljs-string">&quot;continuum_scattering&quot;</span>]     <span class="hljs-comment"># total continuum (depth, wl), cm^2/g</span>
 T    = A[<span class="hljs-string">&quot;temperature&quot;</span>]                                          <span class="hljs-comment"># K, surface -&gt; deep</span>
 n_depths = T.size
 gt_ahline = C[<span class="hljs-string">&quot;gt_ahline&quot;</span>]                                       <span class="hljs-comment"># ground-truth hydrogen-line opacity (depth, wl)</span>
+
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;loaded: window <span class="hljs-subst">{wl[<span class="hljs-number">0</span>]:<span class="hljs-number">.1</span>f}</span>-<span class="hljs-subst">{wl[-<span class="hljs-number">1</span>]:<span class="hljs-number">.1</span>f}</span> nm, <span class="hljs-subst">{wl.size}</span> points x <span class="hljs-subst">{n_depths}</span> layers&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">loaded: window 500.0-510.0 nm, 5941 points x 80 layers
 </pre></div></div><div class="prose"><p>Now pick out the hydrogen lines from the catalog. A line is hydrogen if its type code is <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>−</mo><mn>1</mn></mrow><annotation encoding="application/x-tex">-1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em;"></span><span class="mord">−</span><span class="mord">1</span></span></span></span> or <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>−</mo><mn>2</mn></mrow><annotation encoding="application/x-tex">-2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em;"></span><span class="mord">−</span><span class="mord">2</span></span></span></span>; we keep the neutral stage (ion <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>=</mo><mn>1</mn></mrow><annotation encoding="application/x-tex">=1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">1</span></span></span></span>). The three that survive in this window are H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>β</mi></mrow><annotation encoding="application/x-tex">\beta</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.05278em;">β</span></span></span></span>, H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>γ</mi></mrow><annotation encoding="application/x-tex">\gamma</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.05556em;">γ</span></span></span></span>, H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>δ</mi></mrow><annotation encoding="application/x-tex">\delta</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal" style="margin-right:0.03785em;">δ</span></span></span></span>.</p>
@@ -74,8 +82,10 @@ gt_ahline = C[<span class="hljs-string">&quot;gt_ahline&quot;</span>]           
         <button class="copy-btn" type="button" data-code="# select the hydrogen Balmer lines: type -1/-2, neutral (ion 1)
 lt  = C[&quot;cat_line_types&quot;].astype(np.int64); ion = C[&quot;cat_ion&quot;].astype(np.int64)
 hidx = np.where(np.isin(lt, [-1, -2]) &amp; (ion == 1))[0]
+
 for i in hidx:
-    nl, nu = int(C[&quot;cat_n_lower&quot;][i]), int(C[&quot;cat_n_upper&quot;][i])   # lower/upper principal quantum number
+    # lower/upper principal quantum number, then the human-readable Balmer name
+    nl, nu = int(C[&quot;cat_n_lower&quot;][i]), int(C[&quot;cat_n_upper&quot;][i])
     name = {4: &quot;H-beta&quot;, 5: &quot;H-gamma&quot;, 6: &quot;H-delta&quot;}.get(nu, f&quot;n={nl}-&gt;{nu}&quot;)
     print(f&quot;  {name:8s}: n={nl}-&gt;{nu}  lambda={C[&#39;cat_wl&#39;][i]:8.3f} nm  gf={C[&#39;cat_gf&#39;][i]:.4e}&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
@@ -83,8 +93,10 @@ for i in hidx:
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># select the hydrogen Balmer lines: type -1/-2, neutral (ion 1)</span>
 lt  = C[<span class="hljs-string">&quot;cat_line_types&quot;</span>].astype(np.int64); ion = C[<span class="hljs-string">&quot;cat_ion&quot;</span>].astype(np.int64)
 hidx = np.where(np.isin(lt, [-<span class="hljs-number">1</span>, -<span class="hljs-number">2</span>]) &amp; (ion == <span class="hljs-number">1</span>))[<span class="hljs-number">0</span>]
+
 <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> hidx:
-    nl, nu = <span class="hljs-built_in">int</span>(C[<span class="hljs-string">&quot;cat_n_lower&quot;</span>][i]), <span class="hljs-built_in">int</span>(C[<span class="hljs-string">&quot;cat_n_upper&quot;</span>][i])   <span class="hljs-comment"># lower/upper principal quantum number</span>
+    <span class="hljs-comment"># lower/upper principal quantum number, then the human-readable Balmer name</span>
+    nl, nu = <span class="hljs-built_in">int</span>(C[<span class="hljs-string">&quot;cat_n_lower&quot;</span>][i]), <span class="hljs-built_in">int</span>(C[<span class="hljs-string">&quot;cat_n_upper&quot;</span>][i])
     name = {<span class="hljs-number">4</span>: <span class="hljs-string">&quot;H-beta&quot;</span>, <span class="hljs-number">5</span>: <span class="hljs-string">&quot;H-gamma&quot;</span>, <span class="hljs-number">6</span>: <span class="hljs-string">&quot;H-delta&quot;</span>}.get(nu, <span class="hljs-string">f&quot;n=<span class="hljs-subst">{nl}</span>-&gt;<span class="hljs-subst">{nu}</span>&quot;</span>)
     <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;  <span class="hljs-subst">{name:8s}</span>: n=<span class="hljs-subst">{nl}</span>-&gt;<span class="hljs-subst">{nu}</span>  lambda=<span class="hljs-subst">{C[<span class="hljs-string">&#x27;cat_wl&#x27;</span>][i]:<span class="hljs-number">8.3</span>f}</span> nm  gf=<span class="hljs-subst">{C[<span class="hljs-string">&#x27;cat_gf&#x27;</span>][i]:<span class="hljs-number">.4</span>e}</span>&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">  H-delta : n=2-&gt;6  lambda= 410.289 nm  gf=1.7660e-01
@@ -115,12 +127,14 @@ n, m   = 2, 4
 gnm    = (m*m - n*n) / (m*m * n*n)            # 1/n^2 - 1/m^2
 freqnm = RYDH * gnm                            # line-centre frequency (Hz)
 xknm   = C[&quot;htab_xknmtb&quot;][n-1, (m-n)-1]        # tabulated Stark constant K_nm
-dbeta  = C_LIGHT_AA / (freqnm * freqnm * xknm) # the beta scale factor (finite, not a differential)
+# the beta scale factor: a finite conversion factor, not a differential
+dbeta  = C_LIGHT_AA / (freqnm * freqnm * xknm)
 
 # how big is beta at 505 nm, deep vs photosphere?
 freq_505 = C_LIGHT_AA / 5050.0                 # 505 nm in Angstrom
 for di, lab in [(int(np.argmin(np.abs(T-6400))), &quot;photosphere ~6400K&quot;), (n_depths-1, &quot;deepest ~30000K&quot;)]:
-    beta = abs(freq_505 - freqnm) / fo[di] * dbeta   # detuning in units of the Stark splitting
+    # detuning at 505 nm expressed in units of the typical Stark splitting
+    beta = abs(freq_505 - freqnm) / fo[di] * dbeta
     print(f&quot;{lab:22s}: ne={xne[di]:.2e}  F0={fo[di]:.3e}  beta(505nm)={beta:7.2f}&quot;)
 print(f&quot;\\nH-beta centre = {C_LIGHT_AA/freqnm/10:.3f} nm,  dbeta = {dbeta:.4e}&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
@@ -138,12 +152,14 @@ n, m   = <span class="hljs-number">2</span>, <span class="hljs-number">4</span>
 gnm    = (m*m - n*n) / (m*m * n*n)            <span class="hljs-comment"># 1/n^2 - 1/m^2</span>
 freqnm = RYDH * gnm                            <span class="hljs-comment"># line-centre frequency (Hz)</span>
 xknm   = C[<span class="hljs-string">&quot;htab_xknmtb&quot;</span>][n-<span class="hljs-number">1</span>, (m-n)-<span class="hljs-number">1</span>]        <span class="hljs-comment"># tabulated Stark constant K_nm</span>
-dbeta  = C_LIGHT_AA / (freqnm * freqnm * xknm) <span class="hljs-comment"># the beta scale factor (finite, not a differential)</span>
+<span class="hljs-comment"># the beta scale factor: a finite conversion factor, not a differential</span>
+dbeta  = C_LIGHT_AA / (freqnm * freqnm * xknm)
 
 <span class="hljs-comment"># how big is beta at 505 nm, deep vs photosphere?</span>
 freq_505 = C_LIGHT_AA / <span class="hljs-number">5050.0</span>                 <span class="hljs-comment"># 505 nm in Angstrom</span>
 <span class="hljs-keyword">for</span> di, lab <span class="hljs-keyword">in</span> [(<span class="hljs-built_in">int</span>(np.argmin(np.<span class="hljs-built_in">abs</span>(T-<span class="hljs-number">6400</span>))), <span class="hljs-string">&quot;photosphere ~6400K&quot;</span>), (n_depths-<span class="hljs-number">1</span>, <span class="hljs-string">&quot;deepest ~30000K&quot;</span>)]:
-    beta = <span class="hljs-built_in">abs</span>(freq_505 - freqnm) / fo[di] * dbeta   <span class="hljs-comment"># detuning in units of the Stark splitting</span>
+    <span class="hljs-comment"># detuning at 505 nm expressed in units of the typical Stark splitting</span>
+    beta = <span class="hljs-built_in">abs</span>(freq_505 - freqnm) / fo[di] * dbeta
     <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;<span class="hljs-subst">{lab:22s}</span>: ne=<span class="hljs-subst">{xne[di]:<span class="hljs-number">.2</span>e}</span>  F0=<span class="hljs-subst">{fo[di]:<span class="hljs-number">.3</span>e}</span>  beta(505nm)=<span class="hljs-subst">{beta:<span class="hljs-number">7.2</span>f}</span>&quot;</span>)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;\\nH-beta centre = <span class="hljs-subst">{C_LIGHT_AA/freqnm/<span class="hljs-number">10</span>:<span class="hljs-number">.3</span>f}</span> nm,  dbeta = <span class="hljs-subst">{dbeta:<span class="hljs-number">.4</span>e}</span>&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">photosphere ~6400K    : ne=3.41e+13  F0=1.315e+00  beta(505nm)=7739.49
@@ -271,33 +287,44 @@ M834 80h400000v40h-400000z"/></svg></span></span></span><span class="vlist-s">�
     if beta &lt;= 0.0:
         return 0.0
     b2 = beta*beta; sb = math.sqrt(beta); corr = 1.0
+
     if beta &lt;= 500.0:
-        mmn = m - n                                  # select the table column for this transition
+        # select the table column for this transition
+        mmn = m - n
         indx = 2*(n-1) + mmn if (n &lt;= 3 and mmn &lt;= 2) else 7
         indx = min(max(indx, 1), 7)
+
         # bracket the pressure parameter p in the pp grid -&gt; two-point interpolation weights
         im = min(int(5.0*p) + 1, 4); im = max(im, 1); ip = im + 1
         wtp = min(max(5.0*(p - pp_arr[im-1]), 0.0), 1.0); wtm = 1.0 - wtp   # p-interpolation weights
+
         if beta &lt;= 25.12:                            # near/moderate: tabulated correction + analytic blend
             # bracket beta in the beta grid (searchsorted) -&gt; linear weights along beta
             j = int(np.searchsorted(beta_arr, beta)); j = min(max(j, 1), beta_arr.shape[0]-1)
             jm, jp = j-1, j
             denom = beta_arr[jp] - beta_arr[jm]
             wtb = 0.0 if denom &lt;= 0.0 else (beta - beta_arr[jm])/denom; wtbm = 1.0 - wtb
+
             # bilinear interpolation in (p, beta): interpolate in p at each beta node, then in beta
             cbp = propbm[indx-1, ip-1, jp]*wtp + propbm[indx-1, im-1, jp]*wtm
             cbm = propbm[indx-1, ip-1, jm]*wtp + propbm[indx-1, im-1, jm]*wtm
             corr = 1.0 + cbp*wtb + cbm*wtbm
+
+            # blend the near-centre and asymptotic analytic forms with that correction
             wt = min(max(0.5*(10.0 - beta), 0.0), 1.0)                        # near&lt;-&gt;asymptotic blend weight
             pr1 = 8.0/(83.0 + (2.0 + 0.95*b2)*beta) if beta &lt;= 10.0 else 0.0   # near-centre form
             pr2 = (1.5/sb + 27.0/b2)/b2 if beta &gt;= 8.0 else 0.0                # asymptotic form
             return (pr1*wt + pr2*(1.0 - wt)) * corr
-        cc = c_arr[im-1, indx-1]*wtp + c_arr[ip-1, indx-1]*wtm                 # wing: c,d correction (p-interp)
+
+        # wing (25.12 &lt; beta &lt;= 500): asymptotic form times the c,d correction (interpolated in p)
+        cc = c_arr[im-1, indx-1]*wtp + c_arr[ip-1, indx-1]*wtm
         dd = d_arr[im-1, indx-1]*wtp + d_arr[ip-1, indx-1]*wtm
         denom2 = cc + beta*sb
         if denom2 == 0.0: denom2 = 1e-30                                       # guard divide-by-zero
         corr = 1.0 + dd/denom2
-    return (1.5/sb + 27.0/b2)/b2 * corr              # far wing: bare Holtsmark beta^-5/2 tail
+
+    # far wing (beta &gt; 500): the bare Holtsmark beta^-5/2 tail
+    return (1.5/sb + 27.0/b2)/b2 * corr
 print(&quot;sofbeta ready&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
@@ -306,33 +333,44 @@ print(&quot;sofbeta ready&quot;)" aria-label="Copy code">
     <span class="hljs-keyword">if</span> beta &lt;= <span class="hljs-number">0.0</span>:
         <span class="hljs-keyword">return</span> <span class="hljs-number">0.0</span>
     b2 = beta*beta; sb = math.sqrt(beta); corr = <span class="hljs-number">1.0</span>
+
     <span class="hljs-keyword">if</span> beta &lt;= <span class="hljs-number">500.0</span>:
-        mmn = m - n                                  <span class="hljs-comment"># select the table column for this transition</span>
+        <span class="hljs-comment"># select the table column for this transition</span>
+        mmn = m - n
         indx = <span class="hljs-number">2</span>*(n-<span class="hljs-number">1</span>) + mmn <span class="hljs-keyword">if</span> (n &lt;= <span class="hljs-number">3</span> <span class="hljs-keyword">and</span> mmn &lt;= <span class="hljs-number">2</span>) <span class="hljs-keyword">else</span> <span class="hljs-number">7</span>
         indx = <span class="hljs-built_in">min</span>(<span class="hljs-built_in">max</span>(indx, <span class="hljs-number">1</span>), <span class="hljs-number">7</span>)
+
         <span class="hljs-comment"># bracket the pressure parameter p in the pp grid -&gt; two-point interpolation weights</span>
         im = <span class="hljs-built_in">min</span>(<span class="hljs-built_in">int</span>(<span class="hljs-number">5.0</span>*p) + <span class="hljs-number">1</span>, <span class="hljs-number">4</span>); im = <span class="hljs-built_in">max</span>(im, <span class="hljs-number">1</span>); ip = im + <span class="hljs-number">1</span>
         wtp = <span class="hljs-built_in">min</span>(<span class="hljs-built_in">max</span>(<span class="hljs-number">5.0</span>*(p - pp_arr[im-<span class="hljs-number">1</span>]), <span class="hljs-number">0.0</span>), <span class="hljs-number">1.0</span>); wtm = <span class="hljs-number">1.0</span> - wtp   <span class="hljs-comment"># p-interpolation weights</span>
+
         <span class="hljs-keyword">if</span> beta &lt;= <span class="hljs-number">25.12</span>:                            <span class="hljs-comment"># near/moderate: tabulated correction + analytic blend</span>
             <span class="hljs-comment"># bracket beta in the beta grid (searchsorted) -&gt; linear weights along beta</span>
             j = <span class="hljs-built_in">int</span>(np.searchsorted(beta_arr, beta)); j = <span class="hljs-built_in">min</span>(<span class="hljs-built_in">max</span>(j, <span class="hljs-number">1</span>), beta_arr.shape[<span class="hljs-number">0</span>]-<span class="hljs-number">1</span>)
             jm, jp = j-<span class="hljs-number">1</span>, j
             denom = beta_arr[jp] - beta_arr[jm]
             wtb = <span class="hljs-number">0.0</span> <span class="hljs-keyword">if</span> denom &lt;= <span class="hljs-number">0.0</span> <span class="hljs-keyword">else</span> (beta - beta_arr[jm])/denom; wtbm = <span class="hljs-number">1.0</span> - wtb
+
             <span class="hljs-comment"># bilinear interpolation in (p, beta): interpolate in p at each beta node, then in beta</span>
             cbp = propbm[indx-<span class="hljs-number">1</span>, ip-<span class="hljs-number">1</span>, jp]*wtp + propbm[indx-<span class="hljs-number">1</span>, im-<span class="hljs-number">1</span>, jp]*wtm
             cbm = propbm[indx-<span class="hljs-number">1</span>, ip-<span class="hljs-number">1</span>, jm]*wtp + propbm[indx-<span class="hljs-number">1</span>, im-<span class="hljs-number">1</span>, jm]*wtm
             corr = <span class="hljs-number">1.0</span> + cbp*wtb + cbm*wtbm
+
+            <span class="hljs-comment"># blend the near-centre and asymptotic analytic forms with that correction</span>
             wt = <span class="hljs-built_in">min</span>(<span class="hljs-built_in">max</span>(<span class="hljs-number">0.5</span>*(<span class="hljs-number">10.0</span> - beta), <span class="hljs-number">0.0</span>), <span class="hljs-number">1.0</span>)                        <span class="hljs-comment"># near&lt;-&gt;asymptotic blend weight</span>
             pr1 = <span class="hljs-number">8.0</span>/(<span class="hljs-number">83.0</span> + (<span class="hljs-number">2.0</span> + <span class="hljs-number">0.95</span>*b2)*beta) <span class="hljs-keyword">if</span> beta &lt;= <span class="hljs-number">10.0</span> <span class="hljs-keyword">else</span> <span class="hljs-number">0.0</span>   <span class="hljs-comment"># near-centre form</span>
             pr2 = (<span class="hljs-number">1.5</span>/sb + <span class="hljs-number">27.0</span>/b2)/b2 <span class="hljs-keyword">if</span> beta &gt;= <span class="hljs-number">8.0</span> <span class="hljs-keyword">else</span> <span class="hljs-number">0.0</span>                <span class="hljs-comment"># asymptotic form</span>
             <span class="hljs-keyword">return</span> (pr1*wt + pr2*(<span class="hljs-number">1.0</span> - wt)) * corr
-        cc = c_arr[im-<span class="hljs-number">1</span>, indx-<span class="hljs-number">1</span>]*wtp + c_arr[ip-<span class="hljs-number">1</span>, indx-<span class="hljs-number">1</span>]*wtm                 <span class="hljs-comment"># wing: c,d correction (p-interp)</span>
+
+        <span class="hljs-comment"># wing (25.12 &lt; beta &lt;= 500): asymptotic form times the c,d correction (interpolated in p)</span>
+        cc = c_arr[im-<span class="hljs-number">1</span>, indx-<span class="hljs-number">1</span>]*wtp + c_arr[ip-<span class="hljs-number">1</span>, indx-<span class="hljs-number">1</span>]*wtm
         dd = d_arr[im-<span class="hljs-number">1</span>, indx-<span class="hljs-number">1</span>]*wtp + d_arr[ip-<span class="hljs-number">1</span>, indx-<span class="hljs-number">1</span>]*wtm
         denom2 = cc + beta*sb
         <span class="hljs-keyword">if</span> denom2 == <span class="hljs-number">0.0</span>: denom2 = <span class="hljs-number">1e-30</span>                                       <span class="hljs-comment"># guard divide-by-zero</span>
         corr = <span class="hljs-number">1.0</span> + dd/denom2
-    <span class="hljs-keyword">return</span> (<span class="hljs-number">1.5</span>/sb + <span class="hljs-number">27.0</span>/b2)/b2 * corr              <span class="hljs-comment"># far wing: bare Holtsmark beta^-5/2 tail</span>
+
+    <span class="hljs-comment"># far wing (beta &gt; 500): the bare Holtsmark beta^-5/2 tail</span>
+    <span class="hljs-keyword">return</span> (<span class="hljs-number">1.5</span>/sb + <span class="hljs-number">27.0</span>/b2)/b2 * corr
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;sofbeta ready&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">sofbeta ready
 </pre></div></div><div class="prose"><p>The factor in front, <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mfrac><mn>1</mn><msup><mi>β</mi><mn>2</mn></msup></mfrac><mo fence="false" stretchy="true" minsize="1.2em" maxsize="1.2em">(</mo><mfrac><mn>1.5</mn><msqrt><mi>β</mi></msqrt></mfrac><mo>+</mo><mfrac><mn>27</mn><msup><mi>β</mi><mn>2</mn></msup></mfrac><mo fence="false" stretchy="true" minsize="1.2em" maxsize="1.2em">)</mo></mrow><annotation encoding="application/x-tex">\tfrac{1}{\beta^{2}}\big(\tfrac{1.5}{\sqrt\beta}+\tfrac{27}{\beta^{2}}\big)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1.388em;vertical-align:-0.538em;"></span><span class="mord"><span class="mopen nulldelimiter"></span><span class="mfrac"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.8451em;"><span style="top:-2.655em;"><span class="pstrut" style="height:3em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathnormal mtight" style="margin-right:0.05278em;">β</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7463em;"><span style="top:-2.786em;margin-right:0.0714em;"><span class="pstrut" style="height:2.5em;"></span><span class="sizing reset-size3 size1 mtight"><span class="mord mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span></span></span></span></span><span style="top:-3.23em;"><span class="pstrut" style="height:3em;"></span><span class="frac-line" style="border-bottom-width:0.04em;"></span></span><span style="top:-3.394em;"><span class="pstrut" style="height:3em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">1</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.4811em;"><span></span></span></span></span></span><span class="mclose nulldelimiter"></span></span><span class="mord"><span class="delimsizing size1">(</span></span><span class="mord"><span class="mopen nulldelimiter"></span><span class="mfrac"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.8451em;"><span style="top:-2.6016em;"><span class="pstrut" style="height:3em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord sqrt mtight"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.8406em;"><span class="svg-align" style="top:-3em;"><span class="pstrut" style="height:3em;"></span><span class="mord mathnormal mtight" style="margin-right:0.05278em;padding-left:0.833em;">β</span></span><span style="top:-2.8006em;"><span class="pstrut" style="height:3em;"></span><span class="hide-tail mtight" style="min-width:0.853em;height:1.08em;"><svg xmlns="http://www.w3.org/2000/svg" width="400em" height="1.08em" viewBox="0 0 400000 1080" preserveAspectRatio="xMinYMin slice"><path d="M95,702
@@ -388,6 +426,8 @@ M834 80h400000v40h-400000z"/></svg></span></span></span><span class="vlist-s">�
         resont += _hf_nm(1, n)/xn/(1.0 - 1.0/xn2)
     resont *= 3.579e-24/gnm                                          # resonance (self) broadening
     vdw   = 4.45e-26/gnm * (xm2*(7.0*xm2 + 5.0))**0.4                # van der Waals coefficient
+
+    # assemble the named half-widths the profile compares
     hwvdw = vdw*t3nhe + 2.0*vdw*t3nh2                                # scaled by He + H2 perturbers
     hwrad = radamp                                                  # radiative half-width
     stark = 1.6678e-18 * freqnm * xknm                              # linear-Stark half-width scale
@@ -444,6 +484,8 @@ M834 80h400000v40h-400000z"/></svg></span></span></span><span class="vlist-s">�
         resont += _hf_nm(<span class="hljs-number">1</span>, n)/xn/(<span class="hljs-number">1.0</span> - <span class="hljs-number">1.0</span>/xn2)
     resont *= <span class="hljs-number">3.579e-24</span>/gnm                                          <span class="hljs-comment"># resonance (self) broadening</span>
     vdw   = <span class="hljs-number">4.45e-26</span>/gnm * (xm2*(<span class="hljs-number">7.0</span>*xm2 + <span class="hljs-number">5.0</span>))**<span class="hljs-number">0.4</span>                <span class="hljs-comment"># van der Waals coefficient</span>
+
+    <span class="hljs-comment"># assemble the named half-widths the profile compares</span>
     hwvdw = vdw*t3nhe + <span class="hljs-number">2.0</span>*vdw*t3nh2                                <span class="hljs-comment"># scaled by He + H2 perturbers</span>
     hwrad = radamp                                                  <span class="hljs-comment"># radiative half-width</span>
     stark = <span class="hljs-number">1.6678e-18</span> * freqnm * xknm                              <span class="hljs-comment"># linear-Stark half-width scale</span>
@@ -486,15 +528,20 @@ M834 80h400000v40h-400000z"/></svg></span></span></span><span class="vlist-s">�
     hhw = freqnm * hwlor                                           # Lorentzian half-width in frequency
     lorentz = (hhw/math.pi/(del_freq*del_freq + hhw*hhw) * 1.77245 * dop) if hhw &gt; 0.0 else 0.0
     # --- (3a) electron-impact width gamma (impact-broadening Lorentzian in beta) ---
+    # blend the low- and high-density impact factors by an electron-density weight
     y1num = 320.0 if m &gt; 3 else (550.0 if m == 2 else 380.0)        # impact-width numerator per upper level
     y1wht = 1.0e14 if mmn &lt;= 3 else 1.0e13                          # default electron-density threshold
     if mmn &lt;= 2 and 1 &lt;= n &lt;= 2 and n &lt;= y1wtm.shape[0] and mmn &lt;= y1wtm.shape[1]:
         y1wht = y1wtm[n-1, mmn-1]                                   # tabulated threshold for low transitions
     wty1 = 1.0/(1.0 + max(ne, 0.0)/max(y1wht, 1e-30))               # electron-density weight
     y1_scal = y1num*y1s*wty1 + y1b*(1.0 - wty1)                     # blend low- and high-density factors
+
+    # the two impact-width coefficients, the detuning, and the scaled detunings y1, y2
     c1 = c1d*c1con*y1_scal; c2 = c2d*c2con                          # the two impact-width coefficients
     beta = del_freq/max(fo, 1e-30) * dbeta                          # the dimensionless detuning
     y1 = c1*beta; y2 = c2*beta*beta                                 # scaled detunings for the impact width
+
+    # the width gamma: a simple analytic form at low y1, the exponential-integral form when valid
     g1 = 6.77*math.sqrt(max(c1, 1e-30))                            # impact-width scale
     ratio = math.sqrt(c2)/max(c1, 1e-30) if (c1 &gt; 0.0 and c2 &gt; 0.0) else 0.0
     log_term = math.log(max(ratio, 1e-30)) if ratio &gt; 0.0 else 0.0
@@ -531,15 +578,20 @@ print(&quot;profile pieces ready&quot;)" aria-label="Copy code">
     hhw = freqnm * hwlor                                           <span class="hljs-comment"># Lorentzian half-width in frequency</span>
     lorentz = (hhw/math.pi/(del_freq*del_freq + hhw*hhw) * <span class="hljs-number">1.77245</span> * dop) <span class="hljs-keyword">if</span> hhw &gt; <span class="hljs-number">0.0</span> <span class="hljs-keyword">else</span> <span class="hljs-number">0.0</span>
     <span class="hljs-comment"># --- (3a) electron-impact width gamma (impact-broadening Lorentzian in beta) ---</span>
+    <span class="hljs-comment"># blend the low- and high-density impact factors by an electron-density weight</span>
     y1num = <span class="hljs-number">320.0</span> <span class="hljs-keyword">if</span> m &gt; <span class="hljs-number">3</span> <span class="hljs-keyword">else</span> (<span class="hljs-number">550.0</span> <span class="hljs-keyword">if</span> m == <span class="hljs-number">2</span> <span class="hljs-keyword">else</span> <span class="hljs-number">380.0</span>)        <span class="hljs-comment"># impact-width numerator per upper level</span>
     y1wht = <span class="hljs-number">1.0e14</span> <span class="hljs-keyword">if</span> mmn &lt;= <span class="hljs-number">3</span> <span class="hljs-keyword">else</span> <span class="hljs-number">1.0e13</span>                          <span class="hljs-comment"># default electron-density threshold</span>
     <span class="hljs-keyword">if</span> mmn &lt;= <span class="hljs-number">2</span> <span class="hljs-keyword">and</span> <span class="hljs-number">1</span> &lt;= n &lt;= <span class="hljs-number">2</span> <span class="hljs-keyword">and</span> n &lt;= y1wtm.shape[<span class="hljs-number">0</span>] <span class="hljs-keyword">and</span> mmn &lt;= y1wtm.shape[<span class="hljs-number">1</span>]:
         y1wht = y1wtm[n-<span class="hljs-number">1</span>, mmn-<span class="hljs-number">1</span>]                                   <span class="hljs-comment"># tabulated threshold for low transitions</span>
     wty1 = <span class="hljs-number">1.0</span>/(<span class="hljs-number">1.0</span> + <span class="hljs-built_in">max</span>(ne, <span class="hljs-number">0.0</span>)/<span class="hljs-built_in">max</span>(y1wht, <span class="hljs-number">1e-30</span>))               <span class="hljs-comment"># electron-density weight</span>
     y1_scal = y1num*y1s*wty1 + y1b*(<span class="hljs-number">1.0</span> - wty1)                     <span class="hljs-comment"># blend low- and high-density factors</span>
+
+    <span class="hljs-comment"># the two impact-width coefficients, the detuning, and the scaled detunings y1, y2</span>
     c1 = c1d*c1con*y1_scal; c2 = c2d*c2con                          <span class="hljs-comment"># the two impact-width coefficients</span>
     beta = del_freq/<span class="hljs-built_in">max</span>(fo, <span class="hljs-number">1e-30</span>) * dbeta                          <span class="hljs-comment"># the dimensionless detuning</span>
     y1 = c1*beta; y2 = c2*beta*beta                                 <span class="hljs-comment"># scaled detunings for the impact width</span>
+
+    <span class="hljs-comment"># the width gamma: a simple analytic form at low y1, the exponential-integral form when valid</span>
     g1 = <span class="hljs-number">6.77</span>*math.sqrt(<span class="hljs-built_in">max</span>(c1, <span class="hljs-number">1e-30</span>))                            <span class="hljs-comment"># impact-width scale</span>
     ratio = math.sqrt(c2)/<span class="hljs-built_in">max</span>(c1, <span class="hljs-number">1e-30</span>) <span class="hljs-keyword">if</span> (c1 &gt; <span class="hljs-number">0.0</span> <span class="hljs-keyword">and</span> c2 &gt; <span class="hljs-number">0.0</span>) <span class="hljs-keyword">else</span> <span class="hljs-number">0.0</span>
     log_term = math.log(<span class="hljs-built_in">max</span>(ratio, <span class="hljs-number">1e-30</span>)) <span class="hljs-keyword">if</span> ratio &gt; <span class="hljs-number">0.0</span> <span class="hljs-keyword">else</span> <span class="hljs-number">0.0</span>
@@ -626,19 +678,27 @@ vturb_cms = A[&quot;turbulent_velocity&quot;]
 def hydrogen_state(di):
     &quot;&quot;&quot;All per-depth coefficients the HPROF4 profile needs, for layer di.&quot;&quot;&quot;
     temp = max(float(T[di]), 1.0); ne_d = float(xne[di]); x16 = ne_d**(1.0/6.0)   # sixth root of ne
+
+    # the Holtsmark field and the pressure parameter that indexes the Stark tables
     fo_d  = x16**4 * 1.25e-9                                  # Holtsmark field
     pp    = x16 * 0.08989 / math.sqrt(temp)                   # pressure parameter (table index)
+
+    # the impact-width factors and coefficients (T and ne dependence of electron-collision broadening)
     y1b   = 2.0/(1.0 + 0.012/temp*math.sqrt(ne_d/temp))       # high-density blend factor
     t43   = (temp/1.0e4)**0.3                                 # weak T scaling, reused below
     y1s   = t43 / x16                                         # low-density impact factor
     c1d   = fo_d * 78940.0 / temp                             # impact-width T-coefficient
     c2d   = fo_d**2 / 5.96e-23 / ne_d                         # impact-width ne-coefficient
+
+    # the small high-density corrections
     gcon1 = 0.2 + 0.09*math.sqrt(max(temp/1e4, 1e-12))/(1.0 + ne_d/1.0e13)   # high-density correction 1
     gcon2 = 0.2/(1.0 + ne_d/1.0e15)                                          # high-density correction 2
+
     # Doppler width of hydrogen: thermal + turbulence, in units of c (built as in Lectures 4-5)
     vth   = math.sqrt(2.0*KBOLTZ*temp/(MASS_H*AMU)) / C_CMS   # thermal velocity / c
     vtb   = (float(vturb_cms[di])/1e5) / C_KMS                # turbulent velocity / c
     dopph = math.sqrt(vth*vth + vtb*vtb)                      # combined Doppler width / c
+
     return dict(t3nhe=t43*float(xnf_he1[di]), t3nh2=t43*float(xnf_h2[di]),
                 fo=fo_d, dopph=dopph, c1d=c1d, c2d=c2d, y1s=y1s, y1b=y1b,
                 gcon1=gcon1, gcon2=gcon2, pp=pp, ne=ne_d,
@@ -657,19 +717,27 @@ vturb_cms = A[<span class="hljs-string">&quot;turbulent_velocity&quot;</span>]
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">hydrogen_state</span>(<span class="hljs-params">di</span>):
     <span class="hljs-string">&quot;&quot;&quot;All per-depth coefficients the HPROF4 profile needs, for layer di.&quot;&quot;&quot;</span>
     temp = <span class="hljs-built_in">max</span>(<span class="hljs-built_in">float</span>(T[di]), <span class="hljs-number">1.0</span>); ne_d = <span class="hljs-built_in">float</span>(xne[di]); x16 = ne_d**(<span class="hljs-number">1.0</span>/<span class="hljs-number">6.0</span>)   <span class="hljs-comment"># sixth root of ne</span>
+
+    <span class="hljs-comment"># the Holtsmark field and the pressure parameter that indexes the Stark tables</span>
     fo_d  = x16**<span class="hljs-number">4</span> * <span class="hljs-number">1.25e-9</span>                                  <span class="hljs-comment"># Holtsmark field</span>
     pp    = x16 * <span class="hljs-number">0.08989</span> / math.sqrt(temp)                   <span class="hljs-comment"># pressure parameter (table index)</span>
+
+    <span class="hljs-comment"># the impact-width factors and coefficients (T and ne dependence of electron-collision broadening)</span>
     y1b   = <span class="hljs-number">2.0</span>/(<span class="hljs-number">1.0</span> + <span class="hljs-number">0.012</span>/temp*math.sqrt(ne_d/temp))       <span class="hljs-comment"># high-density blend factor</span>
     t43   = (temp/<span class="hljs-number">1.0e4</span>)**<span class="hljs-number">0.3</span>                                 <span class="hljs-comment"># weak T scaling, reused below</span>
     y1s   = t43 / x16                                         <span class="hljs-comment"># low-density impact factor</span>
     c1d   = fo_d * <span class="hljs-number">78940.0</span> / temp                             <span class="hljs-comment"># impact-width T-coefficient</span>
     c2d   = fo_d**<span class="hljs-number">2</span> / <span class="hljs-number">5.96e-23</span> / ne_d                         <span class="hljs-comment"># impact-width ne-coefficient</span>
+
+    <span class="hljs-comment"># the small high-density corrections</span>
     gcon1 = <span class="hljs-number">0.2</span> + <span class="hljs-number">0.09</span>*math.sqrt(<span class="hljs-built_in">max</span>(temp/<span class="hljs-number">1e4</span>, <span class="hljs-number">1e-12</span>))/(<span class="hljs-number">1.0</span> + ne_d/<span class="hljs-number">1.0e13</span>)   <span class="hljs-comment"># high-density correction 1</span>
     gcon2 = <span class="hljs-number">0.2</span>/(<span class="hljs-number">1.0</span> + ne_d/<span class="hljs-number">1.0e15</span>)                                          <span class="hljs-comment"># high-density correction 2</span>
+
     <span class="hljs-comment"># Doppler width of hydrogen: thermal + turbulence, in units of c (built as in Lectures 4-5)</span>
     vth   = math.sqrt(<span class="hljs-number">2.0</span>*KBOLTZ*temp/(MASS_H*AMU)) / C_CMS   <span class="hljs-comment"># thermal velocity / c</span>
     vtb   = (<span class="hljs-built_in">float</span>(vturb_cms[di])/<span class="hljs-number">1e5</span>) / C_KMS                <span class="hljs-comment"># turbulent velocity / c</span>
     dopph = math.sqrt(vth*vth + vtb*vtb)                      <span class="hljs-comment"># combined Doppler width / c</span>
+
     <span class="hljs-keyword">return</span> <span class="hljs-built_in">dict</span>(t3nhe=t43*<span class="hljs-built_in">float</span>(xnf_he1[di]), t3nh2=t43*<span class="hljs-built_in">float</span>(xnf_h2[di]),
                 fo=fo_d, dopph=dopph, c1d=c1d, c2d=c2d, y1s=y1s, y1b=y1b,
                 gcon1=gcon1, gcon2=gcon2, pp=pp, ne=ne_d,
