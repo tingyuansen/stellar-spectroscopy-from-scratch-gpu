@@ -102,16 +102,21 @@ Each line in the Kurucz list is one row of fixed-width fields. The ones that dri
 
 Our window holds about twelve thousand atomic lines; the species that dominate are the iron-peak metals — vanadium, iron, chromium, cobalt, manganese, nickel — with their dense thickets of low-lying levels. Here are the strongest few.""")
 
-code(r'''lam   = cat["cat_wl"]                       # wavelength [nm]
+code(r'''# the catalog columns that drive the opacity
+lam   = cat["cat_wl"]                       # wavelength [nm]
 loggf = cat["cat_loggf"]                    # log(gf)
 gf    = cat["cat_gf"]                        # gf = 10**loggf (precomputed in the catalog)
 Elow  = cat["cat_elow"]                      # lower-level excitation energy [cm^-1]
 ion   = cat["cat_ion"].astype(np.int64)     # ionization stage, 1 = neutral
 grad, gstark, gvdw = cat["cat_grad"], cat["cat_gstark"], cat["cat_gvdw"]
 Elow_eV = Elow / 8065.54
+
+# element symbols, for the human-readable species column below
 SYM = {2:"He",3:"Li",6:"C",11:"Na",12:"Mg",13:"Al",14:"Si",20:"Ca",21:"Sc",22:"Ti",
        23:"V",24:"Cr",25:"Mn",26:"Fe",27:"Co",28:"Ni",29:"Cu",30:"Zn",38:"Sr",39:"Y",
        40:"Zr",56:"Ba",57:"La",58:"Ce",60:"Nd",64:"Gd"}
+
+# rank the type-0 metal lines by intrinsic strength and print the strongest few
 metal = (lt == 0)                            # type-0 metal lines
 order = np.argsort(np.where(metal, loggf, -np.inf))[::-1][:6]
 print(f"{'wavelength':>11} {'species':>8} {'log gf':>7} {'chi_l[eV]':>9}")
@@ -120,9 +125,12 @@ for i in order:
 
 md(r"""The list is not limited to the iron peak. Beyond zinc ($Z=30$) the window also holds **754 heavy lines** — strontium, yttrium, barium, the rare earths — the slow- and rapid-neutron-capture species. They are weaker on average but they are real opacity, and reference-level agreement with the production code means including every one of them, all the way to uranium. The catalog spans $Z = 3$ (lithium) to $Z = 92$.""")
 
-code(r'''nZ = np.unique(Zc[metal])
+code(r'''# the metal lines span the full periodic table, not just the iron peak
+nZ = np.unique(Zc[metal])
 print(f"metal lines: {metal.sum()}  spanning Z = {nZ.min()} (Li) to {nZ.max()} (U), {nZ.size} elements")
 print(f"  of which Z > 30 (heavy / neutron-capture): {(metal & (Zc > 30)).sum()} lines")
+
+# the non-metal line types, routed to their own kernels
 he = np.isin(lt, [-3, -4, -6])              # helium lines (dedicated wing path)
 hy = np.isin(lt, [-1, -2])                  # hydrogen lines (NEXT lecture)
 print(f"helium lines (type -3/-4/-6): {he.sum()}      hydrogen lines (type -1/-2): {hy.sum()} -> next lecture")''')
@@ -216,10 +224,15 @@ def fast_ex(x):
     """Vectorized FASTEX: e^{-x} with the production table rounding (tables.py EXTAB/EXTABF)."""
     v = np.asarray(x, dtype=np.float64)
     out = np.empty_like(v)
+
+    # the two easy cases are handled exactly, without the table
     out[v == 0.0] = 1.0                                 # e^0 = 1 exactly
     neg = v < 0.0;  out[neg] = np.exp(-v[neg])          # negative args: exact exp
+
+    # positive args go through the two-table FASTEX lookup
     pos = v > 0.0
     if np.any(pos):
+        # integer part selects the EXTAB entry; check it is within table range
         p = v[pos]; i = np.floor(p).astype(np.int64)    # integer part -> EXTAB index
         tab = i < _EXTAB.size; po = np.empty_like(p)    # within the table range?
         if np.any(tab):
@@ -227,6 +240,7 @@ def fast_ex(x):
             # fractional part -> EXTABF index, rounded to the nearest 0.001 step
             j = np.clip(np.floor((pt - it) * 1000.0 + 0.5).astype(np.int64), 0, _EXTABF.size - 1)
             po[tab] = _EXTAB[it] * _EXTABF[j]           # e^{-x} = e^{-floor} * e^{-frac}
+        # anything past the table range falls back to a true exp
         if np.any(~tab):
             po[~tab] = np.exp(-p[~tab])                 # out of table: fall back to exp
         out[pos] = po
@@ -258,25 +272,32 @@ code(r'''h0tab, h1tab, h2tab = cat["h0tab"], cat["h1tab"], cat["h2tab"]   # Harr
 
 def voigt_profile(v, a, h0tab, h1tab, h2tab):
     """Scalar Voigt H(a,v) via the Kurucz Harris-table routine (voigt_jit.voigt_profile_jit)."""
+    # map the offset |v| to a Harris-table index (the same table for all three branches)
     iv = int(abs(v) * 200.0 + 0.5)                          # |v| -> table index (200 steps / unit)
     iv = max(0, min(iv, h0tab.size - 1))                    # clamp to the table range
+
     if a < 0.2:                                              # near-core: direct table lookup
         if abs(v) > 10.0:
             return 0.5642 * a / (v * v)                      # far Lorentzian tail of the core branch
         return (h2tab[iv] * a + h1tab[iv]) * a + h0tab[iv]   # quadratic in a from the tables
+
     elif a > 1.4 or (a + abs(v)) > 3.2:                      # far wing: Lorentzian asymptote
         aa = a * a; vv = v * v; u = (aa + vv) * 1.4142
         val = a * 0.79788 / u
+        # higher-order correction, applied below the a = 100 ceiling
         if a <= 100.0:                                       # higher-order correction term
             aau = aa / u; vvu = vv / u; uu = u * u
             val = ((((aau - 10.0*vvu)*aau*3.0 + 15.0*vvu*vvu) + 3.0*vv - aa)/uu + 1.0) * val
         return val
+
     else:                                                   # mid: polynomial blending the two
+        # build the power-series coefficients h0..h4 from the table entries
         vv = v * v; h0 = h0tab[iv]
         h1 = h1tab[iv] + h0 * 1.12838
         h2 = h2tab[iv] + h1 * 1.12838 - h0
         h3 = (1.0 - h2tab[iv]) * 0.37613 - h1 * 0.66667 * vv + h2 * 1.12838
         h4 = (3.0 * h3 - h1) * 0.37613 + h0 * 0.66667 * vv * vv
+        # evaluate the two series and multiply
         pa = (((h4*a + h3)*a + h2)*a + h1)*a + h0           # Horner: power series in a
         pb = ((-0.122727278*a + 0.532770573)*a - 0.96284325)*a + 0.979895032
         return pa * pb
@@ -324,7 +345,8 @@ A line failing either test is too weak to register against the continuum and is 
 
 Two later quantities follow from this $\kappa_0$, and it is worth naming them now to avoid confusion. $\kappa_0$ is the production-code *amplitude*, before the final Harris $H(a,v)$ normalisation; the actual center-pixel contribution we add to the grid is `kapcen` $= \kappa_0\,(1-1.128\,a)$ (small $a$) or $\kappa_0\,H(a,0)$. The wing routine, conversely, divides `kapcen` by $H(a,0)$ to recover the profile amplitude used in the outward walk.""")
 
-code(r'''C_LIGHT_NM  = 2.99792458e17        # nm / s
+code(r'''# physical constants (CGS, with the wavelength leg in nm)
+C_LIGHT_NM  = 2.99792458e17        # nm / s
 H_PLANCK    = 6.62607015e-27       # erg s
 K_BOLTZ     = 1.380649e-16         # erg / K
 CGF_CONSTANT = 0.026538 / 1.77245  # (pi e^2 / m_e c) / sqrt(pi)
@@ -332,6 +354,7 @@ CUTOFF       = 1e-3                 # keep lines whose center >= 1e-3 * continuu
 KAPMIN_FLOOR = 1e-8                 # wing floor (engine _KAPMIN_FLOOR)
 MAX_PROFILE_STEPS = 1_000_000      # hard cap on wing steps
 
+# the cutoff continuum and the per-line c_gf prefactor
 cont = diag["continuum_absorption"] + diag["continuum_scattering"]   # cutoff continuum (depth, wl)
 gf_lin  = cat["cat_gf"]                                              # gf = 10**loggf
 freq_hz = C_LIGHT_NM / lam                                          # line frequency [Hz]
@@ -448,11 +471,13 @@ A note on the damping parameter. In the code, $n_{\rm vdW}$ is the effective per
 
 We set up the per-line indices and masks first, then run the loop. One subtlety the production code carries and we match: the **center** pixel uses the catalog's `index_wavelength` (a rounded log index), while the **wing** walk is anchored at a slightly different index built from the floor of the grid origin; the two helpers above produce exactly these. The stimulated-emission factor is held back to the end.""")
 
-code(r'''idxwl = cat["cat_index_wl"]                          # wavelength used for the index lookups
+code(r'''# per-line columns and array dimensions
+idxwl = cat["cat_index_wl"]                          # wavelength used for the index lookups
 elem_idx = Zc - 1; ion_idx = ion - 1                # 0-based element / ion indices
 n_w = grid.size
 n_ion_max, n_elem_max = pop3.shape[1], pop3.shape[2]
 
+# the two grid anchors (center vs wing) and the grid sampling parameter
 center_idx = nearest_grid_indices(grid, idxwl)                          # center pixel per line
 wing_idx   = nearest_grid_indices_raw(grid, idxwl, float(grid[0]))      # wing anchor per line
 resolu = 1.0 / (ratio - 1.0) if ratio > 1.0 else 300000.0
@@ -460,6 +485,8 @@ resolu = 1.0 / (ratio - 1.0) if ratio > 1.0 else 300000.0
 # metal lines = type-0, Z>=3, inside the population tables
 line_ok = (lt == 0) & (elem_idx >= 0) & (elem_idx < n_elem_max) \
         & (ion_idx >= 0) & (ion_idx < n_ion_max)
+
+# the Boltzmann factor for every (depth, line), and the on-grid validity masks
 boltz = fast_ex(Elow[None, :] * hckt[:, None])      # (depth, line) FASTEX Boltzmann factor
 M = MAX_PROFILE_STEPS
 center_valid = line_ok & (center_idx >= 0) & (center_idx < n_w)
@@ -471,6 +498,7 @@ md(r"""The loop body, per line, runs the recipe top to bottom: look up the speci
 code(r'''metal_opacity = np.zeros((n_depths, n_w), dtype=np.float64)
 kept = 0
 for i in np.where(line_ok)[0]:
+    # grid anchors and the local cutoff for this line
     ci = int(center_idx[i]); wi = int(wing_idx[i]); wl_i = lam[i]
     clamped = max(0, min(ci, n_w - 1))
     pop = pop3[:, ion_idx[i], elem_idx[i]]          # n_ion / U at this species (all depths)
@@ -479,6 +507,8 @@ for i in np.where(line_ok)[0]:
     good = (pop > 0.0) & (dop > 0.0) & (rho > 0.0)
     if not np.any(good):
         continue
+
+    # peak opacity before and after the Boltzmann factor, then the two-stage cutoff
     xnfdop = np.zeros(n_depths); xnfdop[good] = pop[good] / (rho[good] * dop[good])
     kappa0_pre = cgf[i] * xnfdop                     # before the Boltzmann factor
     post = kappa0_pre * boltz[:, i]                  # after  the Boltzmann factor (== kappa0)
@@ -486,6 +516,8 @@ for i in np.where(line_ok)[0]:
     if not np.any(passcut):
         continue
     kept += 1
+
+    # Doppler width (in nm and in v/c) and the SYNTHE damping parameter a
     doppler_width = dop * wl_i                        # Doppler width in nm
     dopple = np.where(wl_i > 0, doppler_width / wl_i, 1e-6)         # Doppler width in v/c
     # total damping rate = natural + Stark*n_e + van der Waals*n_vdW (the txnxn from above)
@@ -509,10 +541,15 @@ for i in np.where(line_ok)[0]:
     wing_pairs = cd & (kapcen > 0.0)                  # depths with a real center to spread
     if not np.any(wing_pairs):
         continue
+
+    # back-solve the wing amplitude from the center, and set the wing anchor + cutoff
     adamp_w = np.maximum(adamp, 1e-12)                # floor a so H(a,0) is well-defined
+    # divide the center opacity by H(a,0) to recover the profile amplitude the walk spreads
     kappa0_wing = np.where(kapcen > 0.0, kapcen / voigt_h_at_zero(adamp_w, h0tab, h1tab, h2tab), 0.0)
     ci_w = min(max(wi, 0), n_w - 1)                   # wing anchor pixel, clamped on-grid
     kapmin_ref = np.maximum(cont[:, ci_w] * CUTOFF, cont[:, ci_w] * KAPMIN_FLOOR)   # wing cutoff
+
+    # walk each surviving depth's wings outward from the anchor
     for d in np.where(wing_pairs)[0]:
         process_wing_pair(metal_opacity[d], grid, wi, kappa0_wing[d], adamp_w[d],
                           doppler_width[d], wl_i, kapmin_ref[d], resolu, h0tab, h1tab, h2tab)
@@ -596,20 +633,27 @@ md(r"""Now the helium loop. For each He line we build $\kappa_0$, the Doppler wi
 
 code(r'''he_opacity = np.zeros((n_depths, n_w), dtype=np.float64)
 for col, i in enumerate(he_idx):
+    # per-line prefactor, species indices, population, Boltzmann factor and center pixel
     wl_i = float(lam[i]); cgf_i = CGF_CONSTANT * gf_lin[i] / (C_LIGHT_NM / wl_i)   # c_gf prefactor
     ei = int(Zc[i]) - 1; ii = int(ion[i]) - 1        # 0-based element / ion indices
     pop = pop3[:, ii, ei]; dop = dop3[:, ii, ei]     # population per ion, Doppler width (all depths)
     boltz_i = fast_ex(Elow[i] * hckt)                # FASTEX Boltzmann factor
     ci = int(min(max(nearest_grid_indices(grid, np.array([idxwl[i]]))[0], 0), n_w - 1))  # center pixel
+
+    # peak opacity and the two-stage cutoff (same recipe as the metals)
     dop_safe = np.maximum(dop, 1e-40)
     valid = (pop > 0.0) & (dop > 0.0) & (rho > 0.0)
     xnfdop = np.where(valid, pop / (rho * dop_safe), 0.0)
     k0pre = cgf_i * xnfdop; kmin = cont[:, ci] * he_cut          # pre-Boltzmann amplitude + cutoff
     valid &= (k0pre >= kmin); k0 = k0pre * boltz_i; valid &= (k0 >= kmin)   # two-stage cutoff
+
+    # damping parameter, then mask the surviving depths
     gtot = grad[i] + gstark[i] * xne + gvdw[i] * txnxn          # total damping rate
     adamp = gtot / dop_safe
     k0 = np.where(valid, k0, 0.0); dopw = np.where(valid, dop * wl_i, 0.0)
     adamp = np.where(valid, adamp, 0.0)
+
+    # walk the wings depth by depth, applying the continuum-merge taper
     for d in range(n_depths):
         if k0[d] <= 0.0 or dopw[d] <= 0.0:
             continue

@@ -98,16 +98,21 @@ depths: 80 atmospheric layers
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[2]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="lam   = cat[&quot;cat_wl&quot;]                       # wavelength [nm]
+        <button class="copy-btn" type="button" data-code="# the catalog columns that drive the opacity
+lam   = cat[&quot;cat_wl&quot;]                       # wavelength [nm]
 loggf = cat[&quot;cat_loggf&quot;]                    # log(gf)
 gf    = cat[&quot;cat_gf&quot;]                        # gf = 10**loggf (precomputed in the catalog)
 Elow  = cat[&quot;cat_elow&quot;]                      # lower-level excitation energy [cm^-1]
 ion   = cat[&quot;cat_ion&quot;].astype(np.int64)     # ionization stage, 1 = neutral
 grad, gstark, gvdw = cat[&quot;cat_grad&quot;], cat[&quot;cat_gstark&quot;], cat[&quot;cat_gvdw&quot;]
 Elow_eV = Elow / 8065.54
+
+# element symbols, for the human-readable species column below
 SYM = {2:&quot;He&quot;,3:&quot;Li&quot;,6:&quot;C&quot;,11:&quot;Na&quot;,12:&quot;Mg&quot;,13:&quot;Al&quot;,14:&quot;Si&quot;,20:&quot;Ca&quot;,21:&quot;Sc&quot;,22:&quot;Ti&quot;,
        23:&quot;V&quot;,24:&quot;Cr&quot;,25:&quot;Mn&quot;,26:&quot;Fe&quot;,27:&quot;Co&quot;,28:&quot;Ni&quot;,29:&quot;Cu&quot;,30:&quot;Zn&quot;,38:&quot;Sr&quot;,39:&quot;Y&quot;,
        40:&quot;Zr&quot;,56:&quot;Ba&quot;,57:&quot;La&quot;,58:&quot;Ce&quot;,60:&quot;Nd&quot;,64:&quot;Gd&quot;}
+
+# rank the type-0 metal lines by intrinsic strength and print the strongest few
 metal = (lt == 0)                            # type-0 metal lines
 order = np.argsort(np.where(metal, loggf, -np.inf))[::-1][:6]
 print(f&quot;{&#39;wavelength&#39;:&gt;11} {&#39;species&#39;:&gt;8} {&#39;log gf&#39;:&gt;7} {&#39;chi_l[eV]&#39;:&gt;9}&quot;)
@@ -115,16 +120,21 @@ for i in order:
     print(f&quot;{lam[i]:11.4f} {SYM.get(Zc[i],Zc[i]):&gt;6} {ion[i]:&lt;2}{loggf[i]:7.2f} {Elow_eV[i]:9.3f}&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">lam   = cat[<span class="hljs-string">&quot;cat_wl&quot;</span>]                       <span class="hljs-comment"># wavelength [nm]</span>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># the catalog columns that drive the opacity</span>
+lam   = cat[<span class="hljs-string">&quot;cat_wl&quot;</span>]                       <span class="hljs-comment"># wavelength [nm]</span>
 loggf = cat[<span class="hljs-string">&quot;cat_loggf&quot;</span>]                    <span class="hljs-comment"># log(gf)</span>
 gf    = cat[<span class="hljs-string">&quot;cat_gf&quot;</span>]                        <span class="hljs-comment"># gf = 10**loggf (precomputed in the catalog)</span>
 Elow  = cat[<span class="hljs-string">&quot;cat_elow&quot;</span>]                      <span class="hljs-comment"># lower-level excitation energy [cm^-1]</span>
 ion   = cat[<span class="hljs-string">&quot;cat_ion&quot;</span>].astype(np.int64)     <span class="hljs-comment"># ionization stage, 1 = neutral</span>
 grad, gstark, gvdw = cat[<span class="hljs-string">&quot;cat_grad&quot;</span>], cat[<span class="hljs-string">&quot;cat_gstark&quot;</span>], cat[<span class="hljs-string">&quot;cat_gvdw&quot;</span>]
 Elow_eV = Elow / <span class="hljs-number">8065.54</span>
+
+<span class="hljs-comment"># element symbols, for the human-readable species column below</span>
 SYM = {<span class="hljs-number">2</span>:<span class="hljs-string">&quot;He&quot;</span>,<span class="hljs-number">3</span>:<span class="hljs-string">&quot;Li&quot;</span>,<span class="hljs-number">6</span>:<span class="hljs-string">&quot;C&quot;</span>,<span class="hljs-number">11</span>:<span class="hljs-string">&quot;Na&quot;</span>,<span class="hljs-number">12</span>:<span class="hljs-string">&quot;Mg&quot;</span>,<span class="hljs-number">13</span>:<span class="hljs-string">&quot;Al&quot;</span>,<span class="hljs-number">14</span>:<span class="hljs-string">&quot;Si&quot;</span>,<span class="hljs-number">20</span>:<span class="hljs-string">&quot;Ca&quot;</span>,<span class="hljs-number">21</span>:<span class="hljs-string">&quot;Sc&quot;</span>,<span class="hljs-number">22</span>:<span class="hljs-string">&quot;Ti&quot;</span>,
        <span class="hljs-number">23</span>:<span class="hljs-string">&quot;V&quot;</span>,<span class="hljs-number">24</span>:<span class="hljs-string">&quot;Cr&quot;</span>,<span class="hljs-number">25</span>:<span class="hljs-string">&quot;Mn&quot;</span>,<span class="hljs-number">26</span>:<span class="hljs-string">&quot;Fe&quot;</span>,<span class="hljs-number">27</span>:<span class="hljs-string">&quot;Co&quot;</span>,<span class="hljs-number">28</span>:<span class="hljs-string">&quot;Ni&quot;</span>,<span class="hljs-number">29</span>:<span class="hljs-string">&quot;Cu&quot;</span>,<span class="hljs-number">30</span>:<span class="hljs-string">&quot;Zn&quot;</span>,<span class="hljs-number">38</span>:<span class="hljs-string">&quot;Sr&quot;</span>,<span class="hljs-number">39</span>:<span class="hljs-string">&quot;Y&quot;</span>,
        <span class="hljs-number">40</span>:<span class="hljs-string">&quot;Zr&quot;</span>,<span class="hljs-number">56</span>:<span class="hljs-string">&quot;Ba&quot;</span>,<span class="hljs-number">57</span>:<span class="hljs-string">&quot;La&quot;</span>,<span class="hljs-number">58</span>:<span class="hljs-string">&quot;Ce&quot;</span>,<span class="hljs-number">60</span>:<span class="hljs-string">&quot;Nd&quot;</span>,<span class="hljs-number">64</span>:<span class="hljs-string">&quot;Gd&quot;</span>}
+
+<span class="hljs-comment"># rank the type-0 metal lines by intrinsic strength and print the strongest few</span>
 metal = (lt == <span class="hljs-number">0</span>)                            <span class="hljs-comment"># type-0 metal lines</span>
 order = np.argsort(np.where(metal, loggf, -np.inf))[::-<span class="hljs-number">1</span>][:<span class="hljs-number">6</span>]
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;<span class="hljs-subst">{<span class="hljs-string">&#x27;wavelength&#x27;</span>:&gt;<span class="hljs-number">11</span>}</span> <span class="hljs-subst">{<span class="hljs-string">&#x27;species&#x27;</span>:&gt;<span class="hljs-number">8</span>}</span> <span class="hljs-subst">{<span class="hljs-string">&#x27;log gf&#x27;</span>:&gt;<span class="hljs-number">7</span>}</span> <span class="hljs-subst">{<span class="hljs-string">&#x27;chi_l[eV]&#x27;</span>:&gt;<span class="hljs-number">9</span>}</span>&quot;</span>)
@@ -141,17 +151,23 @@ order = np.argsort(np.where(metal, loggf, -np.inf))[::-<span class="hljs-number"
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[3]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="nZ = np.unique(Zc[metal])
+        <button class="copy-btn" type="button" data-code="# the metal lines span the full periodic table, not just the iron peak
+nZ = np.unique(Zc[metal])
 print(f&quot;metal lines: {metal.sum()}  spanning Z = {nZ.min()} (Li) to {nZ.max()} (U), {nZ.size} elements&quot;)
 print(f&quot;  of which Z &gt; 30 (heavy / neutron-capture): {(metal &amp; (Zc &gt; 30)).sum()} lines&quot;)
+
+# the non-metal line types, routed to their own kernels
 he = np.isin(lt, [-3, -4, -6])              # helium lines (dedicated wing path)
 hy = np.isin(lt, [-1, -2])                  # hydrogen lines (NEXT lecture)
 print(f&quot;helium lines (type -3/-4/-6): {he.sum()}      hydrogen lines (type -1/-2): {hy.sum()} -&gt; next lecture&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">nZ = np.unique(Zc[metal])
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># the metal lines span the full periodic table, not just the iron peak</span>
+nZ = np.unique(Zc[metal])
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;metal lines: <span class="hljs-subst">{metal.<span class="hljs-built_in">sum</span>()}</span>  spanning Z = <span class="hljs-subst">{nZ.<span class="hljs-built_in">min</span>()}</span> (Li) to <span class="hljs-subst">{nZ.<span class="hljs-built_in">max</span>()}</span> (U), <span class="hljs-subst">{nZ.size}</span> elements&quot;</span>)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;  of which Z &gt; 30 (heavy / neutron-capture): <span class="hljs-subst">{(metal &amp; (Zc &gt; <span class="hljs-number">30</span>)).<span class="hljs-built_in">sum</span>()}</span> lines&quot;</span>)
+
+<span class="hljs-comment"># the non-metal line types, routed to their own kernels</span>
 he = np.isin(lt, [-<span class="hljs-number">3</span>, -<span class="hljs-number">4</span>, -<span class="hljs-number">6</span>])              <span class="hljs-comment"># helium lines (dedicated wing path)</span>
 hy = np.isin(lt, [-<span class="hljs-number">1</span>, -<span class="hljs-number">2</span>])                  <span class="hljs-comment"># hydrogen lines (NEXT lecture)</span>
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;helium lines (type -3/-4/-6): <span class="hljs-subst">{he.<span class="hljs-built_in">sum</span>()}</span>      hydrogen lines (type -1/-2): <span class="hljs-subst">{hy.<span class="hljs-built_in">sum</span>()}</span> -&gt; next lecture&quot;</span>)</code></pre>
@@ -284,10 +300,15 @@ def fast_ex(x):
     &quot;&quot;&quot;Vectorized FASTEX: e^{-x} with the production table rounding (tables.py EXTAB/EXTABF).&quot;&quot;&quot;
     v = np.asarray(x, dtype=np.float64)
     out = np.empty_like(v)
+
+    # the two easy cases are handled exactly, without the table
     out[v == 0.0] = 1.0                                 # e^0 = 1 exactly
     neg = v &lt; 0.0;  out[neg] = np.exp(-v[neg])          # negative args: exact exp
+
+    # positive args go through the two-table FASTEX lookup
     pos = v &gt; 0.0
     if np.any(pos):
+        # integer part selects the EXTAB entry; check it is within table range
         p = v[pos]; i = np.floor(p).astype(np.int64)    # integer part -&gt; EXTAB index
         tab = i &lt; _EXTAB.size; po = np.empty_like(p)    # within the table range?
         if np.any(tab):
@@ -295,6 +316,7 @@ def fast_ex(x):
             # fractional part -&gt; EXTABF index, rounded to the nearest 0.001 step
             j = np.clip(np.floor((pt - it) * 1000.0 + 0.5).astype(np.int64), 0, _EXTABF.size - 1)
             po[tab] = _EXTAB[it] * _EXTABF[j]           # e^{-x} = e^{-floor} * e^{-frac}
+        # anything past the table range falls back to a true exp
         if np.any(~tab):
             po[~tab] = np.exp(-p[~tab])                 # out of table: fall back to exp
         out[pos] = po
@@ -309,10 +331,15 @@ _EXTABF = np.exp(-np.arange(<span class="hljs-number">1001</span>, dtype=np.floa
     <span class="hljs-string">&quot;&quot;&quot;Vectorized FASTEX: e^{-x} with the production table rounding (tables.py EXTAB/EXTABF).&quot;&quot;&quot;</span>
     v = np.asarray(x, dtype=np.float64)
     out = np.empty_like(v)
+
+    <span class="hljs-comment"># the two easy cases are handled exactly, without the table</span>
     out[v == <span class="hljs-number">0.0</span>] = <span class="hljs-number">1.0</span>                                 <span class="hljs-comment"># e^0 = 1 exactly</span>
     neg = v &lt; <span class="hljs-number">0.0</span>;  out[neg] = np.exp(-v[neg])          <span class="hljs-comment"># negative args: exact exp</span>
+
+    <span class="hljs-comment"># positive args go through the two-table FASTEX lookup</span>
     pos = v &gt; <span class="hljs-number">0.0</span>
     <span class="hljs-keyword">if</span> np.<span class="hljs-built_in">any</span>(pos):
+        <span class="hljs-comment"># integer part selects the EXTAB entry; check it is within table range</span>
         p = v[pos]; i = np.floor(p).astype(np.int64)    <span class="hljs-comment"># integer part -&gt; EXTAB index</span>
         tab = i &lt; _EXTAB.size; po = np.empty_like(p)    <span class="hljs-comment"># within the table range?</span>
         <span class="hljs-keyword">if</span> np.<span class="hljs-built_in">any</span>(tab):
@@ -320,6 +347,7 @@ _EXTABF = np.exp(-np.arange(<span class="hljs-number">1001</span>, dtype=np.floa
             <span class="hljs-comment"># fractional part -&gt; EXTABF index, rounded to the nearest 0.001 step</span>
             j = np.clip(np.floor((pt - it) * <span class="hljs-number">1000.0</span> + <span class="hljs-number">0.5</span>).astype(np.int64), <span class="hljs-number">0</span>, _EXTABF.size - <span class="hljs-number">1</span>)
             po[tab] = _EXTAB[it] * _EXTABF[j]           <span class="hljs-comment"># e^{-x} = e^{-floor} * e^{-frac}</span>
+        <span class="hljs-comment"># anything past the table range falls back to a true exp</span>
         <span class="hljs-keyword">if</span> np.<span class="hljs-built_in">any</span>(~tab):
             po[~tab] = np.exp(-p[~tab])                 <span class="hljs-comment"># out of table: fall back to exp</span>
         out[pos] = po
@@ -376,25 +404,32 @@ M834 80h400000v40h-400000z"/></svg></span></span></span><span class="vlist-s">â€
 
 def voigt_profile(v, a, h0tab, h1tab, h2tab):
     &quot;&quot;&quot;Scalar Voigt H(a,v) via the Kurucz Harris-table routine (voigt_jit.voigt_profile_jit).&quot;&quot;&quot;
+    # map the offset |v| to a Harris-table index (the same table for all three branches)
     iv = int(abs(v) * 200.0 + 0.5)                          # |v| -&gt; table index (200 steps / unit)
     iv = max(0, min(iv, h0tab.size - 1))                    # clamp to the table range
+
     if a &lt; 0.2:                                              # near-core: direct table lookup
         if abs(v) &gt; 10.0:
             return 0.5642 * a / (v * v)                      # far Lorentzian tail of the core branch
         return (h2tab[iv] * a + h1tab[iv]) * a + h0tab[iv]   # quadratic in a from the tables
+
     elif a &gt; 1.4 or (a + abs(v)) &gt; 3.2:                      # far wing: Lorentzian asymptote
         aa = a * a; vv = v * v; u = (aa + vv) * 1.4142
         val = a * 0.79788 / u
+        # higher-order correction, applied below the a = 100 ceiling
         if a &lt;= 100.0:                                       # higher-order correction term
             aau = aa / u; vvu = vv / u; uu = u * u
             val = ((((aau - 10.0*vvu)*aau*3.0 + 15.0*vvu*vvu) + 3.0*vv - aa)/uu + 1.0) * val
         return val
+
     else:                                                   # mid: polynomial blending the two
+        # build the power-series coefficients h0..h4 from the table entries
         vv = v * v; h0 = h0tab[iv]
         h1 = h1tab[iv] + h0 * 1.12838
         h2 = h2tab[iv] + h1 * 1.12838 - h0
         h3 = (1.0 - h2tab[iv]) * 0.37613 - h1 * 0.66667 * vv + h2 * 1.12838
         h4 = (3.0 * h3 - h1) * 0.37613 + h0 * 0.66667 * vv * vv
+        # evaluate the two series and multiply
         pa = (((h4*a + h3)*a + h2)*a + h1)*a + h0           # Horner: power series in a
         pb = ((-0.122727278*a + 0.532770573)*a - 0.96284325)*a + 0.979895032
         return pa * pb
@@ -405,25 +440,32 @@ print(&quot;scalar Voigt profile ready&quot;)" aria-label="Copy code">
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">voigt_profile</span>(<span class="hljs-params">v, a, h0tab, h1tab, h2tab</span>):
     <span class="hljs-string">&quot;&quot;&quot;Scalar Voigt H(a,v) via the Kurucz Harris-table routine (voigt_jit.voigt_profile_jit).&quot;&quot;&quot;</span>
+    <span class="hljs-comment"># map the offset |v| to a Harris-table index (the same table for all three branches)</span>
     iv = <span class="hljs-built_in">int</span>(<span class="hljs-built_in">abs</span>(v) * <span class="hljs-number">200.0</span> + <span class="hljs-number">0.5</span>)                          <span class="hljs-comment"># |v| -&gt; table index (200 steps / unit)</span>
     iv = <span class="hljs-built_in">max</span>(<span class="hljs-number">0</span>, <span class="hljs-built_in">min</span>(iv, h0tab.size - <span class="hljs-number">1</span>))                    <span class="hljs-comment"># clamp to the table range</span>
+
     <span class="hljs-keyword">if</span> a &lt; <span class="hljs-number">0.2</span>:                                              <span class="hljs-comment"># near-core: direct table lookup</span>
         <span class="hljs-keyword">if</span> <span class="hljs-built_in">abs</span>(v) &gt; <span class="hljs-number">10.0</span>:
             <span class="hljs-keyword">return</span> <span class="hljs-number">0.5642</span> * a / (v * v)                      <span class="hljs-comment"># far Lorentzian tail of the core branch</span>
         <span class="hljs-keyword">return</span> (h2tab[iv] * a + h1tab[iv]) * a + h0tab[iv]   <span class="hljs-comment"># quadratic in a from the tables</span>
+
     <span class="hljs-keyword">elif</span> a &gt; <span class="hljs-number">1.4</span> <span class="hljs-keyword">or</span> (a + <span class="hljs-built_in">abs</span>(v)) &gt; <span class="hljs-number">3.2</span>:                      <span class="hljs-comment"># far wing: Lorentzian asymptote</span>
         aa = a * a; vv = v * v; u = (aa + vv) * <span class="hljs-number">1.4142</span>
         val = a * <span class="hljs-number">0.79788</span> / u
+        <span class="hljs-comment"># higher-order correction, applied below the a = 100 ceiling</span>
         <span class="hljs-keyword">if</span> a &lt;= <span class="hljs-number">100.0</span>:                                       <span class="hljs-comment"># higher-order correction term</span>
             aau = aa / u; vvu = vv / u; uu = u * u
             val = ((((aau - <span class="hljs-number">10.0</span>*vvu)*aau*<span class="hljs-number">3.0</span> + <span class="hljs-number">15.0</span>*vvu*vvu) + <span class="hljs-number">3.0</span>*vv - aa)/uu + <span class="hljs-number">1.0</span>) * val
         <span class="hljs-keyword">return</span> val
+
     <span class="hljs-keyword">else</span>:                                                   <span class="hljs-comment"># mid: polynomial blending the two</span>
+        <span class="hljs-comment"># build the power-series coefficients h0..h4 from the table entries</span>
         vv = v * v; h0 = h0tab[iv]
         h1 = h1tab[iv] + h0 * <span class="hljs-number">1.12838</span>
         h2 = h2tab[iv] + h1 * <span class="hljs-number">1.12838</span> - h0
         h3 = (<span class="hljs-number">1.0</span> - h2tab[iv]) * <span class="hljs-number">0.37613</span> - h1 * <span class="hljs-number">0.66667</span> * vv + h2 * <span class="hljs-number">1.12838</span>
         h4 = (<span class="hljs-number">3.0</span> * h3 - h1) * <span class="hljs-number">0.37613</span> + h0 * <span class="hljs-number">0.66667</span> * vv * vv
+        <span class="hljs-comment"># evaluate the two series and multiply</span>
         pa = (((h4*a + h3)*a + h2)*a + h1)*a + h0           <span class="hljs-comment"># Horner: power series in a</span>
         pb = ((-<span class="hljs-number">0.122727278</span>*a + <span class="hljs-number">0.532770573</span>)*a - <span class="hljs-number">0.96284325</span>)*a + <span class="hljs-number">0.979895032</span>
         <span class="hljs-keyword">return</span> pa * pb
@@ -508,7 +550,8 @@ c100.7 8.3 195.3 44 280 108 55.3 42 101.7 93 139 153l9 14c2.7-4 5.7-8.7 9-14
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[12]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="C_LIGHT_NM  = 2.99792458e17        # nm / s
+        <button class="copy-btn" type="button" data-code="# physical constants (CGS, with the wavelength leg in nm)
+C_LIGHT_NM  = 2.99792458e17        # nm / s
 H_PLANCK    = 6.62607015e-27       # erg s
 K_BOLTZ     = 1.380649e-16         # erg / K
 CGF_CONSTANT = 0.026538 / 1.77245  # (pi e^2 / m_e c) / sqrt(pi)
@@ -516,6 +559,7 @@ CUTOFF       = 1e-3                 # keep lines whose center &gt;= 1e-3 * conti
 KAPMIN_FLOOR = 1e-8                 # wing floor (engine _KAPMIN_FLOOR)
 MAX_PROFILE_STEPS = 1_000_000      # hard cap on wing steps
 
+# the cutoff continuum and the per-line c_gf prefactor
 cont = diag[&quot;continuum_absorption&quot;] + diag[&quot;continuum_scattering&quot;]   # cutoff continuum (depth, wl)
 gf_lin  = cat[&quot;cat_gf&quot;]                                              # gf = 10**loggf
 freq_hz = C_LIGHT_NM / lam                                          # line frequency [Hz]
@@ -528,7 +572,8 @@ print(f&quot;c_gf prefactor: {cgf.min():.3e} .. {cgf.max():.3e}&quot;)
 print(f&quot;cutoff = {CUTOFF:.0e} x local continuum, checked before AND after the Boltzmann factor&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">C_LIGHT_NM  = <span class="hljs-number">2.99792458e17</span>        <span class="hljs-comment"># nm / s</span>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># physical constants (CGS, with the wavelength leg in nm)</span>
+C_LIGHT_NM  = <span class="hljs-number">2.99792458e17</span>        <span class="hljs-comment"># nm / s</span>
 H_PLANCK    = <span class="hljs-number">6.62607015e-27</span>       <span class="hljs-comment"># erg s</span>
 K_BOLTZ     = <span class="hljs-number">1.380649e-16</span>         <span class="hljs-comment"># erg / K</span>
 CGF_CONSTANT = <span class="hljs-number">0.026538</span> / <span class="hljs-number">1.77245</span>  <span class="hljs-comment"># (pi e^2 / m_e c) / sqrt(pi)</span>
@@ -536,6 +581,7 @@ CUTOFF       = <span class="hljs-number">1e-3</span>                 <span class
 KAPMIN_FLOOR = <span class="hljs-number">1e-8</span>                 <span class="hljs-comment"># wing floor (engine _KAPMIN_FLOOR)</span>
 MAX_PROFILE_STEPS = <span class="hljs-number">1_000_000</span>      <span class="hljs-comment"># hard cap on wing steps</span>
 
+<span class="hljs-comment"># the cutoff continuum and the per-line c_gf prefactor</span>
 cont = diag[<span class="hljs-string">&quot;continuum_absorption&quot;</span>] + diag[<span class="hljs-string">&quot;continuum_scattering&quot;</span>]   <span class="hljs-comment"># cutoff continuum (depth, wl)</span>
 gf_lin  = cat[<span class="hljs-string">&quot;cat_gf&quot;</span>]                                              <span class="hljs-comment"># gf = 10**loggf</span>
 freq_hz = C_LIGHT_NM / lam                                          <span class="hljs-comment"># line frequency [Hz]</span>
@@ -724,11 +770,13 @@ print(&quot;wing kernel ready&quot;)" aria-label="Copy code">
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[14]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="idxwl = cat[&quot;cat_index_wl&quot;]                          # wavelength used for the index lookups
+        <button class="copy-btn" type="button" data-code="# per-line columns and array dimensions
+idxwl = cat[&quot;cat_index_wl&quot;]                          # wavelength used for the index lookups
 elem_idx = Zc - 1; ion_idx = ion - 1                # 0-based element / ion indices
 n_w = grid.size
 n_ion_max, n_elem_max = pop3.shape[1], pop3.shape[2]
 
+# the two grid anchors (center vs wing) and the grid sampling parameter
 center_idx = nearest_grid_indices(grid, idxwl)                          # center pixel per line
 wing_idx   = nearest_grid_indices_raw(grid, idxwl, float(grid[0]))      # wing anchor per line
 resolu = 1.0 / (ratio - 1.0) if ratio &gt; 1.0 else 300000.0
@@ -736,6 +784,8 @@ resolu = 1.0 / (ratio - 1.0) if ratio &gt; 1.0 else 300000.0
 # metal lines = type-0, Z&gt;=3, inside the population tables
 line_ok = (lt == 0) &amp; (elem_idx &gt;= 0) &amp; (elem_idx &lt; n_elem_max) \
         &amp; (ion_idx &gt;= 0) &amp; (ion_idx &lt; n_ion_max)
+
+# the Boltzmann factor for every (depth, line), and the on-grid validity masks
 boltz = fast_ex(Elow[None, :] * hckt[:, None])      # (depth, line) FASTEX Boltzmann factor
 M = MAX_PROFILE_STEPS
 center_valid = line_ok &amp; (center_idx &gt;= 0) &amp; (center_idx &lt; n_w)
@@ -743,11 +793,13 @@ wing_active  = line_ok &amp; (wing_idx &gt;= -M) &amp; (wing_idx &lt;= n_w - 1 +
 print(f&quot;metal lines to accumulate: {line_ok.sum()}&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">idxwl = cat[<span class="hljs-string">&quot;cat_index_wl&quot;</span>]                          <span class="hljs-comment"># wavelength used for the index lookups</span>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># per-line columns and array dimensions</span>
+idxwl = cat[<span class="hljs-string">&quot;cat_index_wl&quot;</span>]                          <span class="hljs-comment"># wavelength used for the index lookups</span>
 elem_idx = Zc - <span class="hljs-number">1</span>; ion_idx = ion - <span class="hljs-number">1</span>                <span class="hljs-comment"># 0-based element / ion indices</span>
 n_w = grid.size
 n_ion_max, n_elem_max = pop3.shape[<span class="hljs-number">1</span>], pop3.shape[<span class="hljs-number">2</span>]
 
+<span class="hljs-comment"># the two grid anchors (center vs wing) and the grid sampling parameter</span>
 center_idx = nearest_grid_indices(grid, idxwl)                          <span class="hljs-comment"># center pixel per line</span>
 wing_idx   = nearest_grid_indices_raw(grid, idxwl, <span class="hljs-built_in">float</span>(grid[<span class="hljs-number">0</span>]))      <span class="hljs-comment"># wing anchor per line</span>
 resolu = <span class="hljs-number">1.0</span> / (ratio - <span class="hljs-number">1.0</span>) <span class="hljs-keyword">if</span> ratio &gt; <span class="hljs-number">1.0</span> <span class="hljs-keyword">else</span> <span class="hljs-number">300000.0</span>
@@ -755,6 +807,8 @@ resolu = <span class="hljs-number">1.0</span> / (ratio - <span class="hljs-numbe
 <span class="hljs-comment"># metal lines = type-0, Z&gt;=3, inside the population tables</span>
 line_ok = (lt == <span class="hljs-number">0</span>) &amp; (elem_idx &gt;= <span class="hljs-number">0</span>) &amp; (elem_idx &lt; n_elem_max) \
         &amp; (ion_idx &gt;= <span class="hljs-number">0</span>) &amp; (ion_idx &lt; n_ion_max)
+
+<span class="hljs-comment"># the Boltzmann factor for every (depth, line), and the on-grid validity masks</span>
 boltz = fast_ex(Elow[<span class="hljs-literal">None</span>, :] * hckt[:, <span class="hljs-literal">None</span>])      <span class="hljs-comment"># (depth, line) FASTEX Boltzmann factor</span>
 M = MAX_PROFILE_STEPS
 center_valid = line_ok &amp; (center_idx &gt;= <span class="hljs-number">0</span>) &amp; (center_idx &lt; n_w)
@@ -768,6 +822,7 @@ wing_active  = line_ok &amp; (wing_idx &gt;= -M) &amp; (wing_idx &lt;= n_w - <sp
         <button class="copy-btn" type="button" data-code="metal_opacity = np.zeros((n_depths, n_w), dtype=np.float64)
 kept = 0
 for i in np.where(line_ok)[0]:
+    # grid anchors and the local cutoff for this line
     ci = int(center_idx[i]); wi = int(wing_idx[i]); wl_i = lam[i]
     clamped = max(0, min(ci, n_w - 1))
     pop = pop3[:, ion_idx[i], elem_idx[i]]          # n_ion / U at this species (all depths)
@@ -776,6 +831,8 @@ for i in np.where(line_ok)[0]:
     good = (pop &gt; 0.0) &amp; (dop &gt; 0.0) &amp; (rho &gt; 0.0)
     if not np.any(good):
         continue
+
+    # peak opacity before and after the Boltzmann factor, then the two-stage cutoff
     xnfdop = np.zeros(n_depths); xnfdop[good] = pop[good] / (rho[good] * dop[good])
     kappa0_pre = cgf[i] * xnfdop                     # before the Boltzmann factor
     post = kappa0_pre * boltz[:, i]                  # after  the Boltzmann factor (== kappa0)
@@ -783,6 +840,8 @@ for i in np.where(line_ok)[0]:
     if not np.any(passcut):
         continue
     kept += 1
+
+    # Doppler width (in nm and in v/c) and the SYNTHE damping parameter a
     doppler_width = dop * wl_i                        # Doppler width in nm
     dopple = np.where(wl_i &gt; 0, doppler_width / wl_i, 1e-6)         # Doppler width in v/c
     # total damping rate = natural + Stark*n_e + van der Waals*n_vdW (the txnxn from above)
@@ -806,10 +865,15 @@ for i in np.where(line_ok)[0]:
     wing_pairs = cd &amp; (kapcen &gt; 0.0)                  # depths with a real center to spread
     if not np.any(wing_pairs):
         continue
+
+    # back-solve the wing amplitude from the center, and set the wing anchor + cutoff
     adamp_w = np.maximum(adamp, 1e-12)                # floor a so H(a,0) is well-defined
+    # divide the center opacity by H(a,0) to recover the profile amplitude the walk spreads
     kappa0_wing = np.where(kapcen &gt; 0.0, kapcen / voigt_h_at_zero(adamp_w, h0tab, h1tab, h2tab), 0.0)
     ci_w = min(max(wi, 0), n_w - 1)                   # wing anchor pixel, clamped on-grid
     kapmin_ref = np.maximum(cont[:, ci_w] * CUTOFF, cont[:, ci_w] * KAPMIN_FLOOR)   # wing cutoff
+
+    # walk each surviving depth&#39;s wings outward from the anchor
     for d in np.where(wing_pairs)[0]:
         process_wing_pair(metal_opacity[d], grid, wi, kappa0_wing[d], adamp_w[d],
                           doppler_width[d], wl_i, kapmin_ref[d], resolu, h0tab, h1tab, h2tab)
@@ -819,6 +883,7 @@ print(f&quot;accumulated {kept} of {line_ok.sum()} metal lines (cutoff skipped {
       <pre class="code-body"><code class="hljs language-python">metal_opacity = np.zeros((n_depths, n_w), dtype=np.float64)
 kept = <span class="hljs-number">0</span>
 <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> np.where(line_ok)[<span class="hljs-number">0</span>]:
+    <span class="hljs-comment"># grid anchors and the local cutoff for this line</span>
     ci = <span class="hljs-built_in">int</span>(center_idx[i]); wi = <span class="hljs-built_in">int</span>(wing_idx[i]); wl_i = lam[i]
     clamped = <span class="hljs-built_in">max</span>(<span class="hljs-number">0</span>, <span class="hljs-built_in">min</span>(ci, n_w - <span class="hljs-number">1</span>))
     pop = pop3[:, ion_idx[i], elem_idx[i]]          <span class="hljs-comment"># n_ion / U at this species (all depths)</span>
@@ -827,6 +892,8 @@ kept = <span class="hljs-number">0</span>
     good = (pop &gt; <span class="hljs-number">0.0</span>) &amp; (dop &gt; <span class="hljs-number">0.0</span>) &amp; (rho &gt; <span class="hljs-number">0.0</span>)
     <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> np.<span class="hljs-built_in">any</span>(good):
         <span class="hljs-keyword">continue</span>
+
+    <span class="hljs-comment"># peak opacity before and after the Boltzmann factor, then the two-stage cutoff</span>
     xnfdop = np.zeros(n_depths); xnfdop[good] = pop[good] / (rho[good] * dop[good])
     kappa0_pre = cgf[i] * xnfdop                     <span class="hljs-comment"># before the Boltzmann factor</span>
     post = kappa0_pre * boltz[:, i]                  <span class="hljs-comment"># after  the Boltzmann factor (== kappa0)</span>
@@ -834,6 +901,8 @@ kept = <span class="hljs-number">0</span>
     <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> np.<span class="hljs-built_in">any</span>(passcut):
         <span class="hljs-keyword">continue</span>
     kept += <span class="hljs-number">1</span>
+
+    <span class="hljs-comment"># Doppler width (in nm and in v/c) and the SYNTHE damping parameter a</span>
     doppler_width = dop * wl_i                        <span class="hljs-comment"># Doppler width in nm</span>
     dopple = np.where(wl_i &gt; <span class="hljs-number">0</span>, doppler_width / wl_i, <span class="hljs-number">1e-6</span>)         <span class="hljs-comment"># Doppler width in v/c</span>
     <span class="hljs-comment"># total damping rate = natural + Stark*n_e + van der Waals*n_vdW (the txnxn from above)</span>
@@ -857,10 +926,15 @@ kept = <span class="hljs-number">0</span>
     wing_pairs = cd &amp; (kapcen &gt; <span class="hljs-number">0.0</span>)                  <span class="hljs-comment"># depths with a real center to spread</span>
     <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> np.<span class="hljs-built_in">any</span>(wing_pairs):
         <span class="hljs-keyword">continue</span>
+
+    <span class="hljs-comment"># back-solve the wing amplitude from the center, and set the wing anchor + cutoff</span>
     adamp_w = np.maximum(adamp, <span class="hljs-number">1e-12</span>)                <span class="hljs-comment"># floor a so H(a,0) is well-defined</span>
+    <span class="hljs-comment"># divide the center opacity by H(a,0) to recover the profile amplitude the walk spreads</span>
     kappa0_wing = np.where(kapcen &gt; <span class="hljs-number">0.0</span>, kapcen / voigt_h_at_zero(adamp_w, h0tab, h1tab, h2tab), <span class="hljs-number">0.0</span>)
     ci_w = <span class="hljs-built_in">min</span>(<span class="hljs-built_in">max</span>(wi, <span class="hljs-number">0</span>), n_w - <span class="hljs-number">1</span>)                   <span class="hljs-comment"># wing anchor pixel, clamped on-grid</span>
     kapmin_ref = np.maximum(cont[:, ci_w] * CUTOFF, cont[:, ci_w] * KAPMIN_FLOOR)   <span class="hljs-comment"># wing cutoff</span>
+
+    <span class="hljs-comment"># walk each surviving depth&#x27;s wings outward from the anchor</span>
     <span class="hljs-keyword">for</span> d <span class="hljs-keyword">in</span> np.where(wing_pairs)[<span class="hljs-number">0</span>]:
         process_wing_pair(metal_opacity[d], grid, wi, kappa0_wing[d], adamp_w[d],
                           doppler_width[d], wl_i, kapmin_ref[d], resolu, h0tab, h1tab, h2tab)
@@ -1011,20 +1085,27 @@ print(&quot;helium wing kernel ready&quot;)" aria-label="Copy code">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[20]</span>Python</span>
         <button class="copy-btn" type="button" data-code="he_opacity = np.zeros((n_depths, n_w), dtype=np.float64)
 for col, i in enumerate(he_idx):
+    # per-line prefactor, species indices, population, Boltzmann factor and center pixel
     wl_i = float(lam[i]); cgf_i = CGF_CONSTANT * gf_lin[i] / (C_LIGHT_NM / wl_i)   # c_gf prefactor
     ei = int(Zc[i]) - 1; ii = int(ion[i]) - 1        # 0-based element / ion indices
     pop = pop3[:, ii, ei]; dop = dop3[:, ii, ei]     # population per ion, Doppler width (all depths)
     boltz_i = fast_ex(Elow[i] * hckt)                # FASTEX Boltzmann factor
     ci = int(min(max(nearest_grid_indices(grid, np.array([idxwl[i]]))[0], 0), n_w - 1))  # center pixel
+
+    # peak opacity and the two-stage cutoff (same recipe as the metals)
     dop_safe = np.maximum(dop, 1e-40)
     valid = (pop &gt; 0.0) &amp; (dop &gt; 0.0) &amp; (rho &gt; 0.0)
     xnfdop = np.where(valid, pop / (rho * dop_safe), 0.0)
     k0pre = cgf_i * xnfdop; kmin = cont[:, ci] * he_cut          # pre-Boltzmann amplitude + cutoff
     valid &amp;= (k0pre &gt;= kmin); k0 = k0pre * boltz_i; valid &amp;= (k0 &gt;= kmin)   # two-stage cutoff
+
+    # damping parameter, then mask the surviving depths
     gtot = grad[i] + gstark[i] * xne + gvdw[i] * txnxn          # total damping rate
     adamp = gtot / dop_safe
     k0 = np.where(valid, k0, 0.0); dopw = np.where(valid, dop * wl_i, 0.0)
     adamp = np.where(valid, adamp, 0.0)
+
+    # walk the wings depth by depth, applying the continuum-merge taper
     for d in range(n_depths):
         if k0[d] &lt;= 0.0 or dopw[d] &lt;= 0.0:
             continue
@@ -1043,20 +1124,27 @@ print(f&quot;helium opacity accumulated; nonzero grid points: {(he_opacity &gt; 
       </div>
       <pre class="code-body"><code class="hljs language-python">he_opacity = np.zeros((n_depths, n_w), dtype=np.float64)
 <span class="hljs-keyword">for</span> col, i <span class="hljs-keyword">in</span> <span class="hljs-built_in">enumerate</span>(he_idx):
+    <span class="hljs-comment"># per-line prefactor, species indices, population, Boltzmann factor and center pixel</span>
     wl_i = <span class="hljs-built_in">float</span>(lam[i]); cgf_i = CGF_CONSTANT * gf_lin[i] / (C_LIGHT_NM / wl_i)   <span class="hljs-comment"># c_gf prefactor</span>
     ei = <span class="hljs-built_in">int</span>(Zc[i]) - <span class="hljs-number">1</span>; ii = <span class="hljs-built_in">int</span>(ion[i]) - <span class="hljs-number">1</span>        <span class="hljs-comment"># 0-based element / ion indices</span>
     pop = pop3[:, ii, ei]; dop = dop3[:, ii, ei]     <span class="hljs-comment"># population per ion, Doppler width (all depths)</span>
     boltz_i = fast_ex(Elow[i] * hckt)                <span class="hljs-comment"># FASTEX Boltzmann factor</span>
     ci = <span class="hljs-built_in">int</span>(<span class="hljs-built_in">min</span>(<span class="hljs-built_in">max</span>(nearest_grid_indices(grid, np.array([idxwl[i]]))[<span class="hljs-number">0</span>], <span class="hljs-number">0</span>), n_w - <span class="hljs-number">1</span>))  <span class="hljs-comment"># center pixel</span>
+
+    <span class="hljs-comment"># peak opacity and the two-stage cutoff (same recipe as the metals)</span>
     dop_safe = np.maximum(dop, <span class="hljs-number">1e-40</span>)
     valid = (pop &gt; <span class="hljs-number">0.0</span>) &amp; (dop &gt; <span class="hljs-number">0.0</span>) &amp; (rho &gt; <span class="hljs-number">0.0</span>)
     xnfdop = np.where(valid, pop / (rho * dop_safe), <span class="hljs-number">0.0</span>)
     k0pre = cgf_i * xnfdop; kmin = cont[:, ci] * he_cut          <span class="hljs-comment"># pre-Boltzmann amplitude + cutoff</span>
     valid &amp;= (k0pre &gt;= kmin); k0 = k0pre * boltz_i; valid &amp;= (k0 &gt;= kmin)   <span class="hljs-comment"># two-stage cutoff</span>
+
+    <span class="hljs-comment"># damping parameter, then mask the surviving depths</span>
     gtot = grad[i] + gstark[i] * xne + gvdw[i] * txnxn          <span class="hljs-comment"># total damping rate</span>
     adamp = gtot / dop_safe
     k0 = np.where(valid, k0, <span class="hljs-number">0.0</span>); dopw = np.where(valid, dop * wl_i, <span class="hljs-number">0.0</span>)
     adamp = np.where(valid, adamp, <span class="hljs-number">0.0</span>)
+
+    <span class="hljs-comment"># walk the wings depth by depth, applying the continuum-merge taper</span>
     <span class="hljs-keyword">for</span> d <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(n_depths):
         <span class="hljs-keyword">if</span> k0[d] &lt;= <span class="hljs-number">0.0</span> <span class="hljs-keyword">or</span> dopw[d] &lt;= <span class="hljs-number">0.0</span>:
             <span class="hljs-keyword">continue</span>
