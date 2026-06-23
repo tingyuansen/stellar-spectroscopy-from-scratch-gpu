@@ -126,6 +126,18 @@ FIGS = {
    "step, labelled 'millions of molecular rovibrational lines blend into a BAND with a sharp bandhead' — this molecular "
    "band with its bandhead is the single amber element. Use only horizontal text, no rotated or vertical labels. "
    "Caption 'in cool stars atoms lock into molecules, whose bands reshape the spectrum'." + S,
+ "s12_capstone.png":
+   "A capstone figure: ONE pipeline produces the spectra of four very different stars. LEFT, a compact vertical "
+   "pipeline of small labelled rounded boxes joined by downward arrows: 'stellar parameters (Teff, log g)' -> 'model "
+   "atmosphere' -> 'opacity: continuum + atomic + molecular lines' -> 'radiative transfer' -> 'spectrum', with a thin "
+   "bracket beside it labelled 'assembled from Lectures 1-12'. A horizontal arrow leads RIGHT to a small "
+   "Hertzsprung-Russell diagram: horizontal axis 'temperature (hot on the LEFT, cool on the right)', vertical axis "
+   "'luminosity', with four labelled points placed correctly — 'HOT DWARF' (upper left), 'SUN' (centre), 'GIANT' "
+   "(upper right), 'M DWARF' (lower right). Next to each point a tiny spectrum thumbnail showing its signature: the hot "
+   "dwarf one broad Balmer absorption trough; the Sun a forest of narrow metal lines; the giant a strong triplet dip "
+   "(Mg b); the M dwarf a saw-toothed TiO molecular band with a sharp head — this M-dwarf TiO thumbnail is the single "
+   "amber element. Use only horizontal text, no rotated or vertical labels. "
+   "Caption 'one pipeline, built from the whole book, reproduces stars across the HR diagram'." + S,
 }
 
 for fn, prompt in FIGS.items():
