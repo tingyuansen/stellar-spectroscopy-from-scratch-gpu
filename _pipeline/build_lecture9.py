@@ -57,9 +57,13 @@ plt.rcParams.update({"figure.figsize": (7.2, 4.3), "figure.dpi": 120, "savefig.f
     "axes.grid": True, "grid.alpha": 0.25, "axes.axisbelow": True,
     "font.size": 11, "axes.titlesize": 12.5, "axes.labelsize": 11.5})
 
+# the benchmark target: the grey structure the production code computed for the Sun
 REF = np.load(pathlib.Path("..") / "reference" / "L1.npz")
-TEFF, LOGG = 5770.0, 4.44                 # the Sun: effective temperature [K], log surface gravity [cgs]
+
+# the Sun's two defining numbers: effective temperature [K] and log surface gravity [cgs]
+TEFF, LOGG = 5770.0, 4.44
 g_cgs = 10.0 ** LOGG                       # surface gravity g [cm s^-2]
+
 print(f"target: grey atmosphere for Teff = {TEFF:.0f} K, log g = {LOGG}  ->  g = {g_cgs:.4g} cm/s^2")
 print(f"reference arrays: {[k for k in REF.files]}")''')
 
@@ -83,8 +87,10 @@ The temperature structure is the *input* to the pressure integration. Lecture 1 
 
 code(r'''def grey_temperature(teff, tau):
     """Eddington-Kurucz grey T(tau): Kurucz's analytic fit to the Hopf function q(tau)."""
-    bracket = 0.75 * (0.710 + tau - 0.1331 * np.exp(-3.4488 * tau))   # (3/4)(tau + q(tau))
-    return float(teff) * np.power(np.maximum(bracket, 1e-300), 0.25)  # T = Teff * bracket^(1/4)''')
+    # the bracket (3/4)(tau + q(tau)), with q(tau) the exponential Hopf fit
+    bracket = 0.75 * (0.710 + tau - 0.1331 * np.exp(-3.4488 * tau))
+    # T = Teff * bracket^(1/4); the floor keeps the fourth root off a negative argument
+    return float(teff) * np.power(np.maximum(bracket, 1e-300), 0.25)''')
 
 # ── the optical-depth grid ──────────────────────────────────────────────────
 md(r"""## Recap (Lecture 1): the optical-depth grid
@@ -95,8 +101,12 @@ The code builds the grid by raising 10 to the linear ramp $\log\tau_j = -6.875 +
 
 code(r'''NRHOX, TAU1LG, STEPLG = 80, -6.875, 0.125      # ATLAS12 CALCULATE card defaults
 j = np.arange(NRHOX, dtype=np.float64)           # layer index 0..79
-tau = np.power(10.0, TAU1LG + j * STEPLG)        # 80 layers, 0.125 dex apart, surface -> deep
-T = grey_temperature(TEFF, tau)                  # grey/Hopf temperature on the grid (recap above)
+
+# the grid: 10 raised to the linear log-tau ramp, 80 layers 0.125 dex apart, surface -> deep
+tau = np.power(10.0, TAU1LG + j * STEPLG)
+# the recapped grey/Hopf temperature law, evaluated on that grid
+T = grey_temperature(TEFF, tau)
+
 print(f"{NRHOX} layers,  tau = {tau[0]:.3e} .. {tau[-1]:.3e}")
 print(f"T(top) = {T[0]:.1f} K    T(tau~1) ~ {grey_temperature(TEFF, 1.0):.1f} K    T(bottom) = {T[-1]:.1f} K")''')
 
@@ -111,8 +121,9 @@ code(r'''def check(name, got, ref):
     print(f"  {name:12s}  {tag}")
     return rel.max()
 
-check("grey_tau", tau, REF["grey_tau"])                       # same grid as Lecture 1 -> bit-exact
-check("grey_T",   T,   REF["grey_T"])                         # same Hopf fit  as Lecture 1 -> bit-exact''')
+# the grid and the temperature are the same Lecture-1 objects, so both come back bit-exact
+check("grey_tau", tau, REF["grey_tau"])                       # same grid as Lecture 1
+check("grey_T",   T,   REF["grey_T"])                         # same Hopf fit as Lecture 1''')
 
 # ── radiation pressure ──────────────────────────────────────────────────────
 md(r"""## Radiation pressure
@@ -127,9 +138,13 @@ $$
 
 For this solar cold start the radiation-pressure *correction to the hydrostatic run* is small, but it is retained because the reference code retains it and because it matters in hotter, lower-gravity atmospheres. What enters the integration is the **run** of $P_{\rm rad}$ relative to the surface, $P_{\rm rad}(\tau)-P_{\rm rad}(0)$, since only the *gradient* of pressure matters. The code therefore keeps two arrays: `pradk` is the absolute radiation pressure at each layer, while `prad = pradk - pradk[0]` is the depth-dependent increment relative to the top layer (so `prad[0]` is exactly zero by construction). The hydrostatic integration only ever needs this increment; the surface constant is absorbed into the boundary pressure. The turbulent pressure `pturb` is zero on the cold start.""")
 
-code(r'''pradk = 2.521e-15 * np.maximum(T ** 4, TEFF ** 4 / 2.0)   # absolute radiation pressure, Kurucz's floor
-prad = pradk - pradk[0]                                    # depth-dependent run relative to top (prad[0]=0)
-pturb = np.zeros(NRHOX)                                    # turbulent pressure: zero on the cold start
+code(r'''# absolute radiation pressure at each layer, with Kurucz's T^4 floor at Teff^4/2
+pradk = 2.521e-15 * np.maximum(T ** 4, TEFF ** 4 / 2.0)
+# the depth-dependent run relative to the top layer, which is what the integration needs
+prad = pradk - pradk[0]                                    # prad[0] = 0 by construction
+# turbulent pressure: identically zero on the cold start
+pturb = np.zeros(NRHOX)
+
 print(f"P_rad(top) = {pradk[0]:.3e}   P_rad(bottom) = {pradk[-1]:.3e} dyn/cm^2   (gas ~1e5, so ~1e-8 of it)")''')
 
 # ── the cold-start opacity ──────────────────────────────────────────────────
@@ -161,7 +176,8 @@ $$
 
 The step $\Delta\ln\tau = \ln(\tau_{j+1}/\tau_j)$ is the same constant for every interval because the grid is uniform in $\log\tau$ (its value is $\ln 10 \times 0.125$). We will compute this derivative — call it `dplog` — at each layer and use it both to **predict** the next layer's pressure and to **correct** it. The cell below just forms that constant step and confirms it equals $\ln 10 \times 0.125$.""")
 
-code(r'''dlg_tau = np.log(tau[1] / tau[0])    # natural-log tau step, constant across the uniform grid
+code(r'''# the natural-log tau step, a constant across the uniform-in-log-tau grid
+dlg_tau = np.log(tau[1] / tau[0])
 print(f"d(ln tau) per layer = {dlg_tau:.6f}   (= ln(10) * 0.125 = {np.log(10)*0.125:.6f})")''')
 
 # ── predictor-corrector ─────────────────────────────────────────────────────
@@ -186,17 +202,22 @@ md(r"""We implement this in two cells. The first, `ttaup`, is the **set-up wrapp
 code(r'''def ttaup(t, tau, prad, pturb, grav):
     """Set up arrays + boundary seed for the log-pressure hydrostatic integration (Kurucz TTAUP)."""
     n = t.size
+
+    # output arrays, filled layer by layer in the loop
     abstd  = np.zeros(n)            # opacity kappa_Ross at each layer (== 1 on the cold start)
     ptotal = np.zeros(n)           # total pressure  P_total = exp(log P)
     pgas   = np.zeros(n)           # gas pressure    P_gas   = P_total - P_rad - P_turb
     dlg_tau = np.log(tau[1] / tau[0]) if n > 1 else 0.0   # constant log-tau step (= ln10 * 0.125)
+
     # rolling history of log P (plog1..plog4) and of the derivative dplog (dplog1..dplog3)
     plog1 = plog2 = plog3 = plog4 = 0.0
     dplog1 = dplog2 = dplog3 = 0.0
+
     # seed opacity at the top layer (kappa_0 = 0.1) to set the boundary pressure
     abstd[0] = 0.1
     if prad[0] > 0.0:              # warm-restart guard; prad[0]==0 on the cold start, so no-op here
         abstd[0] = min(0.1, grav * tau[0] / max(prad[0], 1e-300) / 2.0)
+
     return _ttaup_loop(t, tau, prad, pturb, grav, n, abstd, ptotal, pgas, dlg_tau,
                        plog1, plog2, plog3, plog4, dplog1, dplog2, dplog3)''')
 
@@ -205,6 +226,7 @@ md(r"""The second cell is the **engine**: the per-layer loop. It has to stay in 
 code(r'''def _ttaup_loop(t, tau, prad, pturb, grav, n, abstd, ptotal, pgas, dlg_tau,
                 plog1, plog2, plog3, plog4, dplog1, dplog2, dplog3):
     for j in range(n):
+
         # ---- PREDICTOR: extrapolate log P from the history ----
         if j == 0:
             plog = np.log(max(grav / abstd[0] * tau[0], 1e-300))     # boundary: kappa_0 = 0.1
@@ -212,9 +234,11 @@ code(r'''def _ttaup_loop(t, tau, prad, pturb, grav, n, abstd, ptotal, pgas, dlg_
             plog = plog1 + dplog1                                     # short history: one-step
         else:
             plog = (3.0*plog4 + 8.0*dplog1 - 4.0*dplog2 + 8.0*dplog3) / 3.0   # 4-term multistep
+
         # ---- CORRECTOR loop: EVALUATE the stored values, THEN check convergence ----
         error, dplog, itn = 1.0, 0.0, 1
         while True:
+            # evaluate and store pressure, gas pressure, opacity, and derivative from the trial plog
             plog = min(plog, 709.78)                       # guard exp() against overflow
             ptotal[j] = np.exp(plog)                       # total pressure at this layer
             pgas[j] = ptotal[j] + (prad[0] - prad[j]) - pturb[j]     # gas = total - P_rad run - P_turb
@@ -222,9 +246,12 @@ code(r'''def _ttaup_loop(t, tau, prad, pturb, grav, n, abstd, ptotal, pgas, dlg_
                 pgas[j] = 1e-30; abstd[j] = 0.1; break
             abstd[j] = 1.0                                 # cold-start opacity (empty ROSSTAB -> 1)
             dplog = grav / abstd[j] * tau[j] / ptotal[j] * dlg_tau   # d(log P) across one log-tau step
+
+            # only now test convergence -- the stored values keep this trial plog
             itn += 1
             if itn > 1000 or error <= 5.0e-5:              # converged (or out of iterations): STOP
                 break                                       # -> STORED values use this trial plog
+
             # corrector estimate, using the just-computed dplog:
             if j == 0:
                 pnew = np.log(max(grav / abstd[j] * tau[j], 1e-300))
@@ -235,6 +262,7 @@ code(r'''def _ttaup_loop(t, tau, prad, pturb, grav, n, abstd, ptotal, pgas, dlg_
                         + 42.0*dplog + 108.0*dplog1 - 54.0*dplog2 + 24.0*dplog3) / 121.0
             error = abs(pnew - plog)                       # convergence test for the NEXT iteration
             plog = 0.5 * (pnew + plog)                     # average predictor and corrector
+
         # ---- shift the history forward one layer ----
         plog4, plog3, plog2, plog1 = plog3, plog2, plog1, plog
         dplog3, dplog2, dplog1 = dplog2, dplog1, dplog
@@ -251,23 +279,30 @@ $$
 
 the weight per unit area of everything above — which is the depth variable the `.atm` file is tabulated against and the one the opacity and transfer lectures integrate over.""")
 
-code(r'''abstd, ptotal, P_gas = ttaup(T, tau, prad, pturb, g_cgs)   # run the predictor-corrector integrator
-RHOX = ptotal / g_cgs                       # column mass [g cm^-2] = total pressure / gravity
-print(f"P_gas:  top = {P_gas[0]:.4e}   bottom = {P_gas[-1]:.4e} dyn/cm^2")   # gas pressure run
-print(f"RHOX:   top = {RHOX[0]:.4e}   bottom = {RHOX[-1]:.4e} g/cm^2")        # column-mass run''')
+code(r'''# run the predictor-corrector integrator: opacity, total pressure, gas pressure
+abstd, ptotal, P_gas = ttaup(T, tau, prad, pturb, g_cgs)
+# column mass = total pressure / gravity
+RHOX = ptotal / g_cgs                       # [g cm^-2]
+
+print(f"P_gas:  top = {P_gas[0]:.4e}   bottom = {P_gas[-1]:.4e} dyn/cm^2")
+print(f"RHOX:   top = {RHOX[0]:.4e}   bottom = {RHOX[-1]:.4e} g/cm^2")''')
 
 # ── benchmark ───────────────────────────────────────────────────────────────
 md(r"""## Benchmark: machine precision
 
-Now the comparison the first lecture deferred. We check the gas pressure and the column mass against the reference grey structure, layer by layer. The first lecture's one-line estimate $P=g\tau$ matched these to $\sim2\times10^{-5}$; reproducing the exact predictor-corrector — in log pressure, with the evaluate-then-check ordering, carrying the radiation-pressure correction — closes that gap to the last bit.""")
+Now the comparison the first lecture deferred. We check the gas pressure and the column mass against the reference grey structure, layer by layer. The first lecture's one-line estimate $P=g\tau$ matched these to $\sim2\times10^{-5}$; reproducing the exact predictor-corrector — in log pressure, with the evaluate-then-check ordering, carrying the radiation-pressure correction — closes that gap to the last bit. The cell runs the same `check` helper on all four arrays — the two recapped ones plus the two residuals — then aggregates: `worst` takes the largest relative difference across them, and `allbit` is `True` only when every array is bit-identical to the reference.""")
 
 code(r'''print("grey model atmosphere vs reference/L1.npz:")
-e_tau  = check("grey_tau",  tau,   REF["grey_tau"])    # grid       (recap, matched in L1)
+
+# the two recapped arrays (matched in L1) and the two residuals L1 deferred
+e_tau  = check("grey_tau",  tau,   REF["grey_tau"])    # grid        (recap, matched in L1)
 e_T    = check("grey_T",    T,     REF["grey_T"])      # temperature (recap, matched in L1)
-e_pgas = check("grey_pgas", P_gas, REF["grey_pgas"])   # gas pressure  -- the residual L1 deferred
-e_rhox = check("grey_rhox", RHOX,  REF["grey_rhox"])   # column mass   -- the residual L1 deferred
-worst = max(e_tau, e_T, e_pgas, e_rhox)                # worst relative diff over all four arrays
-allbit = all(np.array_equal(a, REF[k]) for a, k in     # True only if every array is bit-identical
+e_pgas = check("grey_pgas", P_gas, REF["grey_pgas"])   # gas pressure -- the residual L1 deferred
+e_rhox = check("grey_rhox", RHOX,  REF["grey_rhox"])   # column mass  -- the residual L1 deferred
+
+# aggregate: worst relative diff, and whether every array is bit-identical
+worst = max(e_tau, e_T, e_pgas, e_rhox)
+allbit = all(np.array_equal(a, REF[k]) for a, k in
              [(tau,"grey_tau"), (T,"grey_T"), (P_gas,"grey_pgas"), (RHOX,"grey_rhox")])
 print(f"\nworst max|rel| over all four arrays = {worst:.2e}")
 print(f"all four arrays bit-exact = {allbit}")''')
@@ -278,17 +313,20 @@ md(r"""How much did the exact integrator change from the one-line estimate? Let 
 
 code(r'''P_analytic = g_cgs * tau                              # the first lecture's one-line estimate
 fig, ax = plt.subplots(1, 2, figsize=(11, 4.1))
+
 # left: the grey solar structure -- gas pressure and column mass vs log tau
 ax[0].plot(np.log10(tau), np.log10(P_gas), color="C0", lw=1.6, label=r"$P_{\rm gas}$ (exact integrator)")
 ax[0].plot(np.log10(tau), np.log10(RHOX),  color="C3", lw=1.2, ls="--", label=r"$\rho x$ (column mass)")
 ax[0].set_xlabel(r"$\log_{10}\tau$"); ax[0].set_ylabel(r"$\log_{10}$ [cgs]")
 ax[0].set_title("Grey solar structure"); ax[0].legend(loc="upper left")
+
 # right: fractional gap between the one-line estimate and the exact integral
 resid = np.abs(P_analytic - P_gas) / P_gas             # |P=g*tau  -  exact| / exact
 ax[1].semilogy(np.log10(tau), resid, color="C2", lw=1.4)
 ax[1].axhline(2e-5, color="0.6", ls=":", lw=1.0)       # the ~2e-5 level L1 reported
 ax[1].set_xlabel(r"$\log_{10}\tau$"); ax[1].set_ylabel(r"$|P_{g\tau} - P_{\rm gas}|\,/\,P_{\rm gas}$")
 ax[1].set_title(r"where the one-line $P=g\tau$ differed")
+
 fig.tight_layout(); plt.show()
 print(f"P=g*tau vs exact P_gas: max frac diff = {resid.max():.2e}  (this is the gap we just closed)")''')
 
