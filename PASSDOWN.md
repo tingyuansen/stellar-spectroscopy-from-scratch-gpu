@@ -50,6 +50,16 @@ benchmarks byte-identical, numpy/matplotlib/pathlib only. Pages deploys via GitH
   (10, density 17%), L5 (7). NEVER change code logic/constants/numbers when splitting/commenting —
   machine precision is locked; only restructure + annotate, then rebuild and confirm the benchmark
   is unchanged. Applies to all future lectures (incl. L10+).
+  - **No code→code adjacency (user directive 2026-06-23):** never two code cells in a row without a
+    markdown cell between them — that adjacency is a flag for a missing explanation. Check with: count
+    consecutive code cells per notebook = 0. Every code cell gets a preceding markdown.
+  - **Decompose long single-function cells (user directive 2026-06-23):** a 40–70 line `def`/loop kept
+    "whole with comments" is still too dense. Refactor it into smaller NAMED helper functions by PURE
+    EXTRACTION (move a contiguous block into a helper called at the same point, same inputs/outputs, no
+    reordering / no arithmetic change → benchmark byte-identical), each helper in its own cell with a
+    markdown intro. Only a truly irreducible tight numerical loop stays whole, and then it gets a
+    thorough step-by-step markdown walkthrough before it. Worst offenders: L10/L11 engine functions
+    (josh_profiles, map1, ttaup, convec, the freq/Newton loops).
 - **MARKDOWN EXPLAINS THE IMPLEMENTATION (user directive 2026-06-23).** When a code cell does
   something non-trivial, the markdown right before it must explain HOW the code implements it —
   the approach/algorithm and the key steps — not only the physics. The reader should know what the
