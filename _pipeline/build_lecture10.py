@@ -100,7 +100,8 @@ rhox = REF["rhox_in"].astype(np.float64)   # column mass RHOX [g/cm^2]
 p_in = REF["p_in"].astype(np.float64)      # gas pressure [dyn/cm^2]
 n = T.size
 
-hkt = PLANCK / np.maximum(T * KBOLTZ, 1e-300)   # h/(kT) per layer (note: NOT including nu yet)
+# h/(kT) per layer; note this does NOT yet include the frequency nu
+hkt = PLANCK / np.maximum(T * KBOLTZ, 1e-300)
 
 # the target: Eddington flux H = sigma Teff^4 / (4 pi).  ATLAS writes 4 pi = 12.5664 explicitly.
 flux = SIGMA / 12.5664 * TEFF**4
@@ -140,25 +141,31 @@ code(r'''def parcoe(f, x):
     """Smoothly-blended parabolic coefficients a,b,c so f ~ a + b x + c x^2 (Fortran PARCOE)."""
     nn = f.size; a = np.zeros(nn); b = np.zeros(nn); c = np.zeros(nn)
     if nn == 1: a[0] = f[0]; return a, b, c
+
     # endpoints: straight lines (no curvature term)
     b[0] = (f[1]-f[0])/(x[1]-x[0]); a[0] = f[0]-x[0]*b[0]
     n1 = nn-1
     b[-1] = (f[-1]-f[n1-1])/(x[-1]-x[n1-1]); a[-1] = f[-1]-x[-1]*b[-1]
     if nn == 2: return a, b, c
+
     # interior: exact parabola through each (j-1, j, j+1) triple
     for j in range(1, n1):
         j1 = j-1; d = (f[j]-f[j1])/(x[j]-x[j1])
         c[j] = f[j+1]/((x[j+1]-x[j])*(x[j+1]-x[j1])) + (f[j1]/(x[j+1]-x[j1]) - f[j]/(x[j+1]-x[j]))/(x[j]-x[j1])
         b[j] = d - (x[j]+x[j1])*c[j]; a[j] = f[j1] - x[j1]*d + x[j]*x[j1]*c[j]
+
     # the two near-boundary points use straight segments (ATLAS convention)
     c[1] = 0.0; b[1] = (f[2]-f[1])/(x[2]-x[1]); a[1] = f[1]-x[1]*b[1]
     if nn > 3: c[2] = 0.0; b[2] = (f[3]-f[2])/(x[3]-x[2]); a[2] = f[2]-x[2]*b[2]
+
     # blend each interior parabola with its neighbour, weighted by curvature
     for j in range(1, n1):
         if c[j] == 0.0: continue
         j1 = min(j+1, nn-1); den = abs(c[j1])+abs(c[j]); wt = abs(c[j1])/den if den > 0 else 0.0
         a[j] = a[j1]+wt*(a[j]-a[j1]); b[j] = b[j1]+wt*(b[j]-b[j1]); c[j] = c[j1]+wt*(c[j]-c[j1])
-    a[n1-1] = a[-1]; b[n1-1] = b[-1]; c[n1-1] = c[-1]   # last interior point inherits the endpoint fit
+
+    # last interior point inherits the endpoint fit
+    a[n1-1] = a[-1]; b[n1-1] = b[-1]; c[n1-1] = c[-1]
     return a, b, c''')
 
 md(r"""`integ` and `deriv` both ride on those coefficients. We take them one at a time. First `integ`: it analytically integrates each interval's parabola and accumulates the running total — this is the quadrature behind every optical-depth and flux integral in the lecture.""")
@@ -167,7 +174,9 @@ code(r'''def integ(x, f, start):
     """Cumulative integral of f dx (each interval's parabola), seeded at start (Fortran INTEG)."""
     nn = f.size; out = np.zeros(nn)
     if nn == 0: return out
-    a, b, c = parcoe(f, x); out[0] = start          # parabola coefficients per interval; seed the running sum
+
+    # parabola coefficients per interval; seed the running sum at start
+    a, b, c = parcoe(f, x); out[0] = start
     for i in range(nn-1):
         dx = x[i+1]-x[i]                             # width of this interval
         # exact integral of (a + b x + c x^2) across [x_i, x_{i+1}], factored for stability
@@ -181,16 +190,23 @@ code(r'''def deriv(x, f):
     """Cubic-tangent derivative df/dx (Fortran DERIV)."""
     nn = f.size; d = np.zeros(nn)
     if nn < 2: return d
-    d[0] = (f[1]-f[0])/(x[1]-x[0]); d[-1] = (f[-1]-f[-2])/(x[-1]-x[-2])   # one-sided at the ends
+
+    # one-sided slopes at the ends
+    d[0] = (f[1]-f[0])/(x[1]-x[0]); d[-1] = (f[-1]-f[-2])/(x[-1]-x[-2])
     if nn == 2: return d
-    s = abs(x[1]-x[0])/(x[1]-x[0]) if x[1] != x[0] else 1.0               # sign of the grid direction
+
+    # sign of the grid direction (the tangent formula needs it)
+    s = abs(x[1]-x[0])/(x[1]-x[0]) if x[1] != x[0] else 1.0
     for j in range(1, nn-1):
-        scale = max(abs(f[j-1]), abs(f[j]), abs(f[j+1]))                  # local magnitude, for the tangent limiter
+        # local magnitude, used to normalise the slopes for the tangent limiter
+        scale = max(abs(f[j-1]), abs(f[j]), abs(f[j+1]))
         scale = scale/abs(x[j]) if x[j] != 0.0 else scale
         if scale == 0.0: scale = 1.0
-        d1 = (f[j+1]-f[j])/(x[j+1]-x[j])/scale; d0 = (f[j]-f[j-1])/(x[j]-x[j-1])/scale   # right/left slopes
-        t1 = d1/(s*np.sqrt(1.0+d1*d1)+1.0); t0 = d0/(s*np.sqrt(1.0+d0*d0)+1.0)           # tangent half-angles
-        d[j] = (t1+t0)/(1.0-t1*t0)*scale             # combine via the tangent addition formula (curvature-limited)
+        # right/left slopes, then their tangent half-angles
+        d1 = (f[j+1]-f[j])/(x[j+1]-x[j])/scale; d0 = (f[j]-f[j-1])/(x[j]-x[j-1])/scale
+        t1 = d1/(s*np.sqrt(1.0+d1*d1)+1.0); t0 = d0/(s*np.sqrt(1.0+d0*d0)+1.0)
+        # combine via the tangent addition formula (curvature-limited)
+        d[j] = (t1+t0)/(1.0-t1*t0)*scale
     return d''')
 
 md(r"""The fourth kernel, `map1`, is the one we keep as a single block: it is a Fortran state machine that walks the new grid and the old grid together, so splitting it would break the carried-over interpolation coefficients. The logic is a single sweep — for each target point `xk` it advances a cursor `l` through the source grid until it brackets `xk`, fits a backward and a forward parabola around that bracket (reusing the previous step's forward fit as this step's backward fit when it can), blends the two by curvature weight, and evaluates. The endpoints and the first two intervals fall back to straight lines, exactly as ATLAS does. It returns the remapped array plus the final cursor position. The comments below mark each branch.""")
@@ -247,7 +263,9 @@ code(r'''XTAU  = JT["xtau"].astype(np.float64)        # JOSH fixed optical-depth
 COEFJ = JT["coefj"].astype(np.float64)       # J-moment operator (51x51), from Lecture 8
 COEFH = REF["josh_coefh"].astype(np.float64) # H-moment operator (51x51); shipped here (L8 omits it)
 NX = XTAU.size
-COEFJ_DIAG = np.diag(COEFJ).astype(np.float32)   # precomputed diagonal of the J operator (used every sweep)
+
+# precomputed diagonal of the J operator (reused on every Gauss-Seidel sweep)
+COEFJ_DIAG = np.diag(COEFJ).astype(np.float32)
 ITER_TOL = 1.0e-5                                # relative tolerance for both iterations''')
 
 md(r"""### (a) Per-frequency optics
@@ -273,13 +291,18 @@ The setup `josh_grid_setup` maps $\bar S_\nu$ and $\alpha_\nu$ from the physical
 code(r'''def josh_grid_setup(snubar, alpha, taunu):
     """Stage (b) setup: remap Sbar and alpha onto the float32 JOSH grid, clamp, extrapolate.
     Returns (xsbar8, xalpha8, maxj), all on XTAU; the float32 arrays seed the Lambda-iteration."""
+    # remap source and scattering fraction onto the fixed JOSH tau-grid
     xsbar8, maxj = map1(taunu, snubar, XTAU)
     xalpha8, maxj = map1(taunu, alpha, XTAU)
-    xalpha8 = np.maximum(xalpha8.astype(np.float32), np.float32(0.0))      # clamp to physical ranges
+
+    # cast to float32 and clamp to physical ranges
+    xalpha8 = np.maximum(xalpha8.astype(np.float32), np.float32(0.0))
     xsbar8  = np.maximum(xsbar8.astype(np.float32),  np.float32(1.0e-38))
-    mask = XTAU < taunu[0]                               # grid points above the physical surface
+
+    # grid points above the physical surface: extrapolate flat from the top layer
+    mask = XTAU < taunu[0]
     if np.any(mask):
-        xsbar8[mask] = max(snubar[0], 1.0e-38); xalpha8[mask] = max(alpha[0], 0.0)   # extrapolate flat
+        xsbar8[mask] = max(snubar[0], 1.0e-38); xalpha8[mask] = max(alpha[0], 0.0)
     return xsbar8, xalpha8, maxj''')
 
 md(r"""Now the kernel itself — the one place the whole pipeline runs in single precision. We **keep it whole** (splitting it would change the float32 operation order) and walk through it step by step instead.
@@ -302,6 +325,7 @@ code(r'''def josh_lambda_iteration(xsbar8, xalpha8):
     xs[:] = xsbar8                                       # initial guess: thermal source
     diag = np.float32(1.0) - xalpha8*COEFJ_DIAG          # diagonal of (I - alpha*Lambda)
     xsbar_mod = (np.float32(1.0) - xalpha8)*xsbar8        # thermal part of the source equation
+
     for _ in range(NX):                                  # backward Gauss-Seidel sweep, REAL*4
         iferr = 0
         for kk in range(NX):
@@ -326,20 +350,31 @@ code(r'''def josh_thin_layers(maxj, alpha, snubar, bnu, taunu, snu, hnu, jnu, jm
     """Stage (c): fixed-point solve of the optically-thin outer layers on the physical grid
     (JOSH label-401). Mutates snu/hnu/jnu/jmins/snubar in place; returns nothing."""
     maxj1 = maxj+1 if maxj != 1 else 1
-    snu[maxj1-1:] = snubar[maxj1-1:]                     # deep layers: source = thermal (set below)
+
+    # deep layers: source = thermal (the iteration below refines the rest)
+    snu[maxj1-1:] = snubar[maxj1-1:]
     m0 = max(maxj-1, 1) - 1; nmj0 = maxj-1
+
     for _ in range(NX):
         error = 0.0; ifneg = 0
-        if np.any(snu[m0:] <= 0.0): ifneg = 1; snubar[m0:] = bnu[m0:]; snu[m0:] = bnu[m0:]   # negativity guard
-        hnu[m0:] = deriv(taunu[m0:], snu[m0:]) / 3.0     # H = (1/3) dS/dtau (Eddington)
-        if np.any(hnu[m0:] <= 0.0):                      # H must stay outward-positive
+
+        # negativity guard: if the source went non-physical, fall back to the Planck source
+        if np.any(snu[m0:] <= 0.0): ifneg = 1; snubar[m0:] = bnu[m0:]; snu[m0:] = bnu[m0:]
+
+        # H = (1/3) dS/dtau (Eddington flux); it must stay outward-positive
+        hnu[m0:] = deriv(taunu[m0:], snu[m0:]) / 3.0
+        if np.any(hnu[m0:] <= 0.0):
             ifneg = 1; snubar[m0:] = bnu[m0:]; snu[m0:] = bnu[m0:]
             hnu[m0:] = deriv(taunu[m0:], snu[m0:]) / 3.0
-        jmins[nmj0:] = deriv(taunu[nmj0:], hnu[nmj0:])   # (J - S) = dH/dtau
+
+        # (J - S) = dH/dtau
+        jmins[nmj0:] = deriv(taunu[nmj0:], hnu[nmj0:])
+
+        # rebuild J and update each layer's source as (1-alpha)Sbar + alpha J
         for j in range(maxj1-1, n):
             if ifneg == 1: jmins[j] = 0.0
-            jnu[j] = jmins[j] + snu[j]                    # rebuild J
-            snew = (1.0-alpha[j])*snubar[j] + alpha[j]*jnu[j]   # source update: (1-alpha)Sbar + alpha J
+            jnu[j] = jmins[j] + snu[j]
+            snew = (1.0-alpha[j])*snubar[j] + alpha[j]*jnu[j]
             error += abs(snew - snu[j]) / max(abs(snew), 1e-300); snu[j] = snew
         if error < ITER_TOL: break''')
 
@@ -360,9 +395,12 @@ def josh_profiles(acont, scont, sigmac, rhox, bnu):
     Returns taunu, H_nu, (J_nu - S_nu), kappa_nu (=abtot), alpha_nu, all at every layer."""
     abtot, alpha, snubar, taunu = josh_optics(acont, scont, sigmac, rhox, bnu)   # (a)
     snu = np.zeros(n); hnu = np.zeros(n); jnu = np.zeros(n); jmins = np.zeros(n)
+
     xsbar8, xalpha8, maxj = josh_grid_setup(snubar, alpha, taunu)                # (b) setup
     xs = josh_lambda_iteration(xsbar8, xalpha8)                                  # (b) float32 kernel
-    snu_head, _ = map1(XTAU, xs.astype(np.float64), taunu[:maxj]); snu[:maxj] = snu_head   # back to physical grid
+
+    # the converged grid source, mapped back onto the physical layers
+    snu_head, _ = map1(XTAU, xs.astype(np.float64), taunu[:maxj]); snu[:maxj] = snu_head
     josh_thin_layers(maxj, alpha, snubar, bnu, taunu, snu, hnu, jnu, jmins)      # (c)
     josh_deep_moments(xs, maxj, taunu, hnu, jmins)                              # (d)
     return taunu, hnu, jmins, abtot, alpha''')
@@ -420,6 +458,8 @@ code(r'''def expi3(x):
     dd = (10.0411643829054, 32.4264210695138, 41.2807841891424, 20.4494785013794, 3.31909213593302, 0.103400130404874)
     e = (-0.999999999998447, -26.6271060431811, -241.055827097015, -895.927957772937, -1298.85688746484, -545.374158883133, -5.66575206533869)
     fc = (28.6271060422192, 292.310039388533, 1332.78537748257, 2777.61949509163, 2404.01713225909, 631.6574832808)
+
+    # evaluate E_1(x) on the right rational branch for the argument range
     if x <= 0.0:
         ex1 = 0.0                          # E_1(0) handled by the recurrence below
     else:
@@ -431,8 +471,10 @@ code(r'''def expi3(x):
             ex1 = ex*(c[6]+(c[5]+(c[4]+(c[3]+(c[2]+(c[1]+c[0]*x)*x)*x)*x)*x)*x) / (dd[5]+(dd[4]+(dd[3]+(dd[2]+(dd[1]+(dd[0]+x)*x)*x)*x)*x)*x)
         else:                              # small x: rational fit minus the log singularity
             ex1 = (a[0]+(a[1]+(a[2]+(a[3]+(a[4]+a[5]*x)*x)*x)*x)*x) / (b[0]+(b[1]+(b[2]+(b[3]+(b[4]+x)*x)*x)*x)*x) - np.log(x)
-    out = ex1                              # out now holds E_1(x)
-    for i in range(1, 3):                  # climb E_1 -> E_2 -> E_3 via E_{n+1} = (e^-x - x E_n)/n
+
+    # climb E_1 -> E_2 -> E_3 via the recurrence E_{n+1} = (e^-x - x E_n)/n
+    out = ex1
+    for i in range(1, 3):
         out = (np.exp(-x) - x*out) / float(i)
     return out''')
 
@@ -446,13 +488,16 @@ code(r'''def accumulate_rdiagj(rdiagj, taunu, bnu, hkt, T, stim, abtot, alpha, f
     term2 = 0.0
     for j in range(n):
         term1 = term2                                                # carry the previous layer's half-step term
-        d = 1e-10 if j == n-1 else (taunu[j+1] - taunu[j]); d = max(1e-10, float(d))   # optical-depth step to next layer
+
+        # optical-depth step to the next layer
+        d = 1e-10 if j == n-1 else (taunu[j+1] - taunu[j]); d = max(1e-10, float(d))
         if d <= 0.01:
             # tiny step: series expansion of the E_3 contribution (avoids cancellation)
             term2 = (0.922784335098467 - np.log(d))*d/4.0 + d*d/12.0 - d**3/96.0 + d**4/720.0
         else:
             ex = expi3(d) if d < 10.0 else 0.0                       # direct E_3 (negligible past d=10)
             term2 = 0.5*(d + ex - 0.5)/d
+
         diagj = term1 + term2                                        # the local Lambda-operator diagonal value
         dbdtj = bnu[j]*f*hkt[j] / max(T[j]*stim[j], 1e-300)          # dB/dT at this layer
         # scale by kappa, the scattering correction, and dB/dT; accumulate with weight w
@@ -549,14 +594,22 @@ dabros = deriv(rhox, abross)                    # d kappa_Ross / d(rhox)
 # --- (1) Avrett-Krook flux term -------------------------------------------------
 # rdabh_eff = (true flux-weighted opacity gradient) - (Rosseland mean's own gradient)
 rdabh_eff = rdabh - flxrad * dabros/np.maximum(abross, 1e-300)
-flxrad_safe = np.where(np.abs(flxrad) >= 1e-300, flxrad, 1e-300)   # floor the divisor: one division, no overflow in a discarded np.where branch
+
+# floor the divisor: one division, no overflow in a discarded np.where branch
+flxrad_safe = np.where(np.abs(flxrad) >= 1e-300, flxrad, 1e-300)
 codrhx = rdabh_eff / flxrad_safe                # gradient integrand for the weighting g
 codrhx[0] = 0.0; codrhx[1] = 0.0                # boundary layers carry no gradient weighting
-g = np.exp(integ(rhox, codrhx, 0.0))            # Avrett-Krook weighting g(rhox) = exp(int codrhx d rhox)
-gflux = g * (flxrad - flux) / np.where(np.abs(flxrad) >= 1e-300, flxrad, 1e-300)   # flux defect, weighted by g
-dtau = integ(tauros, gflux, 0.0) / np.maximum(g, 1e-300)          # the optical-depth shift that flattens the flux
-dtau = np.clip(dtau, -tauros/3.0, tauros/3.0)   # stability clamp on the optical-depth shift
-dtflux = -dtau * dtdrhx / np.maximum(abross, 1e-300)   # convert dtau -> dT via the local gradient
+
+# Avrett-Krook weighting g(rhox) = exp(int codrhx d rhox), and the g-weighted flux defect
+g = np.exp(integ(rhox, codrhx, 0.0))
+gflux = g * (flxrad - flux) / np.where(np.abs(flxrad) >= 1e-300, flxrad, 1e-300)
+
+# the optical-depth shift that flattens the flux, with a stability clamp
+dtau = integ(tauros, gflux, 0.0) / np.maximum(g, 1e-300)
+dtau = np.clip(dtau, -tauros/3.0, tauros/3.0)
+
+# convert dtau -> dT via the local gradient
+dtflux = -dtau * dtdrhx / np.maximum(abross, 1e-300)
 dtflux = np.nan_to_num(dtflux)
 print(f"(1) Avrett-Krook flux term: dtflux[40] = {dtflux[40]:+.2f} K  (deep, optically thick)")''')
 
@@ -564,11 +617,15 @@ md(r"""**Term (2), the local-$\Lambda$ surface term.** We loop over layers, divi
 
 code(r'''# --- (2) local-Lambda surface term ----------------------------------------------
 teff25 = TEFF/25.0                                            # the per-term clamp magnitude
-flxdrv = rjmins / np.maximum(abross, 1e-300) / flux * 100.0   # net-heating diagnostic (% units; abross cancels below)
+
+# net-heating diagnostic (% units; the abross divided out here multiplies back in below)
+flxdrv = rjmins / np.maximum(abross, 1e-300) / flux * 100.0
 dtlamb = np.zeros(n)
 for j in range(n):
     denom = rdiagj[j] if abs(rdiagj[j]) > 1e-300 else np.sign(rdiagj[j])*1e-300   # guard /0
-    dtlamb[j] = -flxdrv[j] * flux/100.0 / denom * abross[j]    # net heating / Lambda-diagonal (abross multiplies back in)
+
+    # net heating / Lambda-diagonal (abross multiplies back in here)
+    dtlamb[j] = -flxdrv[j] * flux/100.0 / denom * abross[j]
     if not (tauros[j] < 1.0):                                  # apply only in the thin surface (tau < 1)
         dtlamb[j] = 0.0
         for k in range(1, 6):                                 # smooth over 5 shallower neighbours
@@ -580,9 +637,12 @@ print(f"(2) local-Lambda surface term: dtlamb[0] = {dtlamb[0]:+.1f} K  (thin sur
 md(r"""**Term (3), the surface-boundary term.** The very top layer's emergent flux should equal the target $H$; the scaled deviation $(H - H_{\rm surface})/H\times\tfrac14 T[0]$ gives a uniform offset `dtsur`. We then subtract the part of the offset that the other two terms have *already* applied between $\tau_{\rm Ross}=0.1$ and $2$ (read off by integrating $\Delta T_{\rm flux}+\Delta T_\Lambda$ and averaging across that range), so the surface term does not double-count — and clamp. Summing the three gives the total correction $T_1$.""")
 
 code(r'''# --- (3) surface-boundary term --------------------------------------------------
-dtsur = float(np.clip((flux - flxrad[0])/flux * 0.25 * T[0], -teff25, teff25))   # scaled surface flux deviation
+# scaled deviation of the surface flux from the target
+dtsur = float(np.clip((flux - flxrad[0])/flux * 0.25 * T[0], -teff25, teff25))
+
+# how much the other two terms already moved tau in [0.1, 2] -- the part to not double-count
 tinteg = integ(tauros, dtflux + dtlamb, 0.0)    # cumulative of the other two terms vs tau
-tav = (map1_scalar(tauros, tinteg, 2.0) - map1_scalar(tauros, tinteg, 0.1)) / 2.0   # their average over tau in [0.1, 2]
+tav = (map1_scalar(tauros, tinteg, 2.0) - map1_scalar(tauros, tinteg, 0.1)) / 2.0
 if dtsur*tav <= 0.0: tav = 0.0                  # only remove overlap of the same sign
 if abs(tav) > abs(dtsur): tav = dtsur           # never over-subtract
 dtsurf = np.full(n, dtsur - tav)                # uniform surface offset, double-count removed
@@ -644,9 +704,12 @@ code(r'''class Rosstab:
         self.t = (np.log10(np.maximum(T, 1e-300)) - self.zerot)/self.slopet   # normalised log T per layer
         self.p = (np.log10(np.maximum(P, 1e-300)) - self.zerop)/self.slopep   # normalised log P per layer
         self.k = np.log10(np.maximum(kappa, 1e-300)); self.nn = T.size        # stored log10 kappa
+
     def eval(self, temp, pressure):
-        tl = (np.log10(max(temp, 1e-300)) - self.zerot)/self.slopet           # query point in the same frame
+        # put the query point in the same normalised (log T, log P) frame
+        tl = (np.log10(max(temp, 1e-300)) - self.zerot)/self.slopet
         pl = (np.log10(max(pressure, 1e-300)) - self.zerop)/self.slopep
+
         best = [(1e30, -1)]*4   # nearest sample in each of four quadrants: (++, +-, -+, --) by sign of (dt, dp)
         for i in range(self.nn):
             dt = self.t[i]-tl; dp = self.p[i]-pl; r2 = dt*dt+dp*dp            # squared distance to sample i
@@ -682,8 +745,12 @@ code(r'''def ttaup(t, tau, prad, grav, rosstab):
     Marches down the tau grid solving dP/dtau = g/kappa, inner-iterating because kappa = kappa(T, P)."""
     nn = int(t.size); abstd = np.zeros(nn); ptotal = np.zeros(nn); pgas = np.zeros(nn)
     dlg = np.log(max(float(tau[1]/max(tau[0], 1e-300)), 1e-300)) if nn > 1 else 0.0   # log-tau step
-    p1 = p2 = p3 = p4 = 0.0; q1 = q2 = q3 = 0.0   # rolling history of log P and its derivative (multistep predictor)
-    abstd[0] = min(0.1, grav*tau[0]/max(prad[0], 1e-300)/2.0) if prad[0] > 0.0 else 0.1   # top-layer opacity seed
+
+    # rolling history of log P and its derivative (feeds the multistep predictor/corrector)
+    p1 = p2 = p3 = p4 = 0.0; q1 = q2 = q3 = 0.0
+    # top-layer opacity seed
+    abstd[0] = min(0.1, grav*tau[0]/max(prad[0], 1e-300)/2.0) if prad[0] > 0.0 else 0.1
+
     for j in range(nn):
         plog = ttaup_predict(j, abstd[0], tau[0], grav, p1, p4, q1, q2, q3)   # predictor for log P
         err = 1.0; dplog = 0.0; itn = 1

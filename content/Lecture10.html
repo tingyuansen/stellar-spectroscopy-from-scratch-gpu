@@ -77,7 +77,8 @@ rhox = REF[&quot;rhox_in&quot;].astype(np.float64)   # column mass RHOX [g/cm^2]
 p_in = REF[&quot;p_in&quot;].astype(np.float64)      # gas pressure [dyn/cm^2]
 n = T.size
 
-hkt = PLANCK / np.maximum(T * KBOLTZ, 1e-300)   # h/(kT) per layer (note: NOT including nu yet)
+# h/(kT) per layer; note this does NOT yet include the frequency nu
+hkt = PLANCK / np.maximum(T * KBOLTZ, 1e-300)
 
 # the target: Eddington flux H = sigma Teff^4 / (4 pi).  ATLAS writes 4 pi = 12.5664 explicitly.
 flux = SIGMA / 12.5664 * TEFF**4
@@ -94,7 +95,8 @@ rhox = REF[<span class="hljs-string">&quot;rhox_in&quot;</span>].astype(np.float
 p_in = REF[<span class="hljs-string">&quot;p_in&quot;</span>].astype(np.float64)      <span class="hljs-comment"># gas pressure [dyn/cm^2]</span>
 n = T.size
 
-hkt = PLANCK / np.maximum(T * KBOLTZ, <span class="hljs-number">1e-300</span>)   <span class="hljs-comment"># h/(kT) per layer (note: NOT including nu yet)</span>
+<span class="hljs-comment"># h/(kT) per layer; note this does NOT yet include the frequency nu</span>
+hkt = PLANCK / np.maximum(T * KBOLTZ, <span class="hljs-number">1e-300</span>)
 
 <span class="hljs-comment"># the target: Eddington flux H = sigma Teff^4 / (4 pi).  ATLAS writes 4 pi = 12.5664 explicitly.</span>
 flux = SIGMA / <span class="hljs-number">12.5664</span> * TEFF**<span class="hljs-number">4</span>
@@ -173,25 +175,31 @@ flux = SIGMA / <span class="hljs-number">12.5664</span> * TEFF**<span class="hlj
     &quot;&quot;&quot;Smoothly-blended parabolic coefficients a,b,c so f ~ a + b x + c x^2 (Fortran PARCOE).&quot;&quot;&quot;
     nn = f.size; a = np.zeros(nn); b = np.zeros(nn); c = np.zeros(nn)
     if nn == 1: a[0] = f[0]; return a, b, c
+
     # endpoints: straight lines (no curvature term)
     b[0] = (f[1]-f[0])/(x[1]-x[0]); a[0] = f[0]-x[0]*b[0]
     n1 = nn-1
     b[-1] = (f[-1]-f[n1-1])/(x[-1]-x[n1-1]); a[-1] = f[-1]-x[-1]*b[-1]
     if nn == 2: return a, b, c
+
     # interior: exact parabola through each (j-1, j, j+1) triple
     for j in range(1, n1):
         j1 = j-1; d = (f[j]-f[j1])/(x[j]-x[j1])
         c[j] = f[j+1]/((x[j+1]-x[j])*(x[j+1]-x[j1])) + (f[j1]/(x[j+1]-x[j1]) - f[j]/(x[j+1]-x[j]))/(x[j]-x[j1])
         b[j] = d - (x[j]+x[j1])*c[j]; a[j] = f[j1] - x[j1]*d + x[j]*x[j1]*c[j]
+
     # the two near-boundary points use straight segments (ATLAS convention)
     c[1] = 0.0; b[1] = (f[2]-f[1])/(x[2]-x[1]); a[1] = f[1]-x[1]*b[1]
     if nn &gt; 3: c[2] = 0.0; b[2] = (f[3]-f[2])/(x[3]-x[2]); a[2] = f[2]-x[2]*b[2]
+
     # blend each interior parabola with its neighbour, weighted by curvature
     for j in range(1, n1):
         if c[j] == 0.0: continue
         j1 = min(j+1, nn-1); den = abs(c[j1])+abs(c[j]); wt = abs(c[j1])/den if den &gt; 0 else 0.0
         a[j] = a[j1]+wt*(a[j]-a[j1]); b[j] = b[j1]+wt*(b[j]-b[j1]); c[j] = c[j1]+wt*(c[j]-c[j1])
-    a[n1-1] = a[-1]; b[n1-1] = b[-1]; c[n1-1] = c[-1]   # last interior point inherits the endpoint fit
+
+    # last interior point inherits the endpoint fit
+    a[n1-1] = a[-1]; b[n1-1] = b[-1]; c[n1-1] = c[-1]
     return a, b, c" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
@@ -199,25 +207,31 @@ flux = SIGMA / <span class="hljs-number">12.5664</span> * TEFF**<span class="hlj
     <span class="hljs-string">&quot;&quot;&quot;Smoothly-blended parabolic coefficients a,b,c so f ~ a + b x + c x^2 (Fortran PARCOE).&quot;&quot;&quot;</span>
     nn = f.size; a = np.zeros(nn); b = np.zeros(nn); c = np.zeros(nn)
     <span class="hljs-keyword">if</span> nn == <span class="hljs-number">1</span>: a[<span class="hljs-number">0</span>] = f[<span class="hljs-number">0</span>]; <span class="hljs-keyword">return</span> a, b, c
+
     <span class="hljs-comment"># endpoints: straight lines (no curvature term)</span>
     b[<span class="hljs-number">0</span>] = (f[<span class="hljs-number">1</span>]-f[<span class="hljs-number">0</span>])/(x[<span class="hljs-number">1</span>]-x[<span class="hljs-number">0</span>]); a[<span class="hljs-number">0</span>] = f[<span class="hljs-number">0</span>]-x[<span class="hljs-number">0</span>]*b[<span class="hljs-number">0</span>]
     n1 = nn-<span class="hljs-number">1</span>
     b[-<span class="hljs-number">1</span>] = (f[-<span class="hljs-number">1</span>]-f[n1-<span class="hljs-number">1</span>])/(x[-<span class="hljs-number">1</span>]-x[n1-<span class="hljs-number">1</span>]); a[-<span class="hljs-number">1</span>] = f[-<span class="hljs-number">1</span>]-x[-<span class="hljs-number">1</span>]*b[-<span class="hljs-number">1</span>]
     <span class="hljs-keyword">if</span> nn == <span class="hljs-number">2</span>: <span class="hljs-keyword">return</span> a, b, c
+
     <span class="hljs-comment"># interior: exact parabola through each (j-1, j, j+1) triple</span>
     <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, n1):
         j1 = j-<span class="hljs-number">1</span>; d = (f[j]-f[j1])/(x[j]-x[j1])
         c[j] = f[j+<span class="hljs-number">1</span>]/((x[j+<span class="hljs-number">1</span>]-x[j])*(x[j+<span class="hljs-number">1</span>]-x[j1])) + (f[j1]/(x[j+<span class="hljs-number">1</span>]-x[j1]) - f[j]/(x[j+<span class="hljs-number">1</span>]-x[j]))/(x[j]-x[j1])
         b[j] = d - (x[j]+x[j1])*c[j]; a[j] = f[j1] - x[j1]*d + x[j]*x[j1]*c[j]
+
     <span class="hljs-comment"># the two near-boundary points use straight segments (ATLAS convention)</span>
     c[<span class="hljs-number">1</span>] = <span class="hljs-number">0.0</span>; b[<span class="hljs-number">1</span>] = (f[<span class="hljs-number">2</span>]-f[<span class="hljs-number">1</span>])/(x[<span class="hljs-number">2</span>]-x[<span class="hljs-number">1</span>]); a[<span class="hljs-number">1</span>] = f[<span class="hljs-number">1</span>]-x[<span class="hljs-number">1</span>]*b[<span class="hljs-number">1</span>]
     <span class="hljs-keyword">if</span> nn &gt; <span class="hljs-number">3</span>: c[<span class="hljs-number">2</span>] = <span class="hljs-number">0.0</span>; b[<span class="hljs-number">2</span>] = (f[<span class="hljs-number">3</span>]-f[<span class="hljs-number">2</span>])/(x[<span class="hljs-number">3</span>]-x[<span class="hljs-number">2</span>]); a[<span class="hljs-number">2</span>] = f[<span class="hljs-number">2</span>]-x[<span class="hljs-number">2</span>]*b[<span class="hljs-number">2</span>]
+
     <span class="hljs-comment"># blend each interior parabola with its neighbour, weighted by curvature</span>
     <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, n1):
         <span class="hljs-keyword">if</span> c[j] == <span class="hljs-number">0.0</span>: <span class="hljs-keyword">continue</span>
         j1 = <span class="hljs-built_in">min</span>(j+<span class="hljs-number">1</span>, nn-<span class="hljs-number">1</span>); den = <span class="hljs-built_in">abs</span>(c[j1])+<span class="hljs-built_in">abs</span>(c[j]); wt = <span class="hljs-built_in">abs</span>(c[j1])/den <span class="hljs-keyword">if</span> den &gt; <span class="hljs-number">0</span> <span class="hljs-keyword">else</span> <span class="hljs-number">0.0</span>
         a[j] = a[j1]+wt*(a[j]-a[j1]); b[j] = b[j1]+wt*(b[j]-b[j1]); c[j] = c[j1]+wt*(c[j]-c[j1])
-    a[n1-<span class="hljs-number">1</span>] = a[-<span class="hljs-number">1</span>]; b[n1-<span class="hljs-number">1</span>] = b[-<span class="hljs-number">1</span>]; c[n1-<span class="hljs-number">1</span>] = c[-<span class="hljs-number">1</span>]   <span class="hljs-comment"># last interior point inherits the endpoint fit</span>
+
+    <span class="hljs-comment"># last interior point inherits the endpoint fit</span>
+    a[n1-<span class="hljs-number">1</span>] = a[-<span class="hljs-number">1</span>]; b[n1-<span class="hljs-number">1</span>] = b[-<span class="hljs-number">1</span>]; c[n1-<span class="hljs-number">1</span>] = c[-<span class="hljs-number">1</span>]
     <span class="hljs-keyword">return</span> a, b, c</code></pre>
     </div></div><div class="prose"><p><code>integ</code> and <code>deriv</code> both ride on those coefficients. We take them one at a time. First <code>integ</code>: it analytically integrates each interval&#39;s parabola and accumulates the running total — this is the quadrature behind every optical-depth and flux integral in the lecture.</p>
 </div><div class="nb-cell"><div class="code-card">
@@ -227,7 +241,9 @@ flux = SIGMA / <span class="hljs-number">12.5664</span> * TEFF**<span class="hlj
     &quot;&quot;&quot;Cumulative integral of f dx (each interval&#39;s parabola), seeded at start (Fortran INTEG).&quot;&quot;&quot;
     nn = f.size; out = np.zeros(nn)
     if nn == 0: return out
-    a, b, c = parcoe(f, x); out[0] = start          # parabola coefficients per interval; seed the running sum
+
+    # parabola coefficients per interval; seed the running sum at start
+    a, b, c = parcoe(f, x); out[0] = start
     for i in range(nn-1):
         dx = x[i+1]-x[i]                             # width of this interval
         # exact integral of (a + b x + c x^2) across [x_i, x_{i+1}], factored for stability
@@ -240,7 +256,9 @@ flux = SIGMA / <span class="hljs-number">12.5664</span> * TEFF**<span class="hlj
     <span class="hljs-string">&quot;&quot;&quot;Cumulative integral of f dx (each interval&#x27;s parabola), seeded at start (Fortran INTEG).&quot;&quot;&quot;</span>
     nn = f.size; out = np.zeros(nn)
     <span class="hljs-keyword">if</span> nn == <span class="hljs-number">0</span>: <span class="hljs-keyword">return</span> out
-    a, b, c = parcoe(f, x); out[<span class="hljs-number">0</span>] = start          <span class="hljs-comment"># parabola coefficients per interval; seed the running sum</span>
+
+    <span class="hljs-comment"># parabola coefficients per interval; seed the running sum at start</span>
+    a, b, c = parcoe(f, x); out[<span class="hljs-number">0</span>] = start
     <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nn-<span class="hljs-number">1</span>):
         dx = x[i+<span class="hljs-number">1</span>]-x[i]                             <span class="hljs-comment"># width of this interval</span>
         <span class="hljs-comment"># exact integral of (a + b x + c x^2) across [x_i, x_{i+1}], factored for stability</span>
@@ -255,16 +273,23 @@ flux = SIGMA / <span class="hljs-number">12.5664</span> * TEFF**<span class="hlj
     &quot;&quot;&quot;Cubic-tangent derivative df/dx (Fortran DERIV).&quot;&quot;&quot;
     nn = f.size; d = np.zeros(nn)
     if nn &lt; 2: return d
-    d[0] = (f[1]-f[0])/(x[1]-x[0]); d[-1] = (f[-1]-f[-2])/(x[-1]-x[-2])   # one-sided at the ends
+
+    # one-sided slopes at the ends
+    d[0] = (f[1]-f[0])/(x[1]-x[0]); d[-1] = (f[-1]-f[-2])/(x[-1]-x[-2])
     if nn == 2: return d
-    s = abs(x[1]-x[0])/(x[1]-x[0]) if x[1] != x[0] else 1.0               # sign of the grid direction
+
+    # sign of the grid direction (the tangent formula needs it)
+    s = abs(x[1]-x[0])/(x[1]-x[0]) if x[1] != x[0] else 1.0
     for j in range(1, nn-1):
-        scale = max(abs(f[j-1]), abs(f[j]), abs(f[j+1]))                  # local magnitude, for the tangent limiter
+        # local magnitude, used to normalise the slopes for the tangent limiter
+        scale = max(abs(f[j-1]), abs(f[j]), abs(f[j+1]))
         scale = scale/abs(x[j]) if x[j] != 0.0 else scale
         if scale == 0.0: scale = 1.0
-        d1 = (f[j+1]-f[j])/(x[j+1]-x[j])/scale; d0 = (f[j]-f[j-1])/(x[j]-x[j-1])/scale   # right/left slopes
-        t1 = d1/(s*np.sqrt(1.0+d1*d1)+1.0); t0 = d0/(s*np.sqrt(1.0+d0*d0)+1.0)           # tangent half-angles
-        d[j] = (t1+t0)/(1.0-t1*t0)*scale             # combine via the tangent addition formula (curvature-limited)
+        # right/left slopes, then their tangent half-angles
+        d1 = (f[j+1]-f[j])/(x[j+1]-x[j])/scale; d0 = (f[j]-f[j-1])/(x[j]-x[j-1])/scale
+        t1 = d1/(s*np.sqrt(1.0+d1*d1)+1.0); t0 = d0/(s*np.sqrt(1.0+d0*d0)+1.0)
+        # combine via the tangent addition formula (curvature-limited)
+        d[j] = (t1+t0)/(1.0-t1*t0)*scale
     return d" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
@@ -272,16 +297,23 @@ flux = SIGMA / <span class="hljs-number">12.5664</span> * TEFF**<span class="hlj
     <span class="hljs-string">&quot;&quot;&quot;Cubic-tangent derivative df/dx (Fortran DERIV).&quot;&quot;&quot;</span>
     nn = f.size; d = np.zeros(nn)
     <span class="hljs-keyword">if</span> nn &lt; <span class="hljs-number">2</span>: <span class="hljs-keyword">return</span> d
-    d[<span class="hljs-number">0</span>] = (f[<span class="hljs-number">1</span>]-f[<span class="hljs-number">0</span>])/(x[<span class="hljs-number">1</span>]-x[<span class="hljs-number">0</span>]); d[-<span class="hljs-number">1</span>] = (f[-<span class="hljs-number">1</span>]-f[-<span class="hljs-number">2</span>])/(x[-<span class="hljs-number">1</span>]-x[-<span class="hljs-number">2</span>])   <span class="hljs-comment"># one-sided at the ends</span>
+
+    <span class="hljs-comment"># one-sided slopes at the ends</span>
+    d[<span class="hljs-number">0</span>] = (f[<span class="hljs-number">1</span>]-f[<span class="hljs-number">0</span>])/(x[<span class="hljs-number">1</span>]-x[<span class="hljs-number">0</span>]); d[-<span class="hljs-number">1</span>] = (f[-<span class="hljs-number">1</span>]-f[-<span class="hljs-number">2</span>])/(x[-<span class="hljs-number">1</span>]-x[-<span class="hljs-number">2</span>])
     <span class="hljs-keyword">if</span> nn == <span class="hljs-number">2</span>: <span class="hljs-keyword">return</span> d
-    s = <span class="hljs-built_in">abs</span>(x[<span class="hljs-number">1</span>]-x[<span class="hljs-number">0</span>])/(x[<span class="hljs-number">1</span>]-x[<span class="hljs-number">0</span>]) <span class="hljs-keyword">if</span> x[<span class="hljs-number">1</span>] != x[<span class="hljs-number">0</span>] <span class="hljs-keyword">else</span> <span class="hljs-number">1.0</span>               <span class="hljs-comment"># sign of the grid direction</span>
+
+    <span class="hljs-comment"># sign of the grid direction (the tangent formula needs it)</span>
+    s = <span class="hljs-built_in">abs</span>(x[<span class="hljs-number">1</span>]-x[<span class="hljs-number">0</span>])/(x[<span class="hljs-number">1</span>]-x[<span class="hljs-number">0</span>]) <span class="hljs-keyword">if</span> x[<span class="hljs-number">1</span>] != x[<span class="hljs-number">0</span>] <span class="hljs-keyword">else</span> <span class="hljs-number">1.0</span>
     <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, nn-<span class="hljs-number">1</span>):
-        scale = <span class="hljs-built_in">max</span>(<span class="hljs-built_in">abs</span>(f[j-<span class="hljs-number">1</span>]), <span class="hljs-built_in">abs</span>(f[j]), <span class="hljs-built_in">abs</span>(f[j+<span class="hljs-number">1</span>]))                  <span class="hljs-comment"># local magnitude, for the tangent limiter</span>
+        <span class="hljs-comment"># local magnitude, used to normalise the slopes for the tangent limiter</span>
+        scale = <span class="hljs-built_in">max</span>(<span class="hljs-built_in">abs</span>(f[j-<span class="hljs-number">1</span>]), <span class="hljs-built_in">abs</span>(f[j]), <span class="hljs-built_in">abs</span>(f[j+<span class="hljs-number">1</span>]))
         scale = scale/<span class="hljs-built_in">abs</span>(x[j]) <span class="hljs-keyword">if</span> x[j] != <span class="hljs-number">0.0</span> <span class="hljs-keyword">else</span> scale
         <span class="hljs-keyword">if</span> scale == <span class="hljs-number">0.0</span>: scale = <span class="hljs-number">1.0</span>
-        d1 = (f[j+<span class="hljs-number">1</span>]-f[j])/(x[j+<span class="hljs-number">1</span>]-x[j])/scale; d0 = (f[j]-f[j-<span class="hljs-number">1</span>])/(x[j]-x[j-<span class="hljs-number">1</span>])/scale   <span class="hljs-comment"># right/left slopes</span>
-        t1 = d1/(s*np.sqrt(<span class="hljs-number">1.0</span>+d1*d1)+<span class="hljs-number">1.0</span>); t0 = d0/(s*np.sqrt(<span class="hljs-number">1.0</span>+d0*d0)+<span class="hljs-number">1.0</span>)           <span class="hljs-comment"># tangent half-angles</span>
-        d[j] = (t1+t0)/(<span class="hljs-number">1.0</span>-t1*t0)*scale             <span class="hljs-comment"># combine via the tangent addition formula (curvature-limited)</span>
+        <span class="hljs-comment"># right/left slopes, then their tangent half-angles</span>
+        d1 = (f[j+<span class="hljs-number">1</span>]-f[j])/(x[j+<span class="hljs-number">1</span>]-x[j])/scale; d0 = (f[j]-f[j-<span class="hljs-number">1</span>])/(x[j]-x[j-<span class="hljs-number">1</span>])/scale
+        t1 = d1/(s*np.sqrt(<span class="hljs-number">1.0</span>+d1*d1)+<span class="hljs-number">1.0</span>); t0 = d0/(s*np.sqrt(<span class="hljs-number">1.0</span>+d0*d0)+<span class="hljs-number">1.0</span>)
+        <span class="hljs-comment"># combine via the tangent addition formula (curvature-limited)</span>
+        d[j] = (t1+t0)/(<span class="hljs-number">1.0</span>-t1*t0)*scale
     <span class="hljs-keyword">return</span> d</code></pre>
     </div></div><div class="prose"><p>The fourth kernel, <code>map1</code>, is the one we keep as a single block: it is a Fortran state machine that walks the new grid and the old grid together, so splitting it would break the carried-over interpolation coefficients. The logic is a single sweep — for each target point <code>xk</code> it advances a cursor <code>l</code> through the source grid until it brackets <code>xk</code>, fits a backward and a forward parabola around that bracket (reusing the previous step&#39;s forward fit as this step&#39;s backward fit when it can), blends the two by curvature weight, and evaluates. The endpoints and the first two intervals fall back to straight lines, exactly as ATLAS does. It returns the remapped array plus the final cursor position. The comments below mark each branch.</p>
 </div><div class="nb-cell"><div class="code-card">
@@ -376,7 +408,9 @@ def map1_scalar(xold, fold, xv):
 COEFJ = JT[&quot;coefj&quot;].astype(np.float64)       # J-moment operator (51x51), from Lecture 8
 COEFH = REF[&quot;josh_coefh&quot;].astype(np.float64) # H-moment operator (51x51); shipped here (L8 omits it)
 NX = XTAU.size
-COEFJ_DIAG = np.diag(COEFJ).astype(np.float32)   # precomputed diagonal of the J operator (used every sweep)
+
+# precomputed diagonal of the J operator (reused on every Gauss-Seidel sweep)
+COEFJ_DIAG = np.diag(COEFJ).astype(np.float32)
 ITER_TOL = 1.0e-5                                # relative tolerance for both iterations" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
@@ -384,7 +418,9 @@ ITER_TOL = 1.0e-5                                # relative tolerance for both i
 COEFJ = JT[<span class="hljs-string">&quot;coefj&quot;</span>].astype(np.float64)       <span class="hljs-comment"># J-moment operator (51x51), from Lecture 8</span>
 COEFH = REF[<span class="hljs-string">&quot;josh_coefh&quot;</span>].astype(np.float64) <span class="hljs-comment"># H-moment operator (51x51); shipped here (L8 omits it)</span>
 NX = XTAU.size
-COEFJ_DIAG = np.diag(COEFJ).astype(np.float32)   <span class="hljs-comment"># precomputed diagonal of the J operator (used every sweep)</span>
+
+<span class="hljs-comment"># precomputed diagonal of the J operator (reused on every Gauss-Seidel sweep)</span>
+COEFJ_DIAG = np.diag(COEFJ).astype(np.float32)
 ITER_TOL = <span class="hljs-number">1.0e-5</span>                                <span class="hljs-comment"># relative tolerance for both iterations</span></code></pre>
     </div></div><div class="prose"><h3>(a) Per-frequency optics</h3>
 <p>The first stage turns this frequency&#39;s continuum opacity and source into the four quantities JOSH works with: the total extinction <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>κ</mi><mi>ν</mi></msub></mrow><annotation encoding="application/x-tex">\kappa_\nu</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">κ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> (<code>abtot</code>, absorption + scattering, floored away from zero), the scattering fraction <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>α</mi><mi>ν</mi></msub><mo>=</mo><msub><mi>σ</mi><mi>ν</mi></msub><mi mathvariant="normal">/</mi><msub><mi>κ</mi><mi>ν</mi></msub></mrow><annotation encoding="application/x-tex">\alpha_\nu=\sigma_\nu/\kappa_\nu</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.0037em;">α</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.0037em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.03588em;">σ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.0359em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mord">/</span><span class="mord"><span class="mord mathnormal">κ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> (<code>alpha</code>), the thermal-plus-scattering source <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mover accent="true"><mi>S</mi><mo>ˉ</mo></mover><mi>ν</mi></msub></mrow><annotation encoding="application/x-tex">\bar S_\nu</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.9701em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord accent"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8201em;"><span style="top:-3em;"><span class="pstrut" style="height:3em;"></span><span class="mord mathnormal" style="margin-right:0.05764em;">S</span></span><span style="top:-3.2523em;"><span class="pstrut" style="height:3em;"></span><span class="accent-body" style="left:-0.1667em;"><span class="mord">ˉ</span></span></span></span></span></span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.0576em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> (<code>snubar</code>, the absorption-weighted source — note that with no line absorption the denominator is just <code>acont</code>), and the monochromatic optical depth <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>τ</mi><mi>ν</mi></msub><mo>=</mo><mo>∫</mo><msub><mi>κ</mi><mi>ν</mi></msub><mtext> </mtext><mi>d</mi><mo stretchy="false">(</mo><mi>ρ</mi><mi>x</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">\tau_\nu=\int\kappa_\nu\,d(\rho x)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.1132em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1.1111em;vertical-align:-0.3061em;"></span><span class="mop op-symbol small-op" style="margin-right:0.19445em;position:relative;top:-0.0006em;">∫</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">κ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal">d</span><span class="mopen">(</span><span class="mord mathnormal">ρ</span><span class="mord mathnormal">x</span><span class="mclose">)</span></span></span></span> (<code>taunu</code>).</p>
@@ -420,26 +456,36 @@ ITER_TOL = <span class="hljs-number">1.0e-5</span>                              
         <button class="copy-btn" type="button" data-code="def josh_grid_setup(snubar, alpha, taunu):
     &quot;&quot;&quot;Stage (b) setup: remap Sbar and alpha onto the float32 JOSH grid, clamp, extrapolate.
     Returns (xsbar8, xalpha8, maxj), all on XTAU; the float32 arrays seed the Lambda-iteration.&quot;&quot;&quot;
+    # remap source and scattering fraction onto the fixed JOSH tau-grid
     xsbar8, maxj = map1(taunu, snubar, XTAU)
     xalpha8, maxj = map1(taunu, alpha, XTAU)
-    xalpha8 = np.maximum(xalpha8.astype(np.float32), np.float32(0.0))      # clamp to physical ranges
+
+    # cast to float32 and clamp to physical ranges
+    xalpha8 = np.maximum(xalpha8.astype(np.float32), np.float32(0.0))
     xsbar8  = np.maximum(xsbar8.astype(np.float32),  np.float32(1.0e-38))
-    mask = XTAU &lt; taunu[0]                               # grid points above the physical surface
+
+    # grid points above the physical surface: extrapolate flat from the top layer
+    mask = XTAU &lt; taunu[0]
     if np.any(mask):
-        xsbar8[mask] = max(snubar[0], 1.0e-38); xalpha8[mask] = max(alpha[0], 0.0)   # extrapolate flat
+        xsbar8[mask] = max(snubar[0], 1.0e-38); xalpha8[mask] = max(alpha[0], 0.0)
     return xsbar8, xalpha8, maxj" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">josh_grid_setup</span>(<span class="hljs-params">snubar, alpha, taunu</span>):
     <span class="hljs-string">&quot;&quot;&quot;Stage (b) setup: remap Sbar and alpha onto the float32 JOSH grid, clamp, extrapolate.
     Returns (xsbar8, xalpha8, maxj), all on XTAU; the float32 arrays seed the Lambda-iteration.&quot;&quot;&quot;</span>
+    <span class="hljs-comment"># remap source and scattering fraction onto the fixed JOSH tau-grid</span>
     xsbar8, maxj = map1(taunu, snubar, XTAU)
     xalpha8, maxj = map1(taunu, alpha, XTAU)
-    xalpha8 = np.maximum(xalpha8.astype(np.float32), np.float32(<span class="hljs-number">0.0</span>))      <span class="hljs-comment"># clamp to physical ranges</span>
+
+    <span class="hljs-comment"># cast to float32 and clamp to physical ranges</span>
+    xalpha8 = np.maximum(xalpha8.astype(np.float32), np.float32(<span class="hljs-number">0.0</span>))
     xsbar8  = np.maximum(xsbar8.astype(np.float32),  np.float32(<span class="hljs-number">1.0e-38</span>))
-    mask = XTAU &lt; taunu[<span class="hljs-number">0</span>]                               <span class="hljs-comment"># grid points above the physical surface</span>
+
+    <span class="hljs-comment"># grid points above the physical surface: extrapolate flat from the top layer</span>
+    mask = XTAU &lt; taunu[<span class="hljs-number">0</span>]
     <span class="hljs-keyword">if</span> np.<span class="hljs-built_in">any</span>(mask):
-        xsbar8[mask] = <span class="hljs-built_in">max</span>(snubar[<span class="hljs-number">0</span>], <span class="hljs-number">1.0e-38</span>); xalpha8[mask] = <span class="hljs-built_in">max</span>(alpha[<span class="hljs-number">0</span>], <span class="hljs-number">0.0</span>)   <span class="hljs-comment"># extrapolate flat</span>
+        xsbar8[mask] = <span class="hljs-built_in">max</span>(snubar[<span class="hljs-number">0</span>], <span class="hljs-number">1.0e-38</span>); xalpha8[mask] = <span class="hljs-built_in">max</span>(alpha[<span class="hljs-number">0</span>], <span class="hljs-number">0.0</span>)
     <span class="hljs-keyword">return</span> xsbar8, xalpha8, maxj</code></pre>
     </div></div><div class="prose"><p>Now the kernel itself — the one place the whole pipeline runs in single precision. We <strong>keep it whole</strong> (splitting it would change the float32 operation order) and walk through it step by step instead.</p>
 <p>It solves <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">(</mo><mi>I</mi><mo>−</mo><mi>α</mi><mi mathvariant="normal">Λ</mi><mo stretchy="false">)</mo><mi>S</mi><mo>=</mo><mo stretchy="false">(</mo><mn>1</mn><mo>−</mo><mi>α</mi><mo stretchy="false">)</mo><mover accent="true"><mi>S</mi><mo>ˉ</mo></mover></mrow><annotation encoding="application/x-tex">(I-\alpha\Lambda)S = (1-\alpha)\bar S</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.07847em;">I</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.0037em;">α</span><span class="mord">Λ</span><span class="mclose">)</span><span class="mord mathnormal" style="margin-right:0.05764em;">S</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord">1</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1.0701em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.0037em;">α</span><span class="mclose">)</span><span class="mord accent"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8201em;"><span style="top:-3em;"><span class="pstrut" style="height:3em;"></span><span class="mord mathnormal" style="margin-right:0.05764em;">S</span></span><span style="top:-3.2523em;"><span class="pstrut" style="height:3em;"></span><span class="accent-body" style="left:-0.1667em;"><span class="mord">ˉ</span></span></span></span></span></span></span></span></span></span> for the source <code>xs</code> on the JOSH grid by <strong>backward Gauss–Seidel</strong>, every operation in <code>float32</code> (Fortran <code>REAL*4</code>). Reading the body:</p>
@@ -462,6 +508,7 @@ ITER_TOL = <span class="hljs-number">1.0e-5</span>                              
     xs[:] = xsbar8                                       # initial guess: thermal source
     diag = np.float32(1.0) - xalpha8*COEFJ_DIAG          # diagonal of (I - alpha*Lambda)
     xsbar_mod = (np.float32(1.0) - xalpha8)*xsbar8        # thermal part of the source equation
+
     for _ in range(NX):                                  # backward Gauss-Seidel sweep, REAL*4
         iferr = 0
         for kk in range(NX):
@@ -486,6 +533,7 @@ ITER_TOL = <span class="hljs-number">1.0e-5</span>                              
     xs[:] = xsbar8                                       <span class="hljs-comment"># initial guess: thermal source</span>
     diag = np.float32(<span class="hljs-number">1.0</span>) - xalpha8*COEFJ_DIAG          <span class="hljs-comment"># diagonal of (I - alpha*Lambda)</span>
     xsbar_mod = (np.float32(<span class="hljs-number">1.0</span>) - xalpha8)*xsbar8        <span class="hljs-comment"># thermal part of the source equation</span>
+
     <span class="hljs-keyword">for</span> _ <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(NX):                                  <span class="hljs-comment"># backward Gauss-Seidel sweep, REAL*4</span>
         iferr = <span class="hljs-number">0</span>
         <span class="hljs-keyword">for</span> kk <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(NX):
@@ -510,20 +558,31 @@ ITER_TOL = <span class="hljs-number">1.0e-5</span>                              
     &quot;&quot;&quot;Stage (c): fixed-point solve of the optically-thin outer layers on the physical grid
     (JOSH label-401). Mutates snu/hnu/jnu/jmins/snubar in place; returns nothing.&quot;&quot;&quot;
     maxj1 = maxj+1 if maxj != 1 else 1
-    snu[maxj1-1:] = snubar[maxj1-1:]                     # deep layers: source = thermal (set below)
+
+    # deep layers: source = thermal (the iteration below refines the rest)
+    snu[maxj1-1:] = snubar[maxj1-1:]
     m0 = max(maxj-1, 1) - 1; nmj0 = maxj-1
+
     for _ in range(NX):
         error = 0.0; ifneg = 0
-        if np.any(snu[m0:] &lt;= 0.0): ifneg = 1; snubar[m0:] = bnu[m0:]; snu[m0:] = bnu[m0:]   # negativity guard
-        hnu[m0:] = deriv(taunu[m0:], snu[m0:]) / 3.0     # H = (1/3) dS/dtau (Eddington)
-        if np.any(hnu[m0:] &lt;= 0.0):                      # H must stay outward-positive
+
+        # negativity guard: if the source went non-physical, fall back to the Planck source
+        if np.any(snu[m0:] &lt;= 0.0): ifneg = 1; snubar[m0:] = bnu[m0:]; snu[m0:] = bnu[m0:]
+
+        # H = (1/3) dS/dtau (Eddington flux); it must stay outward-positive
+        hnu[m0:] = deriv(taunu[m0:], snu[m0:]) / 3.0
+        if np.any(hnu[m0:] &lt;= 0.0):
             ifneg = 1; snubar[m0:] = bnu[m0:]; snu[m0:] = bnu[m0:]
             hnu[m0:] = deriv(taunu[m0:], snu[m0:]) / 3.0
-        jmins[nmj0:] = deriv(taunu[nmj0:], hnu[nmj0:])   # (J - S) = dH/dtau
+
+        # (J - S) = dH/dtau
+        jmins[nmj0:] = deriv(taunu[nmj0:], hnu[nmj0:])
+
+        # rebuild J and update each layer&#39;s source as (1-alpha)Sbar + alpha J
         for j in range(maxj1-1, n):
             if ifneg == 1: jmins[j] = 0.0
-            jnu[j] = jmins[j] + snu[j]                    # rebuild J
-            snew = (1.0-alpha[j])*snubar[j] + alpha[j]*jnu[j]   # source update: (1-alpha)Sbar + alpha J
+            jnu[j] = jmins[j] + snu[j]
+            snew = (1.0-alpha[j])*snubar[j] + alpha[j]*jnu[j]
             error += abs(snew - snu[j]) / max(abs(snew), 1e-300); snu[j] = snew
         if error &lt; ITER_TOL: break" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
@@ -532,20 +591,31 @@ ITER_TOL = <span class="hljs-number">1.0e-5</span>                              
     <span class="hljs-string">&quot;&quot;&quot;Stage (c): fixed-point solve of the optically-thin outer layers on the physical grid
     (JOSH label-401). Mutates snu/hnu/jnu/jmins/snubar in place; returns nothing.&quot;&quot;&quot;</span>
     maxj1 = maxj+<span class="hljs-number">1</span> <span class="hljs-keyword">if</span> maxj != <span class="hljs-number">1</span> <span class="hljs-keyword">else</span> <span class="hljs-number">1</span>
-    snu[maxj1-<span class="hljs-number">1</span>:] = snubar[maxj1-<span class="hljs-number">1</span>:]                     <span class="hljs-comment"># deep layers: source = thermal (set below)</span>
+
+    <span class="hljs-comment"># deep layers: source = thermal (the iteration below refines the rest)</span>
+    snu[maxj1-<span class="hljs-number">1</span>:] = snubar[maxj1-<span class="hljs-number">1</span>:]
     m0 = <span class="hljs-built_in">max</span>(maxj-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) - <span class="hljs-number">1</span>; nmj0 = maxj-<span class="hljs-number">1</span>
+
     <span class="hljs-keyword">for</span> _ <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(NX):
         error = <span class="hljs-number">0.0</span>; ifneg = <span class="hljs-number">0</span>
-        <span class="hljs-keyword">if</span> np.<span class="hljs-built_in">any</span>(snu[m0:] &lt;= <span class="hljs-number">0.0</span>): ifneg = <span class="hljs-number">1</span>; snubar[m0:] = bnu[m0:]; snu[m0:] = bnu[m0:]   <span class="hljs-comment"># negativity guard</span>
-        hnu[m0:] = deriv(taunu[m0:], snu[m0:]) / <span class="hljs-number">3.0</span>     <span class="hljs-comment"># H = (1/3) dS/dtau (Eddington)</span>
-        <span class="hljs-keyword">if</span> np.<span class="hljs-built_in">any</span>(hnu[m0:] &lt;= <span class="hljs-number">0.0</span>):                      <span class="hljs-comment"># H must stay outward-positive</span>
+
+        <span class="hljs-comment"># negativity guard: if the source went non-physical, fall back to the Planck source</span>
+        <span class="hljs-keyword">if</span> np.<span class="hljs-built_in">any</span>(snu[m0:] &lt;= <span class="hljs-number">0.0</span>): ifneg = <span class="hljs-number">1</span>; snubar[m0:] = bnu[m0:]; snu[m0:] = bnu[m0:]
+
+        <span class="hljs-comment"># H = (1/3) dS/dtau (Eddington flux); it must stay outward-positive</span>
+        hnu[m0:] = deriv(taunu[m0:], snu[m0:]) / <span class="hljs-number">3.0</span>
+        <span class="hljs-keyword">if</span> np.<span class="hljs-built_in">any</span>(hnu[m0:] &lt;= <span class="hljs-number">0.0</span>):
             ifneg = <span class="hljs-number">1</span>; snubar[m0:] = bnu[m0:]; snu[m0:] = bnu[m0:]
             hnu[m0:] = deriv(taunu[m0:], snu[m0:]) / <span class="hljs-number">3.0</span>
-        jmins[nmj0:] = deriv(taunu[nmj0:], hnu[nmj0:])   <span class="hljs-comment"># (J - S) = dH/dtau</span>
+
+        <span class="hljs-comment"># (J - S) = dH/dtau</span>
+        jmins[nmj0:] = deriv(taunu[nmj0:], hnu[nmj0:])
+
+        <span class="hljs-comment"># rebuild J and update each layer&#x27;s source as (1-alpha)Sbar + alpha J</span>
         <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(maxj1-<span class="hljs-number">1</span>, n):
             <span class="hljs-keyword">if</span> ifneg == <span class="hljs-number">1</span>: jmins[j] = <span class="hljs-number">0.0</span>
-            jnu[j] = jmins[j] + snu[j]                    <span class="hljs-comment"># rebuild J</span>
-            snew = (<span class="hljs-number">1.0</span>-alpha[j])*snubar[j] + alpha[j]*jnu[j]   <span class="hljs-comment"># source update: (1-alpha)Sbar + alpha J</span>
+            jnu[j] = jmins[j] + snu[j]
+            snew = (<span class="hljs-number">1.0</span>-alpha[j])*snubar[j] + alpha[j]*jnu[j]
             error += <span class="hljs-built_in">abs</span>(snew - snu[j]) / <span class="hljs-built_in">max</span>(<span class="hljs-built_in">abs</span>(snew), <span class="hljs-number">1e-300</span>); snu[j] = snew
         <span class="hljs-keyword">if</span> error &lt; ITER_TOL: <span class="hljs-keyword">break</span></code></pre>
     </div></div><div class="prose"><h3>(d) The deep-layer moments, and the driver</h3>
@@ -566,9 +636,12 @@ def josh_profiles(acont, scont, sigmac, rhox, bnu):
     Returns taunu, H_nu, (J_nu - S_nu), kappa_nu (=abtot), alpha_nu, all at every layer.&quot;&quot;&quot;
     abtot, alpha, snubar, taunu = josh_optics(acont, scont, sigmac, rhox, bnu)   # (a)
     snu = np.zeros(n); hnu = np.zeros(n); jnu = np.zeros(n); jmins = np.zeros(n)
+
     xsbar8, xalpha8, maxj = josh_grid_setup(snubar, alpha, taunu)                # (b) setup
     xs = josh_lambda_iteration(xsbar8, xalpha8)                                  # (b) float32 kernel
-    snu_head, _ = map1(XTAU, xs.astype(np.float64), taunu[:maxj]); snu[:maxj] = snu_head   # back to physical grid
+
+    # the converged grid source, mapped back onto the physical layers
+    snu_head, _ = map1(XTAU, xs.astype(np.float64), taunu[:maxj]); snu[:maxj] = snu_head
     josh_thin_layers(maxj, alpha, snubar, bnu, taunu, snu, hnu, jnu, jmins)      # (c)
     josh_deep_moments(xs, maxj, taunu, hnu, jmins)                              # (d)
     return taunu, hnu, jmins, abtot, alpha" aria-label="Copy code">
@@ -587,9 +660,12 @@ def josh_profiles(acont, scont, sigmac, rhox, bnu):
     Returns taunu, H_nu, (J_nu - S_nu), kappa_nu (=abtot), alpha_nu, all at every layer.&quot;&quot;&quot;</span>
     abtot, alpha, snubar, taunu = josh_optics(acont, scont, sigmac, rhox, bnu)   <span class="hljs-comment"># (a)</span>
     snu = np.zeros(n); hnu = np.zeros(n); jnu = np.zeros(n); jmins = np.zeros(n)
+
     xsbar8, xalpha8, maxj = josh_grid_setup(snubar, alpha, taunu)                <span class="hljs-comment"># (b) setup</span>
     xs = josh_lambda_iteration(xsbar8, xalpha8)                                  <span class="hljs-comment"># (b) float32 kernel</span>
-    snu_head, _ = map1(XTAU, xs.astype(np.float64), taunu[:maxj]); snu[:maxj] = snu_head   <span class="hljs-comment"># back to physical grid</span>
+
+    <span class="hljs-comment"># the converged grid source, mapped back onto the physical layers</span>
+    snu_head, _ = map1(XTAU, xs.astype(np.float64), taunu[:maxj]); snu[:maxj] = snu_head
     josh_thin_layers(maxj, alpha, snubar, bnu, taunu, snu, hnu, jnu, jmins)      <span class="hljs-comment"># (c)</span>
     josh_deep_moments(xs, maxj, taunu, hnu, jmins)                              <span class="hljs-comment"># (d)</span>
     <span class="hljs-keyword">return</span> taunu, hnu, jmins, abtot, alpha</code></pre>
@@ -661,6 +737,8 @@ rdiagj   = np.zeros(n)   <span class="hljs-comment"># diagonal of the Lambda ope
     dd = (10.0411643829054, 32.4264210695138, 41.2807841891424, 20.4494785013794, 3.31909213593302, 0.103400130404874)
     e = (-0.999999999998447, -26.6271060431811, -241.055827097015, -895.927957772937, -1298.85688746484, -545.374158883133, -5.66575206533869)
     fc = (28.6271060422192, 292.310039388533, 1332.78537748257, 2777.61949509163, 2404.01713225909, 631.6574832808)
+
+    # evaluate E_1(x) on the right rational branch for the argument range
     if x &lt;= 0.0:
         ex1 = 0.0                          # E_1(0) handled by the recurrence below
     else:
@@ -672,8 +750,10 @@ rdiagj   = np.zeros(n)   <span class="hljs-comment"># diagonal of the Lambda ope
             ex1 = ex*(c[6]+(c[5]+(c[4]+(c[3]+(c[2]+(c[1]+c[0]*x)*x)*x)*x)*x)*x) / (dd[5]+(dd[4]+(dd[3]+(dd[2]+(dd[1]+(dd[0]+x)*x)*x)*x)*x)*x)
         else:                              # small x: rational fit minus the log singularity
             ex1 = (a[0]+(a[1]+(a[2]+(a[3]+(a[4]+a[5]*x)*x)*x)*x)*x) / (b[0]+(b[1]+(b[2]+(b[3]+(b[4]+x)*x)*x)*x)*x) - np.log(x)
-    out = ex1                              # out now holds E_1(x)
-    for i in range(1, 3):                  # climb E_1 -&gt; E_2 -&gt; E_3 via E_{n+1} = (e^-x - x E_n)/n
+
+    # climb E_1 -&gt; E_2 -&gt; E_3 via the recurrence E_{n+1} = (e^-x - x E_n)/n
+    out = ex1
+    for i in range(1, 3):
         out = (np.exp(-x) - x*out) / float(i)
     return out" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
@@ -687,6 +767,8 @@ rdiagj   = np.zeros(n)   <span class="hljs-comment"># diagonal of the Lambda ope
     dd = (<span class="hljs-number">10.0411643829054</span>, <span class="hljs-number">32.4264210695138</span>, <span class="hljs-number">41.2807841891424</span>, <span class="hljs-number">20.4494785013794</span>, <span class="hljs-number">3.31909213593302</span>, <span class="hljs-number">0.103400130404874</span>)
     e = (-<span class="hljs-number">0.999999999998447</span>, -<span class="hljs-number">26.6271060431811</span>, -<span class="hljs-number">241.055827097015</span>, -<span class="hljs-number">895.927957772937</span>, -<span class="hljs-number">1298.85688746484</span>, -<span class="hljs-number">545.374158883133</span>, -<span class="hljs-number">5.66575206533869</span>)
     fc = (<span class="hljs-number">28.6271060422192</span>, <span class="hljs-number">292.310039388533</span>, <span class="hljs-number">1332.78537748257</span>, <span class="hljs-number">2777.61949509163</span>, <span class="hljs-number">2404.01713225909</span>, <span class="hljs-number">631.6574832808</span>)
+
+    <span class="hljs-comment"># evaluate E_1(x) on the right rational branch for the argument range</span>
     <span class="hljs-keyword">if</span> x &lt;= <span class="hljs-number">0.0</span>:
         ex1 = <span class="hljs-number">0.0</span>                          <span class="hljs-comment"># E_1(0) handled by the recurrence below</span>
     <span class="hljs-keyword">else</span>:
@@ -698,8 +780,10 @@ rdiagj   = np.zeros(n)   <span class="hljs-comment"># diagonal of the Lambda ope
             ex1 = ex*(c[<span class="hljs-number">6</span>]+(c[<span class="hljs-number">5</span>]+(c[<span class="hljs-number">4</span>]+(c[<span class="hljs-number">3</span>]+(c[<span class="hljs-number">2</span>]+(c[<span class="hljs-number">1</span>]+c[<span class="hljs-number">0</span>]*x)*x)*x)*x)*x)*x) / (dd[<span class="hljs-number">5</span>]+(dd[<span class="hljs-number">4</span>]+(dd[<span class="hljs-number">3</span>]+(dd[<span class="hljs-number">2</span>]+(dd[<span class="hljs-number">1</span>]+(dd[<span class="hljs-number">0</span>]+x)*x)*x)*x)*x)*x)
         <span class="hljs-keyword">else</span>:                              <span class="hljs-comment"># small x: rational fit minus the log singularity</span>
             ex1 = (a[<span class="hljs-number">0</span>]+(a[<span class="hljs-number">1</span>]+(a[<span class="hljs-number">2</span>]+(a[<span class="hljs-number">3</span>]+(a[<span class="hljs-number">4</span>]+a[<span class="hljs-number">5</span>]*x)*x)*x)*x)*x) / (b[<span class="hljs-number">0</span>]+(b[<span class="hljs-number">1</span>]+(b[<span class="hljs-number">2</span>]+(b[<span class="hljs-number">3</span>]+(b[<span class="hljs-number">4</span>]+x)*x)*x)*x)*x) - np.log(x)
-    out = ex1                              <span class="hljs-comment"># out now holds E_1(x)</span>
-    <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, <span class="hljs-number">3</span>):                  <span class="hljs-comment"># climb E_1 -&gt; E_2 -&gt; E_3 via E_{n+1} = (e^-x - x E_n)/n</span>
+
+    <span class="hljs-comment"># climb E_1 -&gt; E_2 -&gt; E_3 via the recurrence E_{n+1} = (e^-x - x E_n)/n</span>
+    out = ex1
+    <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, <span class="hljs-number">3</span>):
         out = (np.exp(-x) - x*out) / <span class="hljs-built_in">float</span>(i)
     <span class="hljs-keyword">return</span> out</code></pre>
     </div></div><div class="prose"><h3>The <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi mathvariant="normal">Λ</mi></mrow><annotation encoding="application/x-tex">\Lambda</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord">Λ</span></span></span></span>-diagonal accumulator</h3>
@@ -713,13 +797,16 @@ rdiagj   = np.zeros(n)   <span class="hljs-comment"># diagonal of the Lambda ope
     term2 = 0.0
     for j in range(n):
         term1 = term2                                                # carry the previous layer&#39;s half-step term
-        d = 1e-10 if j == n-1 else (taunu[j+1] - taunu[j]); d = max(1e-10, float(d))   # optical-depth step to next layer
+
+        # optical-depth step to the next layer
+        d = 1e-10 if j == n-1 else (taunu[j+1] - taunu[j]); d = max(1e-10, float(d))
         if d &lt;= 0.01:
             # tiny step: series expansion of the E_3 contribution (avoids cancellation)
             term2 = (0.922784335098467 - np.log(d))*d/4.0 + d*d/12.0 - d**3/96.0 + d**4/720.0
         else:
             ex = expi3(d) if d &lt; 10.0 else 0.0                       # direct E_3 (negligible past d=10)
             term2 = 0.5*(d + ex - 0.5)/d
+
         diagj = term1 + term2                                        # the local Lambda-operator diagonal value
         dbdtj = bnu[j]*f*hkt[j] / max(T[j]*stim[j], 1e-300)          # dB/dT at this layer
         # scale by kappa, the scattering correction, and dB/dT; accumulate with weight w
@@ -732,13 +819,16 @@ rdiagj   = np.zeros(n)   <span class="hljs-comment"># diagonal of the Lambda ope
     term2 = <span class="hljs-number">0.0</span>
     <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(n):
         term1 = term2                                                <span class="hljs-comment"># carry the previous layer&#x27;s half-step term</span>
-        d = <span class="hljs-number">1e-10</span> <span class="hljs-keyword">if</span> j == n-<span class="hljs-number">1</span> <span class="hljs-keyword">else</span> (taunu[j+<span class="hljs-number">1</span>] - taunu[j]); d = <span class="hljs-built_in">max</span>(<span class="hljs-number">1e-10</span>, <span class="hljs-built_in">float</span>(d))   <span class="hljs-comment"># optical-depth step to next layer</span>
+
+        <span class="hljs-comment"># optical-depth step to the next layer</span>
+        d = <span class="hljs-number">1e-10</span> <span class="hljs-keyword">if</span> j == n-<span class="hljs-number">1</span> <span class="hljs-keyword">else</span> (taunu[j+<span class="hljs-number">1</span>] - taunu[j]); d = <span class="hljs-built_in">max</span>(<span class="hljs-number">1e-10</span>, <span class="hljs-built_in">float</span>(d))
         <span class="hljs-keyword">if</span> d &lt;= <span class="hljs-number">0.01</span>:
             <span class="hljs-comment"># tiny step: series expansion of the E_3 contribution (avoids cancellation)</span>
             term2 = (<span class="hljs-number">0.922784335098467</span> - np.log(d))*d/<span class="hljs-number">4.0</span> + d*d/<span class="hljs-number">12.0</span> - d**<span class="hljs-number">3</span>/<span class="hljs-number">96.0</span> + d**<span class="hljs-number">4</span>/<span class="hljs-number">720.0</span>
         <span class="hljs-keyword">else</span>:
             ex = expi3(d) <span class="hljs-keyword">if</span> d &lt; <span class="hljs-number">10.0</span> <span class="hljs-keyword">else</span> <span class="hljs-number">0.0</span>                       <span class="hljs-comment"># direct E_3 (negligible past d=10)</span>
             term2 = <span class="hljs-number">0.5</span>*(d + ex - <span class="hljs-number">0.5</span>)/d
+
         diagj = term1 + term2                                        <span class="hljs-comment"># the local Lambda-operator diagonal value</span>
         dbdtj = bnu[j]*f*hkt[j] / <span class="hljs-built_in">max</span>(T[j]*stim[j], <span class="hljs-number">1e-300</span>)          <span class="hljs-comment"># dB/dT at this layer</span>
         <span class="hljs-comment"># scale by kappa, the scattering correction, and dB/dT; accumulate with weight w</span>
@@ -893,14 +983,22 @@ dabros = deriv(rhox, abross)                    # d kappa_Ross / d(rhox)
 # --- (1) Avrett-Krook flux term -------------------------------------------------
 # rdabh_eff = (true flux-weighted opacity gradient) - (Rosseland mean&#39;s own gradient)
 rdabh_eff = rdabh - flxrad * dabros/np.maximum(abross, 1e-300)
-flxrad_safe = np.where(np.abs(flxrad) &gt;= 1e-300, flxrad, 1e-300)   # floor the divisor: one division, no overflow in a discarded np.where branch
+
+# floor the divisor: one division, no overflow in a discarded np.where branch
+flxrad_safe = np.where(np.abs(flxrad) &gt;= 1e-300, flxrad, 1e-300)
 codrhx = rdabh_eff / flxrad_safe                # gradient integrand for the weighting g
 codrhx[0] = 0.0; codrhx[1] = 0.0                # boundary layers carry no gradient weighting
-g = np.exp(integ(rhox, codrhx, 0.0))            # Avrett-Krook weighting g(rhox) = exp(int codrhx d rhox)
-gflux = g * (flxrad - flux) / np.where(np.abs(flxrad) &gt;= 1e-300, flxrad, 1e-300)   # flux defect, weighted by g
-dtau = integ(tauros, gflux, 0.0) / np.maximum(g, 1e-300)          # the optical-depth shift that flattens the flux
-dtau = np.clip(dtau, -tauros/3.0, tauros/3.0)   # stability clamp on the optical-depth shift
-dtflux = -dtau * dtdrhx / np.maximum(abross, 1e-300)   # convert dtau -&gt; dT via the local gradient
+
+# Avrett-Krook weighting g(rhox) = exp(int codrhx d rhox), and the g-weighted flux defect
+g = np.exp(integ(rhox, codrhx, 0.0))
+gflux = g * (flxrad - flux) / np.where(np.abs(flxrad) &gt;= 1e-300, flxrad, 1e-300)
+
+# the optical-depth shift that flattens the flux, with a stability clamp
+dtau = integ(tauros, gflux, 0.0) / np.maximum(g, 1e-300)
+dtau = np.clip(dtau, -tauros/3.0, tauros/3.0)
+
+# convert dtau -&gt; dT via the local gradient
+dtflux = -dtau * dtdrhx / np.maximum(abross, 1e-300)
 dtflux = np.nan_to_num(dtflux)
 print(f&quot;(1) Avrett-Krook flux term: dtflux[40] = {dtflux[40]:+.2f} K  (deep, optically thick)&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
@@ -911,14 +1009,22 @@ dabros = deriv(rhox, abross)                    <span class="hljs-comment"># d k
 <span class="hljs-comment"># --- (1) Avrett-Krook flux term -------------------------------------------------</span>
 <span class="hljs-comment"># rdabh_eff = (true flux-weighted opacity gradient) - (Rosseland mean&#x27;s own gradient)</span>
 rdabh_eff = rdabh - flxrad * dabros/np.maximum(abross, <span class="hljs-number">1e-300</span>)
-flxrad_safe = np.where(np.<span class="hljs-built_in">abs</span>(flxrad) &gt;= <span class="hljs-number">1e-300</span>, flxrad, <span class="hljs-number">1e-300</span>)   <span class="hljs-comment"># floor the divisor: one division, no overflow in a discarded np.where branch</span>
+
+<span class="hljs-comment"># floor the divisor: one division, no overflow in a discarded np.where branch</span>
+flxrad_safe = np.where(np.<span class="hljs-built_in">abs</span>(flxrad) &gt;= <span class="hljs-number">1e-300</span>, flxrad, <span class="hljs-number">1e-300</span>)
 codrhx = rdabh_eff / flxrad_safe                <span class="hljs-comment"># gradient integrand for the weighting g</span>
 codrhx[<span class="hljs-number">0</span>] = <span class="hljs-number">0.0</span>; codrhx[<span class="hljs-number">1</span>] = <span class="hljs-number">0.0</span>                <span class="hljs-comment"># boundary layers carry no gradient weighting</span>
-g = np.exp(integ(rhox, codrhx, <span class="hljs-number">0.0</span>))            <span class="hljs-comment"># Avrett-Krook weighting g(rhox) = exp(int codrhx d rhox)</span>
-gflux = g * (flxrad - flux) / np.where(np.<span class="hljs-built_in">abs</span>(flxrad) &gt;= <span class="hljs-number">1e-300</span>, flxrad, <span class="hljs-number">1e-300</span>)   <span class="hljs-comment"># flux defect, weighted by g</span>
-dtau = integ(tauros, gflux, <span class="hljs-number">0.0</span>) / np.maximum(g, <span class="hljs-number">1e-300</span>)          <span class="hljs-comment"># the optical-depth shift that flattens the flux</span>
-dtau = np.clip(dtau, -tauros/<span class="hljs-number">3.0</span>, tauros/<span class="hljs-number">3.0</span>)   <span class="hljs-comment"># stability clamp on the optical-depth shift</span>
-dtflux = -dtau * dtdrhx / np.maximum(abross, <span class="hljs-number">1e-300</span>)   <span class="hljs-comment"># convert dtau -&gt; dT via the local gradient</span>
+
+<span class="hljs-comment"># Avrett-Krook weighting g(rhox) = exp(int codrhx d rhox), and the g-weighted flux defect</span>
+g = np.exp(integ(rhox, codrhx, <span class="hljs-number">0.0</span>))
+gflux = g * (flxrad - flux) / np.where(np.<span class="hljs-built_in">abs</span>(flxrad) &gt;= <span class="hljs-number">1e-300</span>, flxrad, <span class="hljs-number">1e-300</span>)
+
+<span class="hljs-comment"># the optical-depth shift that flattens the flux, with a stability clamp</span>
+dtau = integ(tauros, gflux, <span class="hljs-number">0.0</span>) / np.maximum(g, <span class="hljs-number">1e-300</span>)
+dtau = np.clip(dtau, -tauros/<span class="hljs-number">3.0</span>, tauros/<span class="hljs-number">3.0</span>)
+
+<span class="hljs-comment"># convert dtau -&gt; dT via the local gradient</span>
+dtflux = -dtau * dtdrhx / np.maximum(abross, <span class="hljs-number">1e-300</span>)
 dtflux = np.nan_to_num(dtflux)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;(1) Avrett-Krook flux term: dtflux[40] = <span class="hljs-subst">{dtflux[<span class="hljs-number">40</span>]:+<span class="hljs-number">.2</span>f}</span> K  (deep, optically thick)&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">(1) Avrett-Krook flux term: dtflux[40] = -7.82 K  (deep, optically thick)
@@ -928,11 +1034,15 @@ dtflux = np.nan_to_num(dtflux)
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[21]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# --- (2) local-Lambda surface term ----------------------------------------------
 teff25 = TEFF/25.0                                            # the per-term clamp magnitude
-flxdrv = rjmins / np.maximum(abross, 1e-300) / flux * 100.0   # net-heating diagnostic (% units; abross cancels below)
+
+# net-heating diagnostic (% units; the abross divided out here multiplies back in below)
+flxdrv = rjmins / np.maximum(abross, 1e-300) / flux * 100.0
 dtlamb = np.zeros(n)
 for j in range(n):
     denom = rdiagj[j] if abs(rdiagj[j]) &gt; 1e-300 else np.sign(rdiagj[j])*1e-300   # guard /0
-    dtlamb[j] = -flxdrv[j] * flux/100.0 / denom * abross[j]    # net heating / Lambda-diagonal (abross multiplies back in)
+
+    # net heating / Lambda-diagonal (abross multiplies back in here)
+    dtlamb[j] = -flxdrv[j] * flux/100.0 / denom * abross[j]
     if not (tauros[j] &lt; 1.0):                                  # apply only in the thin surface (tau &lt; 1)
         dtlamb[j] = 0.0
         for k in range(1, 6):                                 # smooth over 5 shallower neighbours
@@ -944,11 +1054,15 @@ print(f&quot;(2) local-Lambda surface term: dtlamb[0] = {dtlamb[0]:+.1f} K  (thi
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># --- (2) local-Lambda surface term ----------------------------------------------</span>
 teff25 = TEFF/<span class="hljs-number">25.0</span>                                            <span class="hljs-comment"># the per-term clamp magnitude</span>
-flxdrv = rjmins / np.maximum(abross, <span class="hljs-number">1e-300</span>) / flux * <span class="hljs-number">100.0</span>   <span class="hljs-comment"># net-heating diagnostic (% units; abross cancels below)</span>
+
+<span class="hljs-comment"># net-heating diagnostic (% units; the abross divided out here multiplies back in below)</span>
+flxdrv = rjmins / np.maximum(abross, <span class="hljs-number">1e-300</span>) / flux * <span class="hljs-number">100.0</span>
 dtlamb = np.zeros(n)
 <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(n):
     denom = rdiagj[j] <span class="hljs-keyword">if</span> <span class="hljs-built_in">abs</span>(rdiagj[j]) &gt; <span class="hljs-number">1e-300</span> <span class="hljs-keyword">else</span> np.sign(rdiagj[j])*<span class="hljs-number">1e-300</span>   <span class="hljs-comment"># guard /0</span>
-    dtlamb[j] = -flxdrv[j] * flux/<span class="hljs-number">100.0</span> / denom * abross[j]    <span class="hljs-comment"># net heating / Lambda-diagonal (abross multiplies back in)</span>
+
+    <span class="hljs-comment"># net heating / Lambda-diagonal (abross multiplies back in here)</span>
+    dtlamb[j] = -flxdrv[j] * flux/<span class="hljs-number">100.0</span> / denom * abross[j]
     <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> (tauros[j] &lt; <span class="hljs-number">1.0</span>):                                  <span class="hljs-comment"># apply only in the thin surface (tau &lt; 1)</span>
         dtlamb[j] = <span class="hljs-number">0.0</span>
         <span class="hljs-keyword">for</span> k <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, <span class="hljs-number">6</span>):                                 <span class="hljs-comment"># smooth over 5 shallower neighbours</span>
@@ -962,9 +1076,12 @@ dtlamb = np.nan_to_num(dtlamb)
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[22]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# --- (3) surface-boundary term --------------------------------------------------
-dtsur = float(np.clip((flux - flxrad[0])/flux * 0.25 * T[0], -teff25, teff25))   # scaled surface flux deviation
+# scaled deviation of the surface flux from the target
+dtsur = float(np.clip((flux - flxrad[0])/flux * 0.25 * T[0], -teff25, teff25))
+
+# how much the other two terms already moved tau in [0.1, 2] -- the part to not double-count
 tinteg = integ(tauros, dtflux + dtlamb, 0.0)    # cumulative of the other two terms vs tau
-tav = (map1_scalar(tauros, tinteg, 2.0) - map1_scalar(tauros, tinteg, 0.1)) / 2.0   # their average over tau in [0.1, 2]
+tav = (map1_scalar(tauros, tinteg, 2.0) - map1_scalar(tauros, tinteg, 0.1)) / 2.0
 if dtsur*tav &lt;= 0.0: tav = 0.0                  # only remove overlap of the same sign
 if abs(tav) &gt; abs(dtsur): tav = dtsur           # never over-subtract
 dtsurf = np.full(n, dtsur - tav)                # uniform surface offset, double-count removed
@@ -976,9 +1093,12 @@ print(f&quot;total T1: surface={t1[0]:+.1f} K   deep={t1[-1]:+.1f} K&quot;)" ari
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># --- (3) surface-boundary term --------------------------------------------------</span>
-dtsur = <span class="hljs-built_in">float</span>(np.clip((flux - flxrad[<span class="hljs-number">0</span>])/flux * <span class="hljs-number">0.25</span> * T[<span class="hljs-number">0</span>], -teff25, teff25))   <span class="hljs-comment"># scaled surface flux deviation</span>
+<span class="hljs-comment"># scaled deviation of the surface flux from the target</span>
+dtsur = <span class="hljs-built_in">float</span>(np.clip((flux - flxrad[<span class="hljs-number">0</span>])/flux * <span class="hljs-number">0.25</span> * T[<span class="hljs-number">0</span>], -teff25, teff25))
+
+<span class="hljs-comment"># how much the other two terms already moved tau in [0.1, 2] -- the part to not double-count</span>
 tinteg = integ(tauros, dtflux + dtlamb, <span class="hljs-number">0.0</span>)    <span class="hljs-comment"># cumulative of the other two terms vs tau</span>
-tav = (map1_scalar(tauros, tinteg, <span class="hljs-number">2.0</span>) - map1_scalar(tauros, tinteg, <span class="hljs-number">0.1</span>)) / <span class="hljs-number">2.0</span>   <span class="hljs-comment"># their average over tau in [0.1, 2]</span>
+tav = (map1_scalar(tauros, tinteg, <span class="hljs-number">2.0</span>) - map1_scalar(tauros, tinteg, <span class="hljs-number">0.1</span>)) / <span class="hljs-number">2.0</span>
 <span class="hljs-keyword">if</span> dtsur*tav &lt;= <span class="hljs-number">0.0</span>: tav = <span class="hljs-number">0.0</span>                  <span class="hljs-comment"># only remove overlap of the same sign</span>
 <span class="hljs-keyword">if</span> <span class="hljs-built_in">abs</span>(tav) &gt; <span class="hljs-built_in">abs</span>(dtsur): tav = dtsur           <span class="hljs-comment"># never over-subtract</span>
 dtsurf = np.full(n, dtsur - tav)                <span class="hljs-comment"># uniform surface offset, double-count removed</span>
@@ -1071,9 +1191,12 @@ rel(<span class="hljs-string">&quot;T1 (total)&quot;</span>,            t1,     
         self.t = (np.log10(np.maximum(T, 1e-300)) - self.zerot)/self.slopet   # normalised log T per layer
         self.p = (np.log10(np.maximum(P, 1e-300)) - self.zerop)/self.slopep   # normalised log P per layer
         self.k = np.log10(np.maximum(kappa, 1e-300)); self.nn = T.size        # stored log10 kappa
+
     def eval(self, temp, pressure):
-        tl = (np.log10(max(temp, 1e-300)) - self.zerot)/self.slopet           # query point in the same frame
+        # put the query point in the same normalised (log T, log P) frame
+        tl = (np.log10(max(temp, 1e-300)) - self.zerot)/self.slopet
         pl = (np.log10(max(pressure, 1e-300)) - self.zerop)/self.slopep
+
         best = [(1e30, -1)]*4   # nearest sample in each of four quadrants: (++, +-, -+, --) by sign of (dt, dp)
         for i in range(self.nn):
             dt = self.t[i]-tl; dp = self.p[i]-pl; r2 = dt*dt+dp*dp            # squared distance to sample i
@@ -1099,9 +1222,12 @@ rel(<span class="hljs-string">&quot;T1 (total)&quot;</span>,            t1,     
         self.t = (np.log10(np.maximum(T, <span class="hljs-number">1e-300</span>)) - self.zerot)/self.slopet   <span class="hljs-comment"># normalised log T per layer</span>
         self.p = (np.log10(np.maximum(P, <span class="hljs-number">1e-300</span>)) - self.zerop)/self.slopep   <span class="hljs-comment"># normalised log P per layer</span>
         self.k = np.log10(np.maximum(kappa, <span class="hljs-number">1e-300</span>)); self.nn = T.size        <span class="hljs-comment"># stored log10 kappa</span>
+
     <span class="hljs-keyword">def</span> <span class="hljs-title function_">eval</span>(<span class="hljs-params">self, temp, pressure</span>):
-        tl = (np.log10(<span class="hljs-built_in">max</span>(temp, <span class="hljs-number">1e-300</span>)) - self.zerot)/self.slopet           <span class="hljs-comment"># query point in the same frame</span>
+        <span class="hljs-comment"># put the query point in the same normalised (log T, log P) frame</span>
+        tl = (np.log10(<span class="hljs-built_in">max</span>(temp, <span class="hljs-number">1e-300</span>)) - self.zerot)/self.slopet
         pl = (np.log10(<span class="hljs-built_in">max</span>(pressure, <span class="hljs-number">1e-300</span>)) - self.zerop)/self.slopep
+
         best = [(<span class="hljs-number">1e30</span>, -<span class="hljs-number">1</span>)]*<span class="hljs-number">4</span>   <span class="hljs-comment"># nearest sample in each of four quadrants: (++, +-, -+, --) by sign of (dt, dp)</span>
         <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(self.nn):
             dt = self.t[i]-tl; dp = self.p[i]-pl; r2 = dt*dt+dp*dp            <span class="hljs-comment"># squared distance to sample i</span>
@@ -1151,8 +1277,12 @@ def ttaup_correct(j, abstd_j, tau_j, grav, plog, dplog, p1, p3, p4, q1, q2, q3):
     Marches down the tau grid solving dP/dtau = g/kappa, inner-iterating because kappa = kappa(T, P).&quot;&quot;&quot;
     nn = int(t.size); abstd = np.zeros(nn); ptotal = np.zeros(nn); pgas = np.zeros(nn)
     dlg = np.log(max(float(tau[1]/max(tau[0], 1e-300)), 1e-300)) if nn &gt; 1 else 0.0   # log-tau step
-    p1 = p2 = p3 = p4 = 0.0; q1 = q2 = q3 = 0.0   # rolling history of log P and its derivative (multistep predictor)
-    abstd[0] = min(0.1, grav*tau[0]/max(prad[0], 1e-300)/2.0) if prad[0] &gt; 0.0 else 0.1   # top-layer opacity seed
+
+    # rolling history of log P and its derivative (feeds the multistep predictor/corrector)
+    p1 = p2 = p3 = p4 = 0.0; q1 = q2 = q3 = 0.0
+    # top-layer opacity seed
+    abstd[0] = min(0.1, grav*tau[0]/max(prad[0], 1e-300)/2.0) if prad[0] &gt; 0.0 else 0.1
+
     for j in range(nn):
         plog = ttaup_predict(j, abstd[0], tau[0], grav, p1, p4, q1, q2, q3)   # predictor for log P
         err = 1.0; dplog = 0.0; itn = 1
@@ -1175,8 +1305,12 @@ def ttaup_correct(j, abstd_j, tau_j, grav, plog, dplog, p1, p3, p4, q1, q2, q3):
     Marches down the tau grid solving dP/dtau = g/kappa, inner-iterating because kappa = kappa(T, P).&quot;&quot;&quot;</span>
     nn = <span class="hljs-built_in">int</span>(t.size); abstd = np.zeros(nn); ptotal = np.zeros(nn); pgas = np.zeros(nn)
     dlg = np.log(<span class="hljs-built_in">max</span>(<span class="hljs-built_in">float</span>(tau[<span class="hljs-number">1</span>]/<span class="hljs-built_in">max</span>(tau[<span class="hljs-number">0</span>], <span class="hljs-number">1e-300</span>)), <span class="hljs-number">1e-300</span>)) <span class="hljs-keyword">if</span> nn &gt; <span class="hljs-number">1</span> <span class="hljs-keyword">else</span> <span class="hljs-number">0.0</span>   <span class="hljs-comment"># log-tau step</span>
-    p1 = p2 = p3 = p4 = <span class="hljs-number">0.0</span>; q1 = q2 = q3 = <span class="hljs-number">0.0</span>   <span class="hljs-comment"># rolling history of log P and its derivative (multistep predictor)</span>
-    abstd[<span class="hljs-number">0</span>] = <span class="hljs-built_in">min</span>(<span class="hljs-number">0.1</span>, grav*tau[<span class="hljs-number">0</span>]/<span class="hljs-built_in">max</span>(prad[<span class="hljs-number">0</span>], <span class="hljs-number">1e-300</span>)/<span class="hljs-number">2.0</span>) <span class="hljs-keyword">if</span> prad[<span class="hljs-number">0</span>] &gt; <span class="hljs-number">0.0</span> <span class="hljs-keyword">else</span> <span class="hljs-number">0.1</span>   <span class="hljs-comment"># top-layer opacity seed</span>
+
+    <span class="hljs-comment"># rolling history of log P and its derivative (feeds the multistep predictor/corrector)</span>
+    p1 = p2 = p3 = p4 = <span class="hljs-number">0.0</span>; q1 = q2 = q3 = <span class="hljs-number">0.0</span>
+    <span class="hljs-comment"># top-layer opacity seed</span>
+    abstd[<span class="hljs-number">0</span>] = <span class="hljs-built_in">min</span>(<span class="hljs-number">0.1</span>, grav*tau[<span class="hljs-number">0</span>]/<span class="hljs-built_in">max</span>(prad[<span class="hljs-number">0</span>], <span class="hljs-number">1e-300</span>)/<span class="hljs-number">2.0</span>) <span class="hljs-keyword">if</span> prad[<span class="hljs-number">0</span>] &gt; <span class="hljs-number">0.0</span> <span class="hljs-keyword">else</span> <span class="hljs-number">0.1</span>
+
     <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nn):
         plog = ttaup_predict(j, abstd[<span class="hljs-number">0</span>], tau[<span class="hljs-number">0</span>], grav, p1, p4, q1, q2, q3)   <span class="hljs-comment"># predictor for log P</span>
         err = <span class="hljs-number">1.0</span>; dplog = <span class="hljs-number">0.0</span>; itn = <span class="hljs-number">1</span>
