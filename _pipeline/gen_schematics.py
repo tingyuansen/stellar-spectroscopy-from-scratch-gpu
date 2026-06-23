@@ -132,11 +132,16 @@ FIGS = {
    "atmosphere' -> 'opacity: continuum + atomic + molecular lines' -> 'radiative transfer' -> 'spectrum', with a thin "
    "bracket beside it labelled 'assembled from Lectures 1-12'. A horizontal arrow leads RIGHT to a small "
    "Hertzsprung-Russell diagram: horizontal axis 'temperature (hot on the LEFT, cool on the right)', vertical axis "
-   "'luminosity', with four labelled points placed correctly — 'HOT DWARF' (upper left), 'SUN' (centre), 'GIANT' "
-   "(upper right), 'M DWARF' (lower right). Next to each point a tiny spectrum thumbnail showing its signature: the hot "
-   "dwarf one broad Balmer absorption trough; the Sun a forest of narrow metal lines; the giant a strong triplet dip "
-   "(Mg b); the M dwarf a saw-toothed TiO molecular band with a sharp head — this M-dwarf TiO thumbnail is the single "
-   "amber element. Use only horizontal text, no rotated or vertical labels. "
+   "'luminosity (faint at the bottom, luminous at the top)'. Draw a faint diagonal MAIN-SEQUENCE band running from the "
+   "UPPER-LEFT (hot and luminous) down to the LOWER-RIGHT (cool and faint). Place THREE stars ON this main-sequence "
+   "band: 'HOT DWARF' near the upper-left of the band (hot, fairly luminous); 'SUN' in the middle of the band; "
+   "'M DWARF' at the lower-right of the band (cool and the LEAST luminous, lowest point). Place the 'GIANT' OFF the "
+   "main sequence in the upper-RIGHT region — cool but BY FAR THE MOST LUMINOUS of the four, drawn clearly higher than "
+   "every other point (a red giant far outshines any main-sequence dwarf). So vertically, top to bottom: GIANT highest, "
+   "then HOT DWARF, then SUN, then M DWARF lowest. Next to each point a tiny spectrum thumbnail showing its signature: "
+   "the hot dwarf one broad Balmer absorption trough; the Sun a forest of narrow metal lines; the giant a strong "
+   "triplet dip (Mg b); the M dwarf a saw-toothed TiO molecular band with a sharp head — this M-dwarf TiO thumbnail is "
+   "the single amber element. Use only horizontal text, no rotated or vertical labels. "
    "Caption 'one pipeline, built from the whole book, reproduces stars across the HR diagram'." + S,
 }
 

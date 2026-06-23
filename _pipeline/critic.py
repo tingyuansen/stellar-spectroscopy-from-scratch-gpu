@@ -29,7 +29,11 @@ This lecture rebuilds part of a stellar-spectrum synthesis pipeline from scratch
 and benchmarks it, to machine precision, against the reference code pykurucz (Kurucz's ATLAS12 + \
 SYNTHE). Review it on three axes:
 
-1. ACCURACY — are the physics, equations, definitions, and explanations correct? Flag any genuine error.
+1. SCIENTIFIC ACCURACY (MOST IMPORTANT) — scrutinise every physical statement, equation, definition, \
+unit, and explanatory CLAIM in the descriptions for correctness. Flag anything wrong, imprecise, \
+overstated, or misleading, however small — a mis-stated dependence, a wrong sign or limit, a term used \
+loosely, a cause/effect reversed, a regime of validity omitted. Be a skeptical domain expert: if a \
+sentence would make a stellar-atmospheres specialist wince, call it out with the precise correction.
 2. ACCESSIBILITY — is it clear and well-paced for a first/second-year astronomy graduate student? \
 Where might a reader get lost or want a sentence more?
 3. PEDAGOGY — does it build logically, motivate each step, define terms before use, and flow well? \

@@ -94,7 +94,7 @@ plt.rcParams.update({"figure.figsize": (7.2, 4.3), "figure.dpi": 120, "savefig.f
 
 REF = pathlib.Path("..") / "reference"   # shipped reference data (no pykurucz)
 
-# the four stars: slug, label, Teff (K), logg, window, the physics it exercises
+# the four stars, each a tuple: slug, label, Teff (K), logg, window, the physics it exercises
 STARS = [
     ("hot",    "hot dwarf", 9000, 4.0,  "484-488 nm", "Balmer H-beta linear-Stark wing"),
     ("sun",    "Sun",       5777, 4.44, "500-505 nm", "neutral + ionised metal-line forest"),
@@ -104,6 +104,7 @@ STARS = [
 
 # load each star's reference (atmosphere + diagnostics) into a dict keyed by slug
 data = {slug: np.load(REF / f"capstone_{slug}.npz") for slug, *_ in STARS}
+
 # report the grid each star was synthesised on
 for slug, label, teff, logg, window, _ in STARS:
     d = data[slug]
@@ -113,14 +114,17 @@ for slug, label, teff, logg, window, _ in STARS:
 md(r"""The four stars sit at very different places. The hot dwarf reaches 26000 K in its deepest layers; the M dwarf never exceeds 5000 K. The giant's surface gravity is a hundred times weaker than the dwarfs'. We can see the structural differences directly by plotting the temperature against the column-mass depth scale — the run of temperature with depth that the radiative transfer will integrate over.""")
 
 code(r'''fig, ax = plt.subplots()
+
 # overlay each star's temperature structure on the log column-mass scale
 for (slug, label, teff, logg, window, _), col in zip(STARS, ["C3", "C1", "C2", "C0"]):
     d = data[slug]
     # atm_depth is RHOX (g/cm^2), the integration variable for the transfer
     ax.semilogx(d["atm_depth"], d["atm_temperature"], "o-", ms=2.5, color=col,
                 label=f"{label}  ({teff} K, logg {logg})")
+
 ax.set_xlabel(r"column mass  RHOX  [g cm$^{-2}$]"); ax.set_ylabel("temperature  [K]")
-ax.set_title("Four model atmospheres across the HR diagram")    # the GIVEN structures
+# these are the GIVEN structures, not converged from scratch here
+ax.set_title("Four model atmospheres across the HR diagram")
 ax.legend(loc="upper left", fontsize=9); fig.tight_layout(); plt.show()''')
 
 md(r"""The hot dwarf's profile climbs steeply — its photosphere is hot and the deep layers far hotter. The Sun and giant are intermediate; the M dwarf is cool throughout. These are the structures the production emulator predicts for each parameter set, and the structures Lectures 9–11 would converge from a grey start. With the structures and the opacity in hand, we assemble the solver.""")
@@ -135,41 +139,51 @@ First the optical-depth scale. The Kurucz `PARCOE` routine fits a parabola to ea
 code(r'''def parcoe(f, x):
     """Per-interval parabola coefficients a,b,c (Kurucz PARCOE) — see Lecture 8."""
     n = f.size; a = np.zeros(n); b = np.zeros(n); c = np.zeros(n)
+    # single point: constant
     if n == 1:
         a[0] = f[0]; return a, b, c
-    # linear endpoints
+
+    # linear fit at the two endpoints (no interior neighbour for a parabola)
     b[0] = (f[1]-f[0])/(x[1]-x[0]); a[0] = f[0]-x[0]*b[0]; n1 = n-1
     b[-1] = (f[-1]-f[n1-1])/(x[-1]-x[n1-1]); a[-1] = f[-1]-x[-1]*b[-1]
+    # two points: linear only
     if n == 2:
         return a, b, c
-    # interior: parabola through three points
+
+    # interior intervals: fit a parabola through three consecutive points
     for j in range(1, n1):
         j1 = j-1; d = (f[j]-f[j1])/(x[j]-x[j1])
         c[j] = f[j+1]/((x[j+1]-x[j])*(x[j+1]-x[j1])) + \
                (f[j1]/(x[j+1]-x[j1]) - f[j]/(x[j+1]-x[j]))/(x[j]-x[j1])
         b[j] = d - (x[j]+x[j1])*c[j]; a[j] = f[j1] - x[j1]*d + x[j]*x[j1]*c[j]
-    # force points 2,3 linear
+
+    # force the first one or two interior intervals to be linear (no curvature)
     c[1] = 0.0; b[1] = (f[2]-f[1])/(x[2]-x[1]); a[1] = f[1]-x[1]*b[1]
     if n > 3:
         c[2] = 0.0; b[2] = (f[3]-f[2])/(x[3]-x[2]); a[2] = f[2]-x[2]*b[2]
-    # curvature-weighted blend with the right neighbour
+
+    # blend each parabola with its right neighbour, weighted by relative curvature
     for j in range(1, n1):
         if c[j] == 0.0:
             continue
         j1 = min(j+1, n-1); den = abs(c[j1])+abs(c[j]); wt = abs(c[j1])/den if den > 0 else 0.0
         a[j] = a[j1]+wt*(a[j]-a[j1]); b[j] = b[j1]+wt*(b[j]-b[j1]); c[j] = c[j1]+wt*(c[j]-c[j1])
+
+    # copy the last interval's coefficients
     a[n1-1] = a[-1]; b[n1-1] = b[-1]; c[n1-1] = c[-1]; return a, b, c''')
 
 md(r"""`INTEG` integrates the parabola of each interval analytically and accumulates the running total — the cumulative optical depth at every layer, from a starting value at the top.""")
 
 code(r'''def integ(x, f, start):
     """Cumulative integral of f dx using each interval's left-point parabola (Kurucz INTEG)."""
+    # per-interval coefficients, then seed the running total with the surface boundary value
     a, b, c = parcoe(f, x); out = np.zeros(f.size); out[0] = start
     for i in range(f.size - 1):
         dx = x[i+1] - x[i]                              # interval width
         # closed-form integral of a + b x + c x^2 over [x_i, x_{i+1}]
         term = a[i] + 0.5*b[i]*(x[i+1]+x[i]) + (c[i]/3.0)*((x[i+1]+x[i])*x[i+1] + x[i]*x[i])
-        out[i+1] = out[i] + term*dx                     # accumulate the running integral
+        # accumulate the running integral
+        out[i+1] = out[i] + term*dx
     return out''')
 
 # ── MAP1 ─────────────────────────────────────────────────────────────────────────
@@ -182,13 +196,18 @@ code(r'''def map1(xold, fold, xnew):
     nold, nnew = xold.size, xnew.size; fnew = np.zeros(nnew)
     if nold == 0 or nnew == 0:
         return fnew
+
+    # 1-based padding so the index arithmetic matches the original Fortran exactly
     xo = np.empty(nold+1); fo = np.empty(nold+1); xo[1:] = xold; fo[1:] = fold
+    # l: bracketing index; ll: last one used
     l = 2; ll = 0; cfor = bfor = afor = cbac = bbac = abac = a = b = c = 0.0
+
     for k in range(1, nnew+1):
-        xk = xnew[k-1]
+        xk = xnew[k-1]                                  # the new abscissa to evaluate at
         while True:
+            # xk now bracketed by [xo[l-1], xo[l]]
             if xk < xo[l]:
-                if l == ll: break
+                if l == ll: break                       # reuse the parabola from the last point
                 if l == 2 or l == 3:                    # near the top: linear fit
                     l = min(nold, l); c = 0.0
                     b = (fo[l]-fo[l-1])/(xo[l]-xo[l-1]); a = fo[l]-xo[l]*b; ll = l; break
@@ -202,13 +221,17 @@ code(r'''def map1(xold, fold, xnew):
                 else:
                     cbac, bbac, abac = cfor, bfor, afor # reuse the previous forward fit
                     if l == nold: c, b, a, ll = cbac, bbac, abac, l; break
-                d = (fo[l]-fo[l1])/(xo[l]-xo[l1])        # forward parabola (3 points from l1)
+
+                # forward parabola (3 points from l1)
+                d = (fo[l]-fo[l1])/(xo[l]-xo[l1])
                 cfor = fo[l+1]/((xo[l+1]-xo[l])*(xo[l+1]-xo[l1])) + \
                        (fo[l1]/(xo[l+1]-xo[l1]) - fo[l]/(xo[l+1]-xo[l]))/(xo[l]-xo[l1])
                 bfor = d - (xo[l]+xo[l1])*cfor; afor = fo[l1] - xo[l1]*d + xo[l]*xo[l1]*cfor
+
+                # curvature-weighted blend of the forward and backward parabolae
                 wt = abs(cfor)/(abs(cfor)+abs(cbac)) if abs(cfor) != 0 else 0.0   # curvature weight
                 a = afor+wt*(abac-afor); b = bfor+wt*(bbac-bfor); c = cfor+wt*(cbac-cfor); ll = l; break
-            l += 1
+            l += 1                                      # xk lies deeper: advance the bracket
             if l > nold:                                # off the deep end: linear fit
                 l = min(nold, l); c = 0.0
                 b = (fo[l]-fo[l-1])/(xo[l]-xo[l-1]); a = fo[l]-xo[l]*b; ll = l; break
@@ -229,15 +252,20 @@ COEFJ_DIAG = np.diag(COEFJ).copy()                     # diagonal Lambda term
 
 def iterate_source(sbar_grid, alpha_grid):
     """Solve S = (1-alpha) sbar + alpha (COEFJ @ S), backward Gauss-Seidel, float32 (Lecture 8)."""
+    # work in single precision throughout: this is part of the production specification
     co = COEFJ.astype(np.float32); xs = sbar_grid.astype(np.float32); al = alpha_grid.astype(np.float32)
+
     sbar_mod = (sbar_grid * (1.0 - alpha_grid)).astype(np.float32)   # (1-alpha)*sbar
     diag = (1.0 - alpha_grid * COEFJ_DIAG).astype(np.float32)        # Gauss-Seidel denominator
     tol, eps = np.float32(TOL), np.float32(EPS)
+
     for _ in range(MAXIT):
         converged = True
+        # backward sweep: deepest (thermalised) point first, propagating up to the surface
         for k in range(XTAU.size - 1, -1, -1):                       # deepest point first
             jk = np.float32(np.dot(co[k], xs))                       # (COEFJ @ S)_k, in place
-            delta = (jk*al[k] + sbar_mod[k] - xs[k]) / diag[k]       # per-point increment
+            # per-point increment from solving the diagonal-isolated fixed point
+            delta = (jk*al[k] + sbar_mod[k] - xs[k]) / diag[k]
             if (abs(delta/xs[k]) if xs[k] != 0 else np.inf) > tol: converged = False
             xs[k] = max(xs[k] + delta, eps)
         if converged: break
@@ -250,20 +278,29 @@ The one-wavelength solver ties the kernels together, exactly as in Lecture 8. Fr
 
 code(r'''def solve_josh(rhox, acont, scont, aline, sline, sigmac, sigmal):
     """Emergent Eddington flux at one wavelength via the JOSH moment method (Lecture 8)."""
+    # build total extinction, scattering fraction, and absorption-weighted source at every depth
     abtot = np.maximum(acont + aline + sigmac + sigmal, EPS)         # total extinction
     alpha = np.clip((sigmac + sigmal) / abtot, 0.0, 1.0)             # scattering fraction
     denom = acont + aline                                            # absorptive opacity
-    sbar = np.where(denom > 0, (acont*scont + aline*sline)/denom, scont)  # absorption-weighted source
-    if rhox.size > 1 and rhox[0] > rhox[-1]:                         # INTEG needs increasing mass
+    sbar = np.where(denom > 0, (acont*scont + aline*sline)/denom, scont)
+
+    # INTEG needs the column mass increasing from the surface inward; reverse if stored deep-to-shallow
+    if rhox.size > 1 and rhox[0] > rhox[-1]:
         r = rhox[::-1]; ab = abtot[::-1]; tau = integ(r, ab, ab[-1]*r[-1])
         sbar = sbar[::-1]; alpha = alpha[::-1]
     else:
         tau = integ(rhox, abtot, abtot[0]*rhox[0])
-    sbar_g = np.maximum(map1(tau, sbar, XTAU), EPS)                  # map source onto the grid
-    alpha_g = np.clip(map1(tau, alpha, XTAU), 0.0, 1.0)             # and the scattering fraction
-    above = XTAU < tau[0]                                            # grid points above the top
+
+    # map the source and the scattering fraction onto the fixed Eddington grid
+    sbar_g = np.maximum(map1(tau, sbar, XTAU), EPS)
+    alpha_g = np.clip(map1(tau, alpha, XTAU), 0.0, 1.0)
+
+    # grid points above the atmosphere top have nothing to interpolate from: hold them at the surface
+    above = XTAU < tau[0]
     if above.any(): sbar_g[above] = max(sbar[0], EPS); alpha_g[above] = np.clip(alpha[0], 0, 1)
-    return float(CH @ iterate_source(sbar_g, alpha_g))             # CH-weighted surface flux''')
+
+    # iterate the scattering source, then CH-weight it for the emergent surface flux
+    return float(CH @ iterate_source(sbar_g, alpha_g))''')
 
 # ── the whole-spectrum driver ─────────────────────────────────────────────────────
 md(r"""## The whole-window synthesiser
@@ -272,14 +309,17 @@ Wrapping the one-wavelength solver in a loop over the window gives the lean synt
 
 code(r'''def synthesise(d):
     """Normalised spectrum flux_total/flux_continuum from a star's reference (book JOSH)."""
+    # pull the depth scale, the opacities, and the source functions out of the reference
     rhox = d["atm_depth"].astype(float)                             # column-mass depth scale
     acont = d["continuum_absorption"].astype(float)                # continuous absorption
     sigmac = d["continuum_scattering"].astype(float)               # continuous scattering
     sigmal = d["line_scattering"].astype(float)                    # line scattering
     scont = d["slinec"].astype(float); sline = d["line_source"].astype(float)  # source functions
     aline = d["line_opacity"].astype(float)                        # line opacity (incl. molecules)
+
     n_depths, n_wl = rhox.size, d["wavelength"].size
     zero = np.zeros(n_depths)
+
     # full spectrum: all opacity; continuum: zero line opacity
     ft = np.array([solve_josh(rhox, acont[:,i], scont[:,i], aline[:,i], sline[:,i], sigmac[:,i], sigmal[:,i])
                    for i in range(n_wl)])
@@ -300,7 +340,9 @@ code(r'''def benchmark(slug):
     rel = np.abs(mine / ref - 1.0)                                 # point-by-point rel error
     return d["wavelength"], mine, ref, rel
 
-results = {slug: benchmark(slug) for slug, *_ in STARS}            # run all four stars
+# run all four stars
+results = {slug: benchmark(slug) for slug, *_ in STARS}
+
 # print the parity table: median + max relative error, and the deepest-line agreement
 print(f"{'star':<11}{'window':<12}{'median rel':>12}{'max rel':>11}{'depth ref/mine':>18}")
 print("-" * 64)
@@ -318,6 +360,7 @@ Now the payoff: the four spectra side by side. Each panel overlays our from-scra
 
 code(r'''fig, axes = plt.subplots(4, 1, figsize=(11, 13))   # one panel per star
 colours = ["C3", "C1", "C2", "C0"]                  # hot, Sun, giant, M dwarf
+
 for ax, (slug, label, teff, logg, window, physics), col in zip(axes, STARS, colours):
     wl, mine, ref, rel = results[slug]
     # thick grey = production reference; thin colour = our from-scratch spectrum (they overlap)
@@ -326,6 +369,7 @@ for ax, (slug, label, teff, logg, window, physics), col in zip(axes, STARS, colo
     ax.set_ylim(0, 1.05); ax.set_ylabel("normalised flux")
     ax.set_title(f"{label}  —  Teff {teff} K, logg {logg},  {window}:  {physics}", fontsize=11)
     ax.legend(loc="lower left", fontsize=9)
+
 axes[-1].set_xlabel("wavelength  [nm]")             # shared x-axis label on the bottom panel
 fig.suptitle("From stellar parameters to spectrum, across the HR diagram", fontsize=13, y=0.997)
 fig.tight_layout(); plt.show()''')
@@ -345,13 +389,16 @@ md(r"""## The residuals: all at the float floor
 To make the agreement quantitative, here are the four residual curves on one log axis. Every star sits between $10^{-13}$ and $10^{-8}$ across its whole window — the single-precision JOSH floor, with no star showing a systematic departure. There is no regime (hot, cool, high-gravity, low-gravity, atomic, molecular) where the assembled pipeline drifts from the production code beyond the arithmetic floor.""")
 
 code(r'''fig, ax = plt.subplots(figsize=(9, 4.5))
+
 for (slug, label, *_), col in zip(STARS, colours):
     wl, mine, ref, rel = results[slug]
     # normalise the x-axis to [0,1] across each window so the four windows overlay cleanly
     xn = (wl - wl.min()) / (wl.max() - wl.min())
     # clip to 1e-16 so machine-exact points stay on the log axis
     ax.semilogy(xn, np.maximum(rel, 1e-16), color=col, lw=0.6, label=label)
-ax.axhline(1e-8, color="0.5", ls="--", lw=1.0, label="JOSH float32 floor (~1e-8)")  # the documented floor
+
+# the documented single-precision floor
+ax.axhline(1e-8, color="0.5", ls="--", lw=1.0, label="JOSH float32 floor (~1e-8)")
 ax.set_xlabel("position across each window  (normalised)"); ax.set_ylabel("|relative error|")
 ax.set_ylim(1e-15, 1e-6); ax.set_title("Capstone residuals: every star at the JOSH float floor")
 ax.legend(loc="upper right", fontsize=9, ncol=2); fig.tight_layout(); plt.show()''')
