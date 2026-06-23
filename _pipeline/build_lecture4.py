@@ -63,8 +63,10 @@ def compare(name, ours, ref, tol=1e-6):
     return rel
 
 # Physical constants in CGS units.
-H_C, C, K = 6.62607015e-27, 2.99792458e10, 1.380649e-16   # Planck h, light speed c, Boltzmann k
+# H_C, C, K are Planck's h, the speed of light c, and Boltzmann's k, in that order.
+H_C, C, K = 6.62607015e-27, 2.99792458e10, 1.380649e-16
 AMU = 1.66053907e-24                                       # atomic mass unit [g]
+
 print("reference loaded:", ", ".join(REF.files))''')
 
 # ── line strength ───────────────────────────────────────────────────────
@@ -100,8 +102,13 @@ We pull the atmospheric structure out of the reference bundle and pick the layer
 code(r'''# Atmospheric structure from the Lecture-2 equation of state (CGS), via the reference bundle.
 T   = REF["T"]; tk = REF["tk"]; n_e = REF["xne"]; rho = REF["rho"]
 n_FeI = REF["n_FeI"]; U_FeI = REF["U_FeI"]; tau = REF["tau"]
-KEV = 1.0/11604.5                                          # Boltzmann k_B in eV per kelvin (NOT keV)
-jp = np.argmin(np.abs(tau - 2/3))                          # index of the photosphere layer (tau ~ 2/3)
+
+# Boltzmann k_B in eV per kelvin (NOT keV) — so chi/(KEV*T) is dimensionless for chi in eV.
+KEV = 1.0/11604.5
+
+# Index of the photosphere layer (the one nearest tau ~ 2/3).
+jp = np.argmin(np.abs(tau - 2/3))
+
 print(f"at the photosphere (T={T[jp]:.0f} K): n(Fe I) = {n_FeI[jp]:.3e} cm^-3, U(Fe I) = {U_FeI[jp]:.1f}")''')
 
 # ── broadening + Voigt ──────────────────────────────────────────────────
@@ -137,14 +144,21 @@ built from three precomputed tables — $H_0(v) = e^{-v^2}$, $H_1(v)$, and $H_2(
 
 The next two functions are *not* meant to derive the Harris approximation; they are a **compatibility kernel** that reproduces Kurucz's branch choices and coefficients exactly, so the comparison is bit-for-bit. The numeric constants are his, to be trusted rather than memorised; the only physical inputs are the damping parameter $a$ and the reduced frequency $v$. We first define the asymptotic Lorentzian-wing branch on its own, then the dispatcher that selects a branch by the size of $a$.""")
 
-code(r'''h0tab, h1tab, h2tab = REF["h0tab"], REF["h1tab"], REF["h2tab"]   # Harris special-function tables (math, not atomic data)
+code(r'''# Harris special-function tables (numerical math, not atomic data).
+h0tab, h1tab, h2tab = REF["h0tab"], REF["h1tab"], REF["h2tab"]
 
 def _voigt_wing(a, v):
     """Asymptotic (Lorentzian-wing) branch of Kurucz's Voigt approximation, valid far from centre."""
     aa, vv = a*a, v*v
-    u = (aa + vv)*1.4142                                     # sqrt(2)*(a^2+v^2); sets the wing scale
-    val = a*0.79788/u                                        # leading Lorentzian term, 0.79788 ~ 1/(sqrt(2)*sqrt(pi))*... (Kurucz const)
-    if a <= 100.0:                                           # higher-order correction (skipped at huge damping)
+
+    # sqrt(2)*(a^2+v^2): the scale that sets the wing.
+    u = (aa + vv)*1.4142
+
+    # Leading Lorentzian term; 0.79788 ~ 1/(sqrt(2)*sqrt(pi))*... is one of Kurucz's constants.
+    val = a*0.79788/u
+
+    # Higher-order correction, skipped at huge damping where it is negligible.
+    if a <= 100.0:
         aau, vvu, uu = aa/u, vv/u, u*u
         val = ((((aau - 10.0*vvu)*aau*3.0 + 15.0*vvu*vvu) + 3.0*vv - aa)/uu + 1.0)*val
     return val''')
@@ -154,25 +168,41 @@ md(r"""The dispatcher below first maps each $|v|$ to the nearest table index (th
 code(r'''def voigt_H(a, v):
     """Voigt H(a,v): Kurucz's Harris-table routine, reproduced exactly (the gold-standard form)."""
     v = np.atleast_1d(np.asarray(v, float)); av = np.abs(v)
-    iv = np.clip((av*200.0 + 0.5).astype(int), 0, h0tab.size-1)   # nearest table index (200 = 1/0.005 grid step)
-    H0, H1, H2 = h0tab[iv], h1tab[iv], h2tab[iv]             # look up the three Harris coefficients
+
+    # Nearest table index for each |v| (200 = 1/0.005, the grid step), then the three Harris coefficients there.
+    iv = np.clip((av*200.0 + 0.5).astype(int), 0, h0tab.size-1)
+    H0, H1, H2 = h0tab[iv], h1tab[iv], h2tab[iv]
     out = np.empty_like(v)
-    if a < 0.2:                                              # weak damping: 2nd-order Harris series
-        far = av > 10.0                                      # very far out, fall back to a bare Lorentzian wing
+
+    # Weak damping: the 2nd-order Harris series.
+    if a < 0.2:
+        # Very far out, fall back to a bare Lorentzian wing.
+        far = av > 10.0
         out[far]  = 0.5642*a/(v[far]*v[far])
-        out[~far] = (H2[~far]*a + H1[~far])*a + H0[~far]     # H0 + a*H1 + a^2*H2 (Horner form)
-    elif a > 1.4:                                            # strong damping: pure asymptotic wing everywhere
+        # H0 + a*H1 + a^2*H2, written in Horner form.
+        out[~far] = (H2[~far]*a + H1[~far])*a + H0[~far]
+
+    # Strong damping: the pure asymptotic wing everywhere.
+    elif a > 1.4:
         out[:] = _voigt_wing(a, v)
-    else:                                                    # intermediate: split per point at a+|v|=3.2
-        asy = (a + av) > 3.2                                 # points far enough out use the wing branch
+
+    # Intermediate: split per point, using the wing branch where a+|v| > 3.2.
+    else:
+        asy = (a + av) > 3.2
         out[asy] = _voigt_wing(a, v[asy])
-        m = ~asy; vv = v[m]*v[m]; h0 = H0[m]; h1t = H1[m]; h2t = H2[m]   # remaining points: blended polynomial
-        h1 = h1t + h0*1.12838                                # 1.12838 ~ 2/sqrt(pi): Kurucz recurrence constants
+
+        # Remaining (near-centre) points use a blended polynomial.
+        m = ~asy; vv = v[m]*v[m]; h0 = H0[m]; h1t = H1[m]; h2t = H2[m]
+
+        # 1.12838 ~ 2/sqrt(pi): Kurucz's recurrence constants that build the higher H-terms.
+        h1 = h1t + h0*1.12838
         h2 = h2t + h1*1.12838 - h0
         h3 = (1.0 - h2t)*0.37613 - h1*0.66667*vv + h2*1.12838
         h4 = (3.0*h3 - h1)*0.37613 + h0*0.66667*vv*vv
-        polyA = (((h4*a + h3)*a + h2)*a + h1)*a + h0         # quartic in a, coefficients h0..h4
-        polyB = ((-0.122727278*a + 0.532770573)*a - 0.96284325)*a + 0.979895032   # cubic correction in a
+
+        # Quartic in a (coefficients h0..h4) times a cubic correction in a.
+        polyA = (((h4*a + h3)*a + h2)*a + h1)*a + h0
+        polyB = ((-0.122727278*a + 0.532770573)*a - 0.96284325)*a + 0.979895032
         out[m] = polyA*polyB
     return out''')
 
@@ -198,7 +228,8 @@ Now put it together for a representative neutral-iron line in our window: rest w
 We first fix the line's identity (wavelength, strength, excitation) and the absorber's mass and microturbulence.""")
 
 code(r'''# Representative neutral-iron line (demonstration values).
-lam0_nm = 500.5; loggf = -1.0; chi_l = 3.3                 # rest wavelength [nm], log(gf), excitation [eV]
+# Three identity numbers: rest wavelength [nm], log(gf), and lower-level excitation [eV].
+lam0_nm = 500.5; loggf = -1.0; chi_l = 3.3
 m_Fe = 55.845 * AMU                                        # iron atom mass [g]
 xi = 2.0e5                                                  # microturbulent velocity [cm/s] = 2 km/s
 nu0 = C / (lam0_nm * 1e-7)                                  # line-centre frequency [Hz]''')
@@ -209,10 +240,13 @@ A caution on the $\gamma$ values below: the natural rate is a plausible radiativ
 
 code(r'''# Doppler width and damping at the photosphere.
 dnu_D = (nu0 / C) * np.sqrt(2*K*T[jp]/m_Fe + xi**2)        # Gaussian 1/e half-width [Hz]
+
+# The three broadening channels, summed into the total damping rate.
 gamma_rad = 2.0e8                                           # natural (radiative) broadening [s^-1]
 gamma_vdw = 1.0e-7 * REF["nHI"][jp]                         # van der Waals, ~ n_H [s^-1]  (toy coefficient)
 gamma_stark = 1.0e-8 * n_e[jp]                              # Stark, ~ n_e [s^-1]          (toy coefficient)
 gamma = gamma_rad + gamma_vdw + gamma_stark                # total damping rate [s^-1]
+
 a_damp = gamma / (4*np.pi*dnu_D)                            # damping parameter (Lorentzian / Doppler width)
 dlam_mA = dnu_D * (lam0_nm*1e-7)**2 / C * 1e8 * 1e3        # Doppler width converted to milli-angstrom
 print(f"Doppler width = {dnu_D:.3e} Hz ({dlam_mA:.0f} mA);  damping a = {a_damp:.3f}")''')
@@ -223,9 +257,13 @@ code(r'''# Opacity profile across +-0.04 nm around line centre.
 lam = np.linspace(lam0_nm-0.04, lam0_nm+0.04, 800)
 nu = C / (lam*1e-7)
 v = (nu - nu0) / dnu_D                                      # reduced frequency in Doppler widths
+
+# The three frequency-dependent factors: shape, then the two scalar populations/corrections.
 phi = voigt_H(a_damp, v) / (np.sqrt(np.pi) * dnu_D)        # normalised line profile [s]
 stim = 1.0 - np.exp(-H_C*nu/(K*T[jp]))                     # stimulated-emission factor (Lecture 1)
 nl_over_gl = (n_FeI[jp]/U_FeI[jp]) * np.exp(-chi_l/(KEV*T[jp]))   # Boltzmann population per sublevel (Lecture 2)
+
+# Assemble the four factors, then divide by mass density for the opacity per gram.
 alpha_line = CLASSICAL * 10**loggf * nl_over_gl * phi * stim    # line absorption coefficient [cm^-1]
 kappa_line = alpha_line / rho[jp]                              # opacity per gram [cm^2/g]
 print(f"line-centre opacity / continuum = {kappa_line.max()/0.027:.1f}  (continuum ~0.027 cm^2/g)")''')

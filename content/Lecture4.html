@@ -37,8 +37,10 @@ def compare(name, ours, ref, tol=1e-6):
     return rel
 
 # Physical constants in CGS units.
-H_C, C, K = 6.62607015e-27, 2.99792458e10, 1.380649e-16   # Planck h, light speed c, Boltzmann k
+# H_C, C, K are Planck&#39;s h, the speed of light c, and Boltzmann&#39;s k, in that order.
+H_C, C, K = 6.62607015e-27, 2.99792458e10, 1.380649e-16
 AMU = 1.66053907e-24                                       # atomic mass unit [g]
+
 print(&quot;reference loaded:&quot;, &quot;, &quot;.join(REF.files))" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
@@ -62,8 +64,10 @@ REF = np.load(pathlib.Path(<span class="hljs-string">&quot;..&quot;</span>) / <s
     <span class="hljs-keyword">return</span> rel
 
 <span class="hljs-comment"># Physical constants in CGS units.</span>
-H_C, C, K = <span class="hljs-number">6.62607015e-27</span>, <span class="hljs-number">2.99792458e10</span>, <span class="hljs-number">1.380649e-16</span>   <span class="hljs-comment"># Planck h, light speed c, Boltzmann k</span>
+<span class="hljs-comment"># H_C, C, K are Planck&#x27;s h, the speed of light c, and Boltzmann&#x27;s k, in that order.</span>
+H_C, C, K = <span class="hljs-number">6.62607015e-27</span>, <span class="hljs-number">2.99792458e10</span>, <span class="hljs-number">1.380649e-16</span>
 AMU = <span class="hljs-number">1.66053907e-24</span>                                       <span class="hljs-comment"># atomic mass unit [g]</span>
+
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;reference loaded:&quot;</span>, <span class="hljs-string">&quot;, &quot;</span>.join(REF.files))</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">reference loaded: v, a, H, T, tk, xne, rho, nHI, n_FeI, U_FeI, tau, h0tab, h1tab, h2tab
 </pre></div></div><div class="prose"><h2>The strength of a line</h2>
@@ -93,16 +97,26 @@ print(f&quot;classical line constant  pi e^2 / (m_e c) = {CLASSICAL:.5e} cm^2 Hz
         <button class="copy-btn" type="button" data-code="# Atmospheric structure from the Lecture-2 equation of state (CGS), via the reference bundle.
 T   = REF[&quot;T&quot;]; tk = REF[&quot;tk&quot;]; n_e = REF[&quot;xne&quot;]; rho = REF[&quot;rho&quot;]
 n_FeI = REF[&quot;n_FeI&quot;]; U_FeI = REF[&quot;U_FeI&quot;]; tau = REF[&quot;tau&quot;]
-KEV = 1.0/11604.5                                          # Boltzmann k_B in eV per kelvin (NOT keV)
-jp = np.argmin(np.abs(tau - 2/3))                          # index of the photosphere layer (tau ~ 2/3)
+
+# Boltzmann k_B in eV per kelvin (NOT keV) â€” so chi/(KEV*T) is dimensionless for chi in eV.
+KEV = 1.0/11604.5
+
+# Index of the photosphere layer (the one nearest tau ~ 2/3).
+jp = np.argmin(np.abs(tau - 2/3))
+
 print(f&quot;at the photosphere (T={T[jp]:.0f} K): n(Fe I) = {n_FeI[jp]:.3e} cm^-3, U(Fe I) = {U_FeI[jp]:.1f}&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># Atmospheric structure from the Lecture-2 equation of state (CGS), via the reference bundle.</span>
 T   = REF[<span class="hljs-string">&quot;T&quot;</span>]; tk = REF[<span class="hljs-string">&quot;tk&quot;</span>]; n_e = REF[<span class="hljs-string">&quot;xne&quot;</span>]; rho = REF[<span class="hljs-string">&quot;rho&quot;</span>]
 n_FeI = REF[<span class="hljs-string">&quot;n_FeI&quot;</span>]; U_FeI = REF[<span class="hljs-string">&quot;U_FeI&quot;</span>]; tau = REF[<span class="hljs-string">&quot;tau&quot;</span>]
-KEV = <span class="hljs-number">1.0</span>/<span class="hljs-number">11604.5</span>                                          <span class="hljs-comment"># Boltzmann k_B in eV per kelvin (NOT keV)</span>
-jp = np.argmin(np.<span class="hljs-built_in">abs</span>(tau - <span class="hljs-number">2</span>/<span class="hljs-number">3</span>))                          <span class="hljs-comment"># index of the photosphere layer (tau ~ 2/3)</span>
+
+<span class="hljs-comment"># Boltzmann k_B in eV per kelvin (NOT keV) â€” so chi/(KEV*T) is dimensionless for chi in eV.</span>
+KEV = <span class="hljs-number">1.0</span>/<span class="hljs-number">11604.5</span>
+
+<span class="hljs-comment"># Index of the photosphere layer (the one nearest tau ~ 2/3).</span>
+jp = np.argmin(np.<span class="hljs-built_in">abs</span>(tau - <span class="hljs-number">2</span>/<span class="hljs-number">3</span>))
+
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;at the photosphere (T=<span class="hljs-subst">{T[jp]:<span class="hljs-number">.0</span>f}</span> K): n(Fe I) = <span class="hljs-subst">{n_FeI[jp]:<span class="hljs-number">.3</span>e}</span> cm^-3, U(Fe I) = <span class="hljs-subst">{U_FeI[jp]:<span class="hljs-number">.1</span>f}</span>&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">at the photosphere (T=5892 K): n(Fe I) = 1.162e+10 cm^-3, U(Fe I) = 31.3
 </pre></div></div><div class="prose"><h2>The shape: Doppler core and Lorentzian wings</h2>
@@ -143,27 +157,41 @@ M834 80h400000v40h-400000z"/></svg></span></span></span><span class="vlist-s">â€
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[4]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="h0tab, h1tab, h2tab = REF[&quot;h0tab&quot;], REF[&quot;h1tab&quot;], REF[&quot;h2tab&quot;]   # Harris special-function tables (math, not atomic data)
+        <button class="copy-btn" type="button" data-code="# Harris special-function tables (numerical math, not atomic data).
+h0tab, h1tab, h2tab = REF[&quot;h0tab&quot;], REF[&quot;h1tab&quot;], REF[&quot;h2tab&quot;]
 
 def _voigt_wing(a, v):
     &quot;&quot;&quot;Asymptotic (Lorentzian-wing) branch of Kurucz&#39;s Voigt approximation, valid far from centre.&quot;&quot;&quot;
     aa, vv = a*a, v*v
-    u = (aa + vv)*1.4142                                     # sqrt(2)*(a^2+v^2); sets the wing scale
-    val = a*0.79788/u                                        # leading Lorentzian term, 0.79788 ~ 1/(sqrt(2)*sqrt(pi))*... (Kurucz const)
-    if a &lt;= 100.0:                                           # higher-order correction (skipped at huge damping)
+
+    # sqrt(2)*(a^2+v^2): the scale that sets the wing.
+    u = (aa + vv)*1.4142
+
+    # Leading Lorentzian term; 0.79788 ~ 1/(sqrt(2)*sqrt(pi))*... is one of Kurucz&#39;s constants.
+    val = a*0.79788/u
+
+    # Higher-order correction, skipped at huge damping where it is negligible.
+    if a &lt;= 100.0:
         aau, vvu, uu = aa/u, vv/u, u*u
         val = ((((aau - 10.0*vvu)*aau*3.0 + 15.0*vvu*vvu) + 3.0*vv - aa)/uu + 1.0)*val
     return val" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">h0tab, h1tab, h2tab = REF[<span class="hljs-string">&quot;h0tab&quot;</span>], REF[<span class="hljs-string">&quot;h1tab&quot;</span>], REF[<span class="hljs-string">&quot;h2tab&quot;</span>]   <span class="hljs-comment"># Harris special-function tables (math, not atomic data)</span>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># Harris special-function tables (numerical math, not atomic data).</span>
+h0tab, h1tab, h2tab = REF[<span class="hljs-string">&quot;h0tab&quot;</span>], REF[<span class="hljs-string">&quot;h1tab&quot;</span>], REF[<span class="hljs-string">&quot;h2tab&quot;</span>]
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">_voigt_wing</span>(<span class="hljs-params">a, v</span>):
     <span class="hljs-string">&quot;&quot;&quot;Asymptotic (Lorentzian-wing) branch of Kurucz&#x27;s Voigt approximation, valid far from centre.&quot;&quot;&quot;</span>
     aa, vv = a*a, v*v
-    u = (aa + vv)*<span class="hljs-number">1.4142</span>                                     <span class="hljs-comment"># sqrt(2)*(a^2+v^2); sets the wing scale</span>
-    val = a*<span class="hljs-number">0.79788</span>/u                                        <span class="hljs-comment"># leading Lorentzian term, 0.79788 ~ 1/(sqrt(2)*sqrt(pi))*... (Kurucz const)</span>
-    <span class="hljs-keyword">if</span> a &lt;= <span class="hljs-number">100.0</span>:                                           <span class="hljs-comment"># higher-order correction (skipped at huge damping)</span>
+
+    <span class="hljs-comment"># sqrt(2)*(a^2+v^2): the scale that sets the wing.</span>
+    u = (aa + vv)*<span class="hljs-number">1.4142</span>
+
+    <span class="hljs-comment"># Leading Lorentzian term; 0.79788 ~ 1/(sqrt(2)*sqrt(pi))*... is one of Kurucz&#x27;s constants.</span>
+    val = a*<span class="hljs-number">0.79788</span>/u
+
+    <span class="hljs-comment"># Higher-order correction, skipped at huge damping where it is negligible.</span>
+    <span class="hljs-keyword">if</span> a &lt;= <span class="hljs-number">100.0</span>:
         aau, vvu, uu = aa/u, vv/u, u*u
         val = ((((aau - <span class="hljs-number">10.0</span>*vvu)*aau*<span class="hljs-number">3.0</span> + <span class="hljs-number">15.0</span>*vvu*vvu) + <span class="hljs-number">3.0</span>*vv - aa)/uu + <span class="hljs-number">1.0</span>)*val
     <span class="hljs-keyword">return</span> val</code></pre>
@@ -174,25 +202,41 @@ def _voigt_wing(a, v):
         <button class="copy-btn" type="button" data-code="def voigt_H(a, v):
     &quot;&quot;&quot;Voigt H(a,v): Kurucz&#39;s Harris-table routine, reproduced exactly (the gold-standard form).&quot;&quot;&quot;
     v = np.atleast_1d(np.asarray(v, float)); av = np.abs(v)
-    iv = np.clip((av*200.0 + 0.5).astype(int), 0, h0tab.size-1)   # nearest table index (200 = 1/0.005 grid step)
-    H0, H1, H2 = h0tab[iv], h1tab[iv], h2tab[iv]             # look up the three Harris coefficients
+
+    # Nearest table index for each |v| (200 = 1/0.005, the grid step), then the three Harris coefficients there.
+    iv = np.clip((av*200.0 + 0.5).astype(int), 0, h0tab.size-1)
+    H0, H1, H2 = h0tab[iv], h1tab[iv], h2tab[iv]
     out = np.empty_like(v)
-    if a &lt; 0.2:                                              # weak damping: 2nd-order Harris series
-        far = av &gt; 10.0                                      # very far out, fall back to a bare Lorentzian wing
+
+    # Weak damping: the 2nd-order Harris series.
+    if a &lt; 0.2:
+        # Very far out, fall back to a bare Lorentzian wing.
+        far = av &gt; 10.0
         out[far]  = 0.5642*a/(v[far]*v[far])
-        out[~far] = (H2[~far]*a + H1[~far])*a + H0[~far]     # H0 + a*H1 + a^2*H2 (Horner form)
-    elif a &gt; 1.4:                                            # strong damping: pure asymptotic wing everywhere
+        # H0 + a*H1 + a^2*H2, written in Horner form.
+        out[~far] = (H2[~far]*a + H1[~far])*a + H0[~far]
+
+    # Strong damping: the pure asymptotic wing everywhere.
+    elif a &gt; 1.4:
         out[:] = _voigt_wing(a, v)
-    else:                                                    # intermediate: split per point at a+|v|=3.2
-        asy = (a + av) &gt; 3.2                                 # points far enough out use the wing branch
+
+    # Intermediate: split per point, using the wing branch where a+|v| &gt; 3.2.
+    else:
+        asy = (a + av) &gt; 3.2
         out[asy] = _voigt_wing(a, v[asy])
-        m = ~asy; vv = v[m]*v[m]; h0 = H0[m]; h1t = H1[m]; h2t = H2[m]   # remaining points: blended polynomial
-        h1 = h1t + h0*1.12838                                # 1.12838 ~ 2/sqrt(pi): Kurucz recurrence constants
+
+        # Remaining (near-centre) points use a blended polynomial.
+        m = ~asy; vv = v[m]*v[m]; h0 = H0[m]; h1t = H1[m]; h2t = H2[m]
+
+        # 1.12838 ~ 2/sqrt(pi): Kurucz&#39;s recurrence constants that build the higher H-terms.
+        h1 = h1t + h0*1.12838
         h2 = h2t + h1*1.12838 - h0
         h3 = (1.0 - h2t)*0.37613 - h1*0.66667*vv + h2*1.12838
         h4 = (3.0*h3 - h1)*0.37613 + h0*0.66667*vv*vv
-        polyA = (((h4*a + h3)*a + h2)*a + h1)*a + h0         # quartic in a, coefficients h0..h4
-        polyB = ((-0.122727278*a + 0.532770573)*a - 0.96284325)*a + 0.979895032   # cubic correction in a
+
+        # Quartic in a (coefficients h0..h4) times a cubic correction in a.
+        polyA = (((h4*a + h3)*a + h2)*a + h1)*a + h0
+        polyB = ((-0.122727278*a + 0.532770573)*a - 0.96284325)*a + 0.979895032
         out[m] = polyA*polyB
     return out" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
@@ -200,25 +244,41 @@ def _voigt_wing(a, v):
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">voigt_H</span>(<span class="hljs-params">a, v</span>):
     <span class="hljs-string">&quot;&quot;&quot;Voigt H(a,v): Kurucz&#x27;s Harris-table routine, reproduced exactly (the gold-standard form).&quot;&quot;&quot;</span>
     v = np.atleast_1d(np.asarray(v, <span class="hljs-built_in">float</span>)); av = np.<span class="hljs-built_in">abs</span>(v)
-    iv = np.clip((av*<span class="hljs-number">200.0</span> + <span class="hljs-number">0.5</span>).astype(<span class="hljs-built_in">int</span>), <span class="hljs-number">0</span>, h0tab.size-<span class="hljs-number">1</span>)   <span class="hljs-comment"># nearest table index (200 = 1/0.005 grid step)</span>
-    H0, H1, H2 = h0tab[iv], h1tab[iv], h2tab[iv]             <span class="hljs-comment"># look up the three Harris coefficients</span>
+
+    <span class="hljs-comment"># Nearest table index for each |v| (200 = 1/0.005, the grid step), then the three Harris coefficients there.</span>
+    iv = np.clip((av*<span class="hljs-number">200.0</span> + <span class="hljs-number">0.5</span>).astype(<span class="hljs-built_in">int</span>), <span class="hljs-number">0</span>, h0tab.size-<span class="hljs-number">1</span>)
+    H0, H1, H2 = h0tab[iv], h1tab[iv], h2tab[iv]
     out = np.empty_like(v)
-    <span class="hljs-keyword">if</span> a &lt; <span class="hljs-number">0.2</span>:                                              <span class="hljs-comment"># weak damping: 2nd-order Harris series</span>
-        far = av &gt; <span class="hljs-number">10.0</span>                                      <span class="hljs-comment"># very far out, fall back to a bare Lorentzian wing</span>
+
+    <span class="hljs-comment"># Weak damping: the 2nd-order Harris series.</span>
+    <span class="hljs-keyword">if</span> a &lt; <span class="hljs-number">0.2</span>:
+        <span class="hljs-comment"># Very far out, fall back to a bare Lorentzian wing.</span>
+        far = av &gt; <span class="hljs-number">10.0</span>
         out[far]  = <span class="hljs-number">0.5642</span>*a/(v[far]*v[far])
-        out[~far] = (H2[~far]*a + H1[~far])*a + H0[~far]     <span class="hljs-comment"># H0 + a*H1 + a^2*H2 (Horner form)</span>
-    <span class="hljs-keyword">elif</span> a &gt; <span class="hljs-number">1.4</span>:                                            <span class="hljs-comment"># strong damping: pure asymptotic wing everywhere</span>
+        <span class="hljs-comment"># H0 + a*H1 + a^2*H2, written in Horner form.</span>
+        out[~far] = (H2[~far]*a + H1[~far])*a + H0[~far]
+
+    <span class="hljs-comment"># Strong damping: the pure asymptotic wing everywhere.</span>
+    <span class="hljs-keyword">elif</span> a &gt; <span class="hljs-number">1.4</span>:
         out[:] = _voigt_wing(a, v)
-    <span class="hljs-keyword">else</span>:                                                    <span class="hljs-comment"># intermediate: split per point at a+|v|=3.2</span>
-        asy = (a + av) &gt; <span class="hljs-number">3.2</span>                                 <span class="hljs-comment"># points far enough out use the wing branch</span>
+
+    <span class="hljs-comment"># Intermediate: split per point, using the wing branch where a+|v| &gt; 3.2.</span>
+    <span class="hljs-keyword">else</span>:
+        asy = (a + av) &gt; <span class="hljs-number">3.2</span>
         out[asy] = _voigt_wing(a, v[asy])
-        m = ~asy; vv = v[m]*v[m]; h0 = H0[m]; h1t = H1[m]; h2t = H2[m]   <span class="hljs-comment"># remaining points: blended polynomial</span>
-        h1 = h1t + h0*<span class="hljs-number">1.12838</span>                                <span class="hljs-comment"># 1.12838 ~ 2/sqrt(pi): Kurucz recurrence constants</span>
+
+        <span class="hljs-comment"># Remaining (near-centre) points use a blended polynomial.</span>
+        m = ~asy; vv = v[m]*v[m]; h0 = H0[m]; h1t = H1[m]; h2t = H2[m]
+
+        <span class="hljs-comment"># 1.12838 ~ 2/sqrt(pi): Kurucz&#x27;s recurrence constants that build the higher H-terms.</span>
+        h1 = h1t + h0*<span class="hljs-number">1.12838</span>
         h2 = h2t + h1*<span class="hljs-number">1.12838</span> - h0
         h3 = (<span class="hljs-number">1.0</span> - h2t)*<span class="hljs-number">0.37613</span> - h1*<span class="hljs-number">0.66667</span>*vv + h2*<span class="hljs-number">1.12838</span>
         h4 = (<span class="hljs-number">3.0</span>*h3 - h1)*<span class="hljs-number">0.37613</span> + h0*<span class="hljs-number">0.66667</span>*vv*vv
-        polyA = (((h4*a + h3)*a + h2)*a + h1)*a + h0         <span class="hljs-comment"># quartic in a, coefficients h0..h4</span>
-        polyB = ((-<span class="hljs-number">0.122727278</span>*a + <span class="hljs-number">0.532770573</span>)*a - <span class="hljs-number">0.96284325</span>)*a + <span class="hljs-number">0.979895032</span>   <span class="hljs-comment"># cubic correction in a</span>
+
+        <span class="hljs-comment"># Quartic in a (coefficients h0..h4) times a cubic correction in a.</span>
+        polyA = (((h4*a + h3)*a + h2)*a + h1)*a + h0
+        polyB = ((-<span class="hljs-number">0.122727278</span>*a + <span class="hljs-number">0.532770573</span>)*a - <span class="hljs-number">0.96284325</span>)*a + <span class="hljs-number">0.979895032</span>
         out[m] = polyA*polyB
     <span class="hljs-keyword">return</span> out</code></pre>
     </div></div><div class="prose"><p>With the kernel in hand, we evaluate <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>H</mi><mo stretchy="false">(</mo><mi>a</mi><mo separator="true">,</mo><mi>v</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">H(a,v)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.08125em;">H</span><span class="mopen">(</span><span class="mord mathnormal">a</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">v</span><span class="mclose">)</span></span></span></span> on the reference grid of <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">(</mo><mi>a</mi><mo separator="true">,</mo><mi>v</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">(a, v)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord mathnormal">a</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">v</span><span class="mclose">)</span></span></span></span> pairs, confirm it matches pykurucz to machine precision, and plot the family of profiles for several damping values.</p>
@@ -265,14 +325,16 @@ M834 80h400000v40h-400000z"/></svg></span></span></span><span class="vlist-s">â€
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[7]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Representative neutral-iron line (demonstration values).
-lam0_nm = 500.5; loggf = -1.0; chi_l = 3.3                 # rest wavelength [nm], log(gf), excitation [eV]
+# Three identity numbers: rest wavelength [nm], log(gf), and lower-level excitation [eV].
+lam0_nm = 500.5; loggf = -1.0; chi_l = 3.3
 m_Fe = 55.845 * AMU                                        # iron atom mass [g]
 xi = 2.0e5                                                  # microturbulent velocity [cm/s] = 2 km/s
 nu0 = C / (lam0_nm * 1e-7)                                  # line-centre frequency [Hz]" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># Representative neutral-iron line (demonstration values).</span>
-lam0_nm = <span class="hljs-number">500.5</span>; loggf = -<span class="hljs-number">1.0</span>; chi_l = <span class="hljs-number">3.3</span>                 <span class="hljs-comment"># rest wavelength [nm], log(gf), excitation [eV]</span>
+<span class="hljs-comment"># Three identity numbers: rest wavelength [nm], log(gf), and lower-level excitation [eV].</span>
+lam0_nm = <span class="hljs-number">500.5</span>; loggf = -<span class="hljs-number">1.0</span>; chi_l = <span class="hljs-number">3.3</span>
 m_Fe = <span class="hljs-number">55.845</span> * AMU                                        <span class="hljs-comment"># iron atom mass [g]</span>
 xi = <span class="hljs-number">2.0e5</span>                                                  <span class="hljs-comment"># microturbulent velocity [cm/s] = 2 km/s</span>
 nu0 = C / (lam0_nm * <span class="hljs-number">1e-7</span>)                                  <span class="hljs-comment"># line-centre frequency [Hz]</span></code></pre>
@@ -283,10 +345,13 @@ nu0 = C / (lam0_nm * <span class="hljs-number">1e-7</span>)                     
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[8]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Doppler width and damping at the photosphere.
 dnu_D = (nu0 / C) * np.sqrt(2*K*T[jp]/m_Fe + xi**2)        # Gaussian 1/e half-width [Hz]
+
+# The three broadening channels, summed into the total damping rate.
 gamma_rad = 2.0e8                                           # natural (radiative) broadening [s^-1]
 gamma_vdw = 1.0e-7 * REF[&quot;nHI&quot;][jp]                         # van der Waals, ~ n_H [s^-1]  (toy coefficient)
 gamma_stark = 1.0e-8 * n_e[jp]                              # Stark, ~ n_e [s^-1]          (toy coefficient)
 gamma = gamma_rad + gamma_vdw + gamma_stark                # total damping rate [s^-1]
+
 a_damp = gamma / (4*np.pi*dnu_D)                            # damping parameter (Lorentzian / Doppler width)
 dlam_mA = dnu_D * (lam0_nm*1e-7)**2 / C * 1e8 * 1e3        # Doppler width converted to milli-angstrom
 print(f&quot;Doppler width = {dnu_D:.3e} Hz ({dlam_mA:.0f} mA);  damping a = {a_damp:.3f}&quot;)" aria-label="Copy code">
@@ -294,10 +359,13 @@ print(f&quot;Doppler width = {dnu_D:.3e} Hz ({dlam_mA:.0f} mA);  damping a = {a_
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># Doppler width and damping at the photosphere.</span>
 dnu_D = (nu0 / C) * np.sqrt(<span class="hljs-number">2</span>*K*T[jp]/m_Fe + xi**<span class="hljs-number">2</span>)        <span class="hljs-comment"># Gaussian 1/e half-width [Hz]</span>
+
+<span class="hljs-comment"># The three broadening channels, summed into the total damping rate.</span>
 gamma_rad = <span class="hljs-number">2.0e8</span>                                           <span class="hljs-comment"># natural (radiative) broadening [s^-1]</span>
 gamma_vdw = <span class="hljs-number">1.0e-7</span> * REF[<span class="hljs-string">&quot;nHI&quot;</span>][jp]                         <span class="hljs-comment"># van der Waals, ~ n_H [s^-1]  (toy coefficient)</span>
 gamma_stark = <span class="hljs-number">1.0e-8</span> * n_e[jp]                              <span class="hljs-comment"># Stark, ~ n_e [s^-1]          (toy coefficient)</span>
 gamma = gamma_rad + gamma_vdw + gamma_stark                <span class="hljs-comment"># total damping rate [s^-1]</span>
+
 a_damp = gamma / (<span class="hljs-number">4</span>*np.pi*dnu_D)                            <span class="hljs-comment"># damping parameter (Lorentzian / Doppler width)</span>
 dlam_mA = dnu_D * (lam0_nm*<span class="hljs-number">1e-7</span>)**<span class="hljs-number">2</span> / C * <span class="hljs-number">1e8</span> * <span class="hljs-number">1e3</span>        <span class="hljs-comment"># Doppler width converted to milli-angstrom</span>
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;Doppler width = <span class="hljs-subst">{dnu_D:<span class="hljs-number">.3</span>e}</span> Hz (<span class="hljs-subst">{dlam_mA:<span class="hljs-number">.0</span>f}</span> mA);  damping a = <span class="hljs-subst">{a_damp:<span class="hljs-number">.3</span>f}</span>&quot;</span>)</code></pre>
@@ -310,9 +378,13 @@ dlam_mA = dnu_D * (lam0_nm*<span class="hljs-number">1e-7</span>)**<span class="
 lam = np.linspace(lam0_nm-0.04, lam0_nm+0.04, 800)
 nu = C / (lam*1e-7)
 v = (nu - nu0) / dnu_D                                      # reduced frequency in Doppler widths
+
+# The three frequency-dependent factors: shape, then the two scalar populations/corrections.
 phi = voigt_H(a_damp, v) / (np.sqrt(np.pi) * dnu_D)        # normalised line profile [s]
 stim = 1.0 - np.exp(-H_C*nu/(K*T[jp]))                     # stimulated-emission factor (Lecture 1)
 nl_over_gl = (n_FeI[jp]/U_FeI[jp]) * np.exp(-chi_l/(KEV*T[jp]))   # Boltzmann population per sublevel (Lecture 2)
+
+# Assemble the four factors, then divide by mass density for the opacity per gram.
 alpha_line = CLASSICAL * 10**loggf * nl_over_gl * phi * stim    # line absorption coefficient [cm^-1]
 kappa_line = alpha_line / rho[jp]                              # opacity per gram [cm^2/g]
 print(f&quot;line-centre opacity / continuum = {kappa_line.max()/0.027:.1f}  (continuum ~0.027 cm^2/g)&quot;)" aria-label="Copy code">
@@ -322,9 +394,13 @@ print(f&quot;line-centre opacity / continuum = {kappa_line.max()/0.027:.1f}  (co
 lam = np.linspace(lam0_nm-<span class="hljs-number">0.04</span>, lam0_nm+<span class="hljs-number">0.04</span>, <span class="hljs-number">800</span>)
 nu = C / (lam*<span class="hljs-number">1e-7</span>)
 v = (nu - nu0) / dnu_D                                      <span class="hljs-comment"># reduced frequency in Doppler widths</span>
+
+<span class="hljs-comment"># The three frequency-dependent factors: shape, then the two scalar populations/corrections.</span>
 phi = voigt_H(a_damp, v) / (np.sqrt(np.pi) * dnu_D)        <span class="hljs-comment"># normalised line profile [s]</span>
 stim = <span class="hljs-number">1.0</span> - np.exp(-H_C*nu/(K*T[jp]))                     <span class="hljs-comment"># stimulated-emission factor (Lecture 1)</span>
 nl_over_gl = (n_FeI[jp]/U_FeI[jp]) * np.exp(-chi_l/(KEV*T[jp]))   <span class="hljs-comment"># Boltzmann population per sublevel (Lecture 2)</span>
+
+<span class="hljs-comment"># Assemble the four factors, then divide by mass density for the opacity per gram.</span>
 alpha_line = CLASSICAL * <span class="hljs-number">10</span>**loggf * nl_over_gl * phi * stim    <span class="hljs-comment"># line absorption coefficient [cm^-1]</span>
 kappa_line = alpha_line / rho[jp]                              <span class="hljs-comment"># opacity per gram [cm^2/g]</span>
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;line-centre opacity / continuum = <span class="hljs-subst">{kappa_line.<span class="hljs-built_in">max</span>()/<span class="hljs-number">0.027</span>:<span class="hljs-number">.1</span>f}</span>  (continuum ~0.027 cm^2/g)&quot;</span>)</code></pre>
