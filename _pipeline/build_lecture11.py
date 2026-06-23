@@ -253,31 +253,75 @@ def expi3(x):
     for i in range(1, 3): out = (np.exp(-x) - x*out)/float(i)
     return out''')
 
-md(r"""`josh_profiles` is the Lecture 8/10 JOSH kernel, carried over verbatim, run for the full depth profile at one continuum frequency. It forms the per-frequency optics (total extinction, scattering fraction, thermal source, monochromatic $\tau_\nu$), maps them onto JOSH's fixed 51-point grid and runs the **float32** $\Lambda$-iteration that solves the scattering problem there, solves the optically thin outer layers directly on the physical grid, and reads the deep-layer moments off the grid solution — returning $\tau_\nu$, $H_\nu$, $(J_\nu - S_\nu)$, $\kappa_\nu$, and $\alpha_\nu$ at every layer.""")
+md(r"""`josh_profiles` is the Lecture 8/10 JOSH kernel, carried over verbatim, run for the full depth profile at one continuum frequency. It forms the per-frequency optics (total extinction, scattering fraction, thermal source, monochromatic $\tau_\nu$), maps them onto JOSH's fixed 51-point grid and runs the **float32** $\Lambda$-iteration that solves the scattering problem there, solves the optically thin outer layers directly on the physical grid, and reads the deep-layer moments off the grid solution — returning $\tau_\nu$, $H_\nu$, $(J_\nu - S_\nu)$, $\kappa_\nu$, and $\alpha_\nu$ at every layer. Two pieces are cleanly separable from the float32 inner sweep — the optics setup and the deep-layer physical-grid solve — so we lift them into named helpers first.""")
 
-code(r'''def josh_profiles(acont, scont, sigmac, rhox, bnu):
-    """JOSH full depth profiles for one frequency (Lecture 8/10).  Returns taunu, hnu, jmins, abtot, alpha.
-    Continuum only: aline = sigmal = 0; sline = bnu.  The inner Lambda sweep runs in float32 (REAL*4)."""
-    nl = rhox.size; nxtau = XTAU.size; coefj_diag = np.diag(COEFJ).astype(np.float32)
+md(r"""**The per-frequency optics.** `josh_optics` forms the four quantities every JOSH frequency starts from: the total extinction $\kappa_\nu = \kappa^{\rm abs}_\nu + \sigma_\nu$, the scattering fraction $\alpha_\nu = \sigma_\nu/\kappa_\nu$, the continuum thermal source $\bar S_\nu$, and the monochromatic optical depth $\tau_\nu = \int\kappa_\nu\,d(\rho x)$. Moved out verbatim.""")
+
+code(r'''def josh_optics(acont, scont, sigmac, rhox, bnu):
+    """Per-frequency JOSH optics: total extinction, scattering fraction, thermal source, tau_nu (Lecture 8/10)."""
     abtot = np.maximum(acont + sigmac, 1e-300)          # total extinction
     alpha = sigmac / abtot                                # scattering fraction
     snubar = bnu.copy()
     np.divide(acont*scont, acont, out=snubar, where=acont > 0.0)   # thermal source (continuum)
     taunu = integ(rhox, abtot, abtot[0]*rhox[0])         # monochromatic optical depth
+    return abtot, alpha, snubar, taunu''')
+
+md(r"""**The deep-layer solve.** Below the optically-thin surface that JOSH's fixed grid resolves, the moments are solved directly on the physical $\tau_\nu$ grid: $H_\nu = \tfrac13 dS_\nu/d\tau_\nu$ (diffusion), $(J_\nu - S_\nu) = dH_\nu/d\tau_\nu$, then the source is updated for scattering, with two negativity guards that fall back to the Planck function. `josh_deep_solve` runs that iteration in place on `snu`, `snubar`, `hnu`, `jnu`, `jmins`; it is the same iteration moved out, called at the same point.""")
+
+code(r'''def josh_deep_solve(snu, snubar, hnu, jnu, jmins, taunu, alpha, bnu, nl, nxtau, m0, nmj0, maxj1):
+    """Deep-layer moment solve on the physical TAUNU grid, in place (Lecture 8/10 JOSH)."""
+    for _ in range(nxtau):                                # deep layers solved on the physical TAUNU grid
+        error = 0.0; ifneg = 0
+        if np.any(snu[m0:] <= 0.0): ifneg = 1; snubar[m0:] = bnu[m0:]; snu[m0:] = bnu[m0:]   # negativity guard
+        hnu[m0:] = deriv(taunu[m0:], snu[m0:])/3.0        # H = (1/3) dS/dtau (diffusion)
+        if np.any(hnu[m0:] <= 0.0):                       # second guard: reset to Planck if H went negative
+            ifneg = 1; snubar[m0:] = bnu[m0:]; snu[m0:] = bnu[m0:]; hnu[m0:] = deriv(taunu[m0:], snu[m0:])/3.0
+        jmins[nmj0:] = deriv(taunu[nmj0:], hnu[nmj0:])    # (J - S) = dH/dtau
+        for j in range(maxj1-1, nl):
+            if ifneg == 1: jmins[j] = 0.0
+            jnu[j] = jmins[j] + snu[j]                     # mean intensity J
+            snew = (1.0-alpha[j])*snubar[j] + alpha[j]*jnu[j]                  # updated source (scattering)
+            error += abs(snew-snu[j])/max(abs(snew), 1e-300); snu[j] = snew
+        if error < ITER_TOL: break''')
+
+md(r"""**The surface-grid setup.** Before the float32 sweep can run, the thermal source and scattering fraction are remapped from the physical $\tau_\nu$ grid onto JOSH's fixed `XTAU` grid, cast to float32, clamped (a positive floor on $\bar S$, a $[0,\cdot]$ clamp on $\alpha$), and the grid points above the physical surface are filled with the surface values. From those, the diagonal of $(1-\alpha\Lambda)$ and the fixed thermal part $(1-\alpha)\bar S$ are precomputed. `josh_surface_setup` does exactly that — it fills the source vector `xs` in place and returns `xalpha8`, `xsbar_mod`, `diag`, and the surface depth `maxj`.""")
+
+code(r'''def josh_surface_setup(snubar, alpha, taunu, xs, coefj_diag):
+    """Remap optics onto the fixed XTAU grid and precompute the float32 sweep inputs (Lecture 8/10 JOSH)."""
+    # remap the thermal source and scattering fraction onto the fixed xtau grid
+    xsbar8, maxj = map1(taunu, snubar, XTAU); xalpha8, maxj = map1(taunu, alpha, XTAU)
+    xalpha8 = np.maximum(xalpha8.astype(np.float32), np.float32(0.0))      # clamp to [0, .]
+    xsbar8 = np.maximum(xsbar8.astype(np.float32), np.float32(1.0e-38))    # positive floor
+    mask = XTAU < taunu[0]                            # grid points above the physical surface
+    if np.any(mask): xsbar8[mask] = max(snubar[0], 1.0e-38); xalpha8[mask] = max(alpha[0], 0.0)
+    xs[:] = xsbar8; one32 = np.float32(1.0)
+    diag = one32 - xalpha8*coefj_diag                 # diagonal of (1 - alpha Lambda)
+    xsbar_mod = (one32 - xalpha8)*xsbar8              # thermal part (1-alpha) Sbar
+    return xalpha8, xsbar_mod, diag, maxj''')
+
+md(r"""**The kernel and its irreducible inner sweep.** With the optics, the surface setup, and the deep solve lifted out, the body of `josh_profiles` is: form the optics, then (unless the whole column is deeper than the grid) build the surface-grid inputs and run the **float32** $\Lambda$-iteration; map the surface source back, seed the deep layers, run the deep solve, and read the moments off the matrix solution.
+
+The float32 sweep is the one genuinely irreducible loop here and is kept whole. Step by step, it solves the scattering source equation $S = (1-\alpha)\bar S + \alpha\,\Lambda S$ on the 51-point grid by a **backward Gauss–Seidel** relaxation, entirely in single precision (REAL\*4, matching the Fortran):
+
+1. Precompute the diagonal of $(1-\alpha\Lambda)$ (`diag`) and the fixed thermal part $(1-\alpha)\bar S$ (`xsbar_mod`).
+2. Sweep the grid points from deepest to shallowest. At each point $k$, form $(\Lambda S)_k$ as the dot product of row $k$ of `COEFJ` with the current source `xs`, then the residual `num` $=\alpha_k(\Lambda S)_k + (1-\alpha)_k\bar S_k - S_k$.
+3. Divide by the (signed-floored) diagonal to get the Gauss–Seidel increment `delxs`, and flag `iferr` if the fractional change exceeds `ITER_TOL` against a signed-floored base.
+4. Apply the increment, keeping the source positive ($\ge10^{-37}$).
+5. After a full sweep with every point within tolerance (`iferr == 0`), stop; otherwise sweep again, at most `nxtau` times.
+
+The signed floors and the float32 casts are load-bearing: they are exactly what sets the precision floor of the whole pipeline, so the order and the casts are preserved verbatim.""")
+
+code(r'''def josh_profiles(acont, scont, sigmac, rhox, bnu):
+    """JOSH full depth profiles for one frequency (Lecture 8/10).  Returns taunu, hnu, jmins, abtot, alpha.
+    Continuum only: aline = sigmal = 0; sline = bnu.  The inner Lambda sweep runs in float32 (REAL*4)."""
+    nl = rhox.size; nxtau = XTAU.size; coefj_diag = np.diag(COEFJ).astype(np.float32)
+    abtot, alpha, snubar, taunu = josh_optics(acont, scont, sigmac, rhox, bnu)   # per-frequency optics
     snu = np.zeros(nl); hnu = np.zeros(nl); jnu = np.zeros(nl); jmins = np.zeros(nl)
     xs = np.zeros(nxtau, dtype=np.float32)                # source vector on the fixed xtau grid (REAL*4)
     if taunu[0] > XTAU[-1]:
         maxj = 1                                          # whole column deeper than the grid -> skip surface solve
     else:
-        # remap the thermal source and scattering fraction onto the fixed xtau grid
-        xsbar8, maxj = map1(taunu, snubar, XTAU); xalpha8, maxj = map1(taunu, alpha, XTAU)
-        xalpha8 = np.maximum(xalpha8.astype(np.float32), np.float32(0.0))      # clamp to [0, .]
-        xsbar8 = np.maximum(xsbar8.astype(np.float32), np.float32(1.0e-38))    # positive floor
-        mask = XTAU < taunu[0]                            # grid points above the physical surface
-        if np.any(mask): xsbar8[mask] = max(snubar[0], 1.0e-38); xalpha8[mask] = max(alpha[0], 0.0)
-        xs[:] = xsbar8; one32 = np.float32(1.0)
-        diag = one32 - xalpha8*coefj_diag                 # diagonal of (1 - alpha Lambda)
-        xsbar_mod = (one32 - xalpha8)*xsbar8              # thermal part (1-alpha) Sbar
+        xalpha8, xsbar_mod, diag, maxj = josh_surface_setup(snubar, alpha, taunu, xs, coefj_diag)  # surface-grid inputs
         for _ in range(nxtau):                            # backward Gauss-Seidel sweep, float32 throughout
             iferr = 0
             for kk in range(nxtau):
@@ -295,19 +339,7 @@ code(r'''def josh_profiles(acont, scont, sigmac, rhox, bnu):
     maxj1 = maxj+1 if maxj != 1 else 1
     snu[maxj1-1:] = snubar[maxj1-1:]                      # deep layers seeded with the thermal source
     m0 = max(maxj-1, 1) - 1; nmj0 = maxj-1
-    for _ in range(nxtau):                                # deep layers solved on the physical TAUNU grid
-        error = 0.0; ifneg = 0
-        if np.any(snu[m0:] <= 0.0): ifneg = 1; snubar[m0:] = bnu[m0:]; snu[m0:] = bnu[m0:]   # negativity guard
-        hnu[m0:] = deriv(taunu[m0:], snu[m0:])/3.0        # H = (1/3) dS/dtau (diffusion)
-        if np.any(hnu[m0:] <= 0.0):                       # second guard: reset to Planck if H went negative
-            ifneg = 1; snubar[m0:] = bnu[m0:]; snu[m0:] = bnu[m0:]; hnu[m0:] = deriv(taunu[m0:], snu[m0:])/3.0
-        jmins[nmj0:] = deriv(taunu[nmj0:], hnu[nmj0:])    # (J - S) = dH/dtau
-        for j in range(maxj1-1, nl):
-            if ifneg == 1: jmins[j] = 0.0
-            jnu[j] = jmins[j] + snu[j]                     # mean intensity J
-            snew = (1.0-alpha[j])*snubar[j] + alpha[j]*jnu[j]                  # updated source (scattering)
-            error += abs(snew-snu[j])/max(abs(snew), 1e-300); snu[j] = snew
-        if error < ITER_TOL: break
+    josh_deep_solve(snu, snubar, hnu, jnu, jmins, taunu, alpha, bnu, nl, nxtau, m0, nmj0, maxj1)
     if maxj == 1: return taunu, hnu, jmins, abtot, alpha
     xjs = (-xs + COEFJ.astype(np.float32) @ xs).astype(np.float64)     # (J-S) from the matrix solution
     xh  = (CH_MAT @ xs).astype(np.float64)                             # H from the matrix solution
@@ -316,7 +348,26 @@ code(r'''def josh_profiles(acont, scont, sigmac, rhox, bnu):
 
 md(r"""### The frequency sweep
 
-We sweep the 30000 continuum frequencies. At each we form the Planck function $B_\nu$, run JOSH for the depth profiles, and accumulate the Rosseland integral (a *harmonic*, $\partial B_\nu/\partial T$-weighted average of $1/\kappa_\nu$) and the four TCORR integrals. The last integral, `rdiagj`, builds the diagonal of the $\Lambda$ operator on the physical grid using the $E_3$ kernel — the same construction as Lecture 10.""")
+We sweep the 30000 continuum frequencies. At each we form the Planck function $B_\nu$, run JOSH for the depth profiles, and accumulate the Rosseland integral (a *harmonic*, $\partial B_\nu/\partial T$-weighted average of $1/\kappa_\nu$) and the four TCORR integrals. The last integral, `rdiagj`, builds the diagonal of the $\Lambda$ operator on the physical grid using the $E_3$ kernel — the same construction as Lecture 10. We lift that per-layer $\Lambda$-diagonal accumulation into its own helper first, then the sweep itself is a short loop.""")
+
+md(r"""**The $\Lambda$-diagonal accumulation.** Per frequency, `accumulate_rdiagj` walks down the layers building the local $\Lambda$-operator diagonal `diagj` from a running pair of $E_3$-kernel terms — the small-step series expansion where the optical-depth step is tiny, the exact $E_3$ kernel otherwise — and accumulates the $\partial B_\nu/\partial T$-weighted contribution into `rdiagj`. The `term2 -> term1` carry-down makes this a per-layer recurrence, so the loop stays whole; it is moved out verbatim and called at the same point, accumulating into `rdiagj` in place.""")
+
+code(r'''def accumulate_rdiagj(rdiagj, taunu, bnu, hkt, T, stim, alpha, abtot, f, rcowt, n):
+    """Accumulate the per-layer Lambda-diagonal TCORR integral rdiagj via the E3 kernel (Lecture 10)."""
+    term2 = 0.0
+    for j in range(n):                                             # Lambda-diagonal via the E3 kernel (per layer)
+        term1 = term2
+        d = max(1e-10, float(taunu[j+1]-taunu[j]) if j != n-1 else 1e-10)   # optical-depth step to next layer
+        if d <= 0.01:                                             # small-step series expansion of the E3 integral
+            term2 = (0.922784335098467-np.log(d))*d/4.0 + d*d/12.0 - d**3/96.0 + d**4/720.0
+        else:                                                     # otherwise the exact E3 kernel
+            ex = expi3(d) if d < 10.0 else 0.0
+            term2 = 0.5*(d + ex - 0.5)/d
+        diagj = term1 + term2                                     # Lambda-operator diagonal element
+        dbdtj = bnu[j]*f*hkt[j]/max(T[j]*stim[j], 1e-300)
+        rdiagj[j] += abtot[j]*(diagj-1.0)/max(1.0-alpha[j]*diagj, 1e-300)*(1.0-alpha[j])*dbdtj*rcowt''')
+
+md(r"""With the $\Lambda$-diagonal accumulation factored out, the sweep is the per-frequency accumulation loop itself: form $B_\nu$, run JOSH, and add this frequency's contribution to the Rosseland mean and the four TCORR integrals.""")
 
 code(r'''freq = REF["freq_hz"].astype(np.float64); rco = REF["rco"].astype(np.float64)
 acont = REF["acont"].astype(np.float64); sigmac = REF["sigmac"].astype(np.float64); scont = REF["scont"].astype(np.float64)
@@ -336,18 +387,7 @@ for inu in range(nf):
     rdabh  += dabtot/np.maximum(abtot, 1e-300)*hnu*rcowt           # log-opacity gradient x flux integral
     rjmins += abtot*jmins*rcowt                                    # net heating integral kappa (J - S)
     flxrad += hnu*rcowt                                            # radiative flux H(tau), summed over nu
-    term2 = 0.0
-    for j in range(n):                                             # Lambda-diagonal via the E3 kernel (per layer)
-        term1 = term2
-        d = max(1e-10, float(taunu[j+1]-taunu[j]) if j != n-1 else 1e-10)   # optical-depth step to next layer
-        if d <= 0.01:                                             # small-step series expansion of the E3 integral
-            term2 = (0.922784335098467-np.log(d))*d/4.0 + d*d/12.0 - d**3/96.0 + d**4/720.0
-        else:                                                     # otherwise the exact E3 kernel
-            ex = expi3(d) if d < 10.0 else 0.0
-            term2 = 0.5*(d + ex - 0.5)/d
-        diagj = term1 + term2                                     # Lambda-operator diagonal element
-        dbdtj = bnu[j]*f*hkt[j]/max(T[j]*stim[j], 1e-300)
-        rdiagj[j] += abtot[j]*(diagj-1.0)/max(1.0-alpha[j]*diagj, 1e-300)*(1.0-alpha[j])*dbdtj*rcowt
+    accumulate_rdiagj(rdiagj, taunu, bnu, hkt, T, stim, alpha, abtot, f, rcowt, n)
 print(f"swept {nf} continuum frequencies; flux at surface = {flxrad[0]:.4e}, deep = {flxrad[-1]:.4e}")''')
 
 md(r"""## The Rosseland optical-depth scale and its lookup table
@@ -356,8 +396,22 @@ The Rosseland mean opacity follows from the accumulator, $\kappa_{\rm Ross} = (4
 
 code(r'''abross = (4.0*SIGMA/3.14159) * T**3 / np.maximum(ross_acc, 1e-300)   # Rosseland mean [cm^2/g]
 tauros = integ(rhox, abross, abross[0]*rhox[0])                       # Rosseland optical depth
+print(f"kappa_Ross spans {abross.min():.3e} to {abross.max():.3e} cm^2/g; tau_Ross deep = {tauros[-1]:.1f}")''')
 
-class Rosstab:
+md(r"""**The bilinear blend.** When all four $(\delta T,\delta P)$ quadrants supply a nearest neighbour, `ROSSTAB` interpolates between them: it linearly blends the two upper picks and the two lower picks in $\log T$, then blends those two results in $\log P$. `_rosstab_bilinear` is that contiguous block, lifted out of `eval` and called at the same point — it takes the normalized query $(\texttt{tl},\texttt{pl})$, the stored coordinate/value lists, and the four quadrant indices and values, and returns the interpolated opacity.""")
+
+code(r'''def _rosstab_bilinear(t, p, k, tl, pl, i_pp, i_pm, i_mp, i_mm, v_pp, v_pm, v_mp, v_mm):
+    """Bilinear blend of the four quadrant picks in (logT, logP) for ROSSTAB.eval."""
+    tpp,ppp=t[i_pp],p[i_pp]; tpm,ppm=t[i_pm],p[i_pm]
+    tmp,pmp=t[i_mp],p[i_mp]; tmm,pmm=t[i_mm],p[i_mm]
+    den_tp=max(tpp-tmp,1e-300); den_tm=max(tpm-tmm,1e-300)
+    rppmp=((tl-tmp)*v_pp+(tpp-tl)*v_mp)/den_tp; rpmmm=((tl-tmm)*v_pm+(tpm-tl)*v_mm)/den_tm
+    pppmp=((tl-tmp)*ppp+(tpp-tl)*pmp)/den_tp; ppmmm=((tl-tmm)*ppm+(tpm-tl)*pmm)/den_tm
+    r=((pl-ppmmm)*rppmp+(pppmp-pl)*rpmmm)/max(pppmp-ppmmm,1e-300); return float(10.0**r)''')
+
+md(r"""**The table.** The `Rosstab` class holds the table and the lookup. `ingest` stores each layer as a normalized $(\log T,\log P,\log\kappa)$ triple (the first call fixes the normalization origins and spans). `eval` finds the nearest stored point in each of the four $(\delta T,\delta P)$ quadrants of the query and either calls `_rosstab_bilinear` (when all four exist) or falls back to an inverse-distance blend.""")
+
+code(r'''class Rosstab:
     """ROSSTAB: (logT, logP, log kappa) table + nearest-neighbour-per-quadrant bilinear lookup."""
     def __init__(self): self.t=[]; self.p=[]; self.k=[]; self.zerot=self.zerop=0.0; self.slopet=self.slopep=1.0; self.n=0
     def ingest(self, T, P, kappa):
@@ -385,18 +439,14 @@ class Rosstab:
             else:
                 if r2 < rmm: rmm=r2; i_mm=i; v_mm=self.k[i]
         if i_pp>=0 and i_pm>=0 and i_mp>=0 and i_mm>=0:     # bilinear blend of the four quadrant picks
-            tpp,ppp=self.t[i_pp],self.p[i_pp]; tpm,ppm=self.t[i_pm],self.p[i_pm]
-            tmp,pmp=self.t[i_mp],self.p[i_mp]; tmm,pmm=self.t[i_mm],self.p[i_mm]
-            den_tp=max(tpp-tmp,1e-300); den_tm=max(tpm-tmm,1e-300)
-            rppmp=((tl-tmp)*v_pp+(tpp-tl)*v_mp)/den_tp; rpmmm=((tl-tmm)*v_pm+(tpm-tl)*v_mm)/den_tm
-            pppmp=((tl-tmp)*ppp+(tpp-tl)*pmp)/den_tp; ppmmm=((tl-tmm)*ppm+(tpm-tl)*pmm)/den_tm
-            r=((pl-ppmmm)*rppmp+(pppmp-pl)*rpmmm)/max(pppmp-ppmmm,1e-300); return float(10.0**r)
+            return _rosstab_bilinear(self.t, self.p, self.k, tl, pl, i_pp, i_pm, i_mp, i_mm, v_pp, v_pm, v_mp, v_mm)
         w=[1.0/(np.sqrt(r)+1e-5) for r in (rpp,rpm,rmp,rmm)]; rwt=sum(w)   # fallback inverse-distance blend
         idx=[max(i,0) for i in (i_pp,i_pm,i_mp,i_mm)]
-        r=sum(self.k[idx[m]]*w[m] for m in range(4))/max(rwt,1e-300); return float(10.0**r)
+        r=sum(self.k[idx[m]]*w[m] for m in range(4))/max(rwt,1e-300); return float(10.0**r)''')
 
-rosstab = Rosstab(); rosstab.ingest(T, p_in, abross)
-print(f"kappa_Ross spans {abross.min():.3e} to {abross.max():.3e} cm^2/g; tau_Ross deep = {tauros[-1]:.1f}")''')
+md(r"""Instantiate the table and ingest this iteration's converged $(T,P,\kappa_{\rm Ross})$ at every layer.""")
+
+code(r'''rosstab = Rosstab(); rosstab.ingest(T, p_in, abross)''')
 
 # ── convection: the physics ──────────────────────────────────────────────────
 md(r"""## Why the deep photosphere convects
@@ -439,13 +489,75 @@ for each layer j:
 zero the top NCONV layers (surface patch)
 ```
 
-The single body below is one algorithm and stays whole; the comments mark each physical step against this outline. Two ATLAS conventions: the top `NCONV = 36` layers are **forced non-convective** (the surface is radiative by construction), and the deep flux is capped so a cell cannot carry more than the cell's heat content allows.""")
+The inner 30-iteration flux $\leftrightarrow$ temperature-excess loop is one genuinely coupled algorithm and stays whole; the comments mark each physical step against the outline above. But the per-layer **setup** that precedes it — the gradients, heat capacities, sound speed, and pressure scale height, computed identically for every layer whether it convects or not — is a self-contained block, so we lift it into a named helper first.""")
+
+md(r"""**The geometric height.** `high_from_rhox` integrates the geometric height from the column mass and the density (Fortran `HIGH`); `convec` calls it once at the end to attach the height profile to its output.""")
 
 code(r'''def high_from_rhox(rhox, rho):
     """Integrate geometric height from column mass and density (Fortran HIGH)."""
-    return integ(rhox, 1.0e-5/np.maximum(rho, 1e-300), 0.0)
+    return integ(rhox, 1.0e-5/np.maximum(rho, 1e-300), 0.0)''')
 
-def convec(rosstab, rhox, tauros, t, p, rho, abross, pradk, ptotal, grav, flux,
+md(r"""**The per-layer thermodynamics.** `convec_layer_thermo` is the block that runs for *every* layer: the actual gradient $\nabla = d\ln T/d\ln P$, the specific heats $c_V$ and $c_P$ (with the radiation-pressure temperature term), the sound speed, $d\ln\rho/d\ln T$, the adiabatic gradient $\nabla_{\rm ad}$, and the pressure scale height $H_P$. It writes each into the pre-allocated arrays for layer `j`; the convective branch then reads `dltdlp`, `grdadb`, `heatcp`, `dlrdlt`, and `hscale` straight back out. Moved out verbatim, called at the same point with the same inputs.""")
+
+code(r'''def convec_layer_thermo(j, t, rho, ptotal, pradk, grav, dilut, dtdrhx,
+                        dEdT, drdT, dEdP, drdP, dltdlp, heatcp, dlrdlt, velsnd, grdadb, hscale):
+    """Per-layer convective thermodynamics: actual gradient, c_V/c_P, sound speed, grad_ad, H_P (Fortran CONVEC)."""
+    dpdpg = 1.0
+    dpdt  = 4.0*pradk[j]/max(t[j],1e-300)*dilut[j]                 # radiation-pressure temperature term
+    dltdlp[j] = ptotal[j]/max(t[j]*grav,1e-300)*dtdrhx[j]          # actual gradient d ln T / d ln P
+    drdP_s = _nz_signed(float(drdP[j]))
+    heatcv = dEdT[j] - dEdP[j]*drdT[j]/drdP_s                       # specific heat at constant volume
+    heatcp[j] = (dEdT[j] - dEdP[j]*dpdt/max(dpdpg,1e-300)          # ... at constant pressure
+                 - ptotal[j]/max(rho[j]**2,1e-300)*(drdT[j] - drdP[j]*dpdt/max(dpdpg,1e-300)))
+    if heatcv > 0.0: velsnd[j] = np.sqrt(max(heatcp[j]/heatcv*dpdpg/drdP_s, 0.0))   # sound speed
+    dlrdlt[j] = t[j]/max(rho[j],1e-300)*(drdT[j] - drdP[j]*dpdt/max(dpdpg,1e-300))   # d ln rho / d ln T
+    if abs(heatcp[j]) > 1e-300:
+        grdadb[j] = -ptotal[j]/max(rho[j]*t[j],1e-300)*dlrdlt[j]/heatcp[j]           # adiabatic gradient
+    hscale[j] = ptotal[j]/max(rho[j]*grav,1e-300)                  # pressure scale height H_P''')
+
+md(r"""**The irreducible inner loop.** This is the genuinely coupled flux $\leftrightarrow$ temperature-excess iteration, kept whole in its own helper `convec_flux_iteration` because the convective efficiency and the temperature excess $\delta T$ (`deltat`) are mutually dependent — neither can be computed without the other. It mutates `deltat[j]`, `vconv[j]`, and `flxcnv[j]` in place for the one layer `j`. Step by step, each of the (at most) 30 passes does:
+
+1. **Cell opacity at $T\pm\delta T$.** Read `ROSSTAB` at $T+\delta T$ and $T-\delta T$, ratioed to the cell-center opacity `rosst[j]` (signed-floored), and harmonically average them into the cell extinction `abconv` $=\kappa\rho\ell$-scale.
+2. **Radiative-loss parameter $d$.** Form $d = 8\sigma T^4/(\texttt{abconv}\,H_P\rho)/(\texttt{fluxco}\,4\pi)/v_{\rm co}$ — how fast the cell radiates its heat away relative to how fast it delivers it.
+3. **Optical-thickness efficiency.** Multiply by $\tau_b^2/(2+\tau_b^2)$ with $\tau_b = \texttt{abconv}\,\rho\ell H_P$ (an optically thin cell, $\tau_b\ll1$, leaks its heat and carries little flux), then square and halve.
+4. **Solve for $\delta T$.** Form $\texttt{ddd} = (\Delta/(d+\Delta))^2$ and evaluate $(1-\sqrt{1-\texttt{ddd}})/\texttt{ddd}$ — by a convergent series when `ddd` is small (more accurate than the catastrophic cancellation in the closed form), by the closed form otherwise — scaled into the working `delta`.
+5. **Update velocity, flux, excess.** $v_{\rm conv} = v_{\rm co}\sqrt{\texttt{delta}}$, $F_{\rm conv} = \texttt{fluxco}\,v_{\rm conv}\,\texttt{delta}$, and $\delta T = \min(T\,\ell\,\texttt{delta},\,0.15\,T)$ (capped at 15%), then **under-relax** ($0.7$ new $+\,0.3$ old) for stability.
+6. **Convergence test.** Stop once $\delta T$ moves by less than $0.5$ between passes; otherwise carry it forward and repeat.
+
+The signed floors, the series/closed-form split, and the under-relaxation are load-bearing and stay verbatim.""")
+
+code(r'''def convec_flux_iteration(j, rosstab, rosst, deltat, vconv, flxcnv, t, p, abross,
+                          hscale, rho, fluxco, vco, mixlth, delt):
+    """Inner flux <-> temperature-excess iteration for one convecting layer, in place (Fortran CONVEC)."""
+    olddelt = 0.0
+    for _ in range(30):                                           # inner loop: flux <-> temperature excess
+        rd = _nz_signed(float(rosst[j]))
+        dplus  = rosstab.eval(float(t[j]+deltat[j]), float(p[j]))/rd   # opacity at T + deltaT
+        dminus = rosstab.eval(float(t[j]-deltat[j]), float(p[j]))/rd   # opacity at T - deltaT
+        abconv = 0.0 if (dplus == 0.0 or dminus == 0.0) else 2.0/(1.0/dplus + 1.0/dminus)*abross[j]
+        den1 = abconv*hscale[j]*rho[j]; den2 = fluxco*FOURPI
+        d = 0.0 if (den1 == 0.0 or den2 == 0.0 or vco == 0.0) else 8.0*SIGMA*t[j]**4/den1/den2/vco
+        taub = abconv*rho[j]*mixlth*hscale[j]                      # cell optical thickness tau_b
+        d = d*taub**2/(2.0+taub**2)                                # optical-thickness efficiency factor
+        d = d**2/2.0
+        ddd = (delt/_nz_signed(float(d+delt)))**2
+        if ddd < 0.5:                                             # series for (1-sqrt(1-ddd))/ddd, small ddd
+            delta=0.5; term=0.5; up=-1.0; down=2.0
+            while term > 1.0e-6:
+                up+=2.0; down+=2.0; term = up/down*ddd*term; delta += term
+        else:
+            delta = (1.0-np.sqrt(max(1.0-ddd,0.0)))/max(ddd,1e-300)
+        delta = delta*delt**2/_nz_signed(float(d+delt))
+        vconv[j]  = vco*np.sqrt(max(delta,0.0))                    # convective velocity
+        flxcnv[j] = max(fluxco*vconv[j]*delta, 0.0)                # convective flux F_conv
+        deltat[j] = min(t[j]*mixlth*delta, t[j]*0.15)             # temperature excess, capped at 15%
+        deltat[j] = deltat[j]*0.7 + olddelt*0.3                    # under-relax for stability
+        if olddelt-0.5 < deltat[j] < olddelt+0.5: break
+        olddelt = deltat[j]''')
+
+md(r"""**The kernel.** With the height integral, the per-layer thermodynamics, and the inner flux iteration lifted out, `convec` is the loop over layers: call the thermodynamics helper, test the Schwarzschild criterion, and — where the layer convects — set up the velocity and flux scales and run the inner iteration. The flux is capped, the top `NCONV = 36` layers are forced radiative (the surface is radiative by construction), and the result is returned alongside the gradients the temperature correction needs.""")
+
+code(r'''def convec(rosstab, rhox, tauros, t, p, rho, abross, pradk, ptotal, grav, flux,
            dEdT, drdT, dEdP, drdP, mixlth=1.25, nconv=36):
     """Mixing-length convective flux per layer (Fortran CONVEC, finite-difference derivative path)."""
     nl = t.size
@@ -455,18 +567,8 @@ def convec(rosstab, rhox, tauros, t, p, rho, abross, pradk, ptotal, grav, flux,
     grdadb=np.zeros(nl); hscale=np.zeros(nl); flxcnv=np.zeros(nl); vconv=np.zeros(nl)
     deltat=np.zeros(nl); rosst=np.zeros(nl)
     for j in range(nl):
-        dpdpg = 1.0
-        dpdt  = 4.0*pradk[j]/max(t[j],1e-300)*dilut[j]                 # radiation-pressure temperature term
-        dltdlp[j] = ptotal[j]/max(t[j]*grav,1e-300)*dtdrhx[j]          # actual gradient d ln T / d ln P
-        drdP_s = _nz_signed(float(drdP[j]))
-        heatcv = dEdT[j] - dEdP[j]*drdT[j]/drdP_s                       # specific heat at constant volume
-        heatcp[j] = (dEdT[j] - dEdP[j]*dpdt/max(dpdpg,1e-300)          # ... at constant pressure
-                     - ptotal[j]/max(rho[j]**2,1e-300)*(drdT[j] - drdP[j]*dpdt/max(dpdpg,1e-300)))
-        if heatcv > 0.0: velsnd[j] = np.sqrt(max(heatcp[j]/heatcv*dpdpg/drdP_s, 0.0))   # sound speed
-        dlrdlt[j] = t[j]/max(rho[j],1e-300)*(drdT[j] - drdP[j]*dpdt/max(dpdpg,1e-300))   # d ln rho / d ln T
-        if abs(heatcp[j]) > 1e-300:
-            grdadb[j] = -ptotal[j]/max(rho[j]*t[j],1e-300)*dlrdlt[j]/heatcp[j]           # adiabatic gradient
-        hscale[j] = ptotal[j]/max(rho[j]*grav,1e-300)                  # pressure scale height H_P
+        convec_layer_thermo(j, t, rho, ptotal, pradk, grav, dilut, dtdrhx,
+                            dEdT, drdT, dEdP, drdP, dltdlp, heatcp, dlrdlt, velsnd, grdadb, hscale)
         if mixlth == 0.0 or j < 3: continue
         delt = dltdlp[j] - grdadb[j]                                   # superadiabaticity Delta = grad - grad_ad
         if delt < 0.0: continue                                        # Schwarzschild-stable -> no convection
@@ -474,31 +576,8 @@ def convec(rosstab, rhox, tauros, t, p, rho, abross, pradk, ptotal, grav, flux,
         if vco == 0.0: continue
         fluxco = 0.5*rho[j]*heatcp[j]*t[j]*mixlth/FOURPI               # flux scale rho c_P T ell
         rosst[j] = rosstab.eval(float(t[j]), float(p[j]))             # cell-center opacity
-        olddelt = 0.0
-        for _ in range(30):                                           # inner loop: flux <-> temperature excess
-            rd = _nz_signed(float(rosst[j]))
-            dplus  = rosstab.eval(float(t[j]+deltat[j]), float(p[j]))/rd   # opacity at T + deltaT
-            dminus = rosstab.eval(float(t[j]-deltat[j]), float(p[j]))/rd   # opacity at T - deltaT
-            abconv = 0.0 if (dplus == 0.0 or dminus == 0.0) else 2.0/(1.0/dplus + 1.0/dminus)*abross[j]
-            den1 = abconv*hscale[j]*rho[j]; den2 = fluxco*FOURPI
-            d = 0.0 if (den1 == 0.0 or den2 == 0.0 or vco == 0.0) else 8.0*SIGMA*t[j]**4/den1/den2/vco
-            taub = abconv*rho[j]*mixlth*hscale[j]                      # cell optical thickness tau_b
-            d = d*taub**2/(2.0+taub**2)                                # optical-thickness efficiency factor
-            d = d**2/2.0
-            ddd = (delt/_nz_signed(float(d+delt)))**2
-            if ddd < 0.5:                                             # series for (1-sqrt(1-ddd))/ddd, small ddd
-                delta=0.5; term=0.5; up=-1.0; down=2.0
-                while term > 1.0e-6:
-                    up+=2.0; down+=2.0; term = up/down*ddd*term; delta += term
-            else:
-                delta = (1.0-np.sqrt(max(1.0-ddd,0.0)))/max(ddd,1e-300)
-            delta = delta*delt**2/_nz_signed(float(d+delt))
-            vconv[j]  = vco*np.sqrt(max(delta,0.0))                    # convective velocity
-            flxcnv[j] = max(fluxco*vconv[j]*delta, 0.0)                # convective flux F_conv
-            deltat[j] = min(t[j]*mixlth*delta, t[j]*0.15)             # temperature excess, capped at 15%
-            deltat[j] = deltat[j]*0.7 + olddelt*0.3                    # under-relax for stability
-            if olddelt-0.5 < deltat[j] < olddelt+0.5: break
-            olddelt = deltat[j]
+        convec_flux_iteration(j, rosstab, rosst, deltat, vconv, flxcnv, t, p, abross,
+                              hscale, rho, fluxco, vco, mixlth, delt)
     flxcnv0 = flxcnv.copy()                                           # pre-patch flux (used by TCORR)
     height = high_from_rhox(rhox, rho)
     k = int(max(min(nconv, nl), 0))
@@ -571,7 +650,7 @@ code(r'''def ttaup(t, tau, prad, grav, rfun):
 
 md(r"""`tcorr_mode3` is the Lecture 10 temperature correction with convection folded in. It assembles the same three terms — $T_1 = \Delta T_{\rm flux} + \Delta T_\Lambda + \Delta T_{\rm surf}$ — but the convective flux enters in three places: the defect it drives toward zero is now the *total* flux $H + F_{\rm conv}/4\pi - H_{\rm target}$, the Avrett–Krook denominator picks up the convective-efficiency response `ddel`, and $F_{\rm conv}$ is 1–2–1 smoothed (with its top two layers re-zeroed) first. It then closes the iteration with the density correction by running `ttaup` above on $T$ and on $T+T_1$ and differencing the pressures.
 
-The routine has four separable blocks, which we extract into named helpers first — the convective-flux smoothing, the per-layer Avrett–Krook integrand, the local-$\Lambda$ surface term, and the density correction — so the main `tcorr_mode3` body reads as a short sequence of named steps. Each helper is moved out verbatim and called at the same point with the same inputs and outputs, so the arithmetic is bit-for-bit unchanged.""")
+The routine has six separable blocks, which we extract into named helpers first — the convective-flux smoothing, the per-layer Avrett–Krook integrand, the local-$\Lambda$ surface term, the flux-driven term, the surface-boundary term, and the density correction — so the main `tcorr_mode3` body reads as a short sequence of named steps. Each helper is moved out verbatim and called at the same point with the same inputs and outputs, so the arithmetic is bit-for-bit unchanged.""")
 
 md(r"""**Step 1 — smooth the convective flux.** The raw layer-by-layer $F_{\rm conv}$ is noisy, so before it enters the correction it is run through a 1–2–1 spatial filter, with the top two layers explicitly re-zeroed first (otherwise the filter would bleed deep convective flux up into the radiative boundary layers). `smooth_convective_flux` does exactly that and returns the smoothed copy `cnvflx`.""")
 
@@ -644,7 +723,33 @@ code(r'''def drhox_density_correction(tauros, T, t1, prad, grav, rosstab, nl, st
     ppp = (ptot2-ptot1)/np.maximum(ptot1, 1e-300); rrr, _ = map1(taustd, ppp, tauros)   # fractional dP -> dRHOX
     return rrr''')
 
-md(r"""**The assembled correction.** With the four helpers in place, `tcorr_mode3` reads as a short sequence: unpack the `CONVEC` arrays, smooth the convective flux, build the Avrett–Krook integrand, integrate it into the flux-driven term $\Delta T_{\rm flux}$, add the surface $\Lambda$ term and the surface-boundary term, clamp for monotonicity, and finally run the density correction. The same float operations execute in the same order as before.""")
+md(r"""**Step 5 — the flux-driven term.** The heart of the correction: the Avrett–Krook integrating factor $g = \exp\int\texttt{codrhx}\,d(\rho x)$, the total-flux defect $H + F_{\rm conv} - H_{\rm target}$ divided by the (signed-floored) total-flux denominator and weighted by $g$, integrated over $\tau_{\rm Ross}$ and divided back out to give the optical-depth shift $\Delta\tau$, clamped for stability, and converted into the temperature term $\Delta T_{\rm flux} = -\Delta\tau\,(dT/d\rho x)/\kappa$. `flux_driven_term` returns `dtflux`.""")
+
+code(r'''def flux_driven_term(rhox, tauros, codrhx, ddel, flxrad, cnvflx, dltdlp, flux, dtdrhx, abross):
+    """The Avrett-Krook flux-driven temperature term dtflux (Lecture 10 + CONVEC TCORR)."""
+    g = np.exp(integ(rhox, codrhx, 0.0))                              # Avrett-Krook integrating factor
+    gfden = flxrad + cnvflx*1.5*dltdlp*ddel
+    gfden_s = np.where(np.abs(gfden) >= 1e-300, gfden, np.where(gfden >= 0.0, 1e-300, -1e-300))
+    gflux = g*(flxrad + cnvflx - flux)/gfden_s                         # total-flux defect drives Avrett-Krook
+    dtau = integ(tauros, gflux, 0.0)/np.maximum(g, 1e-300)
+    dtau = np.maximum(-tauros/3.0, np.minimum(tauros/3.0, dtau))       # stability clamp on the tau shift
+    dtflux = -dtau*dtdrhx/np.maximum(abross, 1e-300)
+    return dtflux''')
+
+md(r"""**Step 6 — the surface-boundary term.** A single constant per column, set by the surface flux defect $(H_{\rm target}-H_0)/H_{\rm target}$ and clamped to $\pm T_{\rm eff}/25$, with the depth-averaged part of the flux+$\Lambda$ terms (`tav`, sampled at $\tau_{\rm Ross}=0.1$ and $2$) subtracted off so the boundary term does not double-count what the depth integral already carries. `surface_boundary_term` returns the constant array `dtsurf`.""")
+
+code(r'''def surface_boundary_term(nl, teff, flux, flxrad, T, tauros, dtflux, dtlamb):
+    """Surface-boundary temperature term dtsurf, with the depth-averaged part removed (Lecture 10 TCORR)."""
+    teff25 = teff/25.0
+    dtsur = float(np.clip((flux-flxrad[0])/np.maximum(flux,1e-300)*0.25*T[0], -teff25, teff25))  # surface term
+    tinteg = integ(tauros, dtflux+dtlamb, 0.0)
+    tav = (map1_scalar(tauros, tinteg, 2.0) - map1_scalar(tauros, tinteg, 0.1))/2.0
+    if dtsur*tav <= 0.0: tav = 0.0
+    if abs(tav) > abs(dtsur): tav = dtsur
+    dtsur = dtsur - tav; dtsurf = np.full(nl, dtsur)
+    return dtsurf''')
+
+md(r"""**The assembled correction.** With the six helpers in place, `tcorr_mode3` reads as a short sequence: unpack the `CONVEC` arrays, smooth the convective flux, build the Avrett–Krook integrand, form the flux-driven term $\Delta T_{\rm flux}$, add the surface $\Lambda$ term and the surface-boundary term, clamp for monotonicity, and finally run the density correction. The same float operations execute in the same order as before.""")
 
 code(r'''def tcorr_mode3(T, rhox, tauros, abross, flxrad, rjmins, rdabh, rdiagj, flux, teff, prad, grav,
                 rosstab, cv, mixlth=1.25, steplg=0.125, tau1lg=-6.875):
@@ -658,22 +763,10 @@ code(r'''def tcorr_mode3(T, rhox, tauros, abross, flxrad, rjmins, rdabh, rdiagj,
     rdabh_eff = rdabh - flxrad*dabros/np.maximum(abross, 1e-300)      # opacity-gradient term in the AK denominator
     codrhx, ddel = ak_integrand(nl, T, flxrad, rdabh_eff, dtdrhx, ddlt, cnvflx, flxcnv0,
                                 dltdlp, grdadb, hscale, dlrdlt, heatcp, ptc, rhc, abross, mixlth)
-    g = np.exp(integ(rhox, codrhx, 0.0))                              # Avrett-Krook integrating factor
-    gfden = flxrad + cnvflx*1.5*dltdlp*ddel
-    gfden_s = np.where(np.abs(gfden) >= 1e-300, gfden, np.where(gfden >= 0.0, 1e-300, -1e-300))
-    gflux = g*(flxrad + cnvflx - flux)/gfden_s                         # total-flux defect drives Avrett-Krook
-    dtau = integ(tauros, gflux, 0.0)/np.maximum(g, 1e-300)
-    dtau = np.maximum(-tauros/3.0, np.minimum(tauros/3.0, dtau))       # stability clamp on the tau shift
-    dtflux = -dtau*dtdrhx/np.maximum(abross, 1e-300)
+    dtflux = flux_driven_term(rhox, tauros, codrhx, ddel, flxrad, cnvflx, dltdlp, flux, dtdrhx, abross)
     flxerr = (flxrad + cnvflx - flux)/np.maximum(flux, 1e-300)*100.0   # percent TOTAL-flux error
     dtlamb = lambda_surface_term(nl, tauros, abross, flxrad, rjmins, rdiagj, flxerr, cnvflx, flux, teff)
-    teff25 = teff/25.0
-    dtsur = float(np.clip((flux-flxrad[0])/np.maximum(flux,1e-300)*0.25*T[0], -teff25, teff25))  # surface term
-    tinteg = integ(tauros, dtflux+dtlamb, 0.0)
-    tav = (map1_scalar(tauros, tinteg, 2.0) - map1_scalar(tauros, tinteg, 0.1))/2.0
-    if dtsur*tav <= 0.0: tav = 0.0
-    if abs(tav) > abs(dtsur): tav = dtsur
-    dtsur = dtsur - tav; dtsurf = np.full(nl, dtsur)
+    dtsurf = surface_boundary_term(nl, teff, flux, flxrad, T, tauros, dtflux, dtlamb)
     dtflux = np.nan_to_num(dtflux); dtlamb = np.nan_to_num(dtlamb); dtsurf = np.nan_to_num(dtsurf)   # sanitize
     t1 = dtflux + dtlamb + dtsurf                                     # total temperature correction
     tnew = np.maximum(np.where(np.isfinite(T+t1), T+t1, T), 1.0)       # iter 1: damping skipped
