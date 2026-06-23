@@ -83,18 +83,23 @@ We load the reference cool M-dwarf model atmosphere and the molecular line list.
 code(r'''import pathlib
 import numpy as np
 import matplotlib.pyplot as plt
+
 # shared plot styling for the whole notebook
 plt.rcParams.update({"figure.figsize": (7.2, 4.3), "figure.dpi": 120, "savefig.facecolor": "white",
     "axes.grid": True, "grid.alpha": 0.25, "axes.axisbelow": True,
     "font.size": 11, "axes.titlesize": 12.5, "axes.labelsize": 11.5})
 
+# load the cool M-dwarf model atmosphere (taken as GIVEN, exactly as we took the Sun)
 REF = pathlib.Path("..") / "reference"
-atm = np.load(REF / "m3500g50.npz")                 # cool M-dwarf model atmosphere (GIVEN)
+atm = np.load(REF / "m3500g50.npz")
 T   = atm["temperature"].astype(float)              # K, per depth (80 layers)
 rho = atm["mass_density"].astype(float)             # g/cm^3
 xne = atm["electron_density"].astype(float)         # cm^-3
-hckt = atm["hckt"].astype(float)                    # hc/kT in 1/cm, the Boltzmann exponent factor
-vturb = atm["turbulent_velocity"].astype(float)     # cm/s, microturbulence per depth
+
+# hckt = hc/kT in 1/cm, the Boltzmann exponent factor; vturb = microturbulence per depth
+hckt = atm["hckt"].astype(float)
+vturb = atm["turbulent_velocity"].astype(float)     # cm/s
+
 print(f"M dwarf: Teff={float(atm['teff']):.0f} K, logg={float(atm['glog']):.1f}, "
       f"{T.size} depths, T = {T.min():.0f}..{T.max():.0f} K")''')
 
@@ -112,16 +117,21 @@ code(r'''def read_molecules_dat(path):
     table = {}
     for line in path.read_text().splitlines():
         parts = line.split()
-        if len(parts) < 2:                          # skip headers / blank lines
+        # skip headers / blank lines
+        if len(parts) < 2:
             continue
         try:
             code = float(parts[0])                  # element code, e.g. 822.0 for TiO
-            vals = [float(p) for p in parts[1:8]]    # D0 then the (up to 6) polynomial terms
+            # D0 then the (up to 6) polynomial terms
+            vals = [float(p) for p in parts[1:8]]
         except ValueError:
-            continue                                # non-numeric line -> not a molecule entry
+            # non-numeric line -> not a molecule entry
+            continue
         if len(vals) >= 1:
-            E = (vals[1:] + [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])[:6]   # pad missing coefficients with 0
-            table[round(code)] = (vals[0], E)        # D0 (eV) and the six-term E1..E6 fit
+            # pad missing coefficients with 0
+            E = (vals[1:] + [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])[:6]
+            # store D0 (eV) and the six-term E1..E6 fit, keyed by the rounded element code
+            table[round(code)] = (vals[0], E)
     return table
 
 mol_table = read_molecules_dat(REF / "molecules.dat")
@@ -147,8 +157,10 @@ def log_K_tio(temp, D0, E):
     # binding Boltzmann term (+D0/kT, grows as T falls), the polynomial, the phase-space term:
     return D0 / tkev - e1 + poly - 1.5 * (2 - 0 - 0 - 1) * np.log(temp)
 
-temps = np.linspace(2500.0, 7000.0, 200)               # cool dwarf -> warm Sun
+# evaluate over a temperature range spanning a cool dwarf up to the warm Sun
+temps = np.linspace(2500.0, 7000.0, 200)
 lnKf = log_K_tio(temps, D0_tio, E_tio)                  # natural log of the formation constant
+
 print(f"log10 Kf at 3500 K = {lnKf[np.argmin(np.abs(temps-3500))]/np.log(10):.2f}")
 print(f"log10 Kf at 5800 K = {lnKf[np.argmin(np.abs(temps-5800))]/np.log(10):.2f}")''')
 
@@ -157,11 +169,13 @@ md(r"""The formation constant $K_f(T) = n_{\rm TiO}/(n_{\rm Ti}n_{\rm O})$ measu
 code(r'''fig, ax = plt.subplots()
 # log10 of the formation constant vs temperature
 ax.plot(temps, lnKf / np.log(10.0), color="C0", lw=1.8)
+
 # mark the two stars: large Kf (cool) = molecules form, small Kf (warm) = dissociated
 for t0, name, col in [(3500, "M dwarf (3500 K)", "C3"), (5800, "Sun (5800 K)", "C1")]:
     k0 = lnKf[np.argmin(np.abs(temps - t0))] / np.log(10.0)
     ax.plot(t0, k0, "o", color=col, ms=8); ax.annotate(name, (t0, k0),
         textcoords="offset points", xytext=(8, -14), color=col, fontsize=10)
+
 ax.set_xlabel("temperature  [K]"); ax.set_ylabel(r"$\log_{10} K_f(T)$  (formation)")
 ax.set_title("TiO formation balance: cool gas keeps the molecule together")
 fig.tight_layout(); plt.show()''')
@@ -175,8 +189,11 @@ The coupled equilibrium solve has already been run for this atmosphere, so the T
 
 code(r'''NELION_TIO = 366                                    # production species index for TiO
 elem_tio = NELION_TIO // 6 - 1                      # -> element index 60 in population_per_ion
-pop = atm["population_per_ion"].astype(float)       # [depth, ion_stage, element]
-xnfpmol_tio = pop[:, 5, elem_tio]                   # ion slot 5 = molecules; XNFPMOL(TiO)
+
+# population_per_ion is indexed [depth, ion_stage, element]; ion slot 5 holds the molecules
+pop = atm["population_per_ion"].astype(float)
+xnfpmol_tio = pop[:, 5, elem_tio]                   # XNFPMOL(TiO), the molecular partial density
+
 print(f"XNFPMOL(TiO) over {xnfpmol_tio.size} depths: "
       f"{xnfpmol_tio.min():.3e} .. {xnfpmol_tio.max():.3e}  (cm^-3-equivalent)")''')
 
@@ -209,6 +226,7 @@ def molecular_dopple(temp, vt, mass_amu):
     thermal = np.sqrt(2.0 * KB * temp / (mass_amu * AMU)) / C_CMS   # thermal velocity / c
     return np.sqrt(thermal ** 2 + (vt / C_CMS) ** 2)               # add microturbulence
 
+# evaluate the width per depth for TiO, using its molecular mass (not an atomic one)
 MASS_TIO = 64.0                                     # TiO mass in amu (Ti 48 + O 16)
 dopple_tio = molecular_dopple(T, vturb, MASS_TIO)   # fractional Doppler width per depth
 print(f"DOPPLE(TiO) = {dopple_tio.min():.3e} .. {dopple_tio.max():.3e}  (fractional)")''')
@@ -225,11 +243,14 @@ md(r"""## The molecular line list
 The molecular catalogue for this window combines the **TiO Schwenke** line list (a quantum-mechanical computation of TiO's rovibrational transitions) with several ASCII lists for other molecules (CN, OH, MgH, and more). Each line carries the same descriptors as an atomic line in Lecture 5: a grid-position index `nbuff` (from which we reconstruct the wavelength), a combined strength `cgf` (the $gf$-value already folded with the isotopic abundance and the molecular constants), a lower-level energy `elo_cm` in cm$^{-1}$ for the Boltzmann factor, the broadening constants, and a species index `nelion` that tells us which molecule — and hence which population and Doppler width — to use. There are over a million of them in this 13 nm window.""")
 
 code(r'''ml = np.load(REF / "mol_lines_tio.npz")              # the windowed molecular line arrays
+
+# per-line descriptors, same set as an atomic line in Lecture 5 (float32 to match the engine)
 cgf = ml["cgf"].astype(np.float32).astype(float)     # strength gf folded with isotope abundance
 elo = ml["elo_cm"].astype(np.float32).astype(float)  # lower-level energy [cm^-1]
 gr  = ml["gamma_rad"].astype(np.float32).astype(float)    # radiative damping
 gs  = ml["gamma_stark"].astype(np.float32).astype(float)  # Stark damping coefficient
 gw  = ml["gamma_vdw"].astype(np.float32).astype(float)    # van der Waals damping coefficient
+
 nelion = ml["nelion"].astype(np.int64)               # species index per line
 eidx = nelion // 6 - 1                                # -> element index for each line
 print(f"{cgf.size:,} molecular lines in 705-718 nm; distinct species: {np.unique(nelion).size}")''')
@@ -322,6 +343,8 @@ code(r'''def accumulate_core_and_near(buf, ci, kappa0, adamp, kapmin, resolu, do
     vc = np.where(adamp < 0.2, 1.0 - 1.128 * adamp, voigt(0.0, adamp))   # center profile
     in_grid = (ci >= 0) & (ci < n_wl)
     np.add.at(buf, ci[in_grid], (kappa0 * vc)[in_grid])                  # deposit the line center
+
+    # per-line step geometry: reach, table index per step, Doppler units per step
     dr = dop_val * resolu                                                # Doppler width in grid steps
     n10dop = np.minimum((10.0 * dr).astype(np.int64), 1_000_000)         # near-wing reach (10 widths)
     tabstep = np.where(dr > 0.0, 200.0 / dr, 200.0)                      # table index per step (a<0.2)
@@ -329,6 +352,8 @@ code(r'''def accumulate_core_and_near(buf, ci, kappa0, adamp, kapmin, resolu, do
     is_small = adamp < 0.2                                               # weakly damped -> table path
     prof_n10 = np.zeros_like(kappa0); early = np.zeros(kappa0.shape, bool)
     alive = np.ones(kappa0.shape, bool)                                  # still above KAPMIN
+
+    # march outward, depositing each step into the red and blue bins until it drops below KAPMIN
     for ns in range(1, int(n10dop.max()) + 1 if n10dop.size else 1):
         active = alive & (ns <= n10dop)
         if not np.any(active): break
@@ -388,7 +413,7 @@ code(r'''def accumulate_depth(buf, cont_row, wavelength, xnfdop_e, dop_e, xne_d,
     n10dop, prof_n10, early = accumulate_core_and_near(buf, ci, k0, ad, km, resolu, dv)
     accumulate_far(buf, ci, km, n10dop, prof_n10, early)''')
 
-md(r"""The molecular opacity is built for **every depth**, recomputing the molecular Doppler width per element into slot 5 first (the synthesis overwrites the atmosphere's placeholder). We assemble the per-line element populations and widths once per depth, then run the driver. Finally the whole array is multiplied by the **stimulated-emission** factor $1-e^{-h\nu/kT}$, the same correction applied to every opacity. The masses for each molecular species come from a small table keyed by the species index.""")
+md(r"""The molecular opacity is built for **every depth**, and over the next three cells we (1) prepare the inputs, (2) loop over depths, and (3) finish with stimulated emission. This first cell prepares the inputs: it loads the synthesis diagnostics (wavelength grid and continuum), and — because the synthesis overwrites the atmosphere's placeholder Doppler width — recomputes the molecular Doppler width per element into slot 5, looping over a small table that keys each molecular species index to its mass in amu. The per-depth population and width assembly, the driver call, and the **stimulated-emission** factor $1-e^{-h\nu/kT}$ (the same correction applied to every opacity) follow in the cells after.""")
 
 code(r'''NELION_MASS = {240: 2.0, 246: 13.0, 258: 17.0, 264: 24.0, 270: 26.0, 324: 43.0,
                342: 41.0, 366: 64.0, 372: 67.0, 432: 52.0, 492: 24.0}   # species -> mass (amu)
@@ -397,6 +422,7 @@ dt = np.load(REF / "diag_tio.npz")                                       # synth
 wavelength = dt["wavelength"].astype(float)
 cont = (dt["continuum_absorption"] + dt["continuum_scattering"]).astype(float)  # continuum per depth
 n_elem = pop.shape[2]
+
 # rebuild slot-5 molecular Doppler widths per element exactly as the synthesis does
 dop_arr = atm["doppler_per_ion"].astype(float)
 for nel, mass in NELION_MASS.items():
@@ -430,6 +456,7 @@ for di in range(n_depths):
     with np.errstate(divide="ignore", invalid="ignore"):
         xnfdop_e = np.where((dop_e > 0) & (pop_e > 0), pop_e / (rho[di] * dop_e), 0.0)
     accumulate_depth(mol_op[di], cont[di], wavelength, xnfdop_e, dop_e, xne[di], txnxn[di], hckt[di])
+
 # stimulated emission 1 - exp(-h nu / kT), the same factor applied to every opacity
 freq = C_NM / wavelength; hkt = H_PLANCK / (KB * np.maximum(T, 1.0))
 mol_op *= 1.0 - np.exp(-freq[None, :] * hkt[:, None])
@@ -444,6 +471,7 @@ code(r'''da = np.load(REF / "diag_atomic.npz")                                  
 mol_ref = (dt["line_opacity"] - da["line_opacity"]).astype(float)        # pure molecular component
 diff = mol_op - mol_ref; mask = mol_ref != 0.0                           # nonzero reference points
 rel = np.abs(diff[mask] / mol_ref[mask])
+
 print(f"band opacity vs reference (production _accumulate_mol_fused_batch):")
 print(f"  ref max {mol_ref.max():.4e}   reproduced max {mol_op.max():.4e}")
 print(f"  abs diff max {np.abs(diff).max():.2e}")
@@ -593,10 +621,13 @@ code(r'''acont = dt["continuum_absorption"].astype(float); sigmac = dt["continuu
 sigmal = dt["line_scattering"].astype(float); scont = dt["slinec"].astype(float)
 sline = dt["line_source"].astype(float); aline = dt["line_opacity"].astype(float)  # incl. molecules
 zero = np.zeros(n_depths)
+
+# solve every wavelength twice: full line opacity for the spectrum, zero line opacity for the continuum
 ft = np.array([solve_josh(acont[:,i], scont[:,i], aline[:,i], sline[:,i], sigmac[:,i], sigmal[:,i])
                for i in range(n_wl)])                                    # line flux (all opacity)
 fc = np.array([solve_josh(acont[:,i], scont[:,i], zero, sline[:,i], sigmac[:,i], zero)
                for i in range(n_wl)])                                    # continuum flux
+
 spectrum = ft / fc; reference = dt["flux_total"] / dt["flux_continuum"]  # normalised spectra
 rel = np.abs(spectrum / reference - 1.0)
 print(f"normalised TiO spectrum vs reference: median {np.median(rel):.2e}  max {rel.max():.2e}")''')

@@ -32,18 +32,23 @@
         <button class="copy-btn" type="button" data-code="import pathlib
 import numpy as np
 import matplotlib.pyplot as plt
+
 # shared plot styling for the whole notebook
 plt.rcParams.update({&quot;figure.figsize&quot;: (7.2, 4.3), &quot;figure.dpi&quot;: 120, &quot;savefig.facecolor&quot;: &quot;white&quot;,
     &quot;axes.grid&quot;: True, &quot;grid.alpha&quot;: 0.25, &quot;axes.axisbelow&quot;: True,
     &quot;font.size&quot;: 11, &quot;axes.titlesize&quot;: 12.5, &quot;axes.labelsize&quot;: 11.5})
 
+# load the cool M-dwarf model atmosphere (taken as GIVEN, exactly as we took the Sun)
 REF = pathlib.Path(&quot;..&quot;) / &quot;reference&quot;
-atm = np.load(REF / &quot;m3500g50.npz&quot;)                 # cool M-dwarf model atmosphere (GIVEN)
+atm = np.load(REF / &quot;m3500g50.npz&quot;)
 T   = atm[&quot;temperature&quot;].astype(float)              # K, per depth (80 layers)
 rho = atm[&quot;mass_density&quot;].astype(float)             # g/cm^3
 xne = atm[&quot;electron_density&quot;].astype(float)         # cm^-3
-hckt = atm[&quot;hckt&quot;].astype(float)                    # hc/kT in 1/cm, the Boltzmann exponent factor
-vturb = atm[&quot;turbulent_velocity&quot;].astype(float)     # cm/s, microturbulence per depth
+
+# hckt = hc/kT in 1/cm, the Boltzmann exponent factor; vturb = microturbulence per depth
+hckt = atm[&quot;hckt&quot;].astype(float)
+vturb = atm[&quot;turbulent_velocity&quot;].astype(float)     # cm/s
+
 print(f&quot;M dwarf: Teff={float(atm[&#39;teff&#39;]):.0f} K, logg={float(atm[&#39;glog&#39;]):.1f}, &quot;
       f&quot;{T.size} depths, T = {T.min():.0f}..{T.max():.0f} K&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
@@ -51,18 +56,23 @@ print(f&quot;M dwarf: Teff={float(atm[&#39;teff&#39;]):.0f} K, logg={float(atm[&
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">import</span> pathlib
 <span class="hljs-keyword">import</span> numpy <span class="hljs-keyword">as</span> np
 <span class="hljs-keyword">import</span> matplotlib.pyplot <span class="hljs-keyword">as</span> plt
+
 <span class="hljs-comment"># shared plot styling for the whole notebook</span>
 plt.rcParams.update({<span class="hljs-string">&quot;figure.figsize&quot;</span>: (<span class="hljs-number">7.2</span>, <span class="hljs-number">4.3</span>), <span class="hljs-string">&quot;figure.dpi&quot;</span>: <span class="hljs-number">120</span>, <span class="hljs-string">&quot;savefig.facecolor&quot;</span>: <span class="hljs-string">&quot;white&quot;</span>,
     <span class="hljs-string">&quot;axes.grid&quot;</span>: <span class="hljs-literal">True</span>, <span class="hljs-string">&quot;grid.alpha&quot;</span>: <span class="hljs-number">0.25</span>, <span class="hljs-string">&quot;axes.axisbelow&quot;</span>: <span class="hljs-literal">True</span>,
     <span class="hljs-string">&quot;font.size&quot;</span>: <span class="hljs-number">11</span>, <span class="hljs-string">&quot;axes.titlesize&quot;</span>: <span class="hljs-number">12.5</span>, <span class="hljs-string">&quot;axes.labelsize&quot;</span>: <span class="hljs-number">11.5</span>})
 
+<span class="hljs-comment"># load the cool M-dwarf model atmosphere (taken as GIVEN, exactly as we took the Sun)</span>
 REF = pathlib.Path(<span class="hljs-string">&quot;..&quot;</span>) / <span class="hljs-string">&quot;reference&quot;</span>
-atm = np.load(REF / <span class="hljs-string">&quot;m3500g50.npz&quot;</span>)                 <span class="hljs-comment"># cool M-dwarf model atmosphere (GIVEN)</span>
+atm = np.load(REF / <span class="hljs-string">&quot;m3500g50.npz&quot;</span>)
 T   = atm[<span class="hljs-string">&quot;temperature&quot;</span>].astype(<span class="hljs-built_in">float</span>)              <span class="hljs-comment"># K, per depth (80 layers)</span>
 rho = atm[<span class="hljs-string">&quot;mass_density&quot;</span>].astype(<span class="hljs-built_in">float</span>)             <span class="hljs-comment"># g/cm^3</span>
 xne = atm[<span class="hljs-string">&quot;electron_density&quot;</span>].astype(<span class="hljs-built_in">float</span>)         <span class="hljs-comment"># cm^-3</span>
-hckt = atm[<span class="hljs-string">&quot;hckt&quot;</span>].astype(<span class="hljs-built_in">float</span>)                    <span class="hljs-comment"># hc/kT in 1/cm, the Boltzmann exponent factor</span>
-vturb = atm[<span class="hljs-string">&quot;turbulent_velocity&quot;</span>].astype(<span class="hljs-built_in">float</span>)     <span class="hljs-comment"># cm/s, microturbulence per depth</span>
+
+<span class="hljs-comment"># hckt = hc/kT in 1/cm, the Boltzmann exponent factor; vturb = microturbulence per depth</span>
+hckt = atm[<span class="hljs-string">&quot;hckt&quot;</span>].astype(<span class="hljs-built_in">float</span>)
+vturb = atm[<span class="hljs-string">&quot;turbulent_velocity&quot;</span>].astype(<span class="hljs-built_in">float</span>)     <span class="hljs-comment"># cm/s</span>
+
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;M dwarf: Teff=<span class="hljs-subst">{<span class="hljs-built_in">float</span>(atm[<span class="hljs-string">&#x27;teff&#x27;</span>]):<span class="hljs-number">.0</span>f}</span> K, logg=<span class="hljs-subst">{<span class="hljs-built_in">float</span>(atm[<span class="hljs-string">&#x27;glog&#x27;</span>]):<span class="hljs-number">.1</span>f}</span>, &quot;</span>
       <span class="hljs-string">f&quot;<span class="hljs-subst">{T.size}</span> depths, T = <span class="hljs-subst">{T.<span class="hljs-built_in">min</span>():<span class="hljs-number">.0</span>f}</span>..<span class="hljs-subst">{T.<span class="hljs-built_in">max</span>():<span class="hljs-number">.0</span>f}</span> K&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">M dwarf: Teff=3500 K, logg=5.0, 80 depths, T = 2464..5250 K
@@ -80,16 +90,21 @@ vturb = atm[<span class="hljs-string">&quot;turbulent_velocity&quot;</span>].ast
     table = {}
     for line in path.read_text().splitlines():
         parts = line.split()
-        if len(parts) &lt; 2:                          # skip headers / blank lines
+        # skip headers / blank lines
+        if len(parts) &lt; 2:
             continue
         try:
             code = float(parts[0])                  # element code, e.g. 822.0 for TiO
-            vals = [float(p) for p in parts[1:8]]    # D0 then the (up to 6) polynomial terms
+            # D0 then the (up to 6) polynomial terms
+            vals = [float(p) for p in parts[1:8]]
         except ValueError:
-            continue                                # non-numeric line -&gt; not a molecule entry
+            # non-numeric line -&gt; not a molecule entry
+            continue
         if len(vals) &gt;= 1:
-            E = (vals[1:] + [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])[:6]   # pad missing coefficients with 0
-            table[round(code)] = (vals[0], E)        # D0 (eV) and the six-term E1..E6 fit
+            # pad missing coefficients with 0
+            E = (vals[1:] + [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])[:6]
+            # store D0 (eV) and the six-term E1..E6 fit, keyed by the rounded element code
+            table[round(code)] = (vals[0], E)
     return table
 
 mol_table = read_molecules_dat(REF / &quot;molecules.dat&quot;)
@@ -107,16 +122,21 @@ print(f&quot;TiO  equilibrium polynomial E1..E6 = {E_tio}&quot;)" aria-label="Co
     table = {}
     <span class="hljs-keyword">for</span> line <span class="hljs-keyword">in</span> path.read_text().splitlines():
         parts = line.split()
-        <span class="hljs-keyword">if</span> <span class="hljs-built_in">len</span>(parts) &lt; <span class="hljs-number">2</span>:                          <span class="hljs-comment"># skip headers / blank lines</span>
+        <span class="hljs-comment"># skip headers / blank lines</span>
+        <span class="hljs-keyword">if</span> <span class="hljs-built_in">len</span>(parts) &lt; <span class="hljs-number">2</span>:
             <span class="hljs-keyword">continue</span>
         <span class="hljs-keyword">try</span>:
             code = <span class="hljs-built_in">float</span>(parts[<span class="hljs-number">0</span>])                  <span class="hljs-comment"># element code, e.g. 822.0 for TiO</span>
-            vals = [<span class="hljs-built_in">float</span>(p) <span class="hljs-keyword">for</span> p <span class="hljs-keyword">in</span> parts[<span class="hljs-number">1</span>:<span class="hljs-number">8</span>]]    <span class="hljs-comment"># D0 then the (up to 6) polynomial terms</span>
+            <span class="hljs-comment"># D0 then the (up to 6) polynomial terms</span>
+            vals = [<span class="hljs-built_in">float</span>(p) <span class="hljs-keyword">for</span> p <span class="hljs-keyword">in</span> parts[<span class="hljs-number">1</span>:<span class="hljs-number">8</span>]]
         <span class="hljs-keyword">except</span> ValueError:
-            <span class="hljs-keyword">continue</span>                                <span class="hljs-comment"># non-numeric line -&gt; not a molecule entry</span>
+            <span class="hljs-comment"># non-numeric line -&gt; not a molecule entry</span>
+            <span class="hljs-keyword">continue</span>
         <span class="hljs-keyword">if</span> <span class="hljs-built_in">len</span>(vals) &gt;= <span class="hljs-number">1</span>:
-            E = (vals[<span class="hljs-number">1</span>:] + [<span class="hljs-number">0.0</span>, <span class="hljs-number">0.0</span>, <span class="hljs-number">0.0</span>, <span class="hljs-number">0.0</span>, <span class="hljs-number">0.0</span>, <span class="hljs-number">0.0</span>])[:<span class="hljs-number">6</span>]   <span class="hljs-comment"># pad missing coefficients with 0</span>
-            table[<span class="hljs-built_in">round</span>(code)] = (vals[<span class="hljs-number">0</span>], E)        <span class="hljs-comment"># D0 (eV) and the six-term E1..E6 fit</span>
+            <span class="hljs-comment"># pad missing coefficients with 0</span>
+            E = (vals[<span class="hljs-number">1</span>:] + [<span class="hljs-number">0.0</span>, <span class="hljs-number">0.0</span>, <span class="hljs-number">0.0</span>, <span class="hljs-number">0.0</span>, <span class="hljs-number">0.0</span>, <span class="hljs-number">0.0</span>])[:<span class="hljs-number">6</span>]
+            <span class="hljs-comment"># store D0 (eV) and the six-term E1..E6 fit, keyed by the rounded element code</span>
+            table[<span class="hljs-built_in">round</span>(code)] = (vals[<span class="hljs-number">0</span>], E)
     <span class="hljs-keyword">return</span> table
 
 mol_table = read_molecules_dat(REF / <span class="hljs-string">&quot;molecules.dat&quot;</span>)
@@ -142,8 +162,10 @@ def log_K_tio(temp, D0, E):
     # binding Boltzmann term (+D0/kT, grows as T falls), the polynomial, the phase-space term:
     return D0 / tkev - e1 + poly - 1.5 * (2 - 0 - 0 - 1) * np.log(temp)
 
-temps = np.linspace(2500.0, 7000.0, 200)               # cool dwarf -&gt; warm Sun
+# evaluate over a temperature range spanning a cool dwarf up to the warm Sun
+temps = np.linspace(2500.0, 7000.0, 200)
 lnKf = log_K_tio(temps, D0_tio, E_tio)                  # natural log of the formation constant
+
 print(f&quot;log10 Kf at 3500 K = {lnKf[np.argmin(np.abs(temps-3500))]/np.log(10):.2f}&quot;)
 print(f&quot;log10 Kf at 5800 K = {lnKf[np.argmin(np.abs(temps-5800))]/np.log(10):.2f}&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
@@ -159,8 +181,10 @@ print(f&quot;log10 Kf at 5800 K = {lnKf[np.argmin(np.abs(temps-5800))]/np.log(10
     <span class="hljs-comment"># binding Boltzmann term (+D0/kT, grows as T falls), the polynomial, the phase-space term:</span>
     <span class="hljs-keyword">return</span> D0 / tkev - e1 + poly - <span class="hljs-number">1.5</span> * (<span class="hljs-number">2</span> - <span class="hljs-number">0</span> - <span class="hljs-number">0</span> - <span class="hljs-number">1</span>) * np.log(temp)
 
-temps = np.linspace(<span class="hljs-number">2500.0</span>, <span class="hljs-number">7000.0</span>, <span class="hljs-number">200</span>)               <span class="hljs-comment"># cool dwarf -&gt; warm Sun</span>
+<span class="hljs-comment"># evaluate over a temperature range spanning a cool dwarf up to the warm Sun</span>
+temps = np.linspace(<span class="hljs-number">2500.0</span>, <span class="hljs-number">7000.0</span>, <span class="hljs-number">200</span>)
 lnKf = log_K_tio(temps, D0_tio, E_tio)                  <span class="hljs-comment"># natural log of the formation constant</span>
+
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;log10 Kf at 3500 K = <span class="hljs-subst">{lnKf[np.argmin(np.<span class="hljs-built_in">abs</span>(temps-<span class="hljs-number">3500</span>))]/np.log(<span class="hljs-number">10</span>):<span class="hljs-number">.2</span>f}</span>&quot;</span>)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;log10 Kf at 5800 K = <span class="hljs-subst">{lnKf[np.argmin(np.<span class="hljs-built_in">abs</span>(temps-<span class="hljs-number">5800</span>))]/np.log(<span class="hljs-number">10</span>):<span class="hljs-number">.2</span>f}</span>&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">log10 Kf at 3500 K = -16.15
@@ -172,11 +196,13 @@ log10 Kf at 5800 K = -20.42
         <button class="copy-btn" type="button" data-code="fig, ax = plt.subplots()
 # log10 of the formation constant vs temperature
 ax.plot(temps, lnKf / np.log(10.0), color=&quot;C0&quot;, lw=1.8)
+
 # mark the two stars: large Kf (cool) = molecules form, small Kf (warm) = dissociated
 for t0, name, col in [(3500, &quot;M dwarf (3500 K)&quot;, &quot;C3&quot;), (5800, &quot;Sun (5800 K)&quot;, &quot;C1&quot;)]:
     k0 = lnKf[np.argmin(np.abs(temps - t0))] / np.log(10.0)
     ax.plot(t0, k0, &quot;o&quot;, color=col, ms=8); ax.annotate(name, (t0, k0),
         textcoords=&quot;offset points&quot;, xytext=(8, -14), color=col, fontsize=10)
+
 ax.set_xlabel(&quot;temperature  [K]&quot;); ax.set_ylabel(r&quot;$\log_{10} K_f(T)$  (formation)&quot;)
 ax.set_title(&quot;TiO formation balance: cool gas keeps the molecule together&quot;)
 fig.tight_layout(); plt.show()" aria-label="Copy code">
@@ -185,11 +211,13 @@ fig.tight_layout(); plt.show()" aria-label="Copy code">
       <pre class="code-body"><code class="hljs language-python">fig, ax = plt.subplots()
 <span class="hljs-comment"># log10 of the formation constant vs temperature</span>
 ax.plot(temps, lnKf / np.log(<span class="hljs-number">10.0</span>), color=<span class="hljs-string">&quot;C0&quot;</span>, lw=<span class="hljs-number">1.8</span>)
+
 <span class="hljs-comment"># mark the two stars: large Kf (cool) = molecules form, small Kf (warm) = dissociated</span>
 <span class="hljs-keyword">for</span> t0, name, col <span class="hljs-keyword">in</span> [(<span class="hljs-number">3500</span>, <span class="hljs-string">&quot;M dwarf (3500 K)&quot;</span>, <span class="hljs-string">&quot;C3&quot;</span>), (<span class="hljs-number">5800</span>, <span class="hljs-string">&quot;Sun (5800 K)&quot;</span>, <span class="hljs-string">&quot;C1&quot;</span>)]:
     k0 = lnKf[np.argmin(np.<span class="hljs-built_in">abs</span>(temps - t0))] / np.log(<span class="hljs-number">10.0</span>)
     ax.plot(t0, k0, <span class="hljs-string">&quot;o&quot;</span>, color=col, ms=<span class="hljs-number">8</span>); ax.annotate(name, (t0, k0),
         textcoords=<span class="hljs-string">&quot;offset points&quot;</span>, xytext=(<span class="hljs-number">8</span>, -<span class="hljs-number">14</span>), color=col, fontsize=<span class="hljs-number">10</span>)
+
 ax.set_xlabel(<span class="hljs-string">&quot;temperature  [K]&quot;</span>); ax.set_ylabel(<span class="hljs-string">r&quot;$\log_{10} K_f(T)$  (formation)&quot;</span>)
 ax.set_title(<span class="hljs-string">&quot;TiO formation balance: cool gas keeps the molecule together&quot;</span>)
 fig.tight_layout(); plt.show()</code></pre>
@@ -201,16 +229,22 @@ fig.tight_layout(); plt.show()</code></pre>
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[5]</span>Python</span>
         <button class="copy-btn" type="button" data-code="NELION_TIO = 366                                    # production species index for TiO
 elem_tio = NELION_TIO // 6 - 1                      # -&gt; element index 60 in population_per_ion
-pop = atm[&quot;population_per_ion&quot;].astype(float)       # [depth, ion_stage, element]
-xnfpmol_tio = pop[:, 5, elem_tio]                   # ion slot 5 = molecules; XNFPMOL(TiO)
+
+# population_per_ion is indexed [depth, ion_stage, element]; ion slot 5 holds the molecules
+pop = atm[&quot;population_per_ion&quot;].astype(float)
+xnfpmol_tio = pop[:, 5, elem_tio]                   # XNFPMOL(TiO), the molecular partial density
+
 print(f&quot;XNFPMOL(TiO) over {xnfpmol_tio.size} depths: &quot;
       f&quot;{xnfpmol_tio.min():.3e} .. {xnfpmol_tio.max():.3e}  (cm^-3-equivalent)&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python">NELION_TIO = <span class="hljs-number">366</span>                                    <span class="hljs-comment"># production species index for TiO</span>
 elem_tio = NELION_TIO // <span class="hljs-number">6</span> - <span class="hljs-number">1</span>                      <span class="hljs-comment"># -&gt; element index 60 in population_per_ion</span>
-pop = atm[<span class="hljs-string">&quot;population_per_ion&quot;</span>].astype(<span class="hljs-built_in">float</span>)       <span class="hljs-comment"># [depth, ion_stage, element]</span>
-xnfpmol_tio = pop[:, <span class="hljs-number">5</span>, elem_tio]                   <span class="hljs-comment"># ion slot 5 = molecules; XNFPMOL(TiO)</span>
+
+<span class="hljs-comment"># population_per_ion is indexed [depth, ion_stage, element]; ion slot 5 holds the molecules</span>
+pop = atm[<span class="hljs-string">&quot;population_per_ion&quot;</span>].astype(<span class="hljs-built_in">float</span>)
+xnfpmol_tio = pop[:, <span class="hljs-number">5</span>, elem_tio]                   <span class="hljs-comment"># XNFPMOL(TiO), the molecular partial density</span>
+
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;XNFPMOL(TiO) over <span class="hljs-subst">{xnfpmol_tio.size}</span> depths: &quot;</span>
       <span class="hljs-string">f&quot;<span class="hljs-subst">{xnfpmol_tio.<span class="hljs-built_in">min</span>():<span class="hljs-number">.3</span>e}</span> .. <span class="hljs-subst">{xnfpmol_tio.<span class="hljs-built_in">max</span>():<span class="hljs-number">.3</span>e}</span>  (cm^-3-equivalent)&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">XNFPMOL(TiO) over 80 depths: 2.324e+02 .. 9.611e+04  (cm^-3-equivalent)
@@ -258,6 +292,7 @@ def molecular_dopple(temp, vt, mass_amu):
     thermal = np.sqrt(2.0 * KB * temp / (mass_amu * AMU)) / C_CMS   # thermal velocity / c
     return np.sqrt(thermal ** 2 + (vt / C_CMS) ** 2)               # add microturbulence
 
+# evaluate the width per depth for TiO, using its molecular mass (not an atomic one)
 MASS_TIO = 64.0                                     # TiO mass in amu (Ti 48 + O 16)
 dopple_tio = molecular_dopple(T, vturb, MASS_TIO)   # fractional Doppler width per depth
 print(f&quot;DOPPLE(TiO) = {dopple_tio.min():.3e} .. {dopple_tio.max():.3e}  (fractional)&quot;)" aria-label="Copy code">
@@ -272,6 +307,7 @@ C_CMS = <span class="hljs-number">2.99792458e10</span>      <span class="hljs-co
     thermal = np.sqrt(<span class="hljs-number">2.0</span> * KB * temp / (mass_amu * AMU)) / C_CMS   <span class="hljs-comment"># thermal velocity / c</span>
     <span class="hljs-keyword">return</span> np.sqrt(thermal ** <span class="hljs-number">2</span> + (vt / C_CMS) ** <span class="hljs-number">2</span>)               <span class="hljs-comment"># add microturbulence</span>
 
+<span class="hljs-comment"># evaluate the width per depth for TiO, using its molecular mass (not an atomic one)</span>
 MASS_TIO = <span class="hljs-number">64.0</span>                                     <span class="hljs-comment"># TiO mass in amu (Ti 48 + O 16)</span>
 dopple_tio = molecular_dopple(T, vturb, MASS_TIO)   <span class="hljs-comment"># fractional Doppler width per depth</span>
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;DOPPLE(TiO) = <span class="hljs-subst">{dopple_tio.<span class="hljs-built_in">min</span>():<span class="hljs-number">.3</span>e}</span> .. <span class="hljs-subst">{dopple_tio.<span class="hljs-built_in">max</span>():<span class="hljs-number">.3</span>e}</span>  (fractional)&quot;</span>)</code></pre>
@@ -295,22 +331,28 @@ print(f&quot;XNFDOP(TiO) = {xnfdop_tio[xnfdop_tio&gt;0].min():.3e} .. {xnfdop_ti
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[9]</span>Python</span>
         <button class="copy-btn" type="button" data-code="ml = np.load(REF / &quot;mol_lines_tio.npz&quot;)              # the windowed molecular line arrays
+
+# per-line descriptors, same set as an atomic line in Lecture 5 (float32 to match the engine)
 cgf = ml[&quot;cgf&quot;].astype(np.float32).astype(float)     # strength gf folded with isotope abundance
 elo = ml[&quot;elo_cm&quot;].astype(np.float32).astype(float)  # lower-level energy [cm^-1]
 gr  = ml[&quot;gamma_rad&quot;].astype(np.float32).astype(float)    # radiative damping
 gs  = ml[&quot;gamma_stark&quot;].astype(np.float32).astype(float)  # Stark damping coefficient
 gw  = ml[&quot;gamma_vdw&quot;].astype(np.float32).astype(float)    # van der Waals damping coefficient
+
 nelion = ml[&quot;nelion&quot;].astype(np.int64)               # species index per line
 eidx = nelion // 6 - 1                                # -&gt; element index for each line
 print(f&quot;{cgf.size:,} molecular lines in 705-718 nm; distinct species: {np.unique(nelion).size}&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python">ml = np.load(REF / <span class="hljs-string">&quot;mol_lines_tio.npz&quot;</span>)              <span class="hljs-comment"># the windowed molecular line arrays</span>
+
+<span class="hljs-comment"># per-line descriptors, same set as an atomic line in Lecture 5 (float32 to match the engine)</span>
 cgf = ml[<span class="hljs-string">&quot;cgf&quot;</span>].astype(np.float32).astype(<span class="hljs-built_in">float</span>)     <span class="hljs-comment"># strength gf folded with isotope abundance</span>
 elo = ml[<span class="hljs-string">&quot;elo_cm&quot;</span>].astype(np.float32).astype(<span class="hljs-built_in">float</span>)  <span class="hljs-comment"># lower-level energy [cm^-1]</span>
 gr  = ml[<span class="hljs-string">&quot;gamma_rad&quot;</span>].astype(np.float32).astype(<span class="hljs-built_in">float</span>)    <span class="hljs-comment"># radiative damping</span>
 gs  = ml[<span class="hljs-string">&quot;gamma_stark&quot;</span>].astype(np.float32).astype(<span class="hljs-built_in">float</span>)  <span class="hljs-comment"># Stark damping coefficient</span>
 gw  = ml[<span class="hljs-string">&quot;gamma_vdw&quot;</span>].astype(np.float32).astype(<span class="hljs-built_in">float</span>)    <span class="hljs-comment"># van der Waals damping coefficient</span>
+
 nelion = ml[<span class="hljs-string">&quot;nelion&quot;</span>].astype(np.int64)               <span class="hljs-comment"># species index per line</span>
 eidx = nelion // <span class="hljs-number">6</span> - <span class="hljs-number">1</span>                                <span class="hljs-comment"># -&gt; element index for each line</span>
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;<span class="hljs-subst">{cgf.size:,}</span> molecular lines in 705-718 nm; distinct species: <span class="hljs-subst">{np.unique(nelion).size}</span>&quot;</span>)</code></pre>
@@ -460,6 +502,8 @@ def line_strength_and_gate(cont_row, ci, xnfdop, dop_val, xne_d, tx_d, hckt_d):
     vc = np.where(adamp &lt; 0.2, 1.0 - 1.128 * adamp, voigt(0.0, adamp))   # center profile
     in_grid = (ci &gt;= 0) &amp; (ci &lt; n_wl)
     np.add.at(buf, ci[in_grid], (kappa0 * vc)[in_grid])                  # deposit the line center
+
+    # per-line step geometry: reach, table index per step, Doppler units per step
     dr = dop_val * resolu                                                # Doppler width in grid steps
     n10dop = np.minimum((10.0 * dr).astype(np.int64), 1_000_000)         # near-wing reach (10 widths)
     tabstep = np.where(dr &gt; 0.0, 200.0 / dr, 200.0)                      # table index per step (a&lt;0.2)
@@ -467,6 +511,8 @@ def line_strength_and_gate(cont_row, ci, xnfdop, dop_val, xne_d, tx_d, hckt_d):
     is_small = adamp &lt; 0.2                                               # weakly damped -&gt; table path
     prof_n10 = np.zeros_like(kappa0); early = np.zeros(kappa0.shape, bool)
     alive = np.ones(kappa0.shape, bool)                                  # still above KAPMIN
+
+    # march outward, depositing each step into the red and blue bins until it drops below KAPMIN
     for ns in range(1, int(n10dop.max()) + 1 if n10dop.size else 1):
         active = alive &amp; (ns &lt;= n10dop)
         if not np.any(active): break
@@ -488,6 +534,8 @@ def line_strength_and_gate(cont_row, ci, xnfdop, dop_val, xne_d, tx_d, hckt_d):
     vc = np.where(adamp &lt; <span class="hljs-number">0.2</span>, <span class="hljs-number">1.0</span> - <span class="hljs-number">1.128</span> * adamp, voigt(<span class="hljs-number">0.0</span>, adamp))   <span class="hljs-comment"># center profile</span>
     in_grid = (ci &gt;= <span class="hljs-number">0</span>) &amp; (ci &lt; n_wl)
     np.add.at(buf, ci[in_grid], (kappa0 * vc)[in_grid])                  <span class="hljs-comment"># deposit the line center</span>
+
+    <span class="hljs-comment"># per-line step geometry: reach, table index per step, Doppler units per step</span>
     dr = dop_val * resolu                                                <span class="hljs-comment"># Doppler width in grid steps</span>
     n10dop = np.minimum((<span class="hljs-number">10.0</span> * dr).astype(np.int64), <span class="hljs-number">1_000_000</span>)         <span class="hljs-comment"># near-wing reach (10 widths)</span>
     tabstep = np.where(dr &gt; <span class="hljs-number">0.0</span>, <span class="hljs-number">200.0</span> / dr, <span class="hljs-number">200.0</span>)                      <span class="hljs-comment"># table index per step (a&lt;0.2)</span>
@@ -495,6 +543,8 @@ def line_strength_and_gate(cont_row, ci, xnfdop, dop_val, xne_d, tx_d, hckt_d):
     is_small = adamp &lt; <span class="hljs-number">0.2</span>                                               <span class="hljs-comment"># weakly damped -&gt; table path</span>
     prof_n10 = np.zeros_like(kappa0); early = np.zeros(kappa0.shape, <span class="hljs-built_in">bool</span>)
     alive = np.ones(kappa0.shape, <span class="hljs-built_in">bool</span>)                                  <span class="hljs-comment"># still above KAPMIN</span>
+
+    <span class="hljs-comment"># march outward, depositing each step into the red and blue bins until it drops below KAPMIN</span>
     <span class="hljs-keyword">for</span> ns <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, <span class="hljs-built_in">int</span>(n10dop.<span class="hljs-built_in">max</span>()) + <span class="hljs-number">1</span> <span class="hljs-keyword">if</span> n10dop.size <span class="hljs-keyword">else</span> <span class="hljs-number">1</span>):
         active = alive &amp; (ns &lt;= n10dop)
         <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> np.<span class="hljs-built_in">any</span>(active): <span class="hljs-keyword">break</span>
@@ -593,7 +643,7 @@ def line_strength_and_gate(cont_row, ci, xnfdop, dop_val, xne_d, tx_d, hckt_d):
         <span class="hljs-number">1.0</span> / (wavelength[clamped] / wavelength[np.maximum(clamped - <span class="hljs-number">1</span>, <span class="hljs-number">0</span>)] - <span class="hljs-number">1.0</span>))
     n10dop, prof_n10, early = accumulate_core_and_near(buf, ci, k0, ad, km, resolu, dv)
     accumulate_far(buf, ci, km, n10dop, prof_n10, early)</code></pre>
-    </div></div><div class="prose"><p>The molecular opacity is built for <strong>every depth</strong>, recomputing the molecular Doppler width per element into slot 5 first (the synthesis overwrites the atmosphere&#39;s placeholder). We assemble the per-line element populations and widths once per depth, then run the driver. Finally the whole array is multiplied by the <strong>stimulated-emission</strong> factor <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><mo>−</mo><msup><mi>e</mi><mrow><mo>−</mo><mi>h</mi><mi>ν</mi><mi mathvariant="normal">/</mi><mi>k</mi><mi>T</mi></mrow></msup></mrow><annotation encoding="application/x-tex">1-e^{-h\nu/kT}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em;"></span><span class="mord">1</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.888em;"></span><span class="mord"><span class="mord mathnormal">e</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.888em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mathnormal mtight">h</span><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span><span class="mord mtight">/</span><span class="mord mathnormal mtight" style="margin-right:0.03148em;">k</span><span class="mord mathnormal mtight" style="margin-right:0.13889em;">T</span></span></span></span></span></span></span></span></span></span></span></span>, the same correction applied to every opacity. The masses for each molecular species come from a small table keyed by the species index.</p>
+    </div></div><div class="prose"><p>The molecular opacity is built for <strong>every depth</strong>, and over the next three cells we (1) prepare the inputs, (2) loop over depths, and (3) finish with stimulated emission. This first cell prepares the inputs: it loads the synthesis diagnostics (wavelength grid and continuum), and — because the synthesis overwrites the atmosphere&#39;s placeholder Doppler width — recomputes the molecular Doppler width per element into slot 5, looping over a small table that keys each molecular species index to its mass in amu. The per-depth population and width assembly, the driver call, and the <strong>stimulated-emission</strong> factor <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><mo>−</mo><msup><mi>e</mi><mrow><mo>−</mo><mi>h</mi><mi>ν</mi><mi mathvariant="normal">/</mi><mi>k</mi><mi>T</mi></mrow></msup></mrow><annotation encoding="application/x-tex">1-e^{-h\nu/kT}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em;"></span><span class="mord">1</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.888em;"></span><span class="mord"><span class="mord mathnormal">e</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.888em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mathnormal mtight">h</span><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span><span class="mord mtight">/</span><span class="mord mathnormal mtight" style="margin-right:0.03148em;">k</span><span class="mord mathnormal mtight" style="margin-right:0.13889em;">T</span></span></span></span></span></span></span></span></span></span></span></span> (the same correction applied to every opacity) follow in the cells after.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[17]</span>Python</span>
@@ -604,6 +654,7 @@ dt = np.load(REF / &quot;diag_tio.npz&quot;)                                    
 wavelength = dt[&quot;wavelength&quot;].astype(float)
 cont = (dt[&quot;continuum_absorption&quot;] + dt[&quot;continuum_scattering&quot;]).astype(float)  # continuum per depth
 n_elem = pop.shape[2]
+
 # rebuild slot-5 molecular Doppler widths per element exactly as the synthesis does
 dop_arr = atm[&quot;doppler_per_ion&quot;].astype(float)
 for nel, mass in NELION_MASS.items():
@@ -618,6 +669,7 @@ dt = np.load(REF / <span class="hljs-string">&quot;diag_tio.npz&quot;</span>)   
 wavelength = dt[<span class="hljs-string">&quot;wavelength&quot;</span>].astype(<span class="hljs-built_in">float</span>)
 cont = (dt[<span class="hljs-string">&quot;continuum_absorption&quot;</span>] + dt[<span class="hljs-string">&quot;continuum_scattering&quot;</span>]).astype(<span class="hljs-built_in">float</span>)  <span class="hljs-comment"># continuum per depth</span>
 n_elem = pop.shape[<span class="hljs-number">2</span>]
+
 <span class="hljs-comment"># rebuild slot-5 molecular Doppler widths per element exactly as the synthesis does</span>
 dop_arr = atm[<span class="hljs-string">&quot;doppler_per_ion&quot;</span>].astype(<span class="hljs-built_in">float</span>)
 <span class="hljs-keyword">for</span> nel, mass <span class="hljs-keyword">in</span> NELION_MASS.items():
@@ -653,9 +705,9 @@ mol_op = np.zeros((n_depths, n_wl))                                       <span 
     accumulate_depth(mol_op[di], cont[di], wavelength, xnfdop_e, dop_e,
                      xne[di], <span class="hljs-number">0.0</span>, hckt[di])     <span class="hljs-comment"># tx (vdW factor) supplied below for completeness</span>
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;band opacity accumulated; applying stimulated emission next&quot;</span>)</code></pre>
-    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream stderr">/var/folders/zg/v3tx69hd27z2jysr851rlt340000gn/T/ipykernel_163/3671089763.py:13: RuntimeWarning: divide by zero encountered in divide
+    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream stderr">/var/folders/zg/v3tx69hd27z2jysr851rlt340000gn/T/ipykernel_43426/3671089763.py:13: RuntimeWarning: divide by zero encountered in divide
   1.0 / (wavelength[np.minimum(clamped + 1, n_wl - 1)] / wavelength[clamped] - 1.0),
-/var/folders/zg/v3tx69hd27z2jysr851rlt340000gn/T/ipykernel_163/3671089763.py:14: RuntimeWarning: divide by zero encountered in divide
+/var/folders/zg/v3tx69hd27z2jysr851rlt340000gn/T/ipykernel_43426/3671089763.py:14: RuntimeWarning: divide by zero encountered in divide
   1.0 / (wavelength[clamped] / wavelength[np.maximum(clamped - 1, 0)] - 1.0))
 </pre></div><div class="out-block"><pre class="out-stream">band opacity accumulated; applying stimulated emission next
 </pre></div></div><div class="prose"><p>One per-depth quantity we deferred is the <strong>van der Waals collision factor</strong> <code>TXNXN</code>, which scales the vdW damping. It is built from the neutral hydrogen and helium populations with a mild temperature scaling, <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mtext mathvariant="monospace">TXNXN</mtext><mo>=</mo><mo stretchy="false">(</mo><msub><mi>n</mi><mi mathvariant="normal">H</mi></msub><mo>+</mo><mn>0.42</mn><mtext> </mtext><msub><mi>n</mi><mrow><mi mathvariant="normal">H</mi><mi mathvariant="normal">e</mi></mrow></msub><mo>+</mo><mn>0.85</mn><mtext> </mtext><msub><mi>n</mi><msub><mi mathvariant="normal">H</mi><mn>2</mn></msub></msub><mo stretchy="false">)</mo><mtext> </mtext><mo stretchy="false">(</mo><mi>T</mi><mi mathvariant="normal">/</mi><mn>1</mn><msup><mn>0</mn><mn>4</mn></msup><msup><mo stretchy="false">)</mo><mn>0.3</mn></msup></mrow><annotation encoding="application/x-tex">\texttt{TXNXN} = (n_{\rm H} + 0.42\,n_{\rm He} + 0.85\,n_{\rm H_2})\,(T/10^4)^{0.3}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6111em;"></span><span class="mord text"><span class="mord texttt">TXNXN</span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal">n</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">H</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.7944em;vertical-align:-0.15em;"></span><span class="mord">0.42</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">n</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">He</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1.0642em;vertical-align:-0.2501em;"></span><span class="mord">0.85</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">n</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">H</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3173em;"><span style="top:-2.357em;margin-left:0em;margin-right:0.0714em;"><span class="pstrut" style="height:2.5em;"></span><span class="sizing reset-size3 size1 mtight"><span class="mord mathrm mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.143em;"><span></span></span></span></span></span></span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2501em;"><span></span></span></span></span></span></span><span class="mclose">)</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mord">/1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">4</span></span></span></span></span></span></span></span><span class="mclose"><span class="mclose">)</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">0.3</span></span></span></span></span></span></span></span></span></span></span></span> — the standard Unsöld combination. We recompute the opacity including it, then apply stimulated emission to finish the band opacity.</p>
@@ -670,6 +722,7 @@ for di in range(n_depths):
     with np.errstate(divide=&quot;ignore&quot;, invalid=&quot;ignore&quot;):
         xnfdop_e = np.where((dop_e &gt; 0) &amp; (pop_e &gt; 0), pop_e / (rho[di] * dop_e), 0.0)
     accumulate_depth(mol_op[di], cont[di], wavelength, xnfdop_e, dop_e, xne[di], txnxn[di], hckt[di])
+
 # stimulated emission 1 - exp(-h nu / kT), the same factor applied to every opacity
 freq = C_NM / wavelength; hkt = H_PLANCK / (KB * np.maximum(T, 1.0))
 mol_op *= 1.0 - np.exp(-freq[None, :] * hkt[:, None])
@@ -684,13 +737,14 @@ mol_op = np.zeros((n_depths, n_wl))                                       <span 
     <span class="hljs-keyword">with</span> np.errstate(divide=<span class="hljs-string">&quot;ignore&quot;</span>, invalid=<span class="hljs-string">&quot;ignore&quot;</span>):
         xnfdop_e = np.where((dop_e &gt; <span class="hljs-number">0</span>) &amp; (pop_e &gt; <span class="hljs-number">0</span>), pop_e / (rho[di] * dop_e), <span class="hljs-number">0.0</span>)
     accumulate_depth(mol_op[di], cont[di], wavelength, xnfdop_e, dop_e, xne[di], txnxn[di], hckt[di])
+
 <span class="hljs-comment"># stimulated emission 1 - exp(-h nu / kT), the same factor applied to every opacity</span>
 freq = C_NM / wavelength; hkt = H_PLANCK / (KB * np.maximum(T, <span class="hljs-number">1.0</span>))
 mol_op *= <span class="hljs-number">1.0</span> - np.exp(-freq[<span class="hljs-literal">None</span>, :] * hkt[:, <span class="hljs-literal">None</span>])
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;molecular opacity: max <span class="hljs-subst">{mol_op.<span class="hljs-built_in">max</span>():<span class="hljs-number">.4</span>e}</span>  over <span class="hljs-subst">{mol_op.shape}</span>&quot;</span>)</code></pre>
-    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream stderr">/var/folders/zg/v3tx69hd27z2jysr851rlt340000gn/T/ipykernel_163/3671089763.py:13: RuntimeWarning: divide by zero encountered in divide
+    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream stderr">/var/folders/zg/v3tx69hd27z2jysr851rlt340000gn/T/ipykernel_43426/3671089763.py:13: RuntimeWarning: divide by zero encountered in divide
   1.0 / (wavelength[np.minimum(clamped + 1, n_wl - 1)] / wavelength[clamped] - 1.0),
-/var/folders/zg/v3tx69hd27z2jysr851rlt340000gn/T/ipykernel_163/3671089763.py:14: RuntimeWarning: divide by zero encountered in divide
+/var/folders/zg/v3tx69hd27z2jysr851rlt340000gn/T/ipykernel_43426/3671089763.py:14: RuntimeWarning: divide by zero encountered in divide
   1.0 / (wavelength[clamped] / wavelength[np.maximum(clamped - 1, 0)] - 1.0))
 </pre></div><div class="out-block"><pre class="out-stream">molecular opacity: max 1.2910e+01  over (80, 9136)
 </pre></div></div><div class="prose"><h2>Band opacity to machine precision</h2>
@@ -702,6 +756,7 @@ mol_op *= <span class="hljs-number">1.0</span> - np.exp(-freq[<span class="hljs-
 mol_ref = (dt[&quot;line_opacity&quot;] - da[&quot;line_opacity&quot;]).astype(float)        # pure molecular component
 diff = mol_op - mol_ref; mask = mol_ref != 0.0                           # nonzero reference points
 rel = np.abs(diff[mask] / mol_ref[mask])
+
 print(f&quot;band opacity vs reference (production _accumulate_mol_fused_batch):&quot;)
 print(f&quot;  ref max {mol_ref.max():.4e}   reproduced max {mol_op.max():.4e}&quot;)
 print(f&quot;  abs diff max {np.abs(diff).max():.2e}&quot;)
@@ -712,6 +767,7 @@ print(f&quot;  REL ERR:  median {np.median(rel):.2e}   max {rel.max():.2e}   ove
 mol_ref = (dt[<span class="hljs-string">&quot;line_opacity&quot;</span>] - da[<span class="hljs-string">&quot;line_opacity&quot;</span>]).astype(<span class="hljs-built_in">float</span>)        <span class="hljs-comment"># pure molecular component</span>
 diff = mol_op - mol_ref; mask = mol_ref != <span class="hljs-number">0.0</span>                           <span class="hljs-comment"># nonzero reference points</span>
 rel = np.<span class="hljs-built_in">abs</span>(diff[mask] / mol_ref[mask])
+
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;band opacity vs reference (production _accumulate_mol_fused_batch):&quot;</span>)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;  ref max <span class="hljs-subst">{mol_ref.<span class="hljs-built_in">max</span>():<span class="hljs-number">.4</span>e}</span>   reproduced max <span class="hljs-subst">{mol_op.<span class="hljs-built_in">max</span>():<span class="hljs-number">.4</span>e}</span>&quot;</span>)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;  abs diff max <span class="hljs-subst">{np.<span class="hljs-built_in">abs</span>(diff).<span class="hljs-built_in">max</span>():<span class="hljs-number">.2</span>e}</span>&quot;</span>)
@@ -983,10 +1039,13 @@ def solve_josh(acont, scont, aline, sline, sigmac, sigmal):
 sigmal = dt[&quot;line_scattering&quot;].astype(float); scont = dt[&quot;slinec&quot;].astype(float)
 sline = dt[&quot;line_source&quot;].astype(float); aline = dt[&quot;line_opacity&quot;].astype(float)  # incl. molecules
 zero = np.zeros(n_depths)
+
+# solve every wavelength twice: full line opacity for the spectrum, zero line opacity for the continuum
 ft = np.array([solve_josh(acont[:,i], scont[:,i], aline[:,i], sline[:,i], sigmac[:,i], sigmal[:,i])
                for i in range(n_wl)])                                    # line flux (all opacity)
 fc = np.array([solve_josh(acont[:,i], scont[:,i], zero, sline[:,i], sigmac[:,i], zero)
                for i in range(n_wl)])                                    # continuum flux
+
 spectrum = ft / fc; reference = dt[&quot;flux_total&quot;] / dt[&quot;flux_continuum&quot;]  # normalised spectra
 rel = np.abs(spectrum / reference - 1.0)
 print(f&quot;normalised TiO spectrum vs reference: median {np.median(rel):.2e}  max {rel.max():.2e}&quot;)" aria-label="Copy code">
@@ -996,10 +1055,13 @@ print(f&quot;normalised TiO spectrum vs reference: median {np.median(rel):.2e}  
 sigmal = dt[<span class="hljs-string">&quot;line_scattering&quot;</span>].astype(<span class="hljs-built_in">float</span>); scont = dt[<span class="hljs-string">&quot;slinec&quot;</span>].astype(<span class="hljs-built_in">float</span>)
 sline = dt[<span class="hljs-string">&quot;line_source&quot;</span>].astype(<span class="hljs-built_in">float</span>); aline = dt[<span class="hljs-string">&quot;line_opacity&quot;</span>].astype(<span class="hljs-built_in">float</span>)  <span class="hljs-comment"># incl. molecules</span>
 zero = np.zeros(n_depths)
+
+<span class="hljs-comment"># solve every wavelength twice: full line opacity for the spectrum, zero line opacity for the continuum</span>
 ft = np.array([solve_josh(acont[:,i], scont[:,i], aline[:,i], sline[:,i], sigmac[:,i], sigmal[:,i])
                <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(n_wl)])                                    <span class="hljs-comment"># line flux (all opacity)</span>
 fc = np.array([solve_josh(acont[:,i], scont[:,i], zero, sline[:,i], sigmac[:,i], zero)
                <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(n_wl)])                                    <span class="hljs-comment"># continuum flux</span>
+
 spectrum = ft / fc; reference = dt[<span class="hljs-string">&quot;flux_total&quot;</span>] / dt[<span class="hljs-string">&quot;flux_continuum&quot;</span>]  <span class="hljs-comment"># normalised spectra</span>
 rel = np.<span class="hljs-built_in">abs</span>(spectrum / reference - <span class="hljs-number">1.0</span>)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;normalised TiO spectrum vs reference: median <span class="hljs-subst">{np.median(rel):<span class="hljs-number">.2</span>e}</span>  max <span class="hljs-subst">{rel.<span class="hljs-built_in">max</span>():<span class="hljs-number">.2</span>e}</span>&quot;</span>)</code></pre>
