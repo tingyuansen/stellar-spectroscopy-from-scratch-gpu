@@ -1,9 +1,10 @@
 #!/usr/bin/env python
-"""Lecture 9 — The JOSH Solver: Production Radiative Transfer. The moment equations and
-Eddington closure, the discrete Lambda operator on a fixed optical-depth grid, the
-scattering source function and its iteration, and the CH-weighted surface flux. Rebuilds
-pykurucz's solve_josh_flux from scratch and reproduces the spectrum to machine precision.
-Checked against reference/diag.npz + reference/josh_tables.npz. No pykurucz import.
+"""Lecture 9 — Hydrostatic Equilibrium & Temperature Structure: build the grey model
+atmosphere itself (which Lectures 1-8 took as GIVEN) from (Teff, logg) to machine
+precision.  Reproduces pykurucz's grey cold start (generate_grey_atm -> the ATLAS12
+TTAUP hydrostatic integrator) and matches reference/L1.npz grey_T, grey_pgas, grey_rhox
+BIT-EXACT.  Self-contained: imports only numpy / matplotlib / pathlib; benchmarks against
+the shipped reference/L1.npz data file.  No pykurucz import.
 """
 from pathlib import Path
 import nbformat
@@ -15,7 +16,8 @@ cells = []
 def md(s): cells.append(new_markdown_cell(s))
 def code(s): cells.append(new_code_cell(s))
 
-md(r"""# Lecture 9 — The JOSH Solver: Production Radiative Transfer
+# ── title ────────────────────────────────────────────────────────────────
+md(r"""# Lecture 9 — Hydrostatic Equilibrium & Temperature Structure
 
 *Stellar Spectroscopy from Scratch — rebuilding the physics of ATLAS and SYNTHE from first principles*
 
@@ -29,50 +31,22 @@ md(r"""# Lecture 9 — The JOSH Solver: Production Radiative Transfer
 
 **Learning objectives.** By the end of this lecture you will be able to:
 
-- Take the **moments** of the transfer equation and close them with the **Eddington approximation**, turning radiative transfer into a pair of moment equations for the mean intensity $J$ and the flux $H$.
-- Read the production code's three precomputed tables — a fixed **optical-depth grid**, a discrete **$\Lambda$ operator** `COEFJ`, and surface-flux weights `CH` — and say what each one does.
-- Build the optical-depth scale with a **parabolic integrator**, map the source onto the fixed grid with **parabolic interpolation**, and solve the **scattering source function** by iteration.
-- Assemble the emergent flux and reproduce the reference solar spectrum to **machine precision** — closing the ten-percent gap the formal solution left in the deepest line cores.""")
+- State **hydrostatic equilibrium** as a differential equation in optical depth, $dP/d\tau = g/\kappa$, and explain why the column mass and the pressure are two sides of the same balance.
+- Recall the **grey/Hopf temperature law** $T(\tau)$ from the first lecture, and see it as the *input* to the structure rather than something handed down.
+- Build the production code's **80-layer optical-depth grid** (the literal ATLAS12 card defaults) and say why the cold start integrates with a placeholder opacity $\kappa\equiv1$.
+- Integrate hydrostatic equilibrium in **log pressure** with a **predictor-corrector** multistep, apply the **radiation-pressure correction** $P_{\rm gas}=P_{\rm total}-P_{\rm rad}$, and reproduce the reference grey atmosphere — temperature, gas pressure, and column mass — to **machine precision**, sharpening the first lecture's one-line $P=g\tau$ estimate to the last bit.""")
 
-md(r"""## Introduction
+# ── introduction ───────────────────────────────────────────────────────────
+md(r"""## Introduction: building the atmosphere we have been given
 
-Lecture 8 solved radiative transfer with the **formal solution** and one approximation: the source function was the Planck function, $S_\lambda = B_\lambda$. That is exact wherever true absorption dominates, and it reproduced the solar spectrum to a part in a thousand. The one place it loosened — to about ten percent — was the bottom of the deepest line cores, where **scattering** is no longer negligible and the source function is pulled below $B_\lambda$ by photons that scatter and escape:
+For eight lectures the **model atmosphere** has been a given. We took its run of temperature, gas pressure, and density with depth — the columns of a `.atm` file — and on top of it built the equation of state, the continuous and line opacities, and the radiative-transfer solver, until we reproduced the solar spectrum to machine precision. But where did that atmosphere come from? A model atmosphere is fixed by two physical requirements: **hydrostatic equilibrium**, that the gas neither collapses under its own weight nor blows away, and **radiative equilibrium**, that the energy carried outward by radiation is conserved at every depth. This lecture builds the first of those. It is the start of the **inverse half** of the course: instead of taking the structure and computing the spectrum, we compute the structure itself from the two numbers that define a star — its effective temperature $T_{\rm eff}$ and its surface gravity $\log g$.
 
-$$
-S_\lambda = \frac{\kappa^{\rm abs}_\lambda\,B_\lambda + \kappa^{\rm scat}_\lambda\,J_\lambda}{\kappa^{\rm abs}_\lambda + \kappa^{\rm scat}_\lambda}
-        = (1-\alpha_\lambda)\,B_\lambda + \alpha_\lambda\,J_\lambda,
-\qquad
-\alpha_\lambda \equiv \frac{\kappa^{\rm scat}_\lambda}{\kappa^{\rm abs}_\lambda + \kappa^{\rm scat}_\lambda}.
-$$
+The first lecture already wrote down a temperature structure: the **grey atmosphere**, $T(\tau)$ from the Hopf function. It also estimated the pressure with a one-line analytic integral, $P_{\rm total}=g\tau$, and noted that this agreed with the reference to about one part in $10^{5}$ — close, but not exact, with the residual deferred to "when we rebuild hydrostatic equilibrium in full." This is that rebuild. We reproduce the exact pressure integrator the reference uses — a predictor-corrector that solves the same hydrostatic equation in log pressure — and the last digits fall into place: temperature, gas pressure, and column mass, all bit-for-bit identical to the reference grey model that ATLAS12 starts its own iteration from.""")
 
-The difficulty is the **mean intensity** $J_\lambda$: it is itself an integral of the radiation field over angle and depth, which depends on $S_\lambda$ — the source and the field are coupled. The production code resolves this with a **moment method** on a fixed optical-depth grid, due to Avrett & Loeser and known in the Kurucz codes as **JOSH**. It reduces the angular transfer problem to two coupled ordinary differential equations for the moments, discretises them as a precomputed matrix, and iterates the source to self-consistency. This lecture rebuilds it step by step, and the payoff is the spectrum to machine precision.
+# ── the imports + reference ────────────────────────────────────────────────
+md(r"""## Setup and the reference
 
-![The JOSH moment solver: opacity to optical depth, a map onto a fixed Eddington grid, a scattering iteration for the source, and a weighted surface flux.](resources/figures/s7_josh.png)""")
-
-# ── moment equations ────────────────────────────────────────────────────
-md(r"""## The moment equations and the Eddington closure
-
-Start from the plane-parallel transfer equation of Lecture 8, $\mu\,dI/d\tau = I - S$, and take **moments** in the angle cosine $\mu$ — that is, multiply by powers of $\mu$ and integrate over the unit sphere. Define the first three moments of the intensity,
-
-$$
-J = \tfrac12\!\int_{-1}^{1} I\,d\mu, \qquad
-H = \tfrac12\!\int_{-1}^{1} I\,\mu\,d\mu, \qquad
-K = \tfrac12\!\int_{-1}^{1} I\,\mu^2\,d\mu,
-$$
-
-the **mean intensity** $J$, the **Eddington flux** $H$ (the physical flux is $F = 4\pi H$), and the second moment $K$. Taking the zeroth and first moments of the transfer equation gives
-
-$$
-\frac{dH}{d\tau} = J - S, \qquad \frac{dK}{d\tau} = H.
-$$
-
-This is two equations in three unknowns ($J, H, K$) — not closed. The **Eddington approximation** closes it: deep in the atmosphere the radiation field is nearly isotropic, so $K = \tfrac13 J$ (for an isotropic field $\langle\mu^2\rangle = 1/3$). Substituting,
-
-$$
-\frac{d^2(fJ)}{d\tau^2} = J - S, \qquad f \to \tfrac13,
-$$
-
-a single second-order equation for $J$ given the source $S$, with the surface boundary condition $H(0) = \tfrac{1}{\sqrt3}\,J(0)$ (no incoming radiation) and a diffusion condition at depth. Its solution is **linear** in $S$: $J = \Lambda[S]$, where $\Lambda$ is the classical lambda operator. Discretised on a fixed optical-depth grid, $\Lambda$ becomes a **matrix**, and that matrix is one of the tables the production code ships.""")
+We import only NumPy and Matplotlib. The benchmark target is the same `reference/L1.npz` the first lecture used: it carries the grey optical-depth grid `grey_tau`, the grey temperature `grey_T`, the gas pressure `grey_pgas`, and the column mass `grey_rhox`, all computed once by the production code on the solar parameters. The first lecture matched `grey_tau` and `grey_T` exactly and `grey_pgas`/`grey_rhox` to $\sim2\times10^{-5}$; by the end of this lecture all four match to the bit.""")
 
 code(r'''import pathlib
 import numpy as np
@@ -81,331 +55,303 @@ plt.rcParams.update({"figure.figsize": (7.2, 4.3), "figure.dpi": 120, "savefig.f
     "axes.grid": True, "grid.alpha": 0.25, "axes.axisbelow": True,
     "font.size": 11, "axes.titlesize": 12.5, "axes.labelsize": 11.5})
 
-REF = pathlib.Path("..") / "reference"
-T = np.load(REF / "josh_tables.npz")
-XTAU = T["xtau"]          # the fixed optical-depth grid (51 points), surface -> deep
-CH   = T["ch"]            # surface-flux weights: H(0) = sum(CH * S)
-COEFJ = T["coefj"]        # the discrete Lambda operator: J = COEFJ @ S on the grid
-RHOX = T["rhox"]          # column mass of the model atmosphere [g/cm^2], 80 layers
-NXTAU = XTAU.size
-print(f"fixed grid: {NXTAU} points, tau = {XTAU[0]:.3g} .. {XTAU[-1]:.3g}")
-print(f"COEFJ is {COEFJ.shape}, CH is {CH.shape}, atmosphere has {RHOX.size} layers")''')
+REF = np.load(pathlib.Path("..") / "reference" / "L1.npz")
+TEFF, LOGG = 5770.0, 4.44                 # the Sun: effective temperature [K], log surface gravity [cgs]
+g_cgs = 10.0 ** LOGG                       # surface gravity g [cm s^-2]
+print(f"target: grey atmosphere for Teff = {TEFF:.0f} K, log g = {LOGG}  ->  g = {g_cgs:.4g} cm/s^2")
+print(f"reference arrays: {[k for k in REF.files]}")''')
 
-md(r"""## The three tables, and what they mean
+# ── hydrostatic equilibrium ─────────────────────────────────────────────────
+md(r"""## Hydrostatic equilibrium in optical depth
 
-The method rests on three precomputed objects, all defined on the **fixed optical-depth grid** `XTAU` (51 points spanning $\tau \approx 10^{-5}$ at the surface to $\tau \approx 20$ deep). The grid is fixed because the moment equations, once written in $\tau$, are the same for every wavelength — only the source and the scattering fraction change.
-
-- **`COEFJ`** is the discrete $\Lambda$ operator. Given the source function sampled on the grid, $J = \texttt{COEFJ} \cdot S$ returns the mean intensity on the grid — it *is* the solution of the moment equations, packaged as a matrix multiply. Its diagonal, $\texttt{COEFJ}_{kk}$, is how strongly the local source feeds the local mean intensity, and it is the dominant term.
-- **`CH`** turns the converged source into the emergent **surface flux**: $H(0) = \sum_k \texttt{CH}_k\,S_k$. It is the discrete form of the flux integral, the moment-method counterpart of the $E_2$ kernel from Lecture 8.
-- **`XTAU`** is the grid both are built on.
-
-Let us look at them.""")
-
-code(r'''fig, (a1, a2) = plt.subplots(1, 2, figsize=(11, 4.0))
-im = a1.imshow(np.log10(np.abs(COEFJ) + 1e-30), cmap="magma", aspect="auto")
-a1.set_title(r"$\log_{10}|\,$COEFJ$\,|$ — the discrete $\Lambda$ operator")
-a1.set_xlabel("source grid point $m$"); a1.set_ylabel("response grid point $k$")
-fig.colorbar(im, ax=a1, fraction=0.046)
-a2.plot(np.arange(NXTAU), np.diag(COEFJ), "o-", ms=3, label="diagonal COEFJ$_{kk}$")
-a2.plot(np.arange(NXTAU), CH, "s-", ms=3, color="C3", label="CH (flux weights)")
-a2.set_xlabel("grid point $k$"); a2.set_title("diagonal of $\\Lambda$, and the flux weights")
-a2.legend(); fig.tight_layout(); plt.show()''')
-
-md(r"""The operator is strongly diagonal — the mean intensity at a point is dominated by the source there, with smaller contributions from neighbouring depths — exactly the local-plus-tails structure of $\Lambda$. The flux weights `CH` are concentrated near the surface points: the emergent flux is set by the source in the top few optical depths, the same Eddington–Barbier intuition as Lecture 8, now as a discrete sum.""")
-
-# ── the opacities and sources ───────────────────────────────────────────
-md(r"""## The inputs: opacity, scattering, and the source
-
-For each wavelength the solver needs, at every atmospheric depth, four opacity quantities and two source functions — all of which we built in earlier lectures and which are stored here as reference arrays of shape (depth, wavelength):
-
-- `cont_abs` $=\kappa^{\rm abs}_{\rm cont}$ — the **continuum absorption** of Lecture 3 (mostly H$^-$).
-- `cont_scat` $=\kappa^{\rm scat}_{\rm cont}$ — the **continuum scattering** of Lecture 3 (Rayleigh + Thomson).
-- `line_abs` $=\kappa^{\rm abs}_{\rm line}$ — the **line absorption** of Lecture 6 (the forest of Voigt profiles).
-- `line_scat` $=\kappa^{\rm scat}_{\rm line}$ — the (small) line scattering.
-- `S_cont` — the **continuum source function**, the Planck function with the production code's tiny departure correction.
-- `S_line` — the **line source function**.
-
-From these we form, at each depth, the **total extinction** $\kappa^{\rm abs}+\kappa^{\rm scat}$, the **scattering fraction** $\alpha = \kappa^{\rm scat}/(\kappa^{\rm abs}+\kappa^{\rm scat})$, and the **absorption-weighted source**
+A static atmosphere obeys a single balance: at every depth, the upward push of the pressure gradient supports the weight of the gas above. In terms of geometric height $z$ (increasing outward) and mass density $\rho$,
 
 $$
-\bar S = \frac{\kappa^{\rm abs}_{\rm cont}\,S_{\rm cont} + \kappa^{\rm abs}_{\rm line}\,S_{\rm line}}
-              {\kappa^{\rm abs}_{\rm cont} + \kappa^{\rm abs}_{\rm line}},
+\frac{dP}{dz} = -\rho\,g,
 $$
 
-which is the thermal ($B$-like) part of the source, before scattering mixes in $J$.""")
+with $g$ the surface gravity, taken constant across the thin photosphere. The structure codes do not work in height, though — they work in **optical depth** $\tau$, because that is the variable the radiation field cares about. Recall from the first lecture that optical depth is built from the opacity per gram $\kappa$ and the **column mass** $\rho x$ (grams of material above a square centimetre), with $d\tau = \kappa\,d(\rho x)$ and $d(\rho x) = -\rho\,dz$. Substituting,
 
-code(r'''D = np.load(REF / "diag.npz")
-cont_abs  = D["continuum_absorption"].astype(float)   # kappa_abs continuum  (depth, wl)
-cont_scat = D["continuum_scattering"].astype(float)    # kappa_scat continuum
-line_abs  = D["line_opacity"].astype(float)            # kappa_abs lines
-line_scat = D["line_scattering"].astype(float)         # kappa_scat lines
-S_cont    = D["slinec"].astype(float)                  # continuum source function
-S_line    = D["line_source"].astype(float)             # line source function
-wl        = D["wavelength"]                             # nm
-flux_total_ref = D["flux_total"]; flux_cont_ref = D["flux_continuum"]
-print(f"{cont_abs.shape[0]} depths x {wl.size} wavelengths, {wl[0]:.1f}-{wl[-1]:.1f} nm")
+$$
+\boxed{\;\frac{dP}{d\tau} = \frac{g}{\kappa}\;}
+$$
 
-EPS = 1e-38                                             # Fortran's tiny floor, avoids /0
-def source_and_alpha(acont, scont, aline, sline, sigmac, sigmal):
-    abtot = np.maximum(acont + aline + sigmac + sigmal, EPS)   # total extinction
-    alpha = np.clip((sigmac + sigmal) / abtot, 0.0, 1.0)       # scattering fraction
-    denom = acont + aline                                       # absorption only
-    sbar = np.where(denom > 0, (acont*scont + aline*sline)/denom, scont)
-    return abtot, alpha, sbar''')
+This is hydrostatic equilibrium in the form the codes integrate. Read it as a statement about the column mass: since $dP/d(\rho x) = g$, the total pressure is just $g$ times the column mass, $P_{\rm total} = g\cdot\rho x$ — the weight per unit area of everything above. The optical-depth form makes the opacity explicit: where the gas is more opaque (large $\kappa$), a given range of $\tau$ spans less pressure, because you reach optical depth one in less material.
 
-# ── step 1: optical depth ───────────────────────────────────────────────
-md(r"""## Step 1 — optical depth, by parabolic integration
+To integrate it we need two things: the temperature at every depth (which sets $P_{\rm rad}$ and, through the equation of state, the density), and the opacity $\kappa(\tau)$. We take them in turn.""")
 
-The moment equations live in optical depth, so first we integrate the total extinction over the column mass `RHOX`, exactly as in Lecture 8 — but here we use the production code's **parabolic** quadrature rather than the trapezoid, because the same routine is used to build the grid the operator was tabulated on, and we want the optical-depth scale to match to the bit.
+# ── the temperature law ─────────────────────────────────────────────────────
+md(r"""## The temperature: the grey/Hopf law, revisited
 
-The routine `parcoe` fits, on every interval, a parabola $f \approx a + b\tau + c\tau^2$ through three neighbouring points, then forces the second and third points to be linear and blends each parabola with its neighbour by curvature weight — a mild smoothing that keeps the integrand well behaved near the boundaries. `integ` then integrates each interval's parabola analytically. The two together are the Kurucz `PARCOE`/`INTEG` pair.""")
+The temperature structure is the *input* to the pressure integration, so we start there — with the grey law from the first lecture. For a grey atmosphere (opacity independent of wavelength) in radiative equilibrium, the transfer equation can be solved exactly for the temperature, giving
 
-code(r'''def parcoe(f, x):
-    """Parabolic coefficients a,b,c per interval (Kurucz PARCOE)."""
-    n = f.size
-    a = np.zeros(n); b = np.zeros(n); c = np.zeros(n)
-    if n == 1:
-        a[0] = f[0]; return a, b, c
-    b[0]  = (f[1]-f[0])/(x[1]-x[0]);     a[0]  = f[0]-x[0]*b[0]     # linear endpoints
-    n1 = n-1
-    b[-1] = (f[-1]-f[n1-1])/(x[-1]-x[n1-1]); a[-1] = f[-1]-x[-1]*b[-1]
-    if n == 2: return a, b, c
-    for j in range(1, n1):                                          # parabola through 3 points
-        j1 = j-1
-        d = (f[j]-f[j1])/(x[j]-x[j1])
-        c[j] = f[j+1]/((x[j+1]-x[j])*(x[j+1]-x[j1])) + \
-               (f[j1]/(x[j+1]-x[j1]) - f[j]/(x[j+1]-x[j]))/(x[j]-x[j1])
-        b[j] = d - (x[j]+x[j1])*c[j]
-        a[j] = f[j1] - x[j1]*d + x[j]*x[j1]*c[j]
-    c[1] = 0.0; b[1] = (f[2]-f[1])/(x[2]-x[1]); a[1] = f[1]-x[1]*b[1]   # force pts 2,3 linear
-    if n > 3:
-        c[2] = 0.0; b[2] = (f[3]-f[2])/(x[3]-x[2]); a[2] = f[2]-x[2]*b[2]
-    for j in range(1, n1):                                          # curvature-weighted blend
-        if c[j] == 0.0: continue
-        j1 = min(j+1, n-1); denom = abs(c[j1]) + abs(c[j])
-        wt = abs(c[j1])/denom if denom > 0 else 0.0
-        a[j] = a[j1]+wt*(a[j]-a[j1]); b[j] = b[j1]+wt*(b[j]-b[j1]); c[j] = c[j1]+wt*(c[j]-c[j1])
-    a[n1-1] = a[-1]; b[n1-1] = b[-1]; c[n1-1] = c[-1]
-    return a, b, c
+$$
+T^4(\tau) = \tfrac{3}{4}\,T_{\rm eff}^4\,\big[\tau + q(\tau)\big],
+$$
 
-def integ(x, f, start):
-    """Cumulative integral of f dx using each interval's left-point parabola (Kurucz INTEG)."""
-    a, b, c = parcoe(f, x)
-    out = np.zeros(f.size); out[0] = start
-    for i in range(f.size-1):
-        dx = x[i+1]-x[i]
-        term = a[i] + 0.5*b[i]*(x[i+1]+x[i]) + (c[i]/3.0)*((x[i+1]+x[i])*x[i+1] + x[i]*x[i])
-        out[i+1] = out[i] + term*dx
-    return out''')
+where $q(\tau)$ is the **Hopf function**, rising slowly from $q(0)=1/\sqrt3\approx0.577$ to $q(\infty)\approx0.710$. The production code uses Kurucz's polynomial fit to $q$,
 
-# ── step 2: map onto the grid ───────────────────────────────────────────
-md(r"""## Step 2 — map the source onto the fixed grid
+$$
+T(\tau) = T_{\rm eff}\,\Big[\tfrac{3}{4}\big(0.710 + \tau - 0.1331\,e^{-3.4488\,\tau}\big)\Big]^{1/4}.
+$$
 
-The atmosphere has 80 depth points, with a $\tau_\lambda$ scale that differs at every wavelength; the operator `COEFJ` lives on the fixed 51-point grid `XTAU`. So we interpolate the absorption-weighted source $\bar S$ and the scattering fraction $\alpha$ from the atmosphere's $\tau_\lambda$ onto `XTAU`. The production code uses the same parabolic interpolation everywhere — the `MAP1` routine — so we reproduce it rather than reach for a library spline; the small differences in interpolation scheme are exactly what would spoil bit-level agreement.
+The three constants — $0.710$, $0.1331$, $3.4488$ — are the fit: $0.710$ is the deep limit of $q$, and the exponential term bends the curve down at the surface toward $1/\sqrt3$. We met this in the first lecture and reproduced it to the bit; we reproduce it again here, since it feeds the pressure. A floor of $10^{-300}$ guards the fourth root against an underflow to a negative bracket — it never triggers for a real atmosphere but keeps the routine safe.""")
 
-Where a grid point lies **above** the top of the atmosphere ($\tau < \tau_\lambda[0]$), there is nothing to interpolate, so the source is held at its surface value. That surface masking matters in strong lines, whose opacity lifts $\tau_\lambda[0]$ to non-negligible values.""")
+code(r'''def grey_temperature(teff, tau):
+    """Eddington-Kurucz grey T(tau): a polynomial fit to the Hopf function q(tau)."""
+    bracket = 0.75 * (0.710 + tau - 0.1331 * np.exp(-3.4488 * tau))   # (3/4)(tau + q(tau))
+    return float(teff) * np.power(np.maximum(bracket, 1e-300), 0.25)  # T = Teff * bracket^(1/4)''')
 
-code(r'''def map1(xold, fold, xnew):
-    """Parabolic interpolation of fold(xold) onto xnew (Kurucz MAP1)."""
-    nold, nnew = xold.size, xnew.size
-    fnew = np.zeros(nnew)
-    if nold == 0 or nnew == 0: return fnew
-    xo = np.empty(nold+1); fo = np.empty(nold+1); xo[1:] = xold; fo[1:] = fold
-    l = 2; ll = 0
-    cfor = bfor = afor = cbac = bbac = abac = a = b = c = 0.0
-    for k in range(1, nnew+1):
-        xk = xnew[k-1]
+# ── the optical-depth grid ──────────────────────────────────────────────────
+md(r"""## The optical-depth grid: 80 layers, the ATLAS12 card defaults
+
+We discretise the atmosphere on a grid of optical depth. The production code's grey start uses the literal ATLAS12 `CALCULATE` card defaults: **80 layers**, the first at $\log\tau = -6.875$, spaced **$0.125$ dex** apart. That spans from $\tau\approx1.3\times10^{-7}$ at the very top of the atmosphere to $\tau\approx3\times10^{2}$ deep below the photosphere — nearly ten decades, fine enough to integrate the hydrostatic equation accurately and wide enough to bracket the line- and continuum-forming region (which sits near $\tau\sim1$).
+
+The grid is uniform in $\log\tau$, so the **log-tau step** $\Delta\log\tau$ is a constant. We will integrate the pressure in log-pressure against this log-tau grid, so this constant step is the natural increment of the integration.""")
+
+code(r'''NRHOX, TAU1LG, STEPLG = 80, -6.875, 0.125      # ATLAS12 CALCULATE card defaults
+j = np.arange(NRHOX, dtype=np.float64)
+tau = np.power(10.0, TAU1LG + j * STEPLG)        # 80 layers, 0.125 dex apart, surface -> deep
+T = grey_temperature(TEFF, tau)
+print(f"{NRHOX} layers,  tau = {tau[0]:.3e} .. {tau[-1]:.3e}")
+print(f"T(top) = {T[0]:.1f} K    T(tau~1) ~ {grey_temperature(TEFF, 1.0):.1f} K    T(bottom) = {T[-1]:.1f} K")''')
+
+md(r"""The grid and the temperature are the first two reference arrays, and they match to the bit straight away — they are the same Hopf fit on the same grid the first lecture built.""")
+
+code(r'''def check(name, got, ref):
+    got, ref = np.asarray(got, float), np.asarray(ref, float)
+    m = np.abs(ref) > 0
+    rel = np.zeros_like(ref); rel[m] = np.abs(got[m] - ref[m]) / np.abs(ref[m])
+    tag = "bit-exact" if np.array_equal(got, ref) else f"max|rel| = {rel.max():.2e}"
+    print(f"  {name:12s}  {tag}")
+    return rel.max()
+
+check("grey_tau", tau, REF["grey_tau"])
+check("grey_T",   T,   REF["grey_T"])''')
+
+# ── radiation pressure ──────────────────────────────────────────────────────
+md(r"""## Radiation pressure
+
+The total pressure has two parts, gas and radiation: $P_{\rm total} = P_{\rm gas} + P_{\rm rad}$. The hydrostatic balance supports the **total**, but the equation of state and the line opacities care about the **gas** pressure, so we will need to subtract $P_{\rm rad}$ at the end. Radiation pressure of an isotropic field is $P_{\rm rad} = \tfrac{4\sigma}{3c}T^4 = a_{\rm rad}T^4$ with $a_{\rm rad}\approx7.566\times10^{-15}\,\mathrm{erg\,cm^{-3}\,K^{-4}}$; the production code carries the combination as the constant $\tfrac13 a_{\rm rad} = 2.521\times10^{-15}$ (the field is integrated with the Eddington factor $\tfrac13$ already folded in). It also floors the temperature inside the fourth power at $T_{\rm eff}^4/2$, so the radiation pressure never drops below a fixed fraction of its photospheric value in the cool upper layers — a stabiliser that keeps the cold start well behaved.
+
+$$
+P_{\rm rad}(\tau) = 2.521\times10^{-15}\,\max\!\big(T^4,\ \tfrac12 T_{\rm eff}^4\big).
+$$
+
+In a cool dwarf like the Sun the radiation pressure is utterly negligible next to the gas pressure — parts in $10^{8}$ — but the integrator carries it, and reproducing the reference to the bit means carrying it too. What matters for the hydrostatic integration is the **run** of $P_{\rm rad}$ relative to the surface, $P_{\rm rad}(\tau) - P_{\rm rad}(0)$, since only the *gradient* of pressure enters the balance.""")
+
+code(r'''pradk = 2.521e-15 * np.maximum(T ** 4, TEFF ** 4 / 2.0)   # radiation pressure with Kurucz's floor
+prad = pradk - pradk[0]                                    # run relative to the surface layer
+pturb = np.zeros(NRHOX)                                    # turbulent pressure: zero on the cold start
+print(f"P_rad(top) = {pradk[0]:.3e}   P_rad(bottom) = {pradk[-1]:.3e} dyn/cm^2   (gas ~1e5, so ~1e-8 of it)")''')
+
+# ── the cold-start opacity ──────────────────────────────────────────────────
+md(r"""## Why the cold start uses $\kappa\equiv1$
+
+Hydrostatic equilibrium $dP/d\tau = g/\kappa$ needs the opacity $\kappa(\tau)$ — but the opacity depends on the pressure and temperature through the equation of state and the photo-absorption cross-sections, which we cannot evaluate until we *have* the structure. This is the bootstrap problem at the heart of building an atmosphere: structure needs opacity, opacity needs structure.
+
+The production code breaks the loop with a **cold start**. On the very first pass there is no opacity table yet, so the Rosseland-mean opacity is set to a placeholder of **unity at every layer**, $\kappa_{\rm Ross}\equiv1$. (Internally the opacity table — `ROSSTAB` — is empty, and an empty table returns $1.0$.) This is deliberately crude: it gives a first guess of the pressure structure that is in the right ballpark, which ATLAS then refines over many iterations, rebuilding the real Rosseland-mean opacity from the equation of state and feeding it back into the hydrostatic integration until the structure stops changing. We are reproducing that **first guess** — the grey model the iteration starts from — so $\kappa\equiv1$ throughout. There is one cosmetic exception: the top layer is seeded with $\kappa=0.1$ purely to set the boundary value of the integration, as we see next.""")
+
+# ── log pressure ────────────────────────────────────────────────────────────
+md(r"""## Integrating in log pressure, and why
+
+We integrate $dP/d\tau = g/\kappa$ down the grid. The natural move would be to step in $P$ directly, but two facts make **log pressure** the better variable. First, the pressure spans many decades from the top of the atmosphere to the bottom — eight or nine — so a fixed step in $P$ would be hopelessly coarse at the top and wastefully fine at the bottom, while a step in $\log P$ resolves every decade equally. Second, the grid is uniform in $\log\tau$, and on the cold start with $\kappa$ constant the solution $P=g\tau$ is a power law, so $\log P$ is *linear* in $\log\tau$ — the integrand is smoothest in log-log variables, where a low-order multistep formula is most accurate.
+
+Writing $p \equiv \log P_{\rm total}$ and using $d\log\tau$ as the increment, the chain rule turns hydrostatic equilibrium into
+
+$$
+\frac{dp}{d\log\tau}
+= \frac{1}{P_{\rm total}}\frac{dP_{\rm total}}{d\tau}\,\frac{d\tau}{d\log\tau}
+= \frac{1}{P_{\rm total}}\,\frac{g}{\kappa}\,(\tau\ln10\cdot 10^{\log\tau}/\dots)
+= \frac{g}{\kappa}\,\frac{\tau}{P_{\rm total}}\,\Delta\!\ln\tau\big/\Delta\!\ln\tau,
+$$
+
+which collapses to the clean per-step derivative the code uses,
+
+$$
+\Delta p_j \;=\; \frac{g}{\kappa_j}\,\frac{\tau_j}{P_{{\rm total},j}}\,\Delta\!\ln\tau,
+$$
+
+the change in $\log P$ across one log-tau step. (We use natural logs internally for the step $\Delta\ln\tau = \ln(\tau_{j+1}/\tau_j)$, which is the same constant for every interval since the grid is uniform in $\log\tau$.) We will compute this derivative — call it `dplog` — at each layer and use it both to **predict** the next layer's pressure and to **correct** it.""")
+
+code(r'''dlg_tau = np.log(tau[1] / tau[0])    # natural-log tau step, constant across the uniform grid
+print(f"d(ln tau) per layer = {dlg_tau:.6f}   (= ln(10) * 0.125 = {np.log(10)*0.125:.6f})")''')
+
+# ── predictor-corrector ─────────────────────────────────────────────────────
+md(r"""## The predictor-corrector integrator
+
+We integrate layer by layer from the top down, carrying a short **history** of the last few values of $p=\log P$ and of the derivative $\Delta p$. Each layer is done in two stages.
+
+**Predictor.** Extrapolate $p_j$ from the history. The very first layer ($j=0$) has no history, so its pressure is set directly from the seeded boundary opacity, $p_0 = \ln(g\,\tau_0/\kappa_0)$ with $\kappa_0=0.1$. The next three layers ($j\le3$) use a one-step extrapolation $p_j = p_{j-1} + \Delta p_{j-1}$, because the history is not yet long enough for the full formula. From the fifth layer on, a four-term multistep predictor combines the value four layers back with a weighted blend of the last three derivatives,
+
+$$
+p_j^{\rm pred} = \frac{3\,p_{j-4} + 8\,\Delta p_{j-1} - 4\,\Delta p_{j-2} + 8\,\Delta p_{j-3}}{3}.
+$$
+
+These integer coefficients are a standard explicit Adams-type formula tuned to this log-log grid; they reach back several layers because the integrand is so smooth there that a long stencil pays off.
+
+**Corrector.** With a trial $p_j$ in hand, evaluate the total pressure $P_{{\rm total},j}=e^{p_j}$, subtract the radiation (and turbulent) pressure to get the gas pressure, look up the opacity ($\kappa_j=1$ on the cold start), and form the derivative $\Delta p_j = (g/\kappa_j)(\tau_j/P_{{\rm total},j})\,\Delta\ln\tau$. A corrector formula (analogous integer weights) then produces a refined estimate $p_j^{\rm new}$ from $p_j$ and the freshly computed derivative, and we average the two, $p_j \leftarrow \tfrac12(p_j^{\rm new}+p_j)$, iterating until the change is below $5\times10^{-5}$.
+
+One ordering detail is what makes this reproduce the reference *to the bit*, and it is worth stating plainly. The code **evaluates and stores** $P_{\rm total}$, the gas pressure, the opacity, and the derivative from the current trial $p_j$ *first*, and only *then* tests for convergence. So on the step where the loop decides it is done, the stored pressure is the one from the last *predictor*, not from a further-refined corrector — the corrector that would have nudged it is computed but not applied to the stored value. Matching this "evaluate-then-check" order is the difference between agreeing to five decimals and agreeing to all of them.""")
+
+code(r'''def ttaup(t, tau, prad, pturb, grav):
+    """Integrate dP/dtau = g/kappa over the tau grid in LOG pressure (Kurucz TTAUP).
+
+    Sequential and order-dependent in the layer index j (the history couples each layer
+    to the previous few, so this cannot be vectorised across layers). Returns the opacity,
+    the total pressure, and the gas pressure at every layer.
+    """
+    n = t.size
+    abstd  = np.zeros(n)             # opacity kappa_Ross at each layer (== 1 on the cold start)
+    ptotal = np.zeros(n)            # total pressure P_total = exp(log P)
+    pgas   = np.zeros(n)            # gas pressure  P_gas = P_total - P_rad - P_turb
+    dlg_tau = np.log(tau[1] / tau[0]) if n > 1 else 0.0   # constant log-tau step
+
+    # rolling history of log P (plog1..plog4) and of the derivative dplog (dplog1..dplog3)
+    plog1 = plog2 = plog3 = plog4 = 0.0
+    dplog1 = dplog2 = dplog3 = 0.0
+
+    # seed opacity at the top layer (kappa_0 = 0.1) to set the boundary pressure
+    abstd[0] = 0.1
+    if prad[0] > 0.0:
+        abstd[0] = min(0.1, grav * tau[0] / max(prad[0], 1e-300) / 2.0)
+    return _ttaup_loop(t, tau, prad, pturb, grav, n, abstd, ptotal, pgas, dlg_tau,
+                       plog1, plog2, plog3, plog4, dplog1, dplog2, dplog3)
+print("predictor-corrector defined (the per-layer loop is in the next cell)")''')
+
+md(r"""The per-layer loop is the engine; we keep it in its own cell so each piece is visible. For each layer $j$ it runs the predictor, then the corrector loop, then shifts the history forward by one. Watch the two markers in the comments: **predict**, then the inner loop where we **evaluate-then-check**.""")
+
+code(r'''def _ttaup_loop(t, tau, prad, pturb, grav, n, abstd, ptotal, pgas, dlg_tau,
+                plog1, plog2, plog3, plog4, dplog1, dplog2, dplog3):
+    for j in range(n):
+        # ---- PREDICTOR: extrapolate log P from the history ----
+        if j == 0:
+            plog = np.log(max(grav / abstd[0] * tau[0], 1e-300))     # boundary: kappa_0 = 0.1
+        elif j <= 3:
+            plog = plog1 + dplog1                                     # short history: one-step
+        else:
+            plog = (3.0*plog4 + 8.0*dplog1 - 4.0*dplog2 + 8.0*dplog3) / 3.0   # 4-term multistep
+
+        # ---- CORRECTOR loop: EVALUATE the stored values, THEN check convergence ----
+        error, dplog, itn = 1.0, 0.0, 1
         while True:
-            if xk < xo[l]:
-                if l == ll: break
-                if l == 2 or l == 3:
-                    l = min(nold, l); c = 0.0
-                    b = (fo[l]-fo[l-1])/(xo[l]-xo[l-1]); a = fo[l]-xo[l]*b; ll = l; break
-                l1 = l-1
-                if l > ll+1 or l == 3 or l == 4:               # backward parabola
-                    l2 = l-2
-                    d = (fo[l1]-fo[l2])/(xo[l1]-xo[l2])
-                    cbac = fo[l]/((xo[l]-xo[l1])*(xo[l]-xo[l2])) + \
-                           (fo[l2]/(xo[l]-xo[l2]) - fo[l1]/(xo[l]-xo[l1]))/(xo[l1]-xo[l2])
-                    bbac = d - (xo[l1]+xo[l2])*cbac
-                    abac = fo[l2] - xo[l2]*d + xo[l1]*xo[l2]*cbac
-                    if l >= nold: c, b, a, ll = cbac, bbac, abac, l; break
-                else:
-                    cbac, bbac, abac = cfor, bfor, afor
-                    if l == nold: c, b, a, ll = cbac, bbac, abac, l; break
-                d = (fo[l]-fo[l1])/(xo[l]-xo[l1])               # forward parabola + blend
-                cfor = fo[l+1]/((xo[l+1]-xo[l])*(xo[l+1]-xo[l1])) + \
-                       (fo[l1]/(xo[l+1]-xo[l1]) - fo[l]/(xo[l+1]-xo[l]))/(xo[l]-xo[l1])
-                bfor = d - (xo[l]+xo[l1])*cfor
-                afor = fo[l1] - xo[l1]*d + xo[l]*xo[l1]*cfor
-                wt = abs(cfor)/(abs(cfor)+abs(cbac)) if abs(cfor) != 0 else 0.0
-                a = afor+wt*(abac-afor); b = bfor+wt*(bbac-bfor); c = cfor+wt*(cbac-cfor); ll = l; break
-            l += 1
-            if l > nold:
-                l = min(nold, l); c = 0.0
-                b = (fo[l]-fo[l-1])/(xo[l]-xo[l-1]); a = fo[l]-xo[l]*b; ll = l; break
-        fnew[k-1] = a + (b + c*xk)*xk
-    return fnew''')
+            plog = min(plog, 709.78)                       # guard exp() against overflow
+            ptotal[j] = np.exp(plog)                       # total pressure at this layer
+            pgas[j] = ptotal[j] + (prad[0] - prad[j]) - pturb[j]     # gas = total - P_rad run - P_turb
+            if pgas[j] <= 0.0:                             # non-physical: clamp and stop this layer
+                pgas[j] = 1e-30; abstd[j] = 0.1; break
+            abstd[j] = 1.0                                 # cold-start opacity (empty ROSSTAB -> 1)
+            dplog = grav / abstd[j] * tau[j] / ptotal[j] * dlg_tau   # d(log P) across one log-tau step
+            itn += 1
+            if itn > 1000 or error <= 5.0e-5:              # converged (or out of iterations): STOP
+                break                                       # -> the STORED values use this predictor
+            # corrector estimate, using the just-computed dplog:
+            if j == 0:
+                pnew = np.log(max(grav / abstd[j] * tau[j], 1e-300))
+            elif j <= 3:
+                pnew = (plog + 2.0*plog1 + dplog + dplog1) / 3.0
+            else:
+                pnew = (126.0*plog1 - 14.0*plog3 + 9.0*plog4
+                        + 42.0*dplog + 108.0*dplog1 - 54.0*dplog2 + 24.0*dplog3) / 121.0
+            error = abs(pnew - plog)
+            plog = 0.5 * (pnew + plog)                     # average predictor and corrector
 
-# ── step 3: the scattering iteration ────────────────────────────────────
-md(r"""## Step 3 — the scattering source, by iteration
+        # ---- shift the history forward one layer ----
+        plog4, plog3, plog2, plog1 = plog3, plog2, plog1, plog
+        dplog3, dplog2, dplog1 = dplog2, dplog1, dplog
+    return abstd, ptotal, pgas
+print("per-layer loop defined")''')
 
-Now the heart of the method. On the grid we want the source function that is consistent with the radiation field it produces. With the absorption-weighted source $\bar S$ and the operator $J = \texttt{COEFJ}\cdot S$, the scattering relation $S = (1-\alpha)\bar S + \alpha J$ becomes a **linear fixed point on the grid**:
+# ── run it ──────────────────────────────────────────────────────────────────
+md(r"""## Running the integrator
+
+With the temperature, the radiation pressure, and the opacity convention in hand, we run the integrator and form the two output quantities the structure carries: the **gas pressure** `P_gas = P_total - P_rad` (already done inside the loop), and the **column mass**
 
 $$
-S_k = (1-\alpha_k)\,\bar S_k + \alpha_k \sum_m \texttt{COEFJ}_{km}\,S_m .
+\rho x = \frac{P_{\rm total}}{g},
 $$
 
-When the scattering fraction $\alpha$ is zero this collapses to $S = \bar S$ — the pure-absorption case of Lecture 8. When $\alpha > 0$ the source is lowered toward $J$, which in the optically thin surface layers is smaller than $B$ — this is what darkens the cores. We solve the fixed point by a backward Gauss–Seidel sweep: isolating the diagonal term, the update at each point is
+the weight per unit area of everything above — which is the depth variable the `.atm` file is tabulated against and the one the opacity and transfer lectures integrate over.""")
 
-$$
-\Delta S_k = \frac{\alpha_k\,(\texttt{COEFJ}\cdot S)_k + (1-\alpha_k)\bar S_k - S_k}{1 - \alpha_k\,\texttt{COEFJ}_{kk}},
-$$
+code(r'''abstd, ptotal, P_gas = ttaup(T, tau, prad, pturb, g_cgs)
+RHOX = ptotal / g_cgs                       # column mass [g cm^-2] = total pressure / gravity
+print(f"P_gas:  top = {P_gas[0]:.4e}   bottom = {P_gas[-1]:.4e} dyn/cm^2")
+print(f"RHOX:   top = {RHOX[0]:.4e}   bottom = {RHOX[-1]:.4e} g/cm^2")''')
 
-repeated until every relative change falls below $10^{-5}$. The production code carries this iteration in **single precision** (the original Fortran used `REAL*4` arrays here), so we do too — it is the one place where the working precision is part of the specification.""")
+# ── benchmark ───────────────────────────────────────────────────────────────
+md(r"""## Benchmark: machine precision
 
-code(r'''ITER_TOL, MAX_ITER = 1e-5, 51
-COEFJ_DIAG = np.diag(COEFJ).copy()
+Now the comparison the first lecture deferred. We check the gas pressure and the column mass against the reference grey structure, layer by layer. The first lecture's one-line estimate $P=g\tau$ matched these to $\sim2\times10^{-5}$; reproducing the exact predictor-corrector — in log pressure, with the evaluate-then-check ordering, carrying the radiation-pressure correction — closes that gap to the last bit.""")
 
-def iterate_source(sbar_grid, alpha_grid):
-    """Solve S = (1-alpha) sbar + alpha (COEFJ @ S) by backward Gauss-Seidel, float32."""
-    co = COEFJ.astype(np.float32)
-    xs = sbar_grid.astype(np.float32)                 # initial guess: the thermal source
-    al = alpha_grid.astype(np.float32)
-    sbar_mod = (sbar_grid * (1.0 - alpha_grid)).astype(np.float32)   # (1-alpha) * sbar
-    diag = (1.0 - alpha_grid * COEFJ_DIAG).astype(np.float32)
-    tol, eps = np.float32(ITER_TOL), np.float32(EPS)
-    for _ in range(MAX_ITER):
-        converged = True
-        for k in range(NXTAU-1, -1, -1):              # backward sweep
-            j_k = np.float32(np.dot(co[k], xs))       # (COEFJ @ S)_k, the mean intensity term
-            delta = (j_k*al[k] + sbar_mod[k] - xs[k]) / diag[k]
-            if (abs(delta/xs[k]) if xs[k] != 0 else np.inf) > tol:
-                converged = False
-            xs[k] = max(xs[k] + delta, eps)
-        if converged:
-            break
-    return xs.astype(np.float64)''')
+code(r'''print("grey model atmosphere vs reference/L1.npz:")
+e_tau  = check("grey_tau",  tau,   REF["grey_tau"])
+e_T    = check("grey_T",    T,     REF["grey_T"])
+e_pgas = check("grey_pgas", P_gas, REF["grey_pgas"])
+e_rhox = check("grey_rhox", RHOX,  REF["grey_rhox"])
+worst = max(e_tau, e_T, e_pgas, e_rhox)
+allbit = all(np.array_equal(a, REF[k]) for a, k in
+             [(tau,"grey_tau"), (T,"grey_T"), (P_gas,"grey_pgas"), (RHOX,"grey_rhox")])
+print(f"\nworst max|rel| over all four arrays = {worst:.2e}")
+print(f"all four arrays bit-exact = {allbit}")''')
 
-# ── step 4: assemble ────────────────────────────────────────────────────
-md(r"""## Step 4 — the surface flux, and the whole solver
+md(r"""**Machine precision.** All four arrays — optical depth, temperature, gas pressure, column mass — are **bit-for-bit identical** to the reference (relative difference exactly zero). The first lecture's $P=g\tau$ was a good closed-form estimate; this is the exact integral of the same hydrostatic equation, and it is what the production code starts its iteration from. We have built the grey model atmosphere of the Sun, to the bit, from two numbers.""")
 
-The converged source on the grid gives the emergent Eddington flux by the weighted sum $H(0) = \sum_k \texttt{CH}_k\,S_k$. Assembling the four steps — optical depth, map to the grid, iterate the source, weight for the flux — is the complete `solve_josh` for one wavelength. One bookkeeping detail: `INTEG` needs the column mass increasing from the surface inward; our `RHOX` already is, so no reversal is needed here.""")
+md(r"""How much did the exact integrator change from the one-line estimate? Let us look directly: plot the structure, and the fractional difference between $P=g\tau$ and the exact $P_{\rm gas}$.""")
 
-code(r'''def solve_josh(acont, scont, aline, sline, sigmac, sigmal):
-    """Emergent Eddington flux H(0) at one wavelength via the JOSH moment method."""
-    abtot, alpha, sbar = source_and_alpha(acont, scont, aline, sline, sigmac, sigmal)
-    tau = integ(RHOX, abtot, abtot[0]*RHOX[0])             # step 1: optical depth
-    sbar_g  = np.maximum(map1(tau, sbar,  XTAU), EPS)        # step 2: map onto the grid
-    alpha_g = np.clip(   map1(tau, alpha, XTAU), 0.0, 1.0)
-    above = XTAU < tau[0]                                    # grid points above the atmosphere
-    if above.any():
-        sbar_g[above] = max(sbar[0], EPS); alpha_g[above] = np.clip(alpha[0], 0.0, 1.0)
-    S = iterate_source(sbar_g, alpha_g)                     # step 3: scattering iteration
-    return float(CH @ S)                                    # step 4: weighted surface flux
+code(r'''P_analytic = g_cgs * tau                              # the first lecture's one-line estimate
+fig, ax = plt.subplots(1, 2, figsize=(11, 4.1))
+ax[0].plot(np.log10(tau), np.log10(P_gas), color="C0", lw=1.6, label=r"$P_{\rm gas}$ (exact integrator)")
+ax[0].plot(np.log10(tau), np.log10(RHOX),  color="C3", lw=1.2, ls="--", label=r"$\rho x$ (column mass)")
+ax[0].set_xlabel(r"$\log_{10}\tau$"); ax[0].set_ylabel(r"$\log_{10}$ [cgs]")
+ax[0].set_title("Grey solar structure"); ax[0].legend(loc="upper left")
 
-# the continuum is the same solver with the line terms switched off
-def solve_continuum(acont, scont, sigmac):
-    zero = np.zeros_like(acont)
-    return solve_josh(acont, scont, zero, scont, sigmac, zero)
-print("solver assembled")''')
+resid = np.abs(P_analytic - P_gas) / P_gas
+ax[1].semilogy(np.log10(tau), resid, color="C2", lw=1.4)
+ax[1].axhline(2e-5, color="0.6", ls=":", lw=1.0)
+ax[1].set_xlabel(r"$\log_{10}\tau$"); ax[1].set_ylabel(r"$|P_{g\tau} - P_{\rm gas}|\,/\,P_{\rm gas}$")
+ax[1].set_title(r"where the one-line $P=g\tau$ differed")
+fig.tight_layout(); plt.show()
+print(f"P=g*tau vs exact P_gas: max frac diff = {resid.max():.2e}  (this is the gap we just closed)")''')
 
-# ── worked example ──────────────────────────────────────────────────────
-md(r"""## A worked example: one line core, one continuum point
+md(r"""The left panel is the grey solar atmosphere — gas pressure and column mass climbing nine decades from the thin top layers to the deep base, almost a straight line in log-log because $\kappa\equiv1$ makes $P\approx g\tau$ a power law. The right panel shows where the one-line estimate fell short: a fraction of $\sim10^{-5}$, largest in the upper layers where the radiation-pressure subtraction and the multistep integration's start-up differ most from the bare $g\tau$. That residual is now zero — not because the physics changed, but because we integrated the same equation the way the reference does.""")
 
-Before running the whole window, watch the iteration act on a single wavelength. We pick the **deepest line core** in the band and a nearby **continuum** point, and look at the source function on the grid before and after the scattering iteration. In the continuum, where absorption dominates ($\alpha \approx 0$), the iteration barely moves the source. In the line core, where the opacity has lifted the formation height into thin, scattering-prone gas, the iteration pulls the surface source **below** the thermal value — the physical origin of the extra core darkening.""")
+# ── forward look ────────────────────────────────────────────────────────────
+md(r"""## What this atmosphere is not yet: radiative equilibrium
 
-code(r'''ref_spec = flux_total_ref / flux_cont_ref
-kc = int(np.argmin(ref_spec))                              # deepest line core
-kk = int(np.argmin(np.abs(ref_spec - 1.0)))               # a continuum point (spectrum ~ 1)
+We have a structure that satisfies hydrostatic equilibrium — but only with a **placeholder opacity** $\kappa\equiv1$ and a **grey temperature law** that assumed wavelength-independent opacity. Neither is true of a real star. Lecture 10 takes the second requirement of a model atmosphere, **radiative equilibrium**: the constraint that the radiative flux is constant with depth (no energy created or destroyed in the photosphere). The grey temperature does not satisfy this once the opacity is wavelength-dependent, so the temperature is **corrected**, layer by layer, until the emergent flux matches $\sigma T_{\rm eff}^4$ and the flux divergence vanishes. Feeding that corrected temperature back into this hydrostatic integration — now with the *real* Rosseland-mean opacity from the equation of state instead of $\kappa\equiv1$ — and iterating the two to convergence is how ATLAS builds a self-consistent model atmosphere.
 
-fig, axes = plt.subplots(1, 2, figsize=(11, 4.0), sharey=True)
-for ax, k, name in [(axes[0], kk, "continuum"), (axes[1], kc, "deep line core")]:
-    abtot, alpha, sbar = source_and_alpha(cont_abs[:,k], S_cont[:,k], line_abs[:,k],
-                                          S_line[:,k], cont_scat[:,k], line_scat[:,k])
-    tau = integ(RHOX, abtot, abtot[0]*RHOX[0])
-    sbar_g  = np.maximum(map1(tau, sbar,  XTAU), EPS)
-    alpha_g = np.clip(   map1(tau, alpha, XTAU), 0.0, 1.0)
-    above = XTAU < tau[0]
-    if above.any(): sbar_g[above] = max(sbar[0], EPS); alpha_g[above] = np.clip(alpha[0],0,1)
-    S = iterate_source(sbar_g, alpha_g)
-    ax.loglog(XTAU, sbar_g, "o-", ms=3, label=r"thermal $\bar S$ (no scattering)")
-    ax.loglog(XTAU, S, "s-", ms=3, color="C3", label="iterated $S$ (with scattering)")
-    ax.set_title(f"{name}:  $\\lambda$ = {wl[k]:.3f} nm,  max $\\alpha$ = {alpha_g.max():.2f}")
-    ax.set_xlabel(r"optical depth $\tau$")
-axes[0].set_ylabel("source function"); axes[0].legend(loc="upper left", fontsize=9)
-fig.tight_layout(); plt.show()''')
+That closes the loop the whole course has been tracing: **parameters $\to$ atmosphere $\to$ spectrum**. The first lecture took the atmosphere as given and we spent the synthesis half (Lectures 1-8) turning it into a spectrum to machine precision; this lecture began the inverse half by building the structure from $T_{\rm eff}$ and $\log g$; and Lecture 10 makes that structure self-consistent. With both halves in hand, a star's two numbers become its spectrum, from first principles and to the bit.""")
 
-md(r"""In the continuum panel the two curves lie on top of each other — scattering is a percent-level effect and $S \approx \bar S$. In the line-core panel the iterated source peels away from the thermal source in the surface layers, sitting lower by tens of percent at the very top: those are the photons that scatter out instead of being re-emitted thermally, and they are exactly the part the formal solution missed.""")
-
-# ── the full spectrum ───────────────────────────────────────────────────
-md(r"""## The full spectrum, to machine precision
-
-Now run the solver across all wavelengths — the line flux with every opacity term, the continuum flux with the lines switched off — and take the ratio for the normalised spectrum. This is the same quantity Lecture 8 produced with the formal solution; here we compare it to the reference computed by the production code's own JOSH engine.""")
-
-code(r'''flux_line = np.array([solve_josh(cont_abs[:,k], S_cont[:,k], line_abs[:,k],
-                                 S_line[:,k], cont_scat[:,k], line_scat[:,k])
-                      for k in range(wl.size)])
-flux_cont = np.array([solve_continuum(cont_abs[:,k], S_cont[:,k], cont_scat[:,k])
-                      for k in range(wl.size)])
-spectrum  = flux_line / flux_cont
-reference = flux_total_ref / flux_cont_ref
-rel = np.abs(spectrum - reference) / np.abs(reference)
-print(f"normalised spectrum vs reference:  median |rel diff| = {np.median(rel):.2e}   "
-      f"max = {rel.max():.2e}")
-print("the residual is the single-precision iteration's last bit — the engine is reproduced.")''')
-
-md(r"""**Machine precision.** The from-scratch JOSH solver reproduces the reference solar spectrum to a median of a few parts in $10^{12}$, with the worst point at the level of the single-precision iteration's last bit — the same arithmetic the production code uses. The ten-percent gap the formal solution left in the deepest cores is gone: the moment method's scattering iteration accounts for it exactly.""")
-
-code(r'''fig, (ax, axr) = plt.subplots(2, 1, figsize=(11, 5.2), sharex=True,
-                              gridspec_kw={"height_ratios": [3, 1]})
-ax.plot(wl, reference, color="0.6", lw=1.4, label="reference (production JOSH)")
-ax.plot(wl, spectrum, color="C3", lw=0.6, label="from scratch (this lecture)")
-ax.set_ylabel("normalised flux"); ax.set_ylim(0, 1.05); ax.legend(loc="lower right")
-ax.set_title("The solar spectrum, 500–510 nm — JOSH solver rebuilt, matched to the bit")
-axr.semilogy(wl, np.maximum(rel, 1e-16), color="C0", lw=0.5)
-axr.set_xlabel("wavelength  [nm]"); axr.set_ylabel("|rel diff|"); axr.set_ylim(1e-15, 1e-7)
-fig.tight_layout(); plt.show()''')
-
-md(r"""The two spectra are indistinguishable, and the residual panel sits near $10^{-12}$ across the whole window, rising only to the single-precision floor in the sharpest cores. We have rebuilt the production radiative-transfer engine — moments, closure, operator, iteration, flux — and it reproduces the reference exactly.""")
-
-# ── the saturated-core path ─────────────────────────────────────────────
-md(r"""## A note on saturated cores
-
-One branch of the production solver does not fire in this window and so we have not needed it: when the **surface** optical depth itself exceeds the top of the fixed grid ($\tau_\lambda[0] > \tau_{\rm max}$), there is no grid point above the atmosphere to anchor the interpolation, and the code switches to solving the moment equations directly on the physical $\tau_\lambda$ scale. That happens only in extremely opaque, saturated cores — the molecular band heads of cool stars, not the optical solar window — and we will meet it when we add molecules. For every wavelength in the Sun from 500 to 510 nm, the surface optical depth is small and the grid path above is exact.""")
-
-# ── synthesis ───────────────────────────────────────────────────────────
+# ── synthesis ───────────────────────────────────────────────────────────────
 md(r"""## Synthesis
 
-The formal solution of Lecture 8 gave the physical picture — flux as a weighted average of the source over depth — and the spectrum to a part in a thousand. This lecture supplied the engine that closes the last gap. Taking moments of the transfer equation and applying the Eddington closure turns angle-dependent transfer into two moment equations; discretising them on a fixed optical-depth grid turns the $\Lambda$ operator into a matrix; and iterating the scattering source $S = (1-\alpha)\bar S + \alpha J$ to self-consistency recovers the core darkening that pure absorption could not. Reusing the same parabolic integration, the same interpolation, and the same single-precision iteration as the production code, the result is the solar spectrum reproduced to machine precision.
-
-With the microphysics (Lectures 2–7) and both radiative-transfer treatments (Lectures 8–9) in hand, the synthesis half of the pipeline is complete and exact. What remains is to stop taking the **model atmosphere** as given: in Part V we build the temperature and pressure structure ourselves, from hydrostatic and radiative equilibrium, and watch the spectrum settle onto the real Sun.""")
+A model atmosphere is the run of temperature, pressure, and density with depth, fixed by hydrostatic and radiative equilibrium. This lecture built the hydrostatic half. Hydrostatic equilibrium in optical depth is $dP/d\tau = g/\kappa$, equivalently $P_{\rm total} = g\cdot\rho x$ — the total pressure is the weight per area of the overlying gas. The grey/Hopf law supplies the temperature, and on the cold start the opacity is the crude placeholder $\kappa\equiv1$ (the empty Rosseland table), which gives the first-guess structure ATLAS then refines. Integrating the balance in **log pressure** with a **predictor-corrector** multistep — and reproducing the production code's evaluate-then-check ordering and its radiation-pressure subtraction — gives the gas pressure and column mass to machine precision, sharpening the first lecture's one-line $P=g\tau$ from one part in $10^{5}$ to the last bit.""")
 
 md(r"""## Summary
 
-- Taking **moments** of the transfer equation gives $dH/d\tau = J - S$ and $dK/d\tau = H$; the **Eddington closure** $K = \tfrac13 J$ shuts the system, and its solution is linear in the source, $J = \Lambda[S]$.
-- The production solver ships $\Lambda$ as a matrix `COEFJ` on a **fixed 51-point optical-depth grid**, with flux weights `CH` for the surface flux $H(0) = \sum_k \texttt{CH}_k S_k$.
-- The scattering source obeys $S = (1-\alpha)\bar S + \alpha\,(\texttt{COEFJ}\cdot S)$, solved by a backward Gauss–Seidel sweep in **single precision** to a $10^{-5}$ tolerance.
-- The pipeline per wavelength is: **optical depth** (`parcoe`/`integ`) → **map onto the grid** (`map1`) → **iterate the source** → **weighted flux**.
-- The rebuilt solver reproduces the reference spectrum to a **median of $\sim10^{-12}$**, closing the deep-core scattering gap the formal solution left.""")
+- **Hydrostatic equilibrium** in optical depth is $dP/d\tau = g/\kappa$; integrating it against the column mass gives the clean identity $P_{\rm total} = g\cdot\rho x$.
+- The **grey/Hopf temperature** $T(\tau) = T_{\rm eff}[\tfrac34(0.710 + \tau - 0.1331\,e^{-3.4488\tau})]^{1/4}$ is the input to the pressure integration and sets the (tiny, but carried) radiation pressure $P_{\rm rad} = 2.521\times10^{-15}\max(T^4, \tfrac12 T_{\rm eff}^4)$.
+- The grid is the ATLAS12 default: **80 layers**, $\log\tau$ from $-6.875$ in steps of **$0.125$ dex**; the **cold start** uses a placeholder opacity $\kappa\equiv1$ because the real opacity needs the structure that is being solved for.
+- The hydrostatic equation is integrated in **log pressure** (many decades, smoothest integrand) by a **predictor-corrector** multistep, with the gas pressure recovered as $P_{\rm gas} = P_{\rm total} - P_{\rm rad}$ and the column mass as $\rho x = P_{\rm total}/g$.
+- The rebuilt structure matches the reference **bit-for-bit** (relative difference exactly zero) in temperature, gas pressure, and column mass — the grey model ATLAS12 starts its iteration from.""")
 
 md(r"""## Practice exercises
 
-**1. The closure in action.** Set $\alpha = 0$ everywhere in `solve_josh` and confirm the result matches the formal solution of Lecture 8 (the source never leaves $\bar S$). Then raise $\alpha$ by hand in a single core and watch the central depth grow — how much scattering is needed to darken the core by ten percent?
+**1. The boundary seed.** The top layer is integrated with $\kappa_0 = 0.1$ rather than the $\kappa\equiv1$ used everywhere else. Change the seed to $1.0$ and recompute. Which array moves, and by how much at $\tau = \tau_0$? Explain why the seed sets only the boundary value of the integration and washes out within a few layers (look at how quickly the predictor history forgets the first point).
 
-**2. The operator's reach.** Plot a few rows of `COEFJ` (say $k=5, 25, 45$) against grid index. How localised is the mean-intensity response, and how does its width compare with the spacing of the optical-depth grid? Relate this to why a strongly scattering line core feels the temperature of layers above it.
+**2. A hotter, lower-gravity star.** Rebuild the grey atmosphere for an A-type dwarf, $T_{\rm eff} = 9000\,\mathrm{K}$, $\log g = 4.0$. Overplot its $P_{\rm gas}(\tau)$ on the Sun's. Why is the gas pressure lower at fixed $\tau$, given $P_{\rm total} = g\,\rho x$? And at what $T_{\rm eff}$ does the radiation-pressure subtraction $P_{\rm rad}$ become a percent-level correction to $P_{\rm gas}$ in the deep layers?
 
-**3. Precision matters.** Change `iterate_source` to work in `float64` instead of `float32` and recompute the spectrum. Where does it differ from the reference, and by how much? Explain why matching the production code requires matching its working precision, not just its algorithm.
+**3. Why log pressure.** Re-derive the per-step derivative $\Delta p = (g/\kappa)(\tau/P_{\rm total})\,\Delta\ln\tau$ from $dP/d\tau = g/\kappa$ and $p = \ln P$. Then integrate the cold-start equation analytically with $\kappa\equiv1$ to confirm $P = g\tau$, and explain why $\log P$ is exactly linear in $\log\tau$ in that limit — and therefore why a low-order multistep is so accurate here.
 
-**4. Convergence.** Count the iterations to convergence as a function of the maximum scattering fraction $\alpha$ along the column (return the count from `iterate_source`). Why do scattering-dominated wavelengths take longer, and what does that imply for the cost of a full spectral synthesis?""")
+**4. The evaluate-then-check ordering.** Modify the corrector loop to apply one more corrector step *after* the convergence test fires (i.e. update the stored pressure with the final corrector). Recompute the benchmark. How large is the change, and at which layers? This is the difference between agreeing to five decimals and agreeing to all of them — explain why a tiny reordering has a measurable, if small, effect.""")
 
 md(r"""## Further reading
 
-- **Avrett, E. H. & Loeser, R. (1969). *SAO Special Report* 303.** The moment method with variable Eddington factors that the JOSH solver descends from.
-- **Mihalas, D. (1978). *Stellar Atmospheres*, 2nd ed., Freeman.** Chapters 6–7 on the moment equations, the Eddington approximation, and $\Lambda$-iteration.
-- **Hubeny, I. & Mihalas, D. (2014). *Theory of Stellar Atmospheres*, Princeton.** Chapters 11–13 on operator methods, accelerated lambda iteration, and the convergence of scattering problems.
-- **Kurucz, R. L. (1970). *SAO Special Report* 309 (ATLAS).** The original code whose `PARCOE`, `INTEG`, `MAP1`, and JOSH routines we reproduce.
-- **Kim, E. M. & Ting, Y.-S. (2026). [*pykurucz*](https://arxiv.org/abs/2603.11693).** The implementation our reference spectrum is computed with.""")
+- **Gray, D. F. (2005). *The Observation and Analysis of Stellar Photospheres*, 3rd ed., Cambridge University Press.** Chapters 7-9 on the grey atmosphere, hydrostatic equilibrium, and the temperature structure at the level of this course.
+- **Mihalas, D. (1978). *Stellar Atmospheres*, 2nd ed., Freeman.** Chapter 3 on the construction of model atmospheres: hydrostatic and radiative equilibrium, and the iteration that couples them.
+- **Hubeny, I. & Mihalas, D. (2014). *Theory of Stellar Atmospheres*, Princeton.** Chapters 12 and 17-18 on the equations of stellar-atmosphere structure and the numerical methods that solve them.
+- **Kurucz, R. L. (1970). *ATLAS: A Computer Program for Calculating Model Stellar Atmospheres*, SAO Special Report 309.** The original ATLAS, including the grey cold start (`CALCULATE` card) and the `TTAUP` hydrostatic integrator we reproduce here.
+- **Kim, E. M. & Ting, Y.-S. (2026). [*pykurucz*](https://arxiv.org/abs/2603.11693).** The implementation our reference grey atmosphere is computed with.""")
 
 nb = new_notebook(cells=cells)
 nb.metadata.update({"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},

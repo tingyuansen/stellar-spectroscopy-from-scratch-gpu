@@ -146,25 +146,23 @@
 <script>
   // Full planned arc (built lectures come from book-data.js; the rest render muted)
   const PLANNED = [
-    { name: "Part I", title: "Foundations", chapters: [
+    { name: "Part I", title: "Foundations & Microphysics", chapters: [
       { n: 1, title: "Overview & a First Model Atmosphere" },
-      { n: 2, title: "The Equation of State" } ] },
-    { name: "Part II", title: "Continuous Opacity", chapters: [
-      { n: 3, title: "Continuous Opacity" },
-      { n: 4, title: "The KAPP Continuum Engine" } ] },
-    { name: "Part III", title: "Line Opacity", chapters: [
-      { n: 5, title: "Line Opacity I: A Single Line" },
-      { n: 6, title: "Line Opacity II: The Line List" },
-      { n: 7, title: "Hydrogen Lines: Stark Broadening" } ] },
-    { name: "Part IV", title: "Radiative Transfer", chapters: [
-      { n: 8, title: "Radiative Transfer & the Emergent Spectrum" },
-      { n: 9, title: "The JOSH Solver: Production Radiative Transfer" } ] },
-    { name: "Part V", title: "Building the Atmosphere", chapters: [
-      { n: 10, title: "Hydrostatic Equilibrium & Temperature Structure" },
-      { n: 11, title: "Radiative Equilibrium & Temperature Correction" } ] },
-    { name: "Part VI", title: "Adding Complexity", chapters: [
-      { n: 12, title: "Molecular Equilibrium & Molecular Bands" },
-      { n: 13, title: "Putting It Together" } ] }
+      { n: 2, title: "The Equation of State" },
+      { n: 3, title: "Continuous Opacity" } ] },
+    { name: "Part II", title: "Line Opacity", chapters: [
+      { n: 4, title: "Line Opacity I: A Single Line" },
+      { n: 5, title: "Line Opacity II: The Line List" },
+      { n: 6, title: "Hydrogen Lines: Stark Broadening" } ] },
+    { name: "Part III", title: "Radiative Transfer", chapters: [
+      { n: 7, title: "Radiative Transfer & the Emergent Spectrum" },
+      { n: 8, title: "The JOSH Solver: Production Radiative Transfer" } ] },
+    { name: "Part IV", title: "Building the Atmosphere", chapters: [
+      { n: 9, title: "Hydrostatic Equilibrium & Temperature Structure" },
+      { n: 10, title: "Radiative Equilibrium & Temperature Correction" } ] },
+    { name: "Part V", title: "Adding Complexity", chapters: [
+      { n: 11, title: "Molecular Equilibrium & Molecular Bands" },
+      { n: 12, title: "Putting It Together" } ] }
   ];
   const built = window.BOOK.byN;  // n -> built chapter meta
   let html = '';

@@ -17,12 +17,12 @@ LECTURES = {
     1: dict(slug="Lecture1", title="Overview &amp; a First Model Atmosphere", lecturer="Yuan-Sen Ting", affil=AFFIL),
     2: dict(slug="Lecture2", title="The Equation of State", lecturer="Yuan-Sen Ting", affil=AFFIL),
     3: dict(slug="Lecture3", title="Continuous Opacity", lecturer="Yuan-Sen Ting", affil=AFFIL),
-    4: dict(slug="Lecture4", title="The KAPP Continuum Engine", lecturer="Yuan-Sen Ting", affil=AFFIL),
-    5: dict(slug="Lecture5", title="Line Opacity I: A Single Line", lecturer="Yuan-Sen Ting", affil=AFFIL),
-    6: dict(slug="Lecture6", title="Line Opacity II: The Line List", lecturer="Yuan-Sen Ting", affil=AFFIL),
-    7: dict(slug="Lecture7", title="Hydrogen Lines: Stark Broadening", lecturer="Yuan-Sen Ting", affil=AFFIL),
-    8: dict(slug="Lecture8", title="Radiative Transfer &amp; the Emergent Spectrum", lecturer="Yuan-Sen Ting", affil=AFFIL),
-    9: dict(slug="Lecture9", title="The JOSH Solver: Production Radiative Transfer", lecturer="Yuan-Sen Ting", affil=AFFIL),
+    4: dict(slug="Lecture4", title="Line Opacity I: A Single Line", lecturer="Yuan-Sen Ting", affil=AFFIL),
+    5: dict(slug="Lecture5", title="Line Opacity II: The Line List", lecturer="Yuan-Sen Ting", affil=AFFIL),
+    6: dict(slug="Lecture6", title="Hydrogen Lines: Stark Broadening", lecturer="Yuan-Sen Ting", affil=AFFIL),
+    7: dict(slug="Lecture7", title="Radiative Transfer &amp; the Emergent Spectrum", lecturer="Yuan-Sen Ting", affil=AFFIL),
+    8: dict(slug="Lecture8", title="The JOSH Solver: Production Radiative Transfer", lecturer="Yuan-Sen Ting", affil=AFFIL),
+    9: dict(slug="Lecture9", title="Hydrostatic Equilibrium &amp; Temperature Structure", lecturer="Yuan-Sen Ting", affil=AFFIL),
 }
 
 

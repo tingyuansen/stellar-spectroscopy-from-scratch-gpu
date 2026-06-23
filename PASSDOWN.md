@@ -11,9 +11,23 @@ against pykurucz** (`/Users/ysting/pykurucz`, ATLAS12+SYNTHE). Rendered in the
 *Agents for Astronomy* house format.
 
 ## Current phase
-**Strict-parity rework: get EVERY built lecture to machine precision → then push to a new
-private GitHub repo + public GitHub Pages → then build the rest (atmosphere/molecules/capstone).**
-(User directive: machine precision for all built lectures first, so nothing is silently missing.)
+**✅ RESTRUCTURED (2026-06-23): continuum merged + final renumber done.** The two continuum
+lectures (old L3 physics + old L4 KAPP) are now ONE machine-precise **L3 "Continuous Opacity"**;
+everything renumbered to the FINAL scheme (1 grey · 2 EOS · 3 continuum · 4 single line · 5 line
+list · 6 hydrogen Stark · 7 formal solution · 8 JOSH · 9 hydrostatic atmosphere). All 9 rebuilt,
+0 exec errors, all HTML render, 0 katex-error, numpy/matplotlib/pathlib only. Registries
+(build.py / book-data.js / index.html) and PASSDOWN parity table updated to 1–9.
+Next: re-commit/push the restructure; then build the rest (Part IV L10 radiative eq, Part V
+molecules/capstone L11–12). NOTE: the older "PUBLISHED, pushed (commit aa11b21)" state below
+predates THIS restructure — the working tree is now ahead of that pushed commit.
+- Repo (PRIVATE): https://github.com/tingyuansen/stellar-spectroscopy-from-scratch  (branch main, commit aa11b21)
+- Public Pages: https://tingyuansen.github.io/stellar-spectroscopy-from-scratch/  (Pages works on this private repo)
+- git: book repo is now under version control. `.gitignore` excludes .venv/node_modules; the
+  reference/*.npz ARE committed (66 MB total, no LFS). pykurucz still untouched/unpushed.
+- requirements.txt added; README rewritten for the final self-contained 9-lecture book.
+- L8 made numpy-only (replaced scipy.special.expn with a from-scratch Abramowitz–Stegun E2;
+  benchmark unchanged at 5.62e-4). All 9 lectures now import only numpy/matplotlib/pathlib
+  (L7 also stdlib `math`).
 
 ## Hard conventions (do not violate)
 - Notebooks **self-contained**: import only `numpy`/`matplotlib`/`pathlib`; load shipped
@@ -33,19 +47,21 @@ private GitHub repo + public GitHub Pages → then build the rest (atmosphere/mo
 - Engines get their OWN dedicated lectures (JOSH, KAPP, hydrogen) — keep each digestible,
   flowing logically from its physics counterpart.
 
-## Parity status (per lecture) — FINAL 1–9 numbering (renumber DONE)
+## Parity status (per lecture) — FINAL 1–9 numbering (MERGE + renumber #2 DONE 2026-06-23)
+Parts: I Foundations & Microphysics (1,2,3) · II Line Opacity (4,5,6) · III Radiative Transfer (7,8) ·
+IV Building the Atmosphere (9, +planned 10) · V Adding Complexity (planned 11,12).
 | Lecture (live in book) | vs pykurucz | machine precision? |
 |---|---|---|
 | L1 grey T(τ) | 0 exact | ✅ |
 | L1 pressure/ρ | 1.8e-5 (closed form vs `_ttaup`) | user: leave as-is (fine) |
 | L2 EOS / nₑ | 1.45e-6 | ✅ (KEV=8.6171e-5) |
-| L3 continuum (John-fit physics) | ~2.4% | intuition lecture; exact engine = L4 KAPP ✅ |
-| L4 KAPP continuum engine | photosphere 4.25e-15 | ✅ (was LectureKAPP/key 90) |
-| L5 Voigt (single line) | 1.5e-15 | ✅ (was old L4) |
-| L6 line opacity (atomic: metals+He) | 2.25e-15 | ✅ (was old L5) |
-| L7 Hydrogen Stark lines | 8.06e-16 (vs gt_ahline; median 0) | ✅ (was LectureHlines/key 91) |
-| L8 formal solution | 5.6e-4 | by design (exact version = L9 JOSH) (was old L6) |
-| L9 JOSH | 2.5e-12 | ✅ (was old L7) |
+| **L3 Continuous Opacity (MERGED: John-fit physics + KAPP engine)** | analytic ~2.4% (total median 2.41e-2) AND exact photosphere 4.25e-15 (median 0; 9.0e-5 deep T>20kK) | ✅ (merge of old L3 physics + old L4 KAPP; both benchmarks print) |
+| L4 Voigt (single line) | 1.5e-15 | ✅ (was old L5) |
+| L5 line opacity (atomic: metals+He) | 2.25e-15 | ✅ (was old L6) |
+| L6 Hydrogen Stark lines | 8.06e-16 (vs gt_ahline; median 0) | ✅ (was old L7) |
+| L7 formal solution | 5.6e-4 | by design (exact version = L8 JOSH) (was old L8); now numpy-only |
+| L8 JOSH | 2.5e-12 | ✅ (was old L9) |
+| L9 Hydrostatic Equilibrium & Temperature Structure | 0.00e+00 all four arrays bit-exact | ✅ (was LectureAtm/key 92) |
 
 ## Verified reproductions (script-first, on disk in `_pipeline/`)
 - `verify_josh.py` — JOSH solver, machine precision (in the book as L7). ✅
@@ -84,7 +100,25 @@ is LECTURE INTEGRATION + renumber + sweep + push.
 
 ALL NINE LECTURES NOW AT MACHINE PRECISION. Next: cleanup → push.
 
-### Renumber — ✅ DONE (final 1–9 numbering live)
+### MERGE L3+L4 + renumber #2 — ✅ DONE (2026-06-23)
+Merged the continuum into ONE machine-precise lecture: **L3 "Continuous Opacity"** (61 cells) =
+H⁻ physics + Saha (from old L3) → analytic John fits (~2.4%, intuition) → exact tabulated KAPP
+engine (from old L4) → machine precision. H⁻ Saha physics is derived ONCE (the engine half
+references it, does not re-derive). Both benchmarks print: analytic total median 2.41e-2 AND
+exact photosphere 4.25e-15 (median 0; 9.0e-5 deep-hot-layer note kept). 3-curve overlay
+(analytic vs exact vs reference) added. Old `build_lecture4.py` (standalone KAPP) DELETED.
+Renumber (old→new): single line 5→4, line list 6→5, hydrogen 7→6, formal solution 8→7,
+JOSH 9→8, LectureAtm (hydrostatic, key 92)→9. Every "Lecture N"/"Lectures N–M" prose cross-ref
+remapped by referent and re-verified; forward refs: hydrostatic=9, radiative eq=10 (Part IV);
+molecules=11, capstone=12 (Part V). Registries updated: `build.py` LECTURES (keys 1..9, key 92
+removed), `assets/book-data.js` (4 parts: I Foundations & Microphysics 1–3, II Line Opacity 4–6,
+III Radiative Transfer 7–8, IV Building the Atmosphere 9), `index.html` PLANNED (built 1–9 +
+planned Part IV cont. 10 radiative eq, Part V complexity 11–12). Stale `content/LectureAtm.*`
+removed. All 9 rebuilt: 0 exec errors, all HTML render, 0 katex-error (fixed a PRE-EXISTING
+`$\sim$$...$` adjacent-math-span error in the hydrogen lecture, now L6), numpy/matplotlib/pathlib
+only (L7 formal solution now numpy-only too — the old scipy.expn note no longer applies).
+
+### Renumber #1 — ✅ DONE (1–9 numbering; SUPERSEDED by the MERGE + renumber #2 above — historical)
 Builders are now sequential `build_lecture{1..9}.py`, each writing `content/Lecture{N}.ipynb`:
 1 grey · 2 EOS · 3 continuum physics · **4 KAPP engine** · 5 single line · 6 line list ·
 **7 hydrogen Stark** · 8 formal solution · 9 JOSH. (Old→new: KAPP→4, old L4→5, old L5→6,
@@ -111,18 +145,18 @@ s6_rt, s7_josh in `resources/figures/`, embedded L1–L7. Polished style (charco
 amber accent). RULE: always Read each PNG to verify accuracy (AI garbles rotated text / draws
 physics wrong). KAPP/hydrogen lectures may want new schematics (s8_kapp, s9_hlines — TODO).
 
-## Final structure plan (approved by user)
-- Part I Foundations: 1 grey atmosphere · 2 EOS
-- Part II Continuous opacity: 3 continuum physics · **4 KAPP engine** (new)
-- Part III Line opacity: 5 single line · 6 line list (metals) · **7 hydrogen Stark lines** (new)
-- Part IV Radiative transfer: 8 formal solution · 9 JOSH engine
-- Part V Atmosphere: 10 hydrostatic · 11 radiative equilibrium
-- Part VI Complexity: 12 molecules · 13 capstone
+## Final structure plan (approved by user) — MERGE + renumber #2 DONE; this is the LIVE scheme
+- Part I Foundations & Microphysics: 1 grey atmosphere · 2 EOS · **3 Continuous Opacity (MERGED: physics + KAPP engine)**
+- Part II Line opacity: 4 single line · 5 line list (metals+He) · 6 hydrogen Stark lines
+- Part III Radiative transfer: 7 formal solution · 8 JOSH engine
+- Part IV Building the Atmosphere: 9 hydrostatic (BUILT) · 10 radiative equilibrium (planned)
+- Part V Adding Complexity: 11 molecules (planned) · 12 capstone (planned)
 
-Currently built: L1–L7 (JOSH=7). New engine lectures are built under descriptive slugs
-(LectureKAPP, LectureHlines); **renumber to the above as the LAST step before push** —
-grep every "Lecture N" cross-reference so none break. Registries to update on renumber:
-`_pipeline/build.py` LECTURES, `assets/book-data.js`, `index.html` PLANNED.
+Currently built: **L1–L9, all machine-precise, renumbered, rebuilt** (0 exec errors, all HTML
+render, 0 katex-error, numpy/matplotlib/pathlib only). Next: build L10 radiative eq, then
+Part V molecules (L11, needs pykurucz `scripts/download_data.py` ~5GB) + capstone (L12).
+Registries kept in sync: `_pipeline/build.py` LECTURES (keys 1..9), `assets/book-data.js`
+(4 built parts), `index.html` PLANNED (parts I–V, 1–12).
 
 ## Build / view pipeline
 ```

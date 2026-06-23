@@ -46,7 +46,7 @@ A stellar spectrum — the star's brightness as a function of wavelength — is 
 
 That forward calculation is what this course builds, from the ground up. Its lineage is **Kurucz's ATLAS and SYNTHE** — the model-atmosphere and spectral-synthesis codes that have underpinned quantitative stellar spectroscopy for four decades. Those codes are correct and fast, but they are also tens of thousands of lines of hardened, decades-old machinery. Our aim is to recover the *physics* inside them in code short enough to read in a sitting, while losing none of the *accuracy* — and to prove we have lost none by checking every step, to the bit, against reference values precomputed with a faithful implementation of those codes.
 
-The forward problem splits cleanly into two stages. First, a **model atmosphere**: the run of temperature, pressure, and density with depth, fixed by the requirement that the atmosphere be in hydrostatic and radiative equilibrium. Second, **spectral synthesis**: given that structure, compute how much light of each wavelength escapes the surface, by adding up the opacity of every spectral line and solving the radiative-transfer equation. We treat the atmosphere as given for the first half of the course, build the full spectrum, and then return in Part III and construct the atmosphere itself.""")
+The forward problem splits cleanly into two stages. First, a **model atmosphere**: the run of temperature, pressure, and density with depth, fixed by the requirement that the atmosphere be in hydrostatic and radiative equilibrium. Second, **spectral synthesis**: given that structure, compute how much light of each wavelength escapes the surface, by adding up the opacity of every spectral line and solving the radiative-transfer equation. We treat the atmosphere as given for the first half of the course, build the full spectrum, and then return in Part IV and construct the atmosphere itself.""")
 
 md(r"""## The plan: from parameters to photons
 
@@ -68,13 +68,12 @@ Each arrow is one or two lectures:
 
 - **Lecture 1 (here):** the foundations — units, the Planck function, optical depth — and a first model atmosphere $T(\tau), P(\tau)$.
 - **Lecture 2:** the equation of state — Saha and Boltzmann give the ionization and the electron density $n_e$.
-- **Lecture 3:** the continuous opacity — H$^-$, hydrogen, scattering — the smooth background.
-- **Lecture 4:** the KAPP continuum engine — the production tables that reproduce that background to the bit.
-- **Lectures 5–6:** line opacity — one spectral line, then the million-line list.
-- **Lecture 7:** hydrogen lines — the linear Stark broadening that needs its own engine.
-- **Lectures 8–9:** radiative transfer — solve for the emergent flux, then the production JOSH engine, and reproduce a real spectrum.
-- **Part V (10–11):** build the atmosphere itself, closing the loop back to the first arrow.
-- **Part VI (12–13):** molecules, and the complications real stars add.
+- **Lecture 3:** the continuous opacity — H$^-$, hydrogen, scattering — the smooth background, from the physics to the production tables that reproduce it to the bit.
+- **Lectures 4–5:** line opacity — one spectral line, then the million-line list.
+- **Lecture 6:** hydrogen lines — the linear Stark broadening that needs its own engine.
+- **Lectures 7–8:** radiative transfer — solve for the emergent flux, then the production JOSH engine, and reproduce a real spectrum.
+- **Part IV (9–10):** build the atmosphere itself, closing the loop back to the first arrow.
+- **Part V (11–12):** molecules, and the complications real stars add.
 
 We target the **Sun** over a narrow window, $500$–$510\ \mathrm{nm}$, where the spectrum is a forest of atomic absorption lines and the physics is at its cleanest. Later we widen the window and cool the star until molecules take over. Throughout, we reimplement each piece in plain NumPy, reuse the same physical constants and data tables, and **check the result against reference values** — temperatures, pressures, opacities, and ultimately a full spectrum — precomputed once and saved beside the book. So we know the physics is right, not merely plausible.
 
@@ -154,7 +153,7 @@ $$
 B_\nu = (1.47439\times10^{-2})\;\nu_{15}^{3}\;\frac{e^{-x}}{1 - e^{-x}}.
 $$
 
-Two things are going on. Dividing through by $e^{x}$ replaces $1/(e^{x}-1)$ with $e^{-x}/(1-e^{-x})$, so the exponential is always $\le 1$ and never overflows on the Wien tail. And the constant $1.47439\times10^{-2}$ is $2h/c^2$ with $\nu$ rescaled by $10^{15}$, supplying the missing $10^{45}$ in $(\nu/10^{15})^3$ — to the digits Kurucz tabulated: the cell above prints the exact 2019-SI value, $2h/c^2 = 1.4745\times10^{-47}$, whereas the codes have carried the slightly rounded $1.47439$ for decades. We keep that literal, not the exact value, so our Planck function matches the reference to the last bit — reproducing an established calculation means adopting its constants, historical roundings and all. The factor $e^{-x}/(1-e^{-x})$ is the **photon occupation number** $1/(e^{x}-1)$ rewritten — the mean number of photons per field mode in thermal equilibrium. Its denominator $1-e^{-x}$ is the **stimulated-emission factor**, which reappears on its own when we correct line opacities for stimulated emission in Lecture 5. We implement exactly this form.""")
+Two things are going on. Dividing through by $e^{x}$ replaces $1/(e^{x}-1)$ with $e^{-x}/(1-e^{-x})$, so the exponential is always $\le 1$ and never overflows on the Wien tail. And the constant $1.47439\times10^{-2}$ is $2h/c^2$ with $\nu$ rescaled by $10^{15}$, supplying the missing $10^{45}$ in $(\nu/10^{15})^3$ — to the digits Kurucz tabulated: the cell above prints the exact 2019-SI value, $2h/c^2 = 1.4745\times10^{-47}$, whereas the codes have carried the slightly rounded $1.47439$ for decades. We keep that literal, not the exact value, so our Planck function matches the reference to the last bit — reproducing an established calculation means adopting its constants, historical roundings and all. The factor $e^{-x}/(1-e^{-x})$ is the **photon occupation number** $1/(e^{x}-1)$ rewritten — the mean number of photons per field mode in thermal equilibrium. Its denominator $1-e^{-x}$ is the **stimulated-emission factor**, which reappears on its own when we correct line opacities for stimulated emission in Lecture 4. We implement exactly this form.""")
 
 code(r'''def planck_nu(freq_hz, temperature):
     """Planck B_nu(T) in CGS [erg s^-1 cm^-2 Hz^-1 sr^-1], Kurucz's overflow-safe form.
@@ -187,7 +186,7 @@ md(r"""Exact agreement — we reproduced the reference Planck function bit for b
 # ── LTE ─────────────────────────────────────────────────────────────────
 md(r"""## Local thermodynamic equilibrium
 
-Everything above assumed the gas radiates like a blackbody at its local temperature. That assumption is **local thermodynamic equilibrium (LTE)**: at each depth the matter is described by a single temperature $T$, so the ionization balance follows the Saha equation (Lecture 2), the level populations follow the Boltzmann distribution, and the source function is $S_\lambda = B_\lambda(T)$. LTE does *not* assume the radiation field itself is a blackbody — photons stream and leak, and computing that leakage is the radiative-transfer problem of Lecture 8 — only that the *matter* is in equilibrium with the local temperature.
+Everything above assumed the gas radiates like a blackbody at its local temperature. That assumption is **local thermodynamic equilibrium (LTE)**: at each depth the matter is described by a single temperature $T$, so the ionization balance follows the Saha equation (Lecture 2), the level populations follow the Boltzmann distribution, and the source function is $S_\lambda = B_\lambda(T)$. LTE does *not* assume the radiation field itself is a blackbody — photons stream and leak, and computing that leakage is the radiative-transfer problem of Lecture 7 — only that the *matter* is in equilibrium with the local temperature.
 
 LTE holds where collisions are frequent enough to keep populations thermal, which is true through most of a cool star's photosphere — deep enough that the gas is dense, shallow enough that we still see it. It weakens high in the atmosphere and in strong resonance lines, where the departures are called **non-LTE**; we name where it breaks in the final lecture. For the Sun in our window LTE is an excellent approximation, and the codes we follow — like ATLAS and SYNTHE — are LTE codes. We adopt LTE throughout.""")
 
@@ -215,7 +214,7 @@ the **Eddington–Barbier** depth. This is why "the photosphere" is a layer, not
 # ── Grey atmosphere ─────────────────────────────────────────────────────
 md(r"""## A first model atmosphere: the grey atmosphere
 
-To compute a spectrum we need the atmosphere's structure: temperature, pressure, and density as functions of depth. Where does that structure come from? The full answer — solving for radiative and hydrostatic equilibrium with the real, wavelength-dependent opacity — is Part III of this course. But there is a classic closed-form starting point that needs none of that machinery: the **grey atmosphere**, in which the opacity is assumed independent of wavelength ($\kappa_\lambda \to \kappa$). It is crude, but it is self-contained, it requires only $T_{\rm eff}$ and $\log g$, and — as we will see — it is exactly the model ATLAS12 starts its own iteration from. It is a natural first atmosphere to build the rest of the course on.
+To compute a spectrum we need the atmosphere's structure: temperature, pressure, and density as functions of depth. Where does that structure come from? The full answer — solving for radiative and hydrostatic equilibrium with the real, wavelength-dependent opacity — is Part IV of this course. But there is a classic closed-form starting point that needs none of that machinery: the **grey atmosphere**, in which the opacity is assumed independent of wavelength ($\kappa_\lambda \to \kappa$). It is crude, but it is self-contained, it requires only $T_{\rm eff}$ and $\log g$, and — as we will see — it is exactly the model ATLAS12 starts its own iteration from. It is a natural first atmosphere to build the rest of the course on.
 
 For a grey atmosphere in radiative equilibrium, the transfer equation can be solved for the temperature structure exactly. The result is
 
@@ -294,7 +293,7 @@ md(r"""These columns — `RHOX`, `T`, `P_gas`, `XNE` (the electron density, in $
 code(r'''compare("P_gas", P_gas, REF["grey_pgas"], tol=1e-4)   # tol relaxed: see the note below
 compare("RHOX",  RHOX,  REF["grey_rhox"], tol=1e-4)''')
 
-md(r"""The temperature matched to the bit; the pressure and density agree to $\sim2\times10^{-5}$. That residual is not physics — it is the difference between our one-line analytic integral $P_{\rm total}=g\tau$ and the multi-step predictor–corrector the reference uses to integrate the same hydrostatic equation in log-pressure. When we rebuild hydrostatic equilibrium in full in Lecture 10, with the real Rosseland-mean opacity replacing the placeholder $\kappa\equiv1$, we reproduce that integrator and the last digits fall into place. For now we have a complete, self-consistent grey model atmosphere of the Sun, built from two numbers, agreeing with the reference to one part in $10^{5}$.""")
+md(r"""The temperature matched to the bit; the pressure and density agree to $\sim2\times10^{-5}$. That residual is not physics — it is the difference between our one-line analytic integral $P_{\rm total}=g\tau$ and the multi-step predictor–corrector the reference uses to integrate the same hydrostatic equation in log-pressure. When we rebuild hydrostatic equilibrium in full in Lecture 9, reproducing the exact predictor–corrector integrator, the last digits fall into place. For now we have a complete, self-consistent grey model atmosphere of the Sun, built from two numbers, agreeing with the reference to one part in $10^{5}$.""")
 
 code(r'''fig, ax = plt.subplots(1, 2, figsize=(10.5, 4.1))
 ax[0].plot(np.log10(tau), np.log10(P_gas), color="C0")

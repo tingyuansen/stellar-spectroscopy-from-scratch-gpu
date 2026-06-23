@@ -8,36 +8,36 @@ window.BOOK = {
   subtitle: "",
   parts: [
     {
-      name: "Part I", title: "Foundations",
-      blurb: "Treat the model atmosphere as given; set the foundations and the equation of state.",
+      name: "Part I", title: "Foundations & Microphysics",
+      blurb: "Treat the model atmosphere as given; set the foundations, the equation of state, and the continuous opacity.",
       chapters: [
         { n: 1, slug: "Lecture1", type: "html", title: "Overview & a First Model Atmosphere", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
-        { n: 2, slug: "Lecture2", type: "html", title: "The Equation of State", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
+        { n: 2, slug: "Lecture2", type: "html", title: "The Equation of State", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
+        { n: 3, slug: "Lecture3", type: "html", title: "Continuous Opacity", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
       ]
     },
     {
-      name: "Part II", title: "Continuous Opacity",
-      blurb: "Build the smooth continuous background — the physics, then the production engine.",
-      chapters: [
-        { n: 3, slug: "Lecture3", type: "html", title: "Continuous Opacity", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
-        { n: 4, slug: "Lecture4", type: "html", title: "The KAPP Continuum Engine", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
-      ]
-    },
-    {
-      name: "Part III", title: "Line Opacity",
+      name: "Part II", title: "Line Opacity",
       blurb: "Build line opacity from a single profile to a million-line forest, then the hydrogen Stark wings.",
       chapters: [
-        { n: 5, slug: "Lecture5", type: "html", title: "Line Opacity I: A Single Line", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
-        { n: 6, slug: "Lecture6", type: "html", title: "Line Opacity II: The Line List", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
-        { n: 7, slug: "Lecture7", type: "html", title: "Hydrogen Lines: Stark Broadening", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
+        { n: 4, slug: "Lecture4", type: "html", title: "Line Opacity I: A Single Line", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
+        { n: 5, slug: "Lecture5", type: "html", title: "Line Opacity II: The Line List", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
+        { n: 6, slug: "Lecture6", type: "html", title: "Hydrogen Lines: Stark Broadening", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
       ]
     },
     {
-      name: "Part IV", title: "Radiative Transfer",
+      name: "Part III", title: "Radiative Transfer",
       blurb: "Let the light out: the formal solution, then the production JOSH moment solver.",
       chapters: [
-        { n: 8, slug: "Lecture8", type: "html", title: "Radiative Transfer & the Emergent Spectrum", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
-        { n: 9, slug: "Lecture9", type: "html", title: "The JOSH Solver: Production Radiative Transfer", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
+        { n: 7, slug: "Lecture7", type: "html", title: "Radiative Transfer & the Emergent Spectrum", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
+        { n: 8, slug: "Lecture8", type: "html", title: "The JOSH Solver: Production Radiative Transfer", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
+      ]
+    },
+    {
+      name: "Part IV", title: "Building the Atmosphere",
+      blurb: "Stop taking the model atmosphere as given: build its structure from hydrostatic and radiative equilibrium.",
+      chapters: [
+        { n: 9, slug: "Lecture9", type: "html", title: "Hydrostatic Equilibrium & Temperature Structure", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
       ]
     }
   ]
