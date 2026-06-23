@@ -69,6 +69,8 @@ the Holtsmark asymptotic form, set by the *field distribution* rather than a sin
 
 Everything else about how a line enters the opacity is unchanged: a line centre, a line-strength prefactor $\kappa_0$, a profile $\phi$ normalised to unit area, and a walk outward from the centre accumulating $\kappa_0\,\phi$ until it drops below a fraction of the continuum. Only the profile $\phi$ is replaced. We start from the data, then build the profile, then do the walk.""")
 
+md(r"""![A hydrogen atom sits in the fluctuating electric microfield of its charged neighbours (the Holtsmark distribution); the linear Stark effect splits its degenerate levels, and because that splitting is so large the Balmer line develops broad wings far wider than the Voigt profile of any metal line.](resources/figures/s5b_stark.png)""")
+
 # ── load data ──────────────────────────────────────────────────────────────
 md(r"""## The data: three Balmer lines, the atmosphere, and the Stark tables
 

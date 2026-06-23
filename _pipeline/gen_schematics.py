@@ -67,6 +67,17 @@ FIGS = {
    "baseline (opacity is LARGE at each line centre — upward peaks, NOT downward dips), of different heights, a 'forest' of "
    "upward spikes. A dashed horizontal threshold line near the baseline (amber) labeled 'CUTOFF: skip lines below 1e-3 of "
    "the continuum', with one faint short upward spike below it crossed out. Caption 'a million Voigt profiles, summed'." + S,
+ "s5b_stark.png":
+   "Stark broadening of hydrogen lines by the plasma microfield. CENTER: a single hydrogen atom (one proton '+' with "
+   "one electron on a circular orbit) sitting among nearby charged particles — several small '+' ions and '-' electrons "
+   "scattered around it, with thin arrows from them converging on the atom, labelled 'electric microfield of neighbouring "
+   "ions and electrons (Holtsmark distribution)'. An arrow to the RIGHT shows the effect on one hydrogen energy level: a "
+   "single level SPLITTING into several evenly-spaced sublevels, labelled 'linear Stark effect: the field shifts the levels "
+   "(hydrogen is uniquely sensitive because its levels are degenerate)'. Far RIGHT: two line profiles drawn on the same "
+   "axes for contrast — a NARROW peaked profile labelled 'a metal line: thermal Doppler + damping' and, overlaid, a much "
+   "BROADER profile with long extended wings labelled 'a hydrogen Balmer line: broad Stark wings' (this broad profile is "
+   "the single amber element). Use only horizontal text, no rotated or vertical labels. "
+   "Caption 'the plasma microfield broadens hydrogen lines into broad wings'." + S,
  "s6_rt.png":
    "Line formation via the emergent flux. A plane-parallel photosphere with an optical-depth axis on the left; a short "
    "downward arrow on the right with the single word 'hotter' at its tip (use only horizontal text, NO rotated or vertical "
