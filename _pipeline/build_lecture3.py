@@ -4,7 +4,7 @@
 Two arcs in one lecture. First the physics: absorption vs scattering, the H- ion
 and its Saha balance, the John (1988) analytic fits + Rayleigh + Thomson, benchmarked
 to ~2.4% against the reference continuum. Then the exact engine (the production KAPP
-continuum routine): tabulated cross-sections (HMINOP/Karsas/Gavrila), the edge-triplet
+continuum routine): tabulated cross-sections (HMINOP/Karzas-Latter/Gavrila), the edge-triplet
 frequency grid, the 3-point Lagrange interpolation, reproducing the reference continuum
 to machine precision through the photosphere (median 0.0, photosphere 4.25e-15; the
 ~9e-5 deep-hot-layer residual noted). Self-contained: numpy/matplotlib/pathlib only;
@@ -41,12 +41,12 @@ md(r"""# Lecture 3 — Continuous Opacity
 - Explain why the **negative hydrogen ion H$^-$** dominates the visible continuum of a cool star, and compute its abundance from the Saha equation.
 - Evaluate the **H$^-$ bound-free and free-free** opacity with the standard analytic fits (John 1988), add Rayleigh and Thomson scattering, and reproduce the reference continuum to a few percent.
 - Say what those analytic fits leave out, and why a **tabulated** engine is needed for bit-level agreement with the production code.
-- Build the production engine: the **edge-triplet frequency grid**, the table lookups (`MAP1`, `linter`, the Karsas hydrogen tables, the Coulomb Gaunt factor, the Gavrila $G^2$ Rayleigh tables), and the **3-point Lagrange interpolation** that reconstructs the opacity at any wavelength.
+- Build the production engine: the **edge-triplet frequency grid**, the table lookups (`MAP1`, `linter`, the Karzas–Latter hydrogen tables, the Coulomb Gaunt factor, the Gavrila $G^2$ Rayleigh tables), and the **3-point Lagrange interpolation** that reconstructs the opacity at any wavelength.
 - Reproduce the reference continuum, $\kappa^{\rm abs}_{\rm cont}$ and $\kappa^{\rm scat}_{\rm cont}$, to **machine precision** through the photosphere — and read the one honest residual in the deep, hot layers below it.""")
 
 md(r"""## Introduction
 
-With the equation of state in hand we can finally compute an opacity. Opacity comes in two flavours, and the distinction matters for radiative transfer later. **True absorption** destroys a photon and converts it to thermal energy — the gas re-emits according to its temperature ($S_\lambda = B_\lambda$). **Scattering** merely redirects a photon without thermalising it — the source function then depends on the radiation field itself. This lecture builds the **continuous** opacity: the smooth, slowly-varying background that sets the overall brightness of the star and the floor from which the sharp spectral lines are carved.
+With the equation of state in hand we can finally compute an opacity. Opacity comes in two flavours, and the distinction matters for radiative transfer later. **True absorption** destroys a photon and converts it to thermal energy — the gas re-emits according to its temperature, so for the thermal absorptive part in LTE the source function is the Planck function ($S_\lambda = B_\lambda$). **Scattering** merely redirects a photon without thermalising it — the source function then depends on the radiation field itself. (The total source function later mixes the two; that coupling is the whole subject of the JOSH lecture.) This lecture builds the **continuous** opacity: the smooth, slowly-varying background that sets the overall brightness of the star and the floor from which the sharp spectral lines are carved.
 
 We build it twice, at two levels of fidelity. The first half is the **physics**: we identify the dominant absorber, compute its abundance, evaluate its cross-section with the standard analytic fits, and reproduce the reference continuum to **a few percent** — the right level to understand *why* the continuum looks as it does. The second half is the **exact engine**: the production code (`compute_kapp_continuum`, **KAPP** for short) never uses analytic fits; it reads tabulated cross-sections and a fixed interpolation, and we rebuild that table-by-table to reproduce the reference to **machine precision**. This is the same two-stage structure the radiative-transfer lectures use — the physical picture first (Lecture 7, the formal solution), then the production engine that closes the last gap (Lecture 8, JOSH).""")
 
@@ -66,23 +66,26 @@ plt.rcParams.update({"figure.figsize": (7.2, 4.3), "figure.dpi": 120, "savefig.f
     "axes.grid": True, "grid.alpha": 0.25, "axes.axisbelow": True,
     "font.size": 11, "axes.titlesize": 12.5, "axes.labelsize": 11.5})
 
-REF = np.load(pathlib.Path("..") / "reference" / "L3.npz")
+REF = np.load(pathlib.Path("..") / "reference" / "L3.npz")  # the pedagogical continuum grid
 def compare(name, ours, ref, tol=1e-6):
+    """Report the worst relative difference between our opacity and the reference."""
     ours, ref = np.asarray(ours, float), np.asarray(ref, float)
-    denom = np.where(ref != 0.0, np.abs(ref), 1.0)
+    denom = np.where(ref != 0.0, np.abs(ref), 1.0)          # avoid divide-by-zero where ref==0
     rel = float(np.max(np.abs(ours - ref) / denom))
     tag = "exact" if rel < 1e-12 else ("agree" if rel < tol else "CHECK")
     print(f"{name:30s}  max|rel diff| = {rel:.2e}   [{tag}]")
-    return rel
+    return rel''')
 
-wl  = REF["wl"]                                   # wavelength grid [nm]
+md(r"""Unpack the arrays we need from the reference file — the wavelength and temperature grids, the populations from the equation of state (Lecture 2), the optical-depth scale (Lecture 1) — and set the CGS constants. The temperature, densities, and populations are reshaped to broadcast over the wavelength axis.""")
+
+code(r'''wl  = REF["wl"]                                   # wavelength grid [nm]
 T   = REF["T"][:, None]                            # temperature [K], shaped for broadcasting over wl
 n_e = REF["n_e"][:, None]                          # electron density [cm^-3]
 rho = REF["rho"][:, None]                          # mass density [g cm^-3]
 nHI = REF["nHI"][:, None]                          # neutral hydrogen number density [cm^-3]
-tau, rhox = REF["tau"], REF["rhox"]
-H, C, K = 6.62607015e-27, 2.99792458e10, 1.380649e-16
-KEV, SAHA = 1.0/11604.5, 2.4148e15
+tau, rhox = REF["tau"], REF["rhox"]                # Rosseland optical depth and column mass
+H, C, K = 6.62607015e-27, 2.99792458e10, 1.380649e-16       # Planck, c, Boltzmann (CGS)
+KEV, SAHA = 1.0/11604.5, 2.4148e15                 # eV-per-K conversion; Saha (2pi m_e k/h^2)^3/2 prefactor
 nu = C / (wl[None, :] * 1e-7)                       # frequency [Hz] at each wavelength
 print(f"continuum grid: {REF['absorption'].shape[0]} layers x {wl.size} wavelengths, "
       f"{wl[0]:.0f}-{wl[-1]:.0f} nm")''')
@@ -95,7 +98,7 @@ $$
 \big(1 - e^{-h\nu/kT}\big),
 $$
 
-the same $1-e^{-x}$ that sat in the denominator of the Planck function. It is near $1$ in the blue and drops toward the infrared, where $h\nu \lesssim kT$. Scattering, which does not exchange energy with the gas, carries no such factor.""")
+the same factor that appears when the Planck denominator is rewritten as $e^{h\nu/kT}(1-e^{-h\nu/kT})$. It is near $1$ in the blue and drops toward the infrared, where $h\nu \lesssim kT$. Scattering, which does not exchange energy with the gas, carries no such factor.""")
 
 code(r'''stim = 1.0 - np.exp(-H * nu / (K * T))             # stimulated-emission correction, shape (layers, wl)
 print(f"stimulated-emission factor at 505 nm: {stim[:,100].min():.3f} (hot, deep) .. {stim[:,100].max():.3f} (cool)")''')
@@ -141,31 +144,35 @@ $$
 \sigma_{\rm bf}(\lambda) = 10^{-18}\,\lambda^3\,f^{3/2}\sum_{n=0}^{5} C_n\, f^{n/2}\quad[\mathrm{cm^2}],
 $$
 
-and the opacity per gram is $\kappa_{\rm bf} = n(\mathrm{H}^-)\,\sigma_{\rm bf}\,(1-e^{-h\nu/kT})/\rho$. The free-free coefficient is a temperature- and wavelength-polynomial in $\theta = 5040/T$, returning the absorption per neutral H atom per unit electron pressure $P_e = n_e kT$.""")
+and the opacity per gram is $\kappa_{\rm bf} = n(\mathrm{H}^-)\,\sigma_{\rm bf}\,(1-e^{-h\nu/kT})/\rho$. The free-free coefficient is a temperature- and wavelength-polynomial in $\theta = 5040/T$, returning the absorption per neutral H atom per unit electron pressure $P_e = n_e kT$. John's free-free fit is tabulated in the net-absorption convention the production code uses, so no separate $1-e^{-h\nu/kT}$ multiplier is applied to it — the stimulated-emission correction is already folded into the polynomial.""")
 
 code(r'''# John (1988) H- bound-free photodetachment cross-section
 lam_um = wl[None, :] * 1e-3                          # wavelength in microns
 lam0 = 1.6419                                        # threshold [um] (0.754 eV)
-f = 1.0/lam_um - 1.0/lam0
-C_bf = [152.519, 49.534, -118.858, 92.536, -34.194, 4.982]
-poly = sum(C_bf[n] * f**(n/2.0) for n in range(6))
-sigma_bf = np.where(lam_um < lam0, 1e-18 * lam_um**3 * f**1.5 * poly, 0.0)   # cm^2
-kappa_bf = n_Hminus * sigma_bf * stim / rho          # cm^2/g
+f = 1.0/lam_um - 1.0/lam0                            # the "distance past threshold" variable
+C_bf = [152.519, 49.534, -118.858, 92.536, -34.194, 4.982]  # John's polynomial coefficients
+poly = sum(C_bf[n] * f**(n/2.0) for n in range(6))   # the half-integer power series in f
+sigma_bf = np.where(lam_um < lam0, 1e-18 * lam_um**3 * f**1.5 * poly, 0.0)   # cm^2 (zero beyond threshold)
+kappa_bf = n_Hminus * sigma_bf * stim / rho          # cm^2/g (with stimulated emission)''')
 
-# John (1988) H- free-free coefficient (lambda > 0.3645 um branch), per H I atom per unit P_e
+md(r"""The free-free coefficient is the second John (1988) polynomial: a double power series in $\theta=5040/T$ and in inverse wavelength. It returns the absorption per neutral H atom per unit electron pressure $P_e = n_e kT$, so we multiply by $P_e$ and the neutral-H density to get the opacity per gram. (No explicit stimulated-emission factor — it is already folded into John's fit, as noted above.)""")
+
+code(r'''# John (1988) H- free-free coefficient (lambda > 0.3645 um branch), per H I atom per unit P_e
 A=[0,2483.346,-3449.889,2200.040,-696.271,88.283]; B=[0,285.827,-1158.382,2427.719,-1841.400,444.517]
 Cc=[0,-2054.291,8746.523,-13651.105,8624.970,-1863.864]; D=[0,2827.776,-11485.632,16755.524,-10051.530,2095.288]
 E=[0,-1341.537,5303.609,-7510.494,4400.067,-901.788]; F=[0,208.952,-812.939,1132.738,-655.020,132.985]
-theta = 5040.0 / T
+theta = 5040.0 / T                                   # the John temperature variable
 kff = sum(theta**((n+1)/2.0) * (A[n]*lam_um**2 + B[n] + Cc[n]/lam_um + D[n]/lam_um**2
                                 + E[n]/lam_um**3 + F[n]/lam_um**4) for n in range(1, 6))
 P_e = n_e * K * T                                    # electron pressure [dyn cm^-2]
 kappa_ff = 1e-29 * kff * P_e * nHI / rho             # cm^2/g
+kappa_Hminus = kappa_bf + kappa_ff                   # total analytic H- absorption''')
 
-kappa_Hminus = kappa_bf + kappa_ff
-# H- dominates only where the optical spectrum forms; deep, hot layers add H and metal
+md(r"""Benchmark the analytic H$^-$ against the reference — but only over the layers where the optical spectrum forms. H$^-$ dominates there; far deeper, hydrogen and metal bound-free edges take over from it, and this analytic model does not carry them.""")
+
+code(r'''# H- dominates only where the optical spectrum forms; deep, hot layers add H and metal
 # bound-free that this analytic model is not carrying. Benchmark over the spectrum-forming layers.
-form = (tau > 1e-3) & (tau < 3.0)
+form = (tau > 1e-3) & (tau < 3.0)                    # the spectrum-forming optical-depth window
 rel = np.abs(kappa_Hminus[form] - REF["absorption"][form]) / REF["absorption"][form]
 print(f"continuum absorption (H-), spectrum-forming layers:  "
       f"median|rel diff| = {np.median(rel):.2e}   max = {np.max(rel):.2e}")''')
@@ -191,27 +198,29 @@ compare("scattering (Rayleigh+Thomson)", kappa_scat, REF["scattering"], tol=5e-2
 print(f"at the photosphere, Rayleigh is {kappa_Ray[50,100]/kappa_Thomson[50,100]:.0f}x Thomson; "
       f"scattering is {100*kappa_scat[50,100]/kappa_Hminus[50,100]:.0f}% of absorption")''')
 
-md(r"""Rayleigh outweighs Thomson roughly tenfold here, and scattering as a whole is only a couple of percent of the H$^-$ absorption — the solar optical continuum is an *absorption* continuum, which is why its source function is so close to the Planck function and the emergent flux so close to a blackbody shaped by H$^-$. In the ultraviolet, where $\lambda^{-4}$ Rayleigh climbs and metal photoionization switches on, the balance shifts; in hot stars, where hydrogen is ionized, Thomson takes over.""")
+md(r"""Rayleigh outweighs Thomson roughly tenfold at this layer, and scattering as a whole is only a couple of percent of the H$^-$ absorption — the solar optical continuum is an *absorption* continuum, which is why its source function is so close to the Planck function and the emergent flux so close to a blackbody shaped by H$^-$. The precise Rayleigh/Thomson split is depth- and atmosphere-dependent (it tracks the neutral-H to free-electron ratio): this analytic atmosphere point gives roughly $10:1$, while the representative deeper layer used in the exact-engine budget later runs closer to $2:1$. In the ultraviolet, where $\lambda^{-4}$ Rayleigh climbs and metal photoionization switches on, the balance shifts; in hot stars, where hydrogen is ionized, Thomson takes over.""")
 
 md(r"""## The total continuum and where it forms
 
 Add absorption and scattering for the total continuous extinction, and check it against the reference. Then convert it to optical depth: since $d\tau_\lambda = \kappa_\lambda\,\rho\,dz = \kappa_\lambda\,d(\rho x)$, integrating the continuum opacity over the column mass tells us the depth from which the continuum escapes — and confirms the Eddington–Barbier picture of Lecture 1.""")
 
-code(r'''kappa_total = kappa_Hminus + kappa_scat
+code(r'''kappa_total = kappa_Hminus + kappa_scat             # total continuous extinction
 ref_total = REF["absorption"] + REF["scattering"]
 rel = np.abs(kappa_total[form] - ref_total[form]) / ref_total[form]
 print(f"total continuum, spectrum-forming layers:  "
       f"median|rel diff| = {np.median(rel):.2e}   max = {np.max(rel):.2e}")
 
-# continuum optical depth at mid-window (505 nm), integrated over column mass
+# continuum optical depth at mid-window (505 nm), integrated over column mass via the trapezoid rule
 k505 = kappa_total[:, 100]
 tau_cont = np.zeros_like(rhox)
 tau_cont[1:] = np.cumsum(0.5*(k505[1:]+k505[:-1]) * np.diff(rhox))
-j23 = np.argmin(np.abs(tau_cont - 2/3))
+j23 = np.argmin(np.abs(tau_cont - 2/3))             # the layer where the continuum reaches tau=2/3
 print(f"the 505 nm continuum reaches tau=2/3 at T = {REF['T'][j23]:.0f} K  "
-      f"(log tau_Ross = {np.log10(tau[j23]):.2f})")
+      f"(log tau_Ross = {np.log10(tau[j23]):.2f})")''')
 
-fig, ax = plt.subplots(1, 2, figsize=(10.5, 4.1))
+md(r"""Plot the opacity against depth (showing how H$^-$ absorption and scattering each contribute) and the integrated continuum optical depth (locating the $\tau=2/3$ surface).""")
+
+code(r'''fig, ax = plt.subplots(1, 2, figsize=(10.5, 4.1))
 ax[0].plot(np.log10(tau), np.log10(kappa_total[:,100]), color="C0", label="total")
 ax[0].plot(np.log10(tau), np.log10(kappa_Hminus[:,100]), "--", color="C3", label="H$^-$ absorption")
 ax[0].plot(np.log10(tau), np.log10(kappa_scat[:,100]), ":", color="C2", label="scattering")
@@ -235,22 +244,28 @@ md(r"""---
 
 The first half built the continuous opacity the way one builds intuition: the H$^-$ ion dominates, so we evaluated its cross-sections with the **analytic fits** of John (1988), added Rayleigh and Thomson scattering, and reproduced the reference to **a few percent**. That is the right level for understanding *why* the continuum looks as it does. It is not the level at which the production code works.
 
-The production engine — `compute_kapp_continuum` in the Kurucz codes, **KAPP** for short — does not use analytic fits. It evaluates every continuum source from a **tabulated cross-section** measured or computed once and stored as a data table: H$^-$ from an 85-point bound-free table and a free-free table on a wavelength$\times$temperature grid, H I from the Karsas hydrogen tables, H Rayleigh from Gavrila's $G(\nu)$ table, and a long tail of small contributors (He, C, Mg, Al, Si, Fe, and a hot-star term). The analytic fits agree with these tables to a couple of percent — which is exactly the gap the first half left. To reproduce the reference continuum *to the bit* we have to evaluate the same tables, with the same interpolation, in the same order.
-
-This is the **exact-engine counterpart** to the physics above, the same way JOSH (Lecture 8) is the exact engine behind the formal solution (Lecture 7). We keep the physical picture — H$^-$ dominates, scattering is a percent-level floor, the Saha balance of the previous section sets the H$^-$ population — and replace each analytic fit with a clean evaluation of the production table. The two stages are: evaluate every source on a small **edge-triplet frequency grid** (three frequencies per continuum interval), then **interpolate** to the wavelengths we want. The payoff is the continuum reproduced to machine precision through the entire photosphere.""")
+The production engine — `compute_kapp_continuum` in the Kurucz codes, **KAPP** for short — does not use analytic fits. It evaluates every continuum source from a **tabulated cross-section** stored as a data table, and the analytic fits agree with those tables only to a couple of percent — exactly the gap the first half left. This is the **exact-engine counterpart** to the physics above, the same way JOSH (Lecture 8) is the exact engine behind the formal solution (Lecture 7). We keep the physical picture — H$^-$ dominates, scattering is a percent-level floor, the Saha balance of the previous section sets the H$^-$ population — and replace each analytic fit with a clean evaluation of the production table. The two stages are: evaluate every source on a small **edge-triplet frequency grid** (three frequencies per continuum interval), then **interpolate** to the wavelengths we want. The payoff is the continuum reproduced to machine precision through the entire photosphere.""")
 
 # ── why a tabulated engine ────────────────────────────────────────────────
 md(r"""## Why a tabulated engine, and what the fits miss
 
-The first half used the John (1988) polynomial fits for H$^-$. Those fits are a smooth analytic curve threaded through laboratory and theoretical cross-sections; they are accurate to about two percent over the optical, and they hide the table they were fit to. The production code keeps the table and skips the fit.
-
-Three things separate the two:
+To reproduce the reference *to the bit* we evaluate the same tables, with the same interpolation, in the same order. Three things separate the tabulated engine from the analytic fits:
 
 - **The table itself.** H$^-$ bound-free is stored as 85 sampled cross-sections versus wavelength; the engine interpolates the table directly with the Kurucz `MAP1` parabola, not a closed-form polynomial. Where John's fit and the table disagree by a percent, the engine follows the table.
 - **The minor absorbers.** At 500–510 nm the H$^-$ ion supplies $\sim$92% of the absorption, but the remaining $\sim$8% is real and structured: H I bound-free and free-free, the H$_2^+$ molecular ion, and small bound-free edges of Mg I, Al I, Si I. The physics half folded these into "a few percent"; the engine evaluates each one.
 - **The interpolation.** The engine never evaluates opacity at the synthesis wavelengths directly. It samples three frequencies per continuum **edge interval**, then reconstructs the wavelength dependence by a fixed 3-point Lagrange parabola. Matching the reference means matching that interpolation exactly.
 
-Load the reference continuum, the atmosphere it was built on, and the cross-section tables the engine reads.""")
+Here is the roadmap for the half — every absorption source we evaluate, the physical process, the population it needs, the table or interpolator that reads it, and its rough share of the absorption at 505 nm:
+
+| source | process | population | table / interpolator | share at 505 nm |
+|---|---|---|---|---|
+| H$^-$ | bound-free + free-free | ground-state H I, $n_e$ | `HMINOP` (`MAP1` + `linter`) | $\sim$92% |
+| H I | bound-free + free-free | ground-state H I, H II, $n_e$ | Karzas–Latter (`xkarsas`) + `COULFF` | $\sim$2% |
+| H$_2^+$, He, C/Mg/Al/Si | molecular + bound-free edges | He I, metal populations | analytic + edge tables | $\sim$6% |
+| He, hot-star, Si II | bound-free + free-free | He I/II/III, charge sums | `HE1OP`/`HE2OP`, `HOTOP`, `LUKEOP` | $\lesssim 10^{-5}$ |
+| Rayleigh + Thomson | scattering | ground-state H I, $n_e$ | Gavrila $G^2$ + classical $\sigma_e$ | (the scattering coefficient) |
+
+**Notation reset.** The two halves use different data files and variable names. The first half loaded the pedagogical continuum grid `REF` (with `wl`, `T`); the engine half loads three production files: `A` = the atmosphere/EOS (populations, edge grid), `D` = the reference diagnostic continuum (`diag.npz`, ground truth), and `KT` = the cross-section tables. Wavelengths are `wlk`, temperature `Tk`. Load them now.""")
 
 code(r'''A = np.load(pathlib.Path("..") / "reference" / "atmosphere.npz", allow_pickle=True)  # EOS populations (80 layers)
 D = np.load(pathlib.Path("..") / "reference" / "diag.npz")                             # the reference continuum, ground truth
@@ -268,10 +283,10 @@ print(f"atmosphere spans T = {Tk.min():.0f} .. {Tk.max():.0f} K")''')
 # ── constants and the tables ──────────────────────────────────────────────
 md(r"""## Constants and the cross-section tables
 
-The engine uses the same physical constants as the rest of the pipeline (CGS, with the Fortran code's exact values so the arithmetic matches bit for bit). The tables come in two groups. The **Karsas** group (`FREQ_LOG`, `XN_LOG`, `XL_LOG_ARRAY`, `EKARSAS`) holds the hydrogen bound-free cross-sections on a $\log_{10}(\nu/Z_{\rm eff}^2)$ grid. The **KAPP** group holds everything else: the H$^-$ bound-free table (`HMINOP_WBF`, `HMINOP_BF`), the H$^-$ free-free table (`HMINOP_FFBEG`, `HMINOP_FFEND` on the `HMINOP_WAVEK`$\times$`HMINOP_THETAFF` grid), the Gavrila Rayleigh tables (`HRAYOP_*`), the Coulomb free-free Gaunt-factor table (`COULFF_A_TABLE`, `COULFF_Z4LOG`), and the small-contributor tables (`HOTOP_TRANSITIONS`, the Si II Peach tables, the hydrogen partition-function inputs).""")
+The engine uses the same physical constants as the rest of the pipeline (CGS, with the Fortran code's exact values so the arithmetic matches bit for bit). The tables come in two groups. The **Karzas–Latter** group (`FREQ_LOG`, `XN_LOG`, `XL_LOG_ARRAY`, `EKARSAS`) holds the hydrogen bound-free cross-sections on a $\log_{10}(\nu/Z_{\rm eff}^2)$ grid. The **KAPP** group holds everything else: the H$^-$ bound-free table (`HMINOP_WBF`, `HMINOP_BF`), the H$^-$ free-free table (`HMINOP_FFBEG`, `HMINOP_FFEND` on the `HMINOP_WAVEK`$\times$`HMINOP_THETAFF` grid), the Gavrila Rayleigh tables (`HRAYOP_*`), the Coulomb free-free Gaunt-factor table (`COULFF_A_TABLE`, `COULFF_Z4LOG`), and the small-contributor tables (`HOTOP_TRANSITIONS`, the Si II Peach tables, the hydrogen partition-function inputs).""")
 
-code(r'''# ── tables (shipped as data; identical to the production code's arrays) ──
-FREQ_LOG = KT["FREQ_LOG"]              # (29,15) descending log10(freq/zeff^2) grid (Karsas)
+code(r'''# ── the hydrogen group: Karzas-Latter bound-free + the H- tables ──
+FREQ_LOG = KT["FREQ_LOG"]              # (29,15) descending log10(freq/zeff^2) grid (Karzas-Latter)
 XN_LOG = KT["XN_LOG"]                  # (29,15) log10 cross-section, l-summed
 XL_LOG_ARRAY = KT["XL_LOG_ARRAY"]      # (6,6,29) l-resolved log10 cross-section
 EKARSAS = KT["EKARSAS"]                # (29,) excitation energies (n>15 branch)
@@ -281,6 +296,11 @@ HMINOP_WAVEK = KT["HMINOP_WAVEK"]      # (22,) WAVEK grid for H- ff
 HMINOP_THETAFF = KT["HMINOP_THETAFF"]  # (11,) theta=5040/T grid for H- ff
 HMINOP_FFBEG = KT["HMINOP_FFBEG"]      # (11,11) H- ff (first 11 wavek columns)
 HMINOP_FFEND = KT["HMINOP_FFEND"]      # (11,11) H- ff (last 11 wavek columns)
+print("hydrogen / H- tables loaded")''')
+
+md(r"""The second group is everything else: the Gavrila Rayleigh tables, the Coulomb free-free Gaunt-factor table, and the small-contributor tables (the hot-star transitions, the Si II Peach tables, and the hydrogen partition-function inputs).""")
+
+code(r'''# ── the scattering + minor-absorber tables ──
 HRAYOP_GAVRILAM = KT["HRAYOP_GAVRILAM"]                  # (74,) visible Rayleigh G
 HRAYOP_GAVRILAMAB = KT["HRAYOP_GAVRILAMAB"]              # (27,)
 HRAYOP_GAVRILAMBC = KT["HRAYOP_GAVRILAMBC"]              # (24,)
@@ -296,25 +316,28 @@ _SI2OP_FLOG = KT["_SI2OP_FLOG"]        # (9,)
 _SI2OP_TLG = KT["_SI2OP_TLG"]          # (6,)
 H_ENERGY_CM = KT["H_ENERGY_CM"]        # (6,) H level energies [cm^-1] (partition function)
 H_STAT_WEIGHT = KT["H_STAT_WEIGHT"]    # (6,) H statistical weights
+print("scattering / minor-absorber tables loaded")''')
 
-# ── constants (CGS, Fortran values, matching the production code exactly) ──
-C_LIGHT_CM = 2.99792458e10
-C_LIGHT_NM = 2.99792458e17
-H_PLANCK = 6.62607015e-27
-K_BOLTZ = 1.380649e-16
-KBOLTZ_EV = 8.6171e-5
-RYDBERG_CM = 109677.576
+md(r"""Finally the physical constants. They are CGS, fixed to the Fortran code's exact literal values so the arithmetic reproduces the reference bit for bit.""")
+
+code(r'''# ── constants (CGS, Fortran values, matching the production code exactly) ──
+C_LIGHT_CM = 2.99792458e10                              # speed of light [cm/s]
+C_LIGHT_NM = 2.99792458e17                              # speed of light [nm/s]
+H_PLANCK = 6.62607015e-27                               # Planck constant [erg s]
+K_BOLTZ = 1.380649e-16                                  # Boltzmann constant [erg/K]
+KBOLTZ_EV = 8.6171e-5                                   # Boltzmann constant [eV/K]
+RYDBERG_CM = 109677.576                                 # Rydberg [cm^-1]
 LN10 = np.log(10.0)
-H_ENERGY_EV = H_ENERGY_CM / 8065.479
-H_MAX_LEVEL = 6
-print("tables and constants loaded")''')
+H_ENERGY_EV = H_ENERGY_CM / 8065.479                    # H level energies [eV] (from cm^-1)
+H_MAX_LEVEL = 6                                          # tabulated H levels for the partition fn
+print("constants loaded")''')
 
 # ── the edge grid and 3-point interpolation ──────────────────────────────
 md(r"""## The edge-triplet frequency grid and the 3-point interpolation
 
-The engine's first design choice is to **not** evaluate opacity at the synthesis wavelengths. Continuum opacity is smooth between **photo-ionization edges** — sharp frequencies (the H$^-$ threshold, the Balmer edge, each metal edge) where a bound-free cross-section switches on. Between two consecutive edges the opacity is a slowly varying curve with no kinks, so the engine samples it at just **three frequencies per edge interval** and reconstructs the curve by a parabola.
+The engine's first design choice is to **not** evaluate opacity at the synthesis wavelengths. Continuum opacity is smooth between **photo-ionization edges** — sharp frequencies (the H$^-$ threshold, the Balmer edge, each metal edge) where a bound-free cross-section switches on. Between two consecutive edges the opacity is a slowly varying curve with no kinks, so the engine samples it at just **three frequencies per edge interval** and reconstructs the curve by a parabola. The motive is speed: evaluating the expensive Gaunt factors and table lookups at $\sim$1,000 edge sample frequencies, then interpolating, is far cheaper than evaluating them at the 100,000+ wavelengths of a high-resolution synthesis grid.
 
-For an edge interval running from frequency $\nu_{\rm left}$ (long-wavelength edge) to $\nu_{\rm right}$ (short-wavelength edge), the three sample frequencies are the two edges (nudged just inside so the cross-section is unambiguous) and their midpoint in wavelength:
+We define **left** and **right** in wavelength: $\lambda_{\rm left}$ is the longer wavelength (the low-frequency end of the interval), $\lambda_{\rm right}$ the shorter wavelength (high frequency) — recall that frequency increases toward shorter wavelength, so $\nu_{\rm left}<\nu_{\rm right}$. For an edge interval the three sample frequencies are the two edges (nudged just inside so the cross-section is unambiguous) and their midpoint in wavelength:
 
 $$
 \nu_0 = \frac{\nu_{\rm left}}{1.0000001}, \qquad
@@ -351,38 +374,43 @@ Every opacity term is a cross-section times a number density divided by the mass
 We gather them into one dictionary, including the helium and metal populations the minor terms use. The departure-coefficient tables `bhyd`, `bmin` (the ratio of the true level population to its LTE value) are all unity here — this model is in LTE — but we carry them so the code reads exactly like the engine, where in a non-LTE model they would differ from one.""")
 
 code(r'''pop = A["population_per_ion"]       # (80, 6, 139): [layer, ion_stage, element]; element 0 = H, 1 = He
+# gather the populations each opacity term reads into one dictionary
 pops = dict(
     temperature=A["temperature"], mass_density=A["mass_density"],
     electron_density=A["electron_density"],
     xnfph=A["xnfph"],               # (80,2): mode-11 [ground-state H I, H II]
     xnf_h=A["xnf_h"],               # mode-12: total neutral H (for Rayleigh ground state)
-    he1_mode11=pop[:, 0, 1], he2_mode11=pop[:, 1, 1], he3_mode11=pop[:, 2, 1],
-    he1_mode12=A["xnf_he1"], he2_mode12=A["xnf_he2"],
-    xnfpc=A["xnfpc"], xnfpmg=A["xnfpmg"], xnfpal=A["xnfpal"],
+    he1_mode11=pop[:, 0, 1], he2_mode11=pop[:, 1, 1], he3_mode11=pop[:, 2, 1],   # He stages, mode-11
+    he1_mode12=A["xnf_he1"], he2_mode12=A["xnf_he2"],                            # He stage totals
+    xnfpc=A["xnfpc"], xnfpmg=A["xnfpmg"], xnfpal=A["xnfpal"],                    # metal bf populations
     xnfpsi=A["xnfpsi"], xnfpfe=A["xnfpfe"],
     xnfpn=pop[:, 0, 6], xnfpo=pop[:, 0, 7],
-    xnfpmg2=pop[:, 1, 11], xnfpsi2=pop[:, 1, 13], xnfpca2=pop[:, 1, 19],
+    xnfpmg2=pop[:, 1, 11], xnfpsi2=pop[:, 1, 13], xnfpca2=pop[:, 1, 19],         # singly-ionized metals
 )
-# HOTOP population vectors (the hot-star bound-free/free-free term; tiny in the Sun)
-hotop_xnfp = np.zeros((n_layers, 21))
+print("ground-state H I number density (surface -> deep): "
+      f"{pops['xnfph'][0,0]:.3e} .. {pops['xnfph'][-1,0]:.3e} cm^-3")''')
+
+md(r"""The hot-star term needs two more derived population vectors: a per-transition population array for its bound-free transitions, and the charge-weighted sum $\sum_Z Z^2 n_Z$ over several elements that drives its multi-charge free-free. Both are negligible in the Sun but built so the engine sum is complete.""")
+
+code(r'''# HOTOP population vectors (the hot-star bound-free/free-free term; tiny in the Sun)
+hotop_xnfp = np.zeros((n_layers, 21))                       # per-transition populations for the bf table
 hotop_xnfp[:, 0:4] = pop[:, 0:4, 5]; hotop_xnfp[:, 4:9] = pop[:, 0:5, 6]
 hotop_xnfp[:, 9:15] = pop[:, 0:6, 7]; hotop_xnfp[:, 15:21] = pop[:, 0:6, 9]
-xnf_sumqq = np.zeros((n_layers, 5))
+xnf_sumqq = np.zeros((n_layers, 5))                         # charge-weighted sum Z^2 * n_Z for the ff term
 for elem in (5, 6, 7, 9, 11, 13, 15, 25):
     for iz in range(1, 6):
         xnf_sumqq[:, iz - 1] += (iz * iz) * pop[:, iz, elem]
 pops["hotop_xnfp"] = hotop_xnfp; pops["xnf_sumqq"] = xnf_sumqq
-print("ground-state H I number density (surface -> deep): "
-      f"{pops['xnfph'][0,0]:.3e} .. {pops['xnfph'][-1,0]:.3e} cm^-3")''')
+print("HOTOP population vectors built")''')
 
 # ── the interpolation routines ────────────────────────────────────────────
-md(r"""## The interpolation routines: MAP1, the linear interp, and the Karsas lookup
+md(r"""## The interpolation routines: MAP1, the linear interp, and the Karzas–Latter lookup
 
-Before the physics, three table-lookup routines the engine reuses everywhere. They are not interchangeable with library splines — the production code's exact interpolation is part of what defines its output, and a different scheme would spoil the bit-level agreement.
+Before the physics, three table-lookup routines the engine reuses everywhere. They are not interchangeable with library splines — the production code's exact interpolation is part of what defines its output, and a different scheme would spoil the bit-level agreement. You do not need to memorize their control flow; the pedagogical point is that the interpolation rule is itself part of the physical reference model, so we reproduce it verbatim rather than substitute our own.
 
-- **`MAP1`** is the Kurucz parabolic interpolation also used by the JOSH solver (Lecture 8): on each interval it fits a parabola through three neighbouring points, blends it with its neighbour by curvature weight, and evaluates. The H$^-$ bound-free table is read with `MAP1`.
+- **`MAP1`** is the Kurucz parabolic interpolation also used by the JOSH solver (Lecture 8): on each interval it fits a parabola through three neighbouring points, blends it with the neighbouring parabola by curvature weight, and evaluates. The H$^-$ bound-free table is read with `MAP1`.
 - **`linter`** is straight linear interpolation *with* extrapolation past the ends (no clamping) — the Fortran `LINTER`. The H$^-$ free-free table is read with two nested `linter` calls (first in wavelength, then in temperature).
-- **`xkarsas`** is the hydrogen bound-free cross-section: a binary search on the descending $\log_{10}(\nu/Z_{\rm eff}^2)$ grid, then a linear interpolation in $\log_{10}\nu$. It has an $n\le 15$ branch (use the tabulated columns) and an $n>15$ branch (use the `EKARSAS` excitation-energy series).""")
+- **`xkarsas`** is the hydrogen bound-free cross-section from the **Karzas–Latter tables** (Kurucz routine `XKARSAS`): a binary search on the descending $\log_{10}(\nu/Z_{\rm eff}^2)$ grid, then a linear interpolation in $\log_{10}\nu$. It has an $n\le 15$ branch (use the tabulated columns) and an $n>15$ branch (use the `EKARSAS` excitation-energy series).""")
 
 code(r'''def map1(xold, fold, xnew):
     """Parabolic interpolation of fold(xold) onto xnew (Kurucz MAP1)."""
@@ -390,45 +418,45 @@ code(r'''def map1(xold, fold, xnew):
     fnew = np.zeros(nnew)
     if nold == 0 or nnew == 0:
         return fnew
-    xo = np.empty(nold + 1); fo = np.empty(nold + 1); xo[1:] = xold; fo[1:] = fold
-    l = 2; ll = 0
-    cfor = bfor = afor = cbac = bbac = abac = a = b = c = 0.0
-    for k in range(1, nnew + 1):
+    xo = np.empty(nold + 1); fo = np.empty(nold + 1); xo[1:] = xold; fo[1:] = fold   # 1-based to match Fortran
+    l = 2; ll = 0                                          # l = current bracket; ll = where coeffs were last built
+    cfor = bfor = afor = cbac = bbac = abac = a = b = c = 0.0   # quadratic coeffs a + (b + c x) x
+    for k in range(1, nnew + 1):                           # for each output point...
         xk = xnew[k - 1]
-        while True:
+        while True:                                        # advance l until xo[l] brackets xk
             if xk < xo[l]:
-                if l == ll:
+                if l == ll:                                # coeffs already valid for this bracket
                     break
-                if l == 2 or l == 3:
+                if l == 2 or l == 3:                       # near the left end: fall back to a line
                     l = min(nold, l); c = 0.0
                     b = (fo[l] - fo[l-1]) / (xo[l] - xo[l-1]); a = fo[l] - xo[l]*b; ll = l; break
                 l1 = l - 1
-                if l > ll + 1 or l == 3 or l == 4:                 # backward parabola
+                if l > ll + 1 or l == 3 or l == 4:                 # backward parabola (3 points to the left)
                     l2 = l - 2
                     d = (fo[l1] - fo[l2]) / (xo[l1] - xo[l2])
                     cbac = fo[l]/((xo[l]-xo[l1])*(xo[l]-xo[l2])) + \
                            (fo[l2]/(xo[l]-xo[l2]) - fo[l1]/(xo[l]-xo[l1]))/(xo[l1]-xo[l2])
                     bbac = d - (xo[l1] + xo[l2])*cbac
                     abac = fo[l2] - xo[l2]*d + xo[l1]*xo[l2]*cbac
-                    if l >= nold:
+                    if l >= nold:                          # no forward point: use the backward parabola
                         c, b, a, ll = cbac, bbac, abac, l; break
-                else:
+                else:                                      # reuse the previous step's forward parabola
                     cbac, bbac, abac = cfor, bfor, afor
                     if l == nold:
                         c, b, a, ll = cbac, bbac, abac, l; break
-                d = (fo[l] - fo[l1]) / (xo[l] - xo[l1])             # forward parabola + blend
+                d = (fo[l] - fo[l1]) / (xo[l] - xo[l1])             # forward parabola (3 points to the right)
                 cfor = fo[l+1]/((xo[l+1]-xo[l])*(xo[l+1]-xo[l1])) + \
                        (fo[l1]/(xo[l+1]-xo[l1]) - fo[l]/(xo[l+1]-xo[l]))/(xo[l]-xo[l1])
                 bfor = d - (xo[l] + xo[l1])*cfor
                 afor = fo[l1] - xo[l1]*d + xo[l]*xo[l1]*cfor
-                wt = abs(cfor)/(abs(cfor) + abs(cbac)) if abs(cfor) != 0.0 else 0.0
+                wt = abs(cfor)/(abs(cfor) + abs(cbac)) if abs(cfor) != 0.0 else 0.0   # blend by curvature
                 a = afor + wt*(abac-afor); b = bfor + wt*(bbac-bfor); c = cfor + wt*(cbac-cfor)
                 ll = l; break
             l += 1
-            if l > nold:
+            if l > nold:                                   # past the right end: fall back to a line
                 l = min(nold, l); c = 0.0
                 b = (fo[l] - fo[l-1]) / (xo[l] - xo[l-1]); a = fo[l] - xo[l]*b; ll = l; break
-        fnew[k - 1] = a + (b + c*xk)*xk
+        fnew[k - 1] = a + (b + c*xk)*xk                    # evaluate the (blended) parabola at xk
     return fnew''')
 
 code(r'''def linter(xold, yold, xnew):
@@ -445,20 +473,21 @@ code(r'''def linter(xold, yold, xnew):
         else:
             w = (xnew[inew] - xold[iold - 1]) / denom
             ynew[inew] = yold[iold - 1] + (yold[iold] - yold[iold - 1]) * w
-    return ynew
+    return ynew''')
 
+md(r"""`xkarsas` reads the Karzas–Latter hydrogen bound-free cross-section for principal quantum number $n$. It works in $\log_{10}(\nu/Z_{\rm eff}^2)$: a binary search locates the photon frequency on the descending grid, then a linear interpolation in $\log_{10}\nu$ returns the cross-section. The $n\le 15$ branch reads the tabulated columns directly (l-resolved for the low levels, l-summed otherwise); the $n>15$ branch evaluates the high-level series from the `EKARSAS` excitation energies. You can treat this as a faithful table lookup — the control flow only implements that rule.""")
 
-def xkarsas(freq, zeff_squared, n, ell):
-    """Hydrogenic bound-free cross-section (Karsas): binary search on the log-freq grid,
+code(r'''def xkarsas(freq, zeff_squared, n, ell):
+    """Hydrogenic bound-free cross-section (Karzas-Latter): binary search on the log-freq grid,
     linear interp in log10(freq).  n<=15 reads the tabulated columns; n>15 uses EKARSAS."""
-    if freq <= 0.0 or zeff_squared <= 0.0 or n <= 0:
+    if freq <= 0.0 or zeff_squared <= 0.0 or n <= 0:    # guard invalid inputs
         return 0.0
     if ell < 0:
         ell = 0
-    freq_log = np.log10(freq / zeff_squared)
+    freq_log = np.log10(freq / zeff_squared)            # work in scaled log-frequency
     if n <= 15:
-        column = FREQ_LOG[:, n - 1]
-        if freq_log < column[-1]:
+        column = FREQ_LOG[:, n - 1]                         # the log-frequency grid for this level
+        if freq_log < column[-1]:                           # below the level's threshold -> no absorption
             return 0.0
         if ell >= n or n > 6:
             values = XN_LOG[:, n - 1]                       # l-summed cross-section
@@ -474,22 +503,22 @@ def xkarsas(freq, zeff_squared, n, ell):
                 idx = mid; right = mid - 1
             else:
                 left = mid + 1
-        if idx >= column.size:
+        if idx >= column.size:                              # off the grid: clamp to the last value
             return float(np.exp(values[-1] * LN10) / zeff_squared)
         denom = column[idx - 1] - column[idx]
         if abs(denom) < 1e-15:
             return float(np.exp(values[idx - 1] * LN10) / zeff_squared)
-        w = (freq_log - column[idx]) / denom
+        w = (freq_log - column[idx]) / denom                # linear-interp weight in log-freq
         x_val = (values[idx - 1] - values[idx]) * w + values[idx]
-        return float(np.exp(x_val * LN10) / zeff_squared)
-    inv_n2 = 1.0 / (n * n)                                  # n > 15 branch
+        return float(np.exp(x_val * LN10) / zeff_squared)   # back from log10, undo the Z^2 scaling
+    inv_n2 = 1.0 / (n * n)                                  # n > 15 branch: use the EKARSAS series
     ryd_c = 109677.576 * C_LIGHT_CM
     freqn15_last = np.log10(ryd_c * inv_n2)
-    if freq_log < freqn15_last:
+    if freq_log < freqn15_last:                             # below this level's threshold
         return 0.0
-    for idx in range(1, 28):
+    for idx in range(1, 28):                                # walk the excitation-energy grid
         fcur = np.log10((EKARSAS[idx] + inv_n2) * ryd_c)
-        if freq_log > fcur:
+        if freq_log > fcur:                                 # found the bracketing pair -> interpolate
             fprev = np.log10((EKARSAS[idx-1] + inv_n2) * ryd_c) if idx - 1 >= 1 else freqn15_last
             denom = fprev - fcur
             if denom == 0.0:
@@ -502,16 +531,16 @@ def xkarsas(freq, zeff_squared, n, ell):
 # ── Gaunt factor + Planck + small helpers ─────────────────────────────────
 md(r"""## The Coulomb free-free Gaunt factor and the Planck function
 
-Two more small pieces the physics terms call. **`coulff`** is the Coulomb free-free Gaunt factor — the quantum correction to the classical bremsstrahlung cross-section — read by bilinear interpolation from a $\log_{10}\gamma^2 \times \log_{10}(h\nu/kT)$ table for ionic charge $Z=1\dots 6$. The H I and He free-free terms use it. **`planck_nu`** is the Planck function $B_\nu(T)$, with the Rayleigh–Jeans limit substituted for the rare case $h\nu/kT \to 0$ to avoid the $0/0$; it weights the emission part of each bound-free term. We also carry **`hydrogen_partition`**, the neutral-hydrogen partition function (sum over the six tabulated levels), which converts total neutral H into the ground-state population the Rayleigh term needs.""")
+Three more small pieces the physics terms call. The first is **`coulff`**, the Coulomb free-free Gaunt factor — the quantum correction to the classical bremsstrahlung cross-section — used by the H I and He free-free terms. The implementation maps the layer temperature and photon frequency onto the table's $(\log_{10}\gamma^2,\ \log_{10}(h\nu/kT))$ axes (for ionic charge $Z=1\dots 6$), finds the bracketing grid cell, and does a **bilinear** interpolation; it is vectorised over all layers at once. (One note on the routine interface: the opacity terms also take a `bnu` argument — the Planck function below — which the production code carries through to weight emissivities in a non-LTE bookkeeping. The LTE opacity terms here do not read it, but we pass it for fidelity with the engine.)""")
 
 code(r'''def coulff(nz, freq, freqlg, temp, tlog):
     """Coulomb free-free Gaunt factor, vectorised over layers (Fortran COULFF, bilinear)."""
-    if nz < 1 or nz > 6:
+    if nz < 1 or nz > 6:                                      # charge out of table range -> Gaunt=1
         return np.ones_like(temp)
     z4log = COULFF_Z4LOG[nz - 1]
     gamlog = 10.39638 - tlog/1.15129 + z4log                  # log10 of the Coulomb parameter gamma^2
     hvktlg = (freqlg - tlog)/1.15129 - 20.63764               # log10 of h*nu/kT
-    igam = np.clip((gamlog + 7.0).astype(np.int64), 1, 10)
+    igam = np.clip((gamlog + 7.0).astype(np.int64), 1, 10)    # bracketing cell on the gamma^2 axis
     ihvkt = np.clip((hvktlg + 9.0).astype(np.int64), 1, 11)
     p = gamlog - (igam - 7.0); q = hvktlg - (ihvkt - 9.0)     # bilinear weights
     ig = igam - 1; ih = ihvkt - 1
@@ -521,38 +550,40 @@ code(r'''def coulff(nz, freq, freqlg, temp, tlog):
     a11 = np.where((igam < 10) & (ihvkt < 11),
                    COULFF_A_TABLE[np.minimum(ig + 1, 11), np.minimum(ih + 1, 10)], a00)
     return (1.0 - p)*((1.0 - q)*a00 + q*a01) + p*((1.0 - q)*a10 + q*a11)
+print("Coulomb Gaunt factor ready")''')
 
+md(r"""`planck_nu` is the Planck function $B_\nu(T)$, evaluated with `np.expm1` for accuracy and switched to the Rayleigh–Jeans limit where $h\nu/kT$ is tiny (avoiding $0/0$). `hydrogen_partition` is the neutral-hydrogen partition function — the Boltzmann sum $\sum_i g_i e^{-E_i/kT}$ over the six tabulated levels — which converts a stage total into the ground-state population the Rayleigh term needs.""")
 
-def planck_nu(freq, temp):
+code(r'''def planck_nu(freq, temp):
     """Planck B_nu(T) [erg/s/cm^2/Hz/sr], with the Rayleigh-Jeans limit for tiny h*nu/kT."""
     const = 2.0 * H_PLANCK / C_LIGHT_CM**2
-    x = H_PLANCK * freq / (K_BOLTZ * temp)
-    bnu = np.where(x < 1e-6, 2.0*K_BOLTZ*temp*freq**2/C_LIGHT_CM**2,
+    x = H_PLANCK * freq / (K_BOLTZ * temp)              # h*nu/kT, per layer
+    bnu = np.where(x < 1e-6, 2.0*K_BOLTZ*temp*freq**2/C_LIGHT_CM**2,   # Rayleigh-Jeans where x->0
                    const * freq**3 / np.expm1(np.where(x < 1e-6, 1.0, x)))
     return np.where(np.isfinite(bnu), bnu, 0.0)
 
 
 def hydrogen_partition(temp):
     """Neutral-hydrogen partition function: sum of g_i exp(-E_i/kT) over the 6 tabulated levels."""
-    kt = KBOLTZ_EV * temp
+    kt = KBOLTZ_EV * temp                               # kT in eV
     U = np.zeros_like(temp)
-    for i in range(H_MAX_LEVEL):
+    for i in range(H_MAX_LEVEL):                        # Boltzmann sum over the tabulated levels
         U += H_STAT_WEIGHT[i] * np.exp(-H_ENERGY_EV[i] / kt)
     return U
-print("Gaunt factor, Planck function, and partition function ready")''')
+print("Planck function and partition function ready")''')
 
 # ── H- bound-free and free-free ──────────────────────────────────────────
 md(r"""## H$^-$ bound-free and free-free — the dominant absorber (~92%)
 
 Now the physics, beginning with the one that matters most — the same H$^-$ ion the first half built analytically, now read from its production table. At 500–510 nm in the Sun, H$^-$ supplies about **92% of the continuous absorption**. It has two channels.
 
-**Bound-free** ($\mathrm{H}^- + \gamma \to \mathrm{H} + e^-$): the photon detaches the loosely bound electron. The cross-section per H$^-$ ion is the table `HMINOP_BF` (in $10^{-18}$ cm$^2$) versus wavelength `HMINOP_WBF`, evaluated by `MAP1` — the tabulated counterpart of the John polynomial we used before. The number of H$^-$ ions per gram follows the **same Saha balance** we derived in the first half (the $0.754\ \mathrm{eV}$ detachment energy, the $2.4148\times10^{15}$ prefactor, the $n_e$ scaling), gathered into the prefactor
+**Bound-free** ($\mathrm{H}^- + \gamma \to \mathrm{H} + e^-$): the photon detaches the loosely bound electron. The cross-section per H$^-$ ion is the table `HMINOP_BF` (in $10^{-18}$ cm$^2$) versus wavelength `HMINOP_WBF`, evaluated by `MAP1` — the tabulated counterpart of the John polynomial we used before. The number of H$^-$ ions per gram follows the **same Saha balance** derived in the first half (the $0.754\ \mathrm{eV}$ detachment energy, the $2.4148\times10^{15}$ prefactor, the $n_e$ scaling), gathered into the prefactor
 
 $$
-n(\mathrm{H}^-) \propto \frac{e^{0.754209/kT_{\rm eV}}}{2\cdot 2.4148\times10^{15}\,T^{3/2}}\;b_{\rm min}\,b_{\rm H,1}\,n_{\rm H\,I,1}\,n_e ,
+n(\mathrm{H}^-) \propto \frac{e^{\chi/T_{\rm eV}}}{2\cdot 2.4148\times10^{15}\,T^{3/2}}\;b_{\rm min}\,b_{\rm H,1}\,n_{\rm H\,I,1}\,n_e ,\qquad \chi = 0.754209\ \mathrm{eV},
 $$
 
-with ground-state neutral H $n_{\rm H\,I,1}$, the electron density $n_e$, and the departure coefficients (unity here). The bound-free opacity carries the stimulated-emission factor $1 - e^{-h\nu/kT}/b_{\rm min}$.
+with $T_{\rm eV}=kT$ expressed in eV (matching `tkev` in the code), ground-state neutral H $n_{\rm H\,I,1}$, the electron density $n_e$, and the departure coefficients (unity here). The factor here is $2$ rather than the $4$ of the first half because the production code already starts from the *ground-state* neutral-H population $n_{\rm H\,I,1}$ (statistical weight $2$, absorbed into the $2$) rather than the stage total — the same physics, with the ground-state weight booked in a different place. The bound-free opacity carries the stimulated-emission factor $1 - e^{-h\nu/kT}/b_{\rm min}$.
 
 **Free-free** ($\mathrm{H} + e^- + \gamma \to \mathrm{H} + e^-$): a free electron passing a neutral H atom absorbs the photon. Its cross-section is the table `HMINOP_FFBEG`/`HMINOP_FFEND`, on a grid of `HMINOP_WAVEK` (wavelength) by `HMINOP_THETAFF` ($\theta = 5040/T$). We pre-build the log table once, then for each frequency interpolate first along wavelength (`linter`) for every $\theta$ column, then along $\theta$ for each layer's temperature — two nested linear interpolations.""")
 
@@ -595,9 +626,9 @@ code(r'''def hminus_opacity(freq, pops, ehvkt, stim, bnu):
     return h_bf + hminff''')
 
 # ── H I bound-free and free-free ──────────────────────────────────────────
-md(r"""## H I bound-free (Karsas + departure coefficients) and free-free (COULFF)
+md(r"""## H I bound-free (Karzas–Latter + departure coefficients) and free-free (COULFF)
 
-Neutral hydrogen itself absorbs in the continuum. Its **bound-free** opacity is a sum over the bound levels $n$: each level whose ionization threshold lies below the photon frequency contributes the Karsas cross-section `xkarsas` times its statistical weight $2n^2$ and Boltzmann factor $e^{-E_n h c/kT}$. The high levels ($n\ge 7$) are treated in LTE and carry the ordinary stimulated-emission factor; the low levels ($n\le 6$) carry the **departure-coefficient** form $b_n - e^{-h\nu/kT}$ instead, which reduces to the LTE factor when $b_n = 1$ (as here) but lets a non-LTE model differ. There is also a contribution from levels $n\ge 16$ summed analytically into the partition-function tail.
+Neutral hydrogen itself absorbs in the continuum. Its **bound-free** opacity is a sum over the bound levels $n$: each level whose ionization threshold lies below the photon frequency contributes the Karzas–Latter cross-section `xkarsas` times its statistical weight $2n^2$ and Boltzmann factor $e^{-E_n h c/kT}$. The high levels ($n\ge 7$) are treated in LTE and carry the ordinary stimulated-emission factor; the low levels ($n\le 6$) carry the **departure-coefficient** form $b_n - e^{-h\nu/kT}$ instead, which reduces to the LTE factor when $b_n = 1$ (as here) but lets a non-LTE model differ. There is also a contribution from levels $n\ge 16$ summed analytically into the partition-function tail.
 
 The **free-free** opacity ($\mathrm{H}^+ + e^- + \gamma$) is bremsstrahlung off protons, with the Coulomb Gaunt factor from `coulff`:
 
@@ -608,7 +639,7 @@ $$
 The bound levels and their thresholds (wavenumber, weight $2n^2$, energy) are the production code's `HOP_LEVELS` lists; the $n\le 6$ ones use the departure form.""")
 
 code(r'''# H I bf level thresholds: (n, threshold wavenumber [cm^-1], weight 2n^2, level energy [cm^-1])
-HOP_LEVELS = [
+HOP_LEVELS = [   # n=7..15: high levels, treated in LTE (stim factor)
     (15, 487.456, 450.0, 109191.313), (14, 559.579, 392.0, 109119.188),
     (13, 648.980, 338.0, 109029.789), (12, 761.649, 288.0, 108917.117),
     (11, 906.426, 242.0, 108772.336), (10, 1096.776, 200.0, 108581.992),
@@ -618,20 +649,23 @@ HOP_LEVELS_B = [   # n<=6: use departure coefficient (b - ehvkt) in place of the
     (6, 3046.604, 72.0, 106632.160), (5, 4387.113, 50.0, 105291.651),
     (4, 6854.871, 32.0, 102823.893), (3, 12186.462, 18.0, 97492.302),
     (2, 27419.659, 8.0, 82259.105)]
+print(f"{len(HOP_LEVELS) + len(HOP_LEVELS_B)} tabulated H I bound-free levels")''')
 
-def hydrogen_opacity(freq, pops, ehvkt, stim, bnu, hckt):
-    """H I bound-free (Karsas, summed over levels) + free-free (COULFF). cm^2/g per layer."""
+md(r"""The routine sums the bound-free over all levels whose threshold lies below the photon frequency: the $n\ge 16$ analytic tail first, then the tabulated $n=7\dots 15$ and $n\le 6$ levels (each `xkarsas` cross-section times its weight and Boltzmann factor), weights the sum by the ground-state H I density, and finally adds the proton free-free term scaled by the Coulomb Gaunt factor.""")
+
+code(r'''def hydrogen_opacity(freq, pops, ehvkt, stim, bnu, hckt):
+    """H I bound-free (Karzas-Latter, summed over levels) + free-free (COULFF). cm^2/g per layer."""
     temp = pops["temperature"]; rho = np.maximum(pops["mass_density"], 1e-30)
     xne = pops["electron_density"]; tlog = np.log(np.maximum(temp, 1e-10))
     xnfph1 = pops["xnfph"][:, 0]; xnfph2 = pops["xnfph"][:, 1]   # ground-state H I, H II
     n_layers = temp.size
-    f = freq; wno = f / C_LIGHT_CM
-    freq3 = 2.815e29 / (f*f*f)
-    # n >= 16 partition-function tail
+    f = freq; wno = f / C_LIGHT_CM                         # photon wavenumber [cm^-1]
+    freq3 = 2.815e29 / (f*f*f)                             # the nu^-3 bound-free scaling
+    # n >= 16 partition-function tail (the high levels merged into an analytic sum)
     h = freq3 * 2.0/2.0 / (RYDBERG_CM*hckt) * (
         np.exp(-np.maximum(109250.336, 109678.764 - wno)*hckt) - np.exp(-109678.764*hckt)) * stim
     for (n, thr, wt, e) in HOP_LEVELS:                     # n=7..15: LTE stim factor
-        if wno >= thr:
+        if wno >= thr:                                     # only levels above their threshold absorb
             h = h + xkarsas(f, 1.0, n, n) * wt * np.exp(-e*hckt) * stim
     for (n, thr, wt, e) in HOP_LEVELS_B:                   # n=2..6: departure form (b=1 here)
         if wno >= thr:
@@ -656,7 +690,8 @@ code(r'''FREQ_LYMAN = 3.288051e15; FREQ_STEP = 3.288051e13
 
 def rayleigh_G(f):
     """Gavrila polarisability factor G(nu) for H Rayleigh scattering (piecewise tables)."""
-    if f < FREQ_LYMAN * 0.01:
+    # the frequency axis is split into segments; each looks up its own table and interpolates linearly
+    if f < FREQ_LYMAN * 0.01:                              # far-IR: quadratic extrapolation of G
         return HRAYOP_GAVRILAM[0] * (f / FREQ_STEP)**2
     if f <= FREQ_LYMAN * 0.74:                             # the visible band (our window)
         i = int(f / FREQ_STEP); i = max(1, min(i + 1, 74))
@@ -664,32 +699,32 @@ def rayleigh_G(f):
         if i > 1:
             return HRAYOP_GAVRILAM[i-2] + (HRAYOP_GAVRILAM[i-1]-HRAYOP_GAVRILAM[i-2])/FREQ_STEP*(f-(i-1)*FREQ_STEP)
         return HRAYOP_GAVRILAM[0]
-    if f < FREQ_LYMAN * 0.755: return 15.57
-    if f <= FREQ_LYMAN * 0.885:
+    if f < FREQ_LYMAN * 0.755: return 15.57                # flat segment between tables
+    if f <= FREQ_LYMAN * 0.885:                            # near-UV segment AB
         step = 1.644026e13; i = max(1, min(int((f - FREQ_LYMAN*0.755)/step) + 2, 27))
         if i >= len(HRAYOP_GAVRILAMAB): i = len(HRAYOP_GAVRILAMAB) - 1
         if i > 1:
             f1 = FREQ_LYMAN*0.755 + (i - 2)*1.664026e13
             return HRAYOP_GAVRILAMAB[i-2] + (HRAYOP_GAVRILAMAB[i-1]-HRAYOP_GAVRILAMAB[i-2])/step*(f-f1)
         return HRAYOP_GAVRILAMAB[0]
-    if f < FREQ_LYMAN * 0.890: return 8.0
-    if f <= FREQ_LYMAN * 0.936:
+    if f < FREQ_LYMAN * 0.890: return 8.0                  # flat segment
+    if f <= FREQ_LYMAN * 0.936:                            # UV segment BC
         step = 0.657610e13; i = max(1, min(int((f - FREQ_LYMAN*0.890)/step) + 2, 24))
         if i >= len(HRAYOP_GAVRILAMBC): i = len(HRAYOP_GAVRILAMBC) - 1
         if i > 1:
             f1 = FREQ_LYMAN*0.890 + (i - 2)*step
             return HRAYOP_GAVRILAMBC[i-2] + (HRAYOP_GAVRILAMBC[i-1]-HRAYOP_GAVRILAMBC[i-2])/step*(f-f1)
         return HRAYOP_GAVRILAMBC[0]
-    if f < FREQ_LYMAN * 0.938: return 9.0
-    if f <= FREQ_LYMAN * 0.959:
+    if f < FREQ_LYMAN * 0.938: return 9.0                  # flat segment
+    if f <= FREQ_LYMAN * 0.959:                            # UV segment CD (up to the Lyman edge)
         step = 0.3288051e13; i = max(1, min(int((f - FREQ_LYMAN*0.938)/step) + 2, 22))
         if i >= len(HRAYOP_GAVRILAMCD): i = len(HRAYOP_GAVRILAMCD) - 1
         if i > 1:
             f1 = FREQ_LYMAN*0.938 + (i - 2)*step
             return HRAYOP_GAVRILAMCD[i-2] + (HRAYOP_GAVRILAMCD[i-1]-HRAYOP_GAVRILAMCD[i-2])/step*(f-f1)
         return HRAYOP_GAVRILAMCD[0]
-    if f <= FREQ_LYMAN: return HRAYOP_GAVRILALYMANCONT[0]
-    return map1(HRAYOP_FGAVRILALYMANCONT, HRAYOP_GAVRILALYMANCONT, np.array([f/FREQ_LYMAN]))[0]''')
+    if f <= FREQ_LYMAN: return HRAYOP_GAVRILALYMANCONT[0]  # at the Lyman edge
+    return map1(HRAYOP_FGAVRILALYMANCONT, HRAYOP_GAVRILALYMANCONT, np.array([f/FREQ_LYMAN]))[0]   # Lyman continuum (MAP1)''')
 
 code(r'''def scattering_opacity(freq, pops):
     """Rayleigh (Gavrila, off ground-state neutral H) + Thomson (off electrons). cm^2/g per layer."""
@@ -705,15 +740,24 @@ code(r'''def scattering_opacity(freq, pops):
 # ── sum to acont + sigmac ──────────────────────────────────────────────────
 md(r"""## Summing to the absorption and scattering coefficients
 
-The full engine adds a long tail of minor terms beyond the four above — the H$_2^+$ molecular ion, He$^-$ free-free, neutral He bound-free, and small bound-free edges of C I, Mg I, Al I, Si I, plus a hot-star (`HOTOP`) free-free term and an He/H$_2$ Rayleigh contribution. At 500–510 nm in the Sun every one of these is small (H$_2^+$ is the largest at $\sim$5%, the metals a few tenths of a percent, the rest negligible), but they are part of the sum and we include them so the total matches the reference exactly. They are evaluated here in a single ported routine — the same physics as the four terms above, each a cross-section times a population over $\rho$, gated by its threshold.
-
-The engine separates the result into two coefficients: the **absorption** coefficient
+The engine separates its result into two coefficients with different physics. The **absorption** coefficient
 
 $$
 \kappa^{\rm abs}_{\rm cont} = \kappa_{\rm H^-} + \kappa_{\rm H\,I} + \kappa_{\rm H_2^+} + \kappa_{\rm He} + \kappa_{\rm metals} + \kappa_{\rm hot},
 $$
 
-which thermalises photons ($S = B$), and the **scattering** coefficient $\kappa^{\rm scat}_{\rm cont} = \sigma_{\rm Rayleigh} + \sigma_{\rm Thomson} + \sigma_{\rm He,Ray} + \sigma_{\rm H_2,Ray}$, which redirects them. The transfer solver treats the two differently, so the engine keeps them apart from the start.""")
+where $\kappa_{\rm metals}$ is itself the sum of the C I, Mg I, Al I, and Si I bound-free edges plus the Si II Peach-table opacity (`LUKEOP`) evaluated below — the prose and code split these out term by term, but the equation lumps them. This whole coefficient thermalises photons ($S = B$). The **scattering** coefficient $\kappa^{\rm scat}_{\rm cont} = \sigma_{\rm Rayleigh} + \sigma_{\rm Thomson} + \sigma_{\rm He,Ray} + \sigma_{\rm H_2,Ray}$ instead redirects them. The transfer solver treats the two differently, so the engine keeps them apart from the start.""")
+
+md(r"""### The minor absorbers, in one routine
+
+Beyond H$^-$ and H I, a long tail of small sources completes the sum. Each is small at 500–510 nm but real, so the engine evaluates every one; we port them together into `minor_terms`, since each follows the same template (a cross-section times a population over $\rho$, gated by a threshold wavenumber). The terms, with the physical interaction each represents and why it is small in the solar optical:
+
+- **H$_2^+$** — bound-free + free-free of the transient H + H$^+$ quasi-molecule; the largest of the minor terms ($\sim$5%) because molecular hydrogen ions are not vanishingly rare in the cool photosphere.
+- **He$^-$ free-free** — a free electron absorbing near a neutral He atom; tiny because the cross-section is small and He is mostly a spectator at these temperatures.
+- **C I, Mg I, Al I, Si I bound-free edges** — photoionization of trace metals; each contributes a few tenths of a percent at most, and only the edges that lie blueward of our window are active. (C I's nearest edge sits outside the window, so it adds only a numerical floor here.)
+- **He Rayleigh + H$_2$ Rayleigh** — scattering off neutral He and molecular H$_2$; small additions to the *scattering* coefficient, returned separately.
+
+The routine returns the minor absorption and the minor scattering as two arrays.""")
 
 code(r'''# the minor absorbers + the He/H2 Rayleigh terms, ported as one routine (each a cross-section
 # x population / rho, gated by threshold).  Small at 500-510 nm but part of the exact sum.
@@ -721,21 +765,21 @@ def minor_terms(freq, pops, ehvkt, stim, bnu, hckt):
     temp = pops["temperature"]; rho = np.maximum(pops["mass_density"], 1e-30)
     xne = pops["electron_density"]; tkev = temp*KBOLTZ_EV; tlog = np.log(np.maximum(temp, 1e-10))
     xnfph1 = pops["xnfph"][:, 0]; xnfph2 = pops["xnfph"][:, 1]
-    n_layers = temp.size; f = freq; wno = f/C_LIGHT_CM
+    n_layers = temp.size; f = freq; wno = f/C_LIGHT_CM     # photon wavenumber [cm^-1]
     abs_minor = np.zeros(n_layers); scat_minor = np.zeros(n_layers)
-    bhyd1 = np.ones(n_layers)
+    bhyd1 = np.ones(n_layers)                              # departure coefficient (=1 in LTE)
     # H2+ molecular ion (bound-free + free-free of the H + H+ quasi-molecule)
     if f <= 3.28805e15:
         freqlg = np.log(f); freq15 = f/1.0e15
-        fr = -3.0233e3 + (3.7797e2 + (-1.82496e1 + (3.9207e-1 - 3.1672e-3*freqlg)*freqlg)*freqlg)*freqlg
-        es = -7.342e-3 + (-2.409e0 + (1.028e0 + (-4.230e-1 + (1.224e-1 - 1.351e-2*freq15)*freq15)*freq15)*freq15)*freq15
-        abs_minor += (np.exp(-es/tkev + fr + np.log(np.maximum(xnfph1, 1e-40)))
+        fr = -3.0233e3 + (3.7797e2 + (-1.82496e1 + (3.9207e-1 - 3.1672e-3*freqlg)*freqlg)*freqlg)*freqlg   # log cross-section
+        es = -7.342e-3 + (-2.409e0 + (1.028e0 + (-4.230e-1 + (1.224e-1 - 1.351e-2*freq15)*freq15)*freq15)*freq15)*freq15   # binding energy fit
+        abs_minor += (np.exp(-es/tkev + fr + np.log(np.maximum(xnfph1, 1e-40)))   # weighted by H I x H II
                       * 2.0*bhyd1*xnfph2/rho*stim)
-    # He- free-free
+    # He- free-free: three frequency-dependent coefficients (a,b,c) of a temperature polynomial
     ac = 3.397e-01 + (-5.216e14 + 7.039e30/f)/f
     bc = -4.116e03 + (1.067e19 + 8.135e34/f)/f
     cc = 5.081e08 + (-8.724e22 - 5.659e37/f)/f
-    abs_minor += (ac*temp + bc + cc/temp)/1.0e15 * xne/1.0e15 * pops["he1_mode12"]/1.0e15 / rho
+    abs_minor += (ac*temp + bc + cc/temp)/1.0e15 * xne/1.0e15 * pops["he1_mode12"]/1.0e15 / rho   # x n_e x He I
     # C I, Mg I, Al I, Si I bound-free edges (each: cross-section x pop / rho).  The engine
     # seeds each metal with a 1e-30 floor before adding its active edges; C I's nearest edge
     # (22006 cm^-1) is blueward of our window, so C I contributes only that tiny floor here.
@@ -743,18 +787,19 @@ def minor_terms(freq, pops, ehvkt, stim, bnu, hckt):
     if wno >= 22006.370:                                   # C I 2P 1D edge (inactive at 500-510 nm)
         c1 += 2.1e-18*(22006.370/wno)**1.5 * 3.0*np.exp(-68856.33*hckt)*stim
     abs_minor += c1 * pops["xnfpc"][:, 0]/rho
+    # Mg I edges: (threshold wavenumber, cross-section, power, weight, level energy)
     MG1 = [(13713.986, 25e-18, 2.7, 15.0, 47957.034), (13823.223, 33.8e-18, 2.8, 9.0, 47847.797),
            (15267.955, 45e-18, 2.7, 5.0, 46403.065), (18167.687, 0.43e-18, 2.6, 1.0, 43503.333),
            (20473.617, 2.1e-18, 2.6, 3.0, 41197.043)]
     mg = 1e-30 * np.ones(n_layers)
-    for (thr, c0, p0, g, e) in MG1:
+    for (thr, c0, p0, g, e) in MG1:                        # each edge above threshold adds a power-law tail
         if wno >= thr:
             mg += c0*(thr/wno)**p0 * g*np.exp(-e*hckt)*stim
     abs_minor += mg * pops["xnfpmg"]/rho
-    AL1 = [(8002.467, 50e-18, 3, 6.0, 40275.903), (9346.231, 50e-18, 3, 10.0, 38932.139),
+    AL1 = [(8002.467, 50e-18, 3, 6.0, 40275.903), (9346.231, 50e-18, 3, 10.0, 38932.139),   # Al I edges
            (10588.957, 56.7e-18, 1.9, 2.0, 37689.413), (15318.007, 14.5e-18, 1, 6.0, 32960.363),
            (15842.129, 47e-18, 1.83, 10.0, 32436.241)]
-    al = 1e-30 * np.ones(n_layers); bal2 = np.exp(-48278.37*hckt)
+    al = 1e-30 * np.ones(n_layers); bal2 = np.exp(-48278.37*hckt)   # Al ground-state departure factor
     for (thr, c0, p0, g, e) in AL1:
         if wno >= thr:
             al += c0*(thr/wno)**p0 * g*np.exp(-e*hckt)*(1.0 - bal2*ehvkt)
@@ -764,13 +809,13 @@ def minor_terms(freq, pops, ehvkt, stim, bnu, hckt):
         si += 18e-18*(17777.641/wno)**3 * 15.0*np.exp(-48161.459*hckt)*(1.0 - ehvkt)
     abs_minor += si * pops["xnfpsi"]/rho
     # He Rayleigh + H2 Rayleigh scattering (small additions to the scattering coefficient)
-    wave_he = 2.99792458e18/min(f, 5.15e15); ww = wave_he**2
-    sig_he = 5.484e-14/(ww*ww)*(1.0 + (2.44e5 + 5.94e10/max(ww - 2.90e5, 1e-10))/ww)**2
+    wave_he = 2.99792458e18/min(f, 5.15e15); ww = wave_he**2   # capped wavelength^2 for the He fit
+    sig_he = 5.484e-14/(ww*ww)*(1.0 + (2.44e5 + 5.94e10/max(ww - 2.90e5, 1e-10))/ww)**2   # He Rayleigh cross-section
     scat_minor += sig_he * pops["he1_mode12"]/rho
-    poly_T = (1.63660e-3 + (-4.93992e-7 + (1.11822e-10 + (-1.49567e-14 + (1.06206e-18 - 3.08720e-23*temp)*temp)*temp)*temp)*temp)*temp
-    xnh2 = (pops["xnf_h"]/hydrogen_partition(temp)*2.0*bhyd1)**2 * np.exp(np.clip(4.478/tkev - 4.64584e1 + poly_T - 1.5*tlog, -100, 100))/rho
+    poly_T = (1.63660e-3 + (-4.93992e-7 + (1.11822e-10 + (-1.49567e-14 + (1.06206e-18 - 3.08720e-23*temp)*temp)*temp)*temp)*temp)*temp   # H2 formation temperature polynomial
+    xnh2 = (pops["xnf_h"]/hydrogen_partition(temp)*2.0*bhyd1)**2 * np.exp(np.clip(4.478/tkev - 4.64584e1 + poly_T - 1.5*tlog, -100, 100))/rho   # H2 number density from the Saha-like balance
     wave_h2 = 2.99792458e18/min(f, 2.922e15); ww2 = wave_h2**2
-    scat_minor += (8.14e-13 + 1.28e-6/ww2 + 1.61/(ww2*ww2))/(ww2*ww2) * xnh2
+    scat_minor += (8.14e-13 + 1.28e-6/ww2 + 1.61/(ww2*ww2))/(ww2*ww2) * xnh2   # H2 Rayleigh cross-section x n_H2
     return abs_minor, scat_minor''')
 
 md(r"""## The helium continuum and the hot-star term
@@ -785,26 +830,26 @@ We add the Si II Peach-table lookup, then evaluate all four terms.""")
 code(r'''def si2op(freq, freqlg, temp, tlog):
     """Si II opacity from the Peach tables (cross-section x partition, per layer)."""
     n_layers = temp.size
-    nt = np.clip((temp/2000.0).astype(int) - 4, 1, 5)
-    dt = (tlog - _SI2OP_TLG[nt - 1]) / (_SI2OP_TLG[nt] - _SI2OP_TLG[nt - 1])
+    nt = np.clip((temp/2000.0).astype(int) - 4, 1, 5)         # bracketing temperature row
+    dt = (tlog - _SI2OP_TLG[nt - 1]) / (_SI2OP_TLG[nt] - _SI2OP_TLG[nt - 1])   # temperature weight
     n = 0
-    for i in range(7):
+    for i in range(7):                                        # locate the frequency band
         if freq > _SI2OP_FREQSI[i]:
             n = i + 1; break
     else:
         n = 8
-    d = ((freqlg - _SI2OP_FLOG[n-1]) / (_SI2OP_FLOG[n] - _SI2OP_FLOG[n-1]) if 0 < n < 9 else 0.0)
+    d = ((freqlg - _SI2OP_FLOG[n-1]) / (_SI2OP_FLOG[n] - _SI2OP_FLOG[n-1]) if 0 < n < 9 else 0.0)   # freq weight
     if n > 2: n = 2*n - 2
     n = min(n, 13); d1 = 1.0 - d
-    if n < 14:
+    if n < 14:                                                # interpolate the cross-section in frequency
         x = _SI2OP_PEACH[n]*d + _SI2OP_PEACH[n-1]*d1 if n > 0 else _SI2OP_PEACH[0]
     else:
         x = _SI2OP_PEACH[13]
     result = np.zeros(n_layers)
-    for jl in range(n_layers):
+    for jl in range(n_layers):                                # then interpolate in temperature, per layer
         nj = nt[jl] - 1
         val = x[nj]*(1.0 - dt[jl]) + x[nj+1]*dt[jl] if nj < 5 else x[5]
-        result[jl] = np.exp(val) * 6.0
+        result[jl] = np.exp(val) * 6.0                        # exp() back from log, x6 partition factor
     return result''')
 
 code(r'''# He I bound-free levels grouped by principal quantum number n (threshold wavenumber, weight,
@@ -821,23 +866,26 @@ HE1_N3 = [(12101.289,(58.81,-2.89),3.0,186209.471,10),(12205.695,(85.20,-3.69),5
           (13445.824,(23.85,-1.86),1.0,184864.936,6),(15073.868,(12.69,-1.54),3.0,183236.892,5)]
 HE1_N2 = [(27175.760,(81.35,-3.5),3.0,171135.000,4),(29223.753,(61.21,-2.9),9.0,169087.007,3),
           (32033.214,(26.83,-1.91),1.0,166277.546,2)]
+print(f"{len(HE1_N5+HE1_N4+HE1_N3+HE1_N2)} He I bound-free levels tabulated")''')
 
-def helium_opacity(freq, pops, ehvkt, stim, hckt):
+md(r"""`helium_opacity` mirrors `hydrogen_opacity` for both ionization stages. The neutral-helium part (`HE1OP`) sums the bound-free over the He I levels above threshold — the $n=5,4$ groups with a simple $\nu^{-3}$ cross-section, the $n=3,2$ groups with their own fitted polynomial — then adds a Coulomb free-free term; the result is weighted by the He I population (mode-11). The ionised-helium part (`HE2OP`) does the same over the He II levels (defined inline), weighted by He II. The He I free-free is weighted by the He II population in the production code's mode-11 convention — the convention that built the reference — which only changes the result in the deepest, hottest layers.""")
+
+code(r'''def helium_opacity(freq, pops, ehvkt, stim, hckt):
     """He I + He II bound-free (summed over levels) + Coulomb free-free. cm^2/g per layer."""
     temp = pops["temperature"]; rho = np.maximum(pops["mass_density"], 1e-30)
     xne = pops["electron_density"]; tlog = np.log(np.maximum(temp, 1e-10))
     n_layers = temp.size; f = freq; wno = f/C_LIGHT_CM; freqlg = np.log(f)
-    freq3 = 2.815e29 / (f*f*f)
+    freq3 = 2.815e29 / (f*f*f)                              # the nu^-3 bound-free scaling
     one = np.ones(n_layers)                                 # all departure coefficients = 1 (LTE)
-    # ── HE1OP ── (neutral helium)
+    # ── HE1OP ── (neutral helium): high-level analytic tail, then the tabulated levels
     rydberg_he = 109722.267
     h = (freq3*4.0/2.0/(rydberg_he*hckt)
          * (np.exp(-np.maximum(195262.919, 198310.76 - wno)*hckt) - np.exp(-198310.76*hckt))*stim*one)
-    for (thr, g, e, bi) in HE1_N5 + HE1_N4:
-        if wno >= thr:
+    for (thr, g, e, bi) in HE1_N5 + HE1_N4:                 # n=5,4: simple nu^-3 cross-section
+        if wno >= thr:                                     # only above the level's threshold
             x = freq3 / (3125.0 if bi >= 19 else 1024.0)
             h = h + x*g*np.exp(-e*hckt)*(one - one*ehvkt)
-    for (thr, cf, g, e, bi) in HE1_N3 + HE1_N2:
+    for (thr, cf, g, e, bi) in HE1_N3 + HE1_N2:            # n=3,2: own fitted cross-section polynomial
         if wno >= thr:
             x = np.exp(cf[0] + cf[1]*freqlg)
             h = h + x*g*np.exp(-e*hckt)*(one - one*ehvkt)
@@ -846,10 +894,10 @@ def helium_opacity(freq, pops, ehvkt, stim, hckt):
     if wno >= 198310.760:                                   # 1S 1S (far-UV)
         h = h + np.exp(33.32 - 2.0*freqlg)*(one - one*ehvkt)
     h = h * pops["he1_mode11"] / rho                        # weighted by He I (mode-11)
-    cff = coulff(1, f, freqlg, temp, tlog)
+    cff = coulff(1, f, freqlg, temp, tlog)                  # Coulomb Gaunt factor for the ff term
     # free-free weighted by He II (mode-11): the reference convention; matters only in deep hot layers
     ahe1 = h + 3.619e8/np.sqrt(temp)*cff/f*xne/f*pops["he2_mode11"]/f*stim/rho
-    # ── HE2OP ── (ionised helium)
+    # ── HE2OP ── (ionised helium): same structure over the He II levels (defined inline)
     rydberg_he2 = 438889.068; xnfprho = pops["he2_mode11"]/rho
     HE2_LEVELS = [(5418.390,162.0,433490.46,59049.0),(6857.660,128.0,432051.19,32768.0),(8956.950,98.0,429951.90,16807.0)]
     HE2_B = [(12191.437,72.0,426717.413,7776.0,(1.0986,-2.704e13,1.229e27)),
@@ -858,17 +906,17 @@ def helium_opacity(freq, pops, ehvkt, stim, hckt):
              (48766.491,18.0,390142.359,243.0,(1.101,-9.863e13,1.035e28)),
              (109726.529,8.0,329182.321,32.0,(1.105,-2.375e14,4.077e28)),
              (438908.850,2.0,0.0,1.0,(0.9916,2.719e13,-2.268e30))]
-    h2 = (freq3*16.0*2.0/2.0/(rydberg_he2*hckt)
+    h2 = (freq3*16.0*2.0/2.0/(rydberg_he2*hckt)             # high-level analytic tail (Z=2 -> factor 16)
           * (np.exp(-np.maximum(434519.959, 438908.85 - wno)*hckt) - np.exp(-438908.85*hckt))*stim*xnfprho)
-    for (thr, wt, e, div) in HE2_LEVELS:
+    for (thr, wt, e, div) in HE2_LEVELS:                    # simple-cross-section levels
         if wno >= thr:
             h2 = h2 + freq3*16.0/div*wt*np.exp(-e*hckt)*stim*xnfprho
-    for (thr, wt, e, div, poly) in HE2_B:
+    for (thr, wt, e, div, poly) in HE2_B:                   # levels with a fitted polynomial correction
         if wno >= thr:
             x = freq3*16.0/div*(poly[0] + (poly[1] + poly[2]/f)/f)
             fac = (one - ehvkt) if e == 0.0 else np.exp(-e*hckt)*(one - ehvkt)
             h2 = h2 + x*wt*fac*xnfprho
-    cff2 = coulff(2, f, np.log(f), temp, tlog)
+    cff2 = coulff(2, f, np.log(f), temp, tlog)              # ff Gaunt factor for charge Z=2
     ahe2 = h2 + 3.6919e8*4.0/np.sqrt(temp)*cff2/f*xne/f*pops["he3_mode11"]/f*stim/rho
     return ahe1, ahe2''')
 
@@ -899,29 +947,35 @@ code(r'''def hot_and_si2(freq, pops, stim, tkev, tlog):
     aluke = si2op(f, freqlg, temp, tlog) * pops["xnfpsi2"] * stim / rho
     return ahot, aluke''')
 
+md(r"""## Assembling the engine: one driver over the sample frequencies
+
+`compute_continuum` is the engine's outer loop. For each sample frequency it computes the per-layer factors once ($e^{-h\nu/kT}$, the stimulated-emission factor, the Planck function), then calls every term we built — H$^-$, H I, the minor absorbers, helium, the hot-star and Si II terms, and the two scattering terms — and sums them into the **absorption** array `acont` and the **scattering** array `sigmac`. Each column is one frequency.""")
+
 code(r'''def compute_continuum(freqs, pops):
     """Evaluate the absorption and scattering coefficients at each frequency. (n_layers, nfreq)."""
     temp = pops["temperature"]; nfreq = freqs.size; n_layers = temp.size
     acont = np.zeros((n_layers, nfreq)); sigmac = np.zeros((n_layers, nfreq))
-    hckt = H_PLANCK / (K_BOLTZ*temp) * C_LIGHT_CM
+    hckt = H_PLANCK / (K_BOLTZ*temp) * C_LIGHT_CM            # h*c/kT, per layer
     tkev = temp * KBOLTZ_EV; tlog = np.log(np.maximum(temp, 1e-10))
     for j, f in enumerate(freqs):
         ehvkt = np.exp(-H_PLANCK*f / (K_BOLTZ*temp))       # exp(-h*nu/kT), per layer
         stim = 1.0 - ehvkt                                  # stimulated-emission factor
-        bnu = planck_nu(f, temp)
+        bnu = planck_nu(f, temp)                            # Planck function (carried for interface)
         a = hminus_opacity(f, pops, ehvkt, stim, bnu)       # H- bf + ff (the ~92% term)
         a = a + hydrogen_opacity(f, pops, ehvkt, stim, bnu, hckt)   # H I bf + ff
         a_min, s_min = minor_terms(f, pops, ehvkt, stim, bnu, hckt) # H2+, He-, metals, He/H2 Rayleigh
         a = a + a_min
         ahe1, ahe2 = helium_opacity(f, pops, ehvkt, stim, hckt)     # He I + He II bf + ff
         ahot, aluke = hot_and_si2(f, pops, stim, tkev, tlog)        # hot-star term + Si II
-        a = a + ahe1 + ahe2 + ahot + aluke
+        a = a + ahe1 + ahe2 + ahot + aluke                  # total absorption at this frequency
         sigh, sigel = scattering_opacity(f, pops)           # H Rayleigh + Thomson
         acont[:, j] = a
-        sigmac[:, j] = sigh + sigel + s_min
-    return acont, sigmac
+        sigmac[:, j] = sigh + sigel + s_min                 # total scattering at this frequency
+    return acont, sigmac''')
 
-# evaluate the engine at the three sample frequencies of the edge interval our window uses
+md(r"""Now run it — but only on the three sample frequencies of the single edge interval our 500–510 nm window falls in (the engine evaluates the whole continuum, but we need just this triplet here).""")
+
+code(r'''# evaluate the engine at the three sample frequencies of the edge interval our window uses
 sel = np.concatenate([[3*e, 3*e + 1, 3*e + 2] for e in used_edges])
 acont_sel, sigmac_sel = compute_continuum(freqset[sel], pops)
 print(f"evaluated the engine at {sel.size} sample frequencies (1 edge triplet)")
@@ -970,30 +1024,33 @@ c_2 = \frac{2(\lambda_{\rm left}-\lambda)(\lambda-\lambda_{\rm right})}{\Delta},
 c_3 = \frac{(\lambda-\lambda_{\rm left})(\lambda-\lambda_{\rm half})}{\Delta},
 $$
 
-with $\Delta$ the node-spacing normaliser stored per edge (`delta_edge`). Finally we raise $10$ to the result. The node wavelengths and $\Delta$ are precomputed per edge by the production code and shipped as `wledge`, `half_edge`, `delta_edge`. Build the per-edge $\log_{10}$ coefficients, then interpolate to the synthesis grid.""")
+with $\Delta$ the node-spacing normaliser stored per edge (`delta_edge`). The factor of $2$ in $c_2$ is not an extra term: $\Delta$ absorbs the standard Lagrange denominators, including the factor of $2$ that comes from the half-point sitting at the midpoint between the two edges, so the three coefficients share one common $\Delta$. Finally we raise $10$ to the result. The node wavelengths and $\Delta$ are precomputed per edge by the production code and shipped as `wledge`, `half_edge`, `delta_edge`. Build the per-edge $\log_{10}$ coefficients, then interpolate to the synthesis grid.""")
 
-code(r'''half_edge = A["half_edge"]; delta_edge = A["delta_edge"]
+code(r'''half_edge = A["half_edge"]; delta_edge = A["delta_edge"]   # half-point wavelengths and Lagrange normaliser
 
 # store log10(opacity) at the three samples, per edge (only the used edge is filled here)
 cabs_coeff = np.zeros((n_layers, wledge.size - 1, 3))
 cscat_coeff = np.zeros((n_layers, wledge.size - 1, 3))
 for k, e in enumerate(used_edges):
-    cabs_coeff[:, e, :]  = np.log10(np.maximum(acont_sel[:, 3*k:3*k + 3], 1e-30))
+    cabs_coeff[:, e, :]  = np.log10(np.maximum(acont_sel[:, 3*k:3*k + 3], 1e-30))    # log interpolates the steep nu-dependence well
     cscat_coeff[:, e, :] = np.log10(np.maximum(sigmac_sel[:, 3*k:3*k + 3], 1e-30))
+print("stored log10(opacity) at the three edge samples")''')
 
-absorption = np.zeros((n_layers, wlk.size))
+md(r"""Now reconstruct the opacity at each synthesis wavelength. For every edge interval we build the three Lagrange basis coefficients from the node wavelengths, take the dot product with the stored $\log_{10}\kappa$ samples (broadcast over all layers at once), and raise $10$ to the result to return to the opacity.""")
+
+code(r'''absorption = np.zeros((n_layers, wlk.size))
 scattering = np.zeros((n_layers, wlk.size))
 for e in range(wledge.size - 1):
-    m = edge_idx == e
+    m = edge_idx == e                                       # the synthesis wavelengths in this edge
     if not np.any(m):
         continue
-    w = wlk[m]; wl_l = wledge[e]; wl_r = wledge[e + 1]
+    w = wlk[m]; wl_l = wledge[e]; wl_r = wledge[e + 1]      # the wavelengths and the two edge nodes
     half = half_edge[e]; delta = delta_edge[e] if delta_edge[e] != 0.0 else 1e-20
     c1 = (w - half)*(w - wl_r) / delta                      # Lagrange basis on the 3 node wavelengths
-    c2 = (wl_l - w)*(w - wl_r) * 2.0 / delta
+    c2 = (wl_l - w)*(w - wl_r) * 2.0 / delta                # (the 2 here is folded into delta, see above)
     c3 = (w - wl_l)*(w - half) / delta
     la = (cabs_coeff[:, e, 0][:, None]*c1[None, :] + cabs_coeff[:, e, 1][:, None]*c2[None, :]
-          + cabs_coeff[:, e, 2][:, None]*c3[None, :])
+          + cabs_coeff[:, e, 2][:, None]*c3[None, :])       # log10 kappa(lambda), all layers
     ls = (cscat_coeff[:, e, 0][:, None]*c1[None, :] + cscat_coeff[:, e, 1][:, None]*c2[None, :]
           + cscat_coeff[:, e, 2][:, None]*c3[None, :])
     absorption[:, m] = 10.0**la                             # back from log10 to the opacity
@@ -1034,8 +1091,11 @@ code(r'''layer_p = int(np.argmin(np.abs(Tk - 6400.0)))            # a photospher
 analytic_total = (kappa_Hminus + kappa_scat)              # (L3 layers, L3 wl), from the physics half
 la3 = int(np.argmin(np.abs(REF["T"] - Tk[layer_p])))      # matching layer in the analytic (L3) grid
 analytic_p = np.interp(wlk, wl, analytic_total[la3])      # onto the engine wavelength grid
+print(f"comparing the two builds at T = {Tk[layer_p]:.0f} K")''')
 
-fig, (ax, axr) = plt.subplots(2, 1, figsize=(11, 5.6), sharex=True,
+md(r"""Plot all three on a log opacity axis, with a residual panel below showing each build's relative difference from the reference.""")
+
+code(r'''fig, (ax, axr) = plt.subplots(2, 1, figsize=(11, 5.6), sharex=True,
                               gridspec_kw={"height_ratios": [3, 1]})
 ref_tot = cabs_ref[layer_p] + cscat_ref[layer_p]
 exact_tot = absorption[layer_p] + scattering[layer_p]
@@ -1062,7 +1122,7 @@ md(r"""## Synthesis: what you built and where it goes
 
 You turned the equation of state into an opacity, twice. The first half built the **physics**: the visible continuum of a cool star is carried by the **H$^-$ ion**, whose abundance you computed from a Saha balance with $\chi=0.754\ \mathrm{eV}$ and whose **bound-free and free-free** absorption you evaluated with the John (1988) analytic fits, reproducing the reference to a few percent; the photospheric **scattering** is Rayleigh off neutral hydrogen, not Thomson, and only a percent-level floor.
 
-The second half supplied the **engine**. Replacing each analytic fit with a direct evaluation of the production cross-section table — H$^-$ bound-free by `MAP1`, H$^-$ free-free by two nested linear interpolations, H I by the Karsas tables and the Coulomb Gaunt factor, Rayleigh by the Gavrila $G^2$ tables, Thomson by the classical electron cross-section, and the minor absorbers each by its own gated cross-section — and stitching the result together with the engine's edge-triplet grid and 3-point Lagrange interpolation, the continuum reproduces the reference to **machine precision** through the entire photosphere. The $\sim$2.4% gap of the analytic half is exactly the detail those tables carry.
+The second half supplied the **engine**. Replacing each analytic fit with a direct evaluation of the production cross-section table — H$^-$ bound-free by `MAP1`, H$^-$ free-free by two nested linear interpolations, H I by the Karzas–Latter tables and the Coulomb Gaunt factor, Rayleigh by the Gavrila $G^2$ tables, Thomson by the classical electron cross-section, and the minor absorbers each by its own gated cross-section — and stitching the result together with the engine's edge-triplet grid and 3-point Lagrange interpolation, the continuum reproduces the reference to **machine precision** through the entire photosphere. The $\sim$2.4% gap of the analytic half is exactly the detail those tables carry.
 
 This smooth continuum is the canvas, now exact. In Lecture 4 we paint the first spectral line onto it — a sharp, deep spike of extra opacity at one wavelength — and learn the profile that every line shares.""")
 
@@ -1072,7 +1132,7 @@ md(r"""## Summary
 - **H$^-$** dominates the visible continuum of cool stars; its density follows a Saha balance with $\chi=0.754\ \mathrm{eV}$ and scales with $n_e$ — the same population both halves use.
 - The **John (1988)** bound-free and free-free fits, with Rayleigh ($\propto\lambda^{-4}$) and Thomson scattering, reproduce the reference continuum to a few percent — the right level for intuition.
 - The production engine instead evaluates each source from a **tabulated cross-section**, samples **three frequencies per continuum edge interval**, and reconstructs $\log_{10}\kappa(\lambda)$ by a **3-point Lagrange parabola**.
-- **H$^-$** supplies $\sim$92% of the absorption (bound-free by `MAP1`, free-free by two nested linear interps); **H I** (Karsas + COULFF) and the minor terms (H$_2^+$, He, C/Mg/Al/Si edges) make up the rest; **scattering** is Rayleigh off H I (Gavrila $G^2$, $\sim$63%) plus grey Thomson ($\sim$36%), kept separate.
+- **H$^-$** supplies $\sim$92% of the absorption (bound-free by `MAP1`, free-free by two nested linear interps); **H I** (Karzas–Latter + COULFF) and the minor terms (H$_2^+$, He, C/Mg/Al/Si edges) make up the rest; **scattering** is Rayleigh off H I (Gavrila $G^2$, $\sim$63%) plus grey Thomson ($\sim$36%), kept separate.
 - The rebuilt engine reproduces the reference continuum to a **median of exactly zero** and is **machine-precise across the photosphere** ($T<8000\,$K); the one larger residual ($9\times10^{-5}$) lives in the deep hot layers below the photosphere and reflects a known change in the reference's high-$T$ He I free-free formula, not a porting error.""")
 
 md(r"""## Practice exercises
