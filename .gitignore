@@ -9,3 +9,4 @@ reference/*.log
 /tmp/
 # internal LLM-critic QA output, not book content
 _pipeline/critic_reports/
+_pipeline/_proof_mol_numba.py

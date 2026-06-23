@@ -18,9 +18,11 @@ bite-size cells, ~30–44% comments, implementation-explaining markdown, GPT-5.5
 critic applied, redundancy trimmed (content map), no boxed equations, schematics s1–s10 embedded,
 benchmarks byte-identical, numpy/matplotlib/pathlib only. Pages deploys via GitHub Actions workflow
 (legacy Jekyll builder was failing) — site + all images live.
-**NEXT: Part V — L12 Molecular Equilibrium & Molecular Bands (NEEDS pykurucz scripts/download_data.py
-~5GB; FLAG/confirm before fetching), L13 capstone + lean-pykurucz 4-star HR test (end-to-end
-~identical to pykurucz; also needs the line/molecular data for non-solar stars + broader wavelength).**
+**RESUME POINT (2026-06-23, after a subagent SESSION LIMIT killed 3 agents mid-work; subagent budget resets 10:50pm Europe/Berlin). Repo is STABLE (all committed lectures build clean); the dead agents' partial work is assessed below.** ~5GB pykurucz data IS downloaded (data/molecules/ TiO etc. + data/lines/gfpred29dec2014.bin).
+Three PENDING items, each needs a (re)launched agent or main-loop work:
+1. **L10/L11 deep decomposition — PENDING.** Adjacency fix is committed (add524b: 0 code→code adjacencies, benchmarks byte-identical) BUT the long engine functions are NOT yet refactored: L10 largest cell ~42 lines, L11 ~64/58. TODO: refactor josh_profiles/map1/ttaup/convec/Newton-loop into named helpers by PURE EXTRACTION (bit-exact: L10 T 1.06e-9/RHOX 1.54e-5; L11 FLXCNV 2.41e-10/T 1.57e-9), each helper its own cell + markdown; irreducible tight loops stay whole + walkthrough.
+2. **L12 Molecular Equilibrium & Bands — reference+verifier DONE, lecture NOT built, NOT yet machine precision.** On disk (UNCOMMITTED): reference/{diag_tio.npz, m3500g50.atm, m3500g50.npz, mol_lines_tio.npz, molecules.dat, diag_atomic.npz, m3500_*.spec} + _pipeline/{verify_molecules.py, make_molecules_reference.py, _proof_mol_numba.py}. Cool M-dwarf Teff3500/logg5, 705-718nm TiO bandhead, 1.17M molecular lines. `verify_molecules.py` result: molecular EQUILIBRIUM works; band opacity median 4.35e-16 (bit-exact) but MAX 9.37e-3 at a subset of lines; spectrum median 3.9e-4. TODO: debug the max-9.37e-3 subset to machine precision (like the atomic-line work — likely a wing-cutoff / isotopologue / specific-molecule-subset difference), THEN build build_lecture12.py (Part V, key 12) reusing the book's Voigt+JOSH; register build.py/book-data.js/index.html.
+3. **L13 capstone + lean-pykurucz 4-star HR test — NOT started.** End-to-end ~identical to pykurucz + a lean-kurucz assembled from lecture components, run on 4 HR-diagram stars (now unblocked: gfpred line-blanketing present).
 - Repo (PRIVATE): https://github.com/tingyuansen/stellar-spectroscopy-from-scratch  (branch main; latest pushed each lecture)
 - Public Pages: https://tingyuansen.github.io/stellar-spectroscopy-from-scratch/  (Pages works on this private repo)
 - git: book repo is now under version control. `.gitignore` excludes .venv/node_modules; the
