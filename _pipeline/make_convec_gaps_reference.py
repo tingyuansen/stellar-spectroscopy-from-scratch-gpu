@@ -233,6 +233,21 @@ def main() -> int:
     from atlas_py.physics.pfground import _get_pftab
     pftab = np.ascontiguousarray(_get_pftab(), dtype=np.float64)
 
+    # special-partition level energies [cm^-1] and statistical weights g (ATLAS DATA
+    # blocks): the light elements ATLAS sums level-by-level.  These are atomic DATA,
+    # shipped in the inputs file so the Lecture-11 notebook stays self-contained.
+    # Imported from the verifier (the single source of these literal constants).
+    import importlib.util
+    _vspec = importlib.util.spec_from_file_location(
+        "verify_convec_gaps", Path(__file__).resolve().parent / "verify_convec_gaps.py")
+    _vmod = importlib.util.module_from_spec(_vspec)
+    _vspec.loader.exec_module(_vmod)
+    _eg_names = ["EHYD", "GHYD", "EHE1", "GHE1", "EHE2", "GHE2", "EC1", "GC1",
+                 "EC2", "GC2", "EMG1", "GMG1", "EMG2", "GMG2", "EAL1", "GAL1",
+                 "ESI1", "GSI1", "ESI2", "GSI2", "ENA1", "GNA1", "EO1", "GO1",
+                 "EB1", "GB1", "EK1", "GK1"]
+    eg_tables = {nm: np.asarray(getattr(_vmod, nm), dtype=np.float64) for nm in _eg_names}
+
     # ================= write INPUTS (no answers) =================
     inputs = dict(
         teff=np.float64(TEFF), logg=np.float64(LOGG),
@@ -255,6 +270,8 @@ def main() -> int:
         LOCZ=np.asarray(LOCZ, dtype=np.int64),
         SCALE=np.asarray(SCALE, dtype=np.float64),
         PFTAB=pftab,
+        # special-partition level energies/weights (atomic DATA, light elements)
+        **eg_tables,
     )
     out_in = REF / "convec_gaps_inputs.npz"
     np.savez_compressed(out_in, **inputs)

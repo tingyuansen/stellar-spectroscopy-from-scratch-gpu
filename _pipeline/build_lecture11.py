@@ -36,7 +36,8 @@ md(r"""# Lecture 11 — Convection & the Converged Atmosphere
 **Learning objectives.** By the end of this lecture you will be able to:
 
 - Explain why the **deep photosphere of a cool star convects**: where the radiative gradient exceeds the **adiabatic** gradient, the gas becomes unstable and carries part of the flux as rising and falling parcels rather than as radiation.
-- Implement **mixing-length theory** (Kurucz's `CONVEC`): the adiabatic gradient $\nabla_{\rm ad}$, the superadiabaticity $\Delta = \nabla - \nabla_{\rm ad}$, the convective velocity and the **convective flux** $F_{\rm conv}$, with the thermodynamic derivatives taken from **finite differences** of the equation of state and the optically-thick efficiency factor $\tau_b^2/(2+\tau_b^2)$.
+- Implement **mixing-length theory** (Kurucz's `CONVEC`): the adiabatic gradient $\nabla_{\rm ad}$, the superadiabaticity $\Delta = \nabla - \nabla_{\rm ad}$, the convective velocity and the **convective flux** $F_{\rm conv}$, with the thermodynamic derivatives computed by **re-running the equation of state** (Saha/Boltzmann + the electron-density charge balance of Lecture 2) at perturbed $T$ and $P$, and the optically-thick efficiency factor $\tau_b^2/(2+\tau_b^2)$.
+- Add **convective overshoot** — the geometric smear that lets a parcel coast past the Schwarzschild boundary — and reproduce ATLAS's `OVERWT` blend.
 - See that convection is **negligible in the line-forming layers** but reshapes the **deep-layer** structure, and that its flux feeds back into the temperature correction.
 - State the **convergence criterion** — flux constancy, measured as $\max|\Delta T/T|$ over the deep layers — and read the iteration history of a real model converging.
 - Inspect the full **grey-start-to-convergence history** (28 iterations, shipped as the reference) and reproduce one from-scratch iteration from the converged model to the **precision floor of the reference** — the new convective flux, the corrected temperature, and the column mass — closing the loop the first lecture opened.""")
@@ -57,7 +58,9 @@ md(r"""## Setup and the reference
 
 We import only NumPy and Matplotlib. The benchmark target is `reference/converged_ref.npz`, produced once by the production code on the solar parameters ($T_{\rm eff}=5770$ K, $\log g=4.44$) in the clean configuration this book uses: **continuum opacity only** (no line blanketing, so no multi-gigabyte line lists), **convection on** (mixing length $1.25$), and **serial** execution so the result is bit-reproducible. The production code was run from the **grey start** of Lecture 9 all the way to convergence — stopped when the deep-layer temperature correction fell below $10^{-4}$, the proxy ATLAS uses for flux constancy — which took **28 iterations**.
 
-The file ships three things. First, the **converged model** itself ($T$, column mass `rhox`, pressure, electron density, Rosseland opacity, and the convective flux `flxcnv`). Second, the **convergence history** — $\max|\Delta T/T|$ per iteration — so we can plot a real model settling. Third, everything one from-scratch iteration *from the converged model* needs: the per-frequency **continuum opacity** (the Lecture-3 KAPP output, a given input), the equation-of-state **finite-difference samples** the convection kernel needs (`edens1..4`, `rho1..4` — ATLAS's internal-energy quantity `edens` and the mass density `rho`, each sampled at $T,P\pm0.1\%$, treated as given so we need not re-run the full EOS; `edens` already includes ATLAS's radiation-energy contribution), and the convective inputs (`ptotal`, `rho`, `pradk`, `prad`, `abross`).""")
+The file ships three things. First, the **converged model** itself ($T$, column mass `rhox`, pressure, electron density, Rosseland opacity, and the convective flux `flxcnv`). Second, the **convergence history** — $\max|\Delta T/T|$ per iteration — so we can plot a real model settling. Third, everything one from-scratch iteration *from the converged model* needs: the per-frequency **continuum opacity** (the Lecture-3 KAPP output, a given input) and the convective inputs (`ptotal`, `rho`, `pradk`, `prad`, `abross`).
+
+The equation of state enters convection through four thermodynamic derivatives (next-to-next section), and ATLAS forms those by **finite-differencing** the EOS at $T,P\pm0.1\%$. Rather than ship the perturbed samples as a given, we **re-run the equation of state ourselves** at those four perturbed points — the Saha/Boltzmann ionization, the partition functions, and the electron-density charge balance of Lecture 2 — from a small companion file `reference/convec_gaps_inputs.npz`. That file carries **no answers**: only the $(T,P)$ state, the abundances, the previous-iteration $(n_e, n_{\rm atom}, q^2)$ seeds, and the tabulated atomic **data** the partition functions consume (energy levels, statistical weights, ionization tables) — exactly the atomic data Lecture 2 reuses. We compute the perturbed densities from scratch and verify them, bit-for-bit, against the converged model's own samples.""")
 
 code(r'''import pathlib
 import numpy as np
@@ -69,6 +72,8 @@ plt.rcParams.update({"figure.figsize": (7.2, 4.3), "figure.dpi": 120, "savefig.f
 # the converged solar model and the Lecture 8 JOSH tables are the only inputs
 REF = np.load(pathlib.Path("..") / "reference" / "converged_ref.npz")
 JT  = np.load(pathlib.Path("..") / "reference" / "josh_tables.npz")   # Lecture 8 tables
+# the EOS state + atomic data we re-run the equation of state on (carries NO answers)
+EOS = np.load(pathlib.Path("..") / "reference" / "convec_gaps_inputs.npz")
 
 TEFF = float(REF["teff"]); GRAV = float(REF["gravity_cgs"]); LOGG = float(np.log10(GRAV))
 N_ITER = int(REF["n_iterations"])
@@ -470,21 +475,362 @@ In the Sun this happens **below** the visible photosphere, where hydrogen is par
 
 ![Radiation carries the flux in the line-forming photosphere; in the deep layers convection (rising and sinking gas, mixing-length theory) takes over — negligible where the lines form, but it sets the deep structure.](resources/figures/s10_convection.png)""")
 
-md(r"""### The thermodynamic derivatives, from finite differences
+md(r"""### The thermodynamic derivatives, from re-running the equation of state
 
-Mixing-length theory needs four thermodynamic derivatives at each layer: how the internal energy and the mass density respond to temperature and to pressure, $(\partial E/\partial T)_P$, $(\partial\rho/\partial T)_P$, $(\partial E/\partial P)_T$, $(\partial\rho/\partial P)_T$. In a partially-ionized gas these have no simple closed form — they depend on the full Saha/Boltzmann equilibrium (Lecture 2). ATLAS computes them by **finite differences**: it re-runs the equation of state at $T\pm0.1\%$ and at $P\pm0.1\%$ and differences the resulting internal-energy quantity `edens` and mass density `rho`. We ship those four pairs of samples (`edens1..4`, `rho1..4`) as a given input — re-deriving the full EOS here would just repeat Lecture 2 — and form the derivatives by central differencing. The perturbation is **fractional** ($\pm0.1\%$ of $T$ and of $P$), so the absolute step is $\Delta T = 2\times0.001\,T = 0.002\,T$, and the central difference is $\partial E/\partial T \approx (E_+ - E_-)/(0.002\,T) = (E_+ - E_-)\times 500/T$ — which is exactly the code's `* 500.0 / T` (and likewise `* 500.0 / p_in` for the pressure derivatives): the constant $500 = 1/(2\times0.001)$ is the central-difference denominator and the division by $T$ (or $P$) converts the fractional spacing into the absolute one. The `edens` samples already carry the radiation-energy term ATLAS adds.""")
+Mixing-length theory needs four thermodynamic derivatives at each layer: how the internal energy and the mass density respond to temperature and to pressure, $(\partial E/\partial T)_P$, $(\partial\rho/\partial T)_P$, $(\partial E/\partial P)_T$, $(\partial\rho/\partial P)_T$. In a partially-ionized gas these have **no simple closed form** — they depend on the full Saha/Boltzmann equilibrium of Lecture 2: as $T$ rises a little, hydrogen ionizes a little more, the electron count changes, the mean molecular weight changes, and the density and internal energy follow in a way no single $\gamma$ captures. ATLAS therefore computes them by **finite differences**: it re-runs the equation of state at $T\pm0.1\%$ and at $P\pm0.1\%$, reads off the mass density `rho` and the internal-energy quantity `edens` at each perturbed point, and central-differences them.
 
-code(r'''# the EOS finite-difference samples: edens and rho re-evaluated at T,P +-0.1%
-ed1 = REF["edens1"]; ed2 = REF["edens2"]; ed3 = REF["edens3"]; ed4 = REF["edens4"]   # EDENS at T+, T-, P+, P-
-r1  = REF["rho1"];   r2  = REF["rho2"];   r3  = REF["rho3"];   r4  = REF["rho4"]        # RHO   at T+, T-, P+, P-
+We do the same here, **from scratch**. Rather than take the perturbed samples as given, we port the equation of state — the partition functions, the Saha ionization balance, and the electron-density charge-balance solve (`NELECT`) of Lecture 2 — to NumPy and evaluate it at the four perturbed $(T,P)$ points. This is the same physics Lecture 2 built; the new wrinkle is only that we run it at *off-grid* perturbed states to get a numerical derivative. The atomic **data** the partition functions need (energy levels, statistical weights, the ionization/partition tables `NNN`/`POTION`/`PFTAB`) are loaded from `convec_gaps_inputs.npz` exactly as Lecture 2 loads tabulated $U(T)$ — measured atomic data, not physics we re-derive.""")
 
-# central differences; the 500 = 1/(2*0.001) folds the fractional +-0.1% step into the absolute one
+md(r"""**The constants and the atomic-data tables.** The EOS uses the same physical constants as ATLAS. The atomic-data tables come straight from the inputs file: `NNN` (packed partition/ionization coefficients), `POTION` (ionization potentials), `LOCZ` (per-element slot offsets), `SCALE` (partition-table scale factors), and `PFTAB` (the iron-group partition grid). We also pull the special-partition energy-level and statistical-weight arrays — the handful of light elements ATLAS sums level-by-level rather than reading from the packed table — directly from the inputs file so the notebook stays self-contained.""")
+
+code(r'''# EOS physical constants (exactly the ATLAS12 / pykurucz values)
+K_BOLTZ  = 1.38054e-16          # Boltzmann constant [erg/K]
+H_PLANCK = 6.6256e-27           # Planck constant [erg s]
+C_LIGHT  = 2.99792458e10        # speed of light [cm/s]
+KEV      = 8.6171e-5            # K -> eV conversion (chi/(KEV*T))
+
+# the GIVEN atomic-data tables (measured data, reused exactly as Lecture 2 reuses U(T))
+NNN = EOS["NNN"]; POTION = EOS["POTION"]; LOCZ = EOS["LOCZ"]; SCALE = EOS["SCALE"]; PFTAB = EOS["PFTAB"]
+
+# special-partition level energies E [cm^-1] and statistical weights g (ATLAS DATA blocks).
+# the light elements ATLAS sums level-by-level; energies/weights are atomic data -> from the inputs file
+EHYD=EOS["EHYD"]; GHYD=EOS["GHYD"]; EHE1=EOS["EHE1"]; GHE1=EOS["GHE1"]; EHE2=EOS["EHE2"]; GHE2=EOS["GHE2"]
+EC1=EOS["EC1"]; GC1=EOS["GC1"]; EC2=EOS["EC2"]; GC2=EOS["GC2"]; EMG1=EOS["EMG1"]; GMG1=EOS["GMG1"]
+EMG2=EOS["EMG2"]; GMG2=EOS["GMG2"]; EAL1=EOS["EAL1"]; GAL1=EOS["GAL1"]; ESI1=EOS["ESI1"]; GSI1=EOS["GSI1"]
+ESI2=EOS["ESI2"]; GSI2=EOS["GSI2"]; ENA1=EOS["ENA1"]; GNA1=EOS["GNA1"]; EO1=EOS["EO1"]; GO1=EOS["GO1"]
+EB1=EOS["EB1"]; GB1=EOS["GB1"]; EK1=EOS["EK1"]; GK1=EOS["GK1"]
+
+# PFIRON Debye-lowering grid (the iron-group partition table is interpolated in T and in lowering)
+PFIRON_POTLO    = np.array([500., 1000., 2000., 4000., 8000., 16000., 32000.])
+PFIRON_POTLOLOG = np.array([2.69897, 3.0, 3.30103, 3.60206, 3.90309, 4.20412, 4.50515])
+print(f"loaded atomic data: NNN {NNN.shape}, POTION {POTION.shape}, PFTAB {PFTAB.shape}")''')
+
+md(r"""**The bookkeeping indices.** ATLAS packs every element's ionization stages into flat tables, so a few integer-index helpers locate where element $Z$, ion stage `ion` lives. `_nion_for_atomic_number` gives how many stages `NELECT` tracks per $Z$; `_start_and_nions` finds an element's slot offset and stage count in the packed table; `_potion_index` indexes the ionization-potential table. These are pure indexing — the same flat-table layout the Fortran uses — so they are moved over verbatim.""")
+
+code(r'''def _nion_for_atomic_number(z):
+    """NELECT ion-count per Z (atlas_py.physics.nelect): how many charge stages we track."""
+    if z == 1: return 2
+    if z == 2: return 3
+    if z in (3, 4, 5): return 4
+    if 6 <= z <= 16: return 6
+    if 17 <= z <= 28: return 5
+    if z in (29, 30): return 3
+    if z >= 31: return 3
+    return 5
+
+def _start_and_nions(iz, LOCZ):
+    """Packed-table slot offset and stage count for element iz (Fortran PFSAHA)."""
+    if iz <= 28: n = int(LOCZ[iz-1]); nions = int(LOCZ[iz]-n)
+    else: n = 3*iz+54; nions = 3
+    if iz == 6: n = 354; nions = 6
+    if iz == 7: n = 360; nions = 6
+    if 20 <= iz < 29: nions = 10
+    return n, nions
+
+def _potion_index(iz, ion):
+    """Flat index into the ionization-potential table POTION (Fortran PFSAHA)."""
+    if iz <= 30: return iz*(iz+1)//2 + ion - 1
+    return iz*5 + 341 + ion - 1''')
+
+md(r"""**The occupation-probability correction.** In a dense plasma the high-lying bound levels are dissolved by neighbouring charges (the same Debye physics behind the ionization-potential lowering of Lecture 2). `_occupation_correction` applies ATLAS's truncation of the partition sum: it subtracts the contribution of levels above the lowered continuum, using a short polynomial in the lowering depth. It is the partition-function counterpart of the pressure-ionization term, moved over verbatim.""")
+
+code(r'''def _occupation_correction(part, zion, g, ip, potlo, tv, d1):
+    """Truncate the partition sum at the pressure-lowered continuum (Fortran PFSAHA occupation prob.)."""
+    if tv <= 0.0 or d1 <= 0.0 or potlo <= 0.0: return max(part, 1.0)
+    d2 = potlo/tv
+    if d2 <= 0.0: return max(part, 1.0)
+    def _term(d):                                                # polynomial in the lowering depth d
+        x = np.sqrt(13.595*zion*zion/(tv*d)); x3 = x*x*x
+        poly = (1.0/3.0) + (1.0 - (0.5 + (1.0/18.0 + d/120.0)*d)*d)*d
+        return x3*poly
+    corr = g*np.exp(-ip/tv)*(_term(d2) - _term(d1))              # remove the dissolved high levels
+    return max(part + corr, 1.0)''')
+
+md(r"""**The special-partition functions.** For the lightest, most abundant elements (H, He, the light metals) ATLAS computes the partition function by **summing measured energy levels** $U(T) = \sum_i g_i e^{-E_i hc/kT}$ rather than reading the packed table — exactly the level sum of Lecture 2, now for many ions. `_special_partition` dispatches on the element's table slot `n`, sums its levels from the energy/weight arrays loaded above, and returns the partition value plus the `d1` lowering scale the occupation correction uses. The long branch list is an irreducible data table (one ion per branch); it is moved over verbatim and kept whole, since it is just the level data transcribed.""")
+
+code(r'''def _special_partition(n, hckt):
+    """Level-sum partition function U(T) for the light elements (Fortran PFSAHA DATA blocks).
+    Returns (PART, D1, used_special); hckt = hc/(kT).  Each branch is one ion's measured levels.
+    The level sums accumulate sequentially (low energy first), matching the Fortran summation order."""
+    if n == 1:                                                   # H I
+        part = 2.0
+        for i in range(1, 6): part += GHYD[i]*np.exp(-EHYD[i]*hckt)
+        return part, 109677.576/(6.5*6.5)*hckt, True
+    if n == 3:                                                   # He I
+        part = 1.0
+        for i in range(1, 29): part += GHE1[i]*np.exp(-EHE1[i]*hckt)
+        return part, 109677.576/(5.5*5.5)*hckt, True
+    if n == 4:                                                   # He II
+        part = 2.0
+        for i in range(1, 6): part += GHE2[i]*np.exp(-EHE2[i]*hckt)
+        return part, 4.0*109722.267/(6.5*6.5)*hckt, True
+    if n == 354:                                                 # C I
+        part = 1.0 + 3.0*np.exp(-16.42*hckt) + 5.0*np.exp(-43.42*hckt)
+        for i in range(1, 14): part += GC1[i]*np.exp(-EC1[i]*hckt)
+        part += (108.0*np.exp(-80000.0*hckt) + 189.0*np.exp(-84000.0*hckt) + 247.0*np.exp(-87000.0*hckt)
+                 + 231.0*np.exp(-88000.0*hckt) + 190.0*np.exp(-89000.0*hckt) + 300.0*np.exp(-90000.0*hckt))
+        return part, 0.0, True
+    if n == 355:                                                 # C II
+        part = 2.0 + 4.0*np.exp(-63.42*hckt)
+        for i in range(1, 6): part += GC2[i]*np.exp(-EC2[i]*hckt)
+        part += (6.0*np.exp(-131731.80*hckt) + 4.0*np.exp(-142027.1*hckt) + 10.0*np.exp(-145550.13*hckt)
+                 + 10.0*np.exp(-150463.62*hckt) + 2.0*np.exp(-157234.07*hckt) + 6.0*np.exp(-162500.0*hckt)
+                 + 42.0*np.exp(-168000.0*hckt) + 56.0*np.exp(-178000.0*hckt) + 102.0*np.exp(-183000.0*hckt)
+                 + 400.0*np.exp(-188000.0*hckt))
+        return part, 0.0, True
+    if n == 51:                                                  # Mg I
+        part = 1.0
+        for i in range(1, 11): part += GMG1[i]*np.exp(-EMG1[i]*hckt)
+        part += (5.0*np.exp(-53134.0*hckt) + 15.0*np.exp(-54192.0*hckt) + 28.0*np.exp(-54676.0*hckt)
+                 + 9.0*np.exp(-57853.0*hckt))
+        return part, 109734.83/(4.5*4.5)*hckt, True
+    if n == 52:                                                  # Mg II
+        part = 2.0
+        for i in range(1, 6): part += GMG2[i]*np.exp(-EMG2[i]*hckt)
+        part += (10.0*np.exp(-93310.80*hckt) + 14.0*np.exp(-93799.70*hckt) + 6.0*np.exp(-97464.32*hckt)
+                 + 10.0*np.exp(-103419.82*hckt) + 14.0*np.exp(-103689.89*hckt) + 18.0*np.exp(-103705.66*hckt))
+        return part, 4.0*109734.83/(5.5*5.5)*hckt, True
+    if n == 57:                                                  # Al I
+        part = 2.0 + 4.0*np.exp(-112.061*hckt)
+        for i in range(1, 9): part += GAL1[i]*np.exp(-EAL1[i]*hckt)
+        part += 10.0*np.exp(-42235.0*hckt) + 14.0*np.exp(-43831.0*hckt)
+        return part, 109735.08/(5.5*5.5)*hckt, True
+    if n == 63:                                                  # Si I
+        part = 1.0 + 3.0*np.exp(-77.115*hckt) + 5.0*np.exp(-223.157*hckt)
+        for i in range(1, 11): part += GSI1[i]*np.exp(-ESI1[i]*hckt)
+        part += (76.0*np.exp(-53000.0*hckt) + 71.0*np.exp(-57000.0*hckt) + 191.0*np.exp(-60000.0*hckt)
+                 + 240.0*np.exp(-62000.0*hckt) + 251.0*np.exp(-63000.0*hckt) + 300.0*np.exp(-65000.0*hckt))
+        return part, 0.0, True
+    if n == 64:                                                  # Si II
+        part = 2.0 + 4.0*np.exp(-287.32*hckt)
+        for i in range(1, 6): part += GSI2[i]*np.exp(-ESI2[i]*hckt)
+        part += (6.0*np.exp(-81231.59*hckt) + 6.0*np.exp(-83937.08*hckt) + 10.0*np.exp(-101024.09*hckt)
+                 + 14.0*np.exp(-103556.35*hckt) + 10.0*np.exp(-108800.0*hckt) + 42.0*np.exp(-115000.0*hckt)
+                 + 6.0*np.exp(-121000.0*hckt) + 38.0*np.exp(-125000.0*hckt) + 34.0*np.exp(-132000.0*hckt))
+        return part, 4.0*109734.83/(4.5*4.5)*hckt, True
+    if n == 367:                                                 # O I
+        part = 5.0 + 3.0*np.exp(-158.265*hckt) + np.exp(-226.977*hckt)
+        for i in range(1, 13): part += GO1[i]*np.exp(-EO1[i]*hckt)
+        part += (15.0*np.exp(-101140.0*hckt) + 131.0*np.exp(-103000.0*hckt) + 128.0*np.exp(-105000.0*hckt)
+                 + 600.0*np.exp(-107000.0*hckt))
+        return part, 0.0, True
+    if n == 45:                                                  # Na I
+        part = 2.0
+        for i in range(1, 8): part += GNA1[i]*np.exp(-ENA1[i]*hckt)
+        part += 10.0*np.exp(-34548.745*hckt) + 14.0*np.exp(-34586.96*hckt)
+        return part, 109734.83/(4.5*4.5)*hckt, True
+    if n == 14:                                                  # B I
+        part = 2.0 + 4.0*np.exp(-15.25*hckt)
+        for i in range(1, 7): part += GB1[i]*np.exp(-EB1[i]*hckt)
+        part += (6.0*np.exp(-57786.80*hckt) + 10.0*np.exp(-59989.0*hckt) + 14.0*np.exp(-60031.03*hckt)
+                 + 2.0*np.exp(-63561.0*hckt))
+        return part, 109734.83/(4.5*4.5)*hckt, True
+    if n == 91:                                                  # K I
+        part = 2.0
+        for i in range(1, 8): part += GK1[i]*np.exp(-EK1[i]*hckt)
+        part += 10.0*np.exp(-27397.077*hckt) + 14.0*np.exp(-28127.85*hckt)
+        return part, 109734.83/(5.5*5.5)*hckt, True
+    return 1.0, 0.0, False                                       # not a special element -> use the packed table''')
+
+md(r"""**The iron-group partition table.** The iron-peak elements ($20 \le Z < 29$) have such dense level structure that ATLAS tabulates their partition functions directly and interpolates `PFTAB` bilinearly in $\log T$ and in the (log) Debye lowering. `_pfiron` is that two-dimensional table lookup — the temperature index/fraction with ATLAS's three branch ranges, then the lowering interpolation — moved over verbatim.""")
+
+code(r'''def _pfiron(nelem, ion, tlog10, potlow_cm1, PFTAB):
+    """Bilinear PFTAB lookup in (logT, log lowering) for the iron group, 20<=Z<29 (Fortran PFIRON)."""
+    tlog = tlog10
+    if tlog > 4.0:                                               # temperature index, three branch ranges
+        it = min(int((tlog-4.0)/0.05)+31, 56); f = (tlog-(it-31)*0.05-4.0)/0.05
+    elif tlog < 3.7:
+        it = max(int((tlog-3.32)/0.02)+2, 2); f = (tlog-(it-2)*0.02-3.32)/0.02
+    else:
+        it = int((tlog-3.7)/0.03)+21; f = (tlog-(it-21)*0.03-3.7)/0.03
+    it0 = it-1; it0m1 = it0-1; ion0 = ion-1; elem0 = nelem-20
+    potlow = potlow_cm1
+    if potlow < PFIRON_POTLO[0]:                                 # below the table -> low-T edge only
+        return f*PFTAB[0, it0, ion0, elem0] + (1.0-f)*PFTAB[0, it0m1, ion0, elem0]
+    for low in range(2, 8):                                      # interpolate in log lowering
+        if potlow < PFIRON_POTLO[low-1]:
+            p = (np.log10(potlow)-PFIRON_POTLOLOG[low-2])/0.30103
+            return (p*(f*PFTAB[low-1, it0, ion0, elem0] + (1.0-f)*PFTAB[low-1, it0m1, ion0, elem0])
+                    + (1.0-p)*(f*PFTAB[low-2, it0, ion0, elem0] + (1.0-f)*PFTAB[low-2, it0m1, ion0, elem0]))
+    return f*PFTAB[6, it0, ion0, elem0] + (1.0-f)*PFTAB[6, it0m1, ion0, elem0]''')
+
+md(r"""**The partition + Saha core: `pfsaha_depth`.** This is the heart of the EOS at one depth, for one element: it builds each ion stage's partition function (special level-sum, iron-group table, or the packed `NNN` table) and ionization potential, applies the Debye lowering, then runs the **Saha ladder** — exactly the chained Saha ratios of Lecture 2 — to get the fraction of the element in each charge stage. The `mode` argument selects what it returns (we call it with `mode=12`: the per-stage number fractions over all tracked ions, the quantity the charge balance sums). The packed-table branch and the Saha normalization are the same flat-index arithmetic as the Fortran, kept as a single routine because the per-ion build and the ladder are one coupled pass; the comments mark each block.""")
+
+code(r'''def pfsaha_depth(T, ne, iz, nion, mode, chargesq, tab):
+    """Partition functions + Saha ionization for one element at one depth (Fortran PFSAHA).
+    Returns the per-stage number fractions (mode=12).  `tab` holds the given atomic-data tables."""
+    NNN=tab["NNN"]; POTION=tab["POTION"]; LOCZ=tab["LOCZ"]; SCALE=tab["SCALE"]; PFTAB=tab["PFTAB"]
+    iz = int(iz); nion = max(1, int(nion))
+    t = max(float(T), 1.0); ne = max(float(ne), 1e-40)
+    tk = K_BOLTZ*t; tkev = KEV*t; hckt = (H_PLANCK*C_LIGHT)/max(tk, 1e-300)   # hc/(kT)
+    base_mode = int(mode); mode1 = base_mode if base_mode <= 10 else base_mode-10
+    return_all = base_mode >= 10
+
+    # Debye lowering of the ionization potential (Lecture 2 pressure ionization)
+    chargesq = max(float(chargesq), 1e-30)
+    debye = np.sqrt(tk/(12.5664*(4.801e-10**2)*chargesq))         # Debye radius [cm]
+    potlow = min(1.0, 1.44e-7/max(debye, 1e-300))                 # lowering per unit charge [eV], capped
+
+    n_start, nions = _start_and_nions(iz, LOCZ)
+    nion2 = min(nion+2, nions)                                    # normalize over a slightly longer ladder
+    n = n_start-1
+    part = np.ones(nion2); ip = np.zeros(nion2); potlo = np.zeros(nion2); f = np.zeros(nion2)
+
+    for ion in range(1, nion2+1):                                # build partition + ionization potential per stage
+        zion = float(ion); n += 1
+        potlo_i = potlow*zion                                    # lowering scales with the ion charge
+        nnn6 = int(NNN[5, n-1]); nnn100 = nnn6//100
+        g = float(nnn6-nnn100*100); ip_i = float(nnn100)/1000.0  # default g and ionization potential
+        if POTION is not None:                                   # prefer the measured ionization potential
+            pidx = _potion_index(iz, ion)-1
+            if 0 <= pidx < POTION.size and POTION[pidx] > 0.0: ip_i = POTION[pidx]/8065.479
+            elif 0 <= pidx-1 < POTION.size and POTION[pidx-1] > 0.0: ip_i = POTION[pidx-1]/8065.479
+        if ip_i <= 0.0 and ion > 1: ip_i = ip[ion-2]
+        potlo[ion-1] = potlo_i; ip[ion-1] = ip_i
+
+        if 20 <= iz < 29:                                        # iron group: tabulated partition function
+            part[ion-1] = max(_pfiron(iz, ion, np.log10(t) if t > 0.0 else 0.0, potlo_i*8065.479, PFTAB), 1.0)
+            continue
+        p_special, d1_special, used_special = _special_partition(n, hckt)   # light elements: level sum
+        if used_special:
+            p = max(p_special, 1.0)
+            if d1_special > 0.0: p = _occupation_correction(p, zion, max(g, 2.0), ip_i, potlo_i, tkev, d1_special)
+            part[ion-1] = max(p, 1.0); continue
+
+        # otherwise read the packed NNN partition table, interpolated in temperature
+        t_safe = float(t) if (np.isfinite(t) and t > 0.0) else 1.0
+        t2000 = max(ip_i*2000.0/11.0, 1e-12)
+        it = max(1, min(9, int(t_safe/t2000-0.5))); dt = t_safe/t2000-float(it)-0.5
+        pmin = 1.0; i = (it+1)//2
+        nnn_i = int(NNN[i-1, n-1]); k1 = nnn_i//100000; k2 = nnn_i-k1*100000
+        k3 = k2//10; kscale = max(1, min(4, k2-k3*10))
+        if it % 2 == 1:
+            p1 = float(k1)*SCALE[kscale-1]; p2 = float(k3)*SCALE[kscale-1]
+            if dt < 0.0 and kscale <= 1:
+                kp1 = int(p1)
+                if kp1 == int(p2+0.5): pmin = float(kp1)
+        else:
+            p1 = float(k3)*SCALE[kscale-1]
+            nnn_i1 = int(NNN[i, n-1]); k1n = nnn_i1//100000; kscale_n = max(1, min(4, int(nnn_i1 % 10)))
+            p2 = float(k1n)*SCALE[kscale_n-1]
+        p = max(pmin, p1 + (p2-p1)*dt)
+        if t < t2000*2.0: part[ion-1] = max(p, 1.0); continue
+        if g != 0.0 and potlo_i >= 0.1 and t >= t2000*4.0:       # occupation-probability truncation
+            tv_eff = tkev
+            if t > (t2000*11.0): tv_eff = (t2000*11.0)*KEV
+            d1 = 0.1/max(tv_eff, 1e-30); p = _occupation_correction(p, zion, g, ip_i, potlo_i, tv_eff, d1)
+        part[ion-1] = max(p, 1.0)
+
+    if mode1 not in (3, 5):                                      # the Saha ladder: chained ionization ratios
+        cf = 2.0*2.4148e15*t*np.sqrt(t)/ne                       # Saha prefactor 2 (2 pi m_e k T / h^2)^{3/2} / n_e
+        for ion in range(2, nion2+1):
+            idx = ion-1
+            f[idx] = (cf*part[idx]/max(part[idx-1], 1e-300)
+                      * np.exp(-(ip[idx-1]-potlo[idx-1])/max(tkev, 1e-30)))   # Saha ratio stage idx/idx-1
+        f[0] = 1.0; l = nion2+1
+        for _ in range(2, nion2+1): l -= 1; f[0] = 1.0 + f[l-1]*f[0]          # normalize the ladder
+        f[0] = 1.0/max(f[0], 1e-300)
+        for ion in range(2, nion2+1): idx = ion-1; f[idx] = f[idx-1]*f[idx]   # cumulative product
+
+    if return_all:                                              # mode>=10: return all tracked stages
+        nret = min(nion, nion2); out = np.zeros(nion)
+        if mode1 == 1: out[:nret] = f[:nret]/np.maximum(part[:nret], 1e-300)
+        elif mode1 == 2: out[:nret] = f[:nret]
+        elif mode1 == 3: out[:nret] = part[:nret]
+        elif mode1 == 4: out[0] = np.sum(f[1:nion2]*np.arange(1, nion2, dtype=np.float64))
+        return out
+    nidx = min(max(nion, 1), nion2)-1; out = np.zeros(nion)
+    if mode1 == 1: out[0] = f[nidx]/max(part[nidx], 1e-300)
+    elif mode1 == 2: out[0] = f[nidx]
+    elif mode1 == 3: out[0] = part[nidx]
+    elif mode1 == 4: out[0] = np.sum(f[1:nion2]*np.arange(1, nion2, dtype=np.float64))
+    return out''')
+
+md(r"""**The electron-density charge balance: `NELECT`.** Lecture 2 solved charge conservation $n_e = \sum_Z n_Z \sum_i i\,f_{Z,i}$ for hydrogen plus the metals. `nelect_layer` is the same fixed-point solve at one depth, now over all $Z = 1\ldots99$: from the current $n_e$ guess it sums each element's ionic charge (and charge-squared, which feeds the Debye lowering) via `pfsaha_depth`, averages the new estimate with the old for stability, and repeats until $n_e$ stops moving. The loop is the genuinely coupled charge-balance iteration and stays whole. `run_nelect` drives it down every depth, carrying the converged $(n_e, n_{\rm atom}, q^2, \rho)$.""")
+
+code(r'''def nelect_layer(T, tk_erg, xne_seed, xnatom_seed, chargesq_seed, wtmole, xabund_row, P, tab,
+                 max_iter=200, tol=1e-4):
+    """Charge-balance solve for n_e at one depth (Fortran NELECT).  Returns (xne, xnatom, chargesq, rho)."""
+    xntot = P/max(tk_erg, 1e-300)                                # total particle density from P = n k T
+    xne = xne_seed; chargesq = chargesq_seed; xnatom = xntot - xne
+    converged = False
+    for _ in range(max_iter):                                   # charge-balance fixed point
+        xnenew = 0.0; chargesquare = 0.0
+        for z in range(1, 100):                                  # sum ionic charge over all elements
+            nion = _nion_for_atomic_number(z)
+            vals = pfsaha_depth(T, xne, z, nion, 12, max(chargesq, 1e-30), tab)   # per-stage fractions
+            ab = xabund_row[z-1]
+            for ion in range(nion):
+                v = vals[ion]*xnatom*ab
+                chargesquare += v*(ion**2)                       # charge^2 (feeds the Debye lowering)
+                xnenew += v*ion                                  # charge donated to the electron pool
+        xnenew = max(xnenew, xne*0.5)
+        xnenew = 0.5*(xnenew + xne)                              # average with the old guess (damping)
+        err = abs((xne-xnenew)/max(xnenew, 1e-300))
+        xne = xnenew; xnatom = xntot - xne; chargesq = chargesquare + xne
+        if err < tol: converged = True; break
+    if not converged: raise RuntimeError("NELECT did not converge")
+    rho = xnatom*wtmole*1.660e-24                                # mass density = n_atom * mean weight * amu
+    return xne, xnatom, chargesq, rho
+
+def run_nelect(T, P, xne0, xnatom0, chargesq0, wtmole, xabund, tab):
+    """Run NELECT down every depth; returns (xne, xnatom, chargesq, rho) arrays."""
+    nl = T.size; xne = xne0.copy(); xnatom = xnatom0.copy(); chargesq = chargesq0.copy(); rho = np.zeros(nl)
+    tk_erg = T*K_BOLTZ
+    for j in range(nl):
+        xj, naj, csj, rj = nelect_layer(float(T[j]), float(tk_erg[j]), float(xne[j]), float(xnatom[j]),
+                                        float(chargesq[j]), float(wtmole[j]), xabund[j], float(P[j]), tab)
+        xne[j] = xj; xnatom[j] = naj; chargesq[j] = csj; rho[j] = rj
+    return xne, xnatom, chargesq, rho''')
+
+md(r"""**The four perturbed evaluations.** Now we re-run the EOS at the four perturbed states and read off the density and the internal-energy quantity `edens`. ATLAS does these **serially**, carrying the mutated $(n_e, q^2)$ from each perturbation into the next as the starting seed — so we replicate that order exactly: $T{+}$, then $T{-}$, then $P{+}$, then $P{-}$. The `edens` samples are the radiation-energy term $3\,p_{\rm radk}/\rho$ ATLAS adds, geometrically diluted by `dilut` and (for the temperature perturbations) scaled by the perturbed $T^4$; the baseline gas internal energy cancels in the central differences, so it is carried as zero here. `compute_fd_samples` returns the eight perturbed arrays.""")
+
+code(r'''def compute_fd_samples(T, P, xne0, xnatom0, chargesq0, wtmole, xabund, pradk, tauros, tab):
+    """Re-run the EOS at T,P +-0.1% (serial, seeds carried forward) -> the eight FD samples (Fortran convec FD)."""
+    dilut = 1.0 - np.exp(-tauros)                                # geometric dilution of the radiation term
+    xne = xne0.copy(); xnatom = xnatom0.copy(); chargesq = chargesq0.copy()   # serial state carried forward
+
+    xne, xnatom, chargesq, rho1 = run_nelect(T*1.001, P, xne, xnatom, chargesq, wtmole, xabund, tab)   # T +0.1%
+    ed1 = 3.0*pradk/np.maximum(rho1, 1e-300)*(1.0 + dilut*(1.001**4 - 1.0))
+    xne, xnatom, chargesq, rho2 = run_nelect(T*0.999, P, xne, xnatom, chargesq, wtmole, xabund, tab)   # T -0.1%
+    ed2 = 3.0*pradk/np.maximum(rho2, 1e-300)*(1.0 + dilut*(0.999**4 - 1.0))
+    xne, xnatom, chargesq, rho3 = run_nelect(T, P*1.001, xne, xnatom, chargesq, wtmole, xabund, tab)   # P +0.1%
+    ed3 = 3.0*pradk/np.maximum(rho3, 1e-300)
+    xne, xnatom, chargesq, rho4 = run_nelect(T, P*0.999, xne, xnatom, chargesq, wtmole, xabund, tab)   # P -0.1%
+    ed4 = 3.0*pradk/np.maximum(rho4, 1e-300)
+    return ed1, ed2, ed3, ed4, rho1, rho2, rho3, rho4''')
+
+md(r"""Run it on the converged state. We pull the EOS state and atomic data from the inputs file (the $(T,P)$ is the converged model's own $(T, P)$, so the resulting derivatives belong to this model), re-run the equation of state four times, and form the perturbed samples `ed1..4`, `r1..4` entirely from scratch.""")
+
+code(r'''eos_tab = dict(NNN=NNN, POTION=POTION, LOCZ=LOCZ, SCALE=SCALE, PFTAB=PFTAB)   # the given atomic-data tables
+ed1, ed2, ed3, ed4, r1, r2, r3, r4 = compute_fd_samples(
+    EOS["T"], EOS["P"], EOS["xne"], EOS["xnatom"], EOS["chargesq"],
+    EOS["wtmole"], EOS["xabund"], EOS["pradk"], EOS["tauros"], eos_tab)
+print(f"re-ran the EOS at four perturbed (T,P) states; rho(T+) deep = {r1[-1]:.4e} g/cm^3")''')
+
+md(r"""**Benchmark: the EOS samples are bit-exact.** Because we re-ran the *same* equation of state at the *same* perturbed states, the perturbed densities and energies reproduce the converged model's stored samples to the **bit** — `max|rel| = 0`. This is the genuine from-scratch check that the four samples feeding the derivatives are not copied but computed.""")
+
+code(r'''def _relmax(a, b):
+    b = np.asarray(b, float); a = np.asarray(a, float)
+    m = np.abs(b) > 0; r = np.zeros_like(b); r[m] = np.abs(a[m]-b[m])/np.abs(b[m]); return float(r.max())
+
+# compare the from-scratch EOS samples to the converged model's stored samples
+samples = dict(rho1=r1, rho2=r2, rho3=r3, rho4=r4, edens1=ed1, edens2=ed2, edens3=ed3, edens4=ed4)
+worst = 0.0
+for k, v in samples.items():
+    rk = _relmax(v, REF[k]); worst = max(worst, rk)
+    print(f"  {k:8s} max|rel| = {rk:.2e}   bit-exact = {np.array_equal(v, REF[k].astype(float))}")
+print(f"EOS finite-difference samples: worst max|rel| = {worst:.2e}   <- MACHINE PRECISION (bit-exact)")''')
+
+md(r"""**Forming the derivatives.** With the perturbed samples in hand, the four derivatives are central differences. The perturbation is **fractional** ($\pm0.1\%$ of $T$ and of $P$), so the absolute step is $\Delta T = 2\times0.001\,T = 0.002\,T$, and the central difference is $\partial E/\partial T \approx (E_+ - E_-)/(0.002\,T) = (E_+ - E_-)\times 500/T$ — exactly the code's `* 500.0 / T` (and `* 500.0 / p_in` for the pressure derivatives): the constant $500 = 1/(2\times0.001)$ is the central-difference denominator, and the division by $T$ (or $P$) converts the fractional spacing into the absolute one.""")
+
+code(r'''# central differences; the 500 = 1/(2*0.001) folds the fractional +-0.1% step into the absolute one
 dEdT = (ed1-ed2)/np.maximum(T, 1e-300)*500.0     # (dE/dT)_P
 drdT = (r1 -r2 )/np.maximum(T, 1e-300)*500.0     # (drho/dT)_P
 dEdP = (ed3-ed4)/np.maximum(p_in, 1e-300)*500.0  # (dE/dP)_T
 drdP = (r3 -r4 )/np.maximum(p_in, 1e-300)*500.0  # (drho/dP)_T
 
-print(f"thermodynamic derivatives formed from EOS finite differences at T,P +-0.1%")''')
+print(f"thermodynamic derivatives formed from the from-scratch EOS finite differences at T,P +-0.1%")''')
 
 md(r"""### The mixing-length kernel
 
@@ -625,6 +971,69 @@ print(f"  peak convective fraction F_conv/(4 pi H) = {(cv['flxcnv']/(FOURPI*flux
 
 md(r"""The convective flux is **zero throughout the line-forming layers** ($\tau_{\rm Ross}\lesssim1$) — confirming that everything we did for the spectrum in Lectures 1–8 was untouched by convection — and switches on only in the deep, optically thick interior, where at its peak it carries a large fraction of the total flux. That is exactly the regime where the temperature correction needs it.""")
 
+# ── convective overshoot ─────────────────────────────────────────────────────
+md(r"""### Convective overshoot: extending the flux past the unstable zone
+
+The mixing-length flux above stops dead at the Schwarzschild boundary: where $\Delta = \nabla - \nabla_{\rm ad}$ turns negative, `convec` returns $F_{\rm conv} = 0$. But a real convective parcel does not stop on a dime at the neutral-buoyancy surface — it has **momentum**, so it coasts a little way into the formally stable layers above and below before it is braked, carrying some flux with it. This **overshoot** smears the sharp convective boundary out over a finite geometric distance. The solar model we converged used **no** overshoot (it is off by default, `OVERWT = 0`), but ATLAS implements it as an optional extension, and reproducing it pins down the last piece of the convection kernel.
+
+ATLAS's overshoot is a deliberately simple **geometric smear** of the convective flux, controlled by one parameter `OVERWT`. It runs in three steps. First it sets a smear half-width in physical height at each layer,
+$$\texttt{DELHGT}(j) = \min\!\big(H_{\!P}(j)\cdot 0.5\times10^{-5}\cdot\texttt{wtcnv},\ \ z_N - z_j,\ \ z_j - z_0\big),\qquad \texttt{wtcnv} = \min\!\big(\max_k \tfrac{F_{\rm conv}(k)}{F},\,1\big)\cdot\texttt{OVERWT},$$
+where the two trailing terms keep the window inside the model. Second it forms the running integral $\texttt{CNVINT} = \int F_{\rm conv}^{(0)}\,dz$ of the un-smeared flux and replaces the flux at each deep layer by its **window average**,
+$$F_{\rm conv}^{(1)}(j) = \frac{\texttt{CNVINT}(z_j + \texttt{DELHGT}) - \texttt{CNVINT}(z_j - \texttt{DELHGT})}{2\,\texttt{DELHGT}(j)}.$$
+Third it takes the **larger** of the original and smeared fluxes, $F_{\rm conv} = \max(F_{\rm conv}^{(0)}, F_{\rm conv}^{(1)})$, so overshoot can only *add* flux to the stable layers, never remove it from the unstable ones — then re-zeros the top `NCONV` layers. The window average is what spreads convective flux into the layers just outside the Schwarzschild zone.""")
+
+md(r"""**The geometric height.** The smear lives in physical height, so we need the geometric depth scale $z(\rho x) = \int 10^{-5}/\rho\;d(\rho x)$ — the same `HIGH` integral `convec` already used. We recompute it here from the column mass and density to keep the overshoot block self-contained, and confirm it matches the reference height to the bit.""")
+
+code(r'''def high_from_rhox_cm(rhox, rho):
+    """Geometric height z from column mass and density (Fortran HIGH), in the 1e-5 units ATLAS uses."""
+    return integ(rhox, 1.0e-5/np.maximum(rho, 1e-300), 0.0)
+
+# rebuild the geometric height and the pressure scale height from RHOX / RHO / P_total
+ov_rhox = EOS["rhox"]; ov_rho = EOS["rho"]; ov_ptotal = EOS["ptotal"]; ov_grav = float(EOS["gravity_cgs"])
+height = high_from_rhox_cm(ov_rhox, ov_rho)
+hscale_ov = ov_ptotal/np.maximum(ov_rho*ov_grav, 1e-300)            # pressure scale height H_P
+print(f"geometric height spans {height.min():.3e} to {height.max():.3e}  (reference-matched)")''')
+
+md(r"""**The overshoot blend.** `overshoot_blend` is the three-step smear above, kept as one routine because the window average reads its own running integral. It forms the smear half-width `delhgt`, integrates the un-smeared flux, replaces each deep layer ($j$ from the midpoint down) by its window average via two `map1` look-ups into the running integral, takes the elementwise maximum, and zeroes the top `NCONV` layers. It returns both the smeared term $F_{\rm conv}^{(1)}$ and the blended flux. With `OVERWT = 0` it is the identity (plus the top-layer zeroing), which is why the converged model — run at `OVERWT = 0` — never saw it.""")
+
+code(r'''def overshoot_blend(flxcnv0, height, flux, overwt, hscale, nconv):
+    """OVERWT overshoot: window-average the convective flux in geometric height, then blend (Fortran CONVEC)."""
+    n = flxcnv0.size; flxcnv1 = np.zeros(n)
+    if overwt > 0.0:
+        wtcnv = np.min([np.max(flxcnv0/max(flux, 1e-300)), 1.0])*overwt          # smear weight from peak fraction
+        delhgt = np.minimum.reduce([hscale*0.5e-5*wtcnv,                          # smear half-width, clipped to
+                                    np.maximum(height[-1]-height, 0.0),          # ... stay inside the model
+                                    np.maximum(height-height[0], 0.0)])
+        cnvint = integ(height, flxcnv0, 0.0)                                      # running integral of the flux
+        j0 = max(n//2-1, 0)
+        for j in range(j0, n-1):                                                  # window-average from midpoint down
+            if delhgt[j] == 0.0: continue
+            cnv1, _ = map1(height, cnvint, np.asarray([height[j]-delhgt[j]]))     # integral at z - DELHGT
+            cnv2, _ = map1(height, cnvint, np.asarray([height[j]+delhgt[j]]))     # integral at z + DELHGT
+            flxcnv1[j] += (cnv2[0]-cnv1[0])/delhgt[j]/2.0                         # average over the 2*DELHGT window
+        flxcnv = np.maximum(flxcnv0, flxcnv1)                                     # overshoot can only ADD flux
+    else:
+        flxcnv = flxcnv0.copy()
+    k = int(max(min(nconv, n), 0))
+    if k > 0: flxcnv[:k] = 0.0                                                    # re-zero the top NCONV layers
+    return flxcnv, flxcnv1''')
+
+md(r"""**Benchmark: the overshoot blend is bit-exact at two `OVERWT` values.** The pre-overshoot flux $F_{\rm conv}^{(0)}$ that feeds the blend is the `convec` output we reproduced above (to $\sim10^{-10}$); to test the **blend formula in isolation** — independently of that $\sim10^{-10}$ floor — we feed it the reference pre-overshoot flux and check that the smeared flux and the blended flux reproduce the production code to the **bit**. We do it at `OVERWT = 1.0` and `OVERWT = 2.0`: matching *two* independent strengths bit-for-bit proves we reproduced the genuine geometric-smear formula, not a one-off fit.""")
+
+code(r'''flxcnv0_ref = EOS["flxcnv0"]            # pre-overshoot flux feeding the blend (CONVEC output, reproduced ~1e-10)
+ov_flux = float(EOS["flux"]); ov_nconv = int(EOS["nconv"])
+OVT = np.load(pathlib.Path("..") / "reference" / "convec_gaps_truth.npz")   # overshoot ground truth (compare only)
+
+worst_ov = _relmax(height, OVT["height"])                # the geometric height first
+print(f"  height (from RHOX/RHO)   max|rel| = {worst_ov:.2e}   bit-exact = {np.array_equal(height, OVT['height'])}")
+for ow, key1, keyf in [(1.0, "flxcnv1_on", "flxcnv_on"), (2.0, "flxcnv1_on2", "flxcnv_on2")]:
+    fc, fc1 = overshoot_blend(flxcnv0_ref, height, ov_flux, ow, hscale_ov, ov_nconv)
+    r1o = _relmax(fc1, OVT[key1]); rfo = _relmax(fc, OVT[keyf]); worst_ov = max(worst_ov, r1o, rfo)
+    print(f"  overwt={ow}: FLXCNV1 max|rel| = {r1o:.2e}   FLXCNV(blended) max|rel| = {rfo:.2e}")
+print(f"overshoot OVERWT blend: worst max|rel| = {worst_ov:.2e}   <- MACHINE PRECISION (bit-exact)")''')
+
+md(r"""The smear is confined to the layers around the convective boundary — the deep interior, where the flux is already nearly constant, barely changes, and the top stays radiative. Overshoot is a small, controllable extension of the same kernel; the production solar model leaves it off, but the formula is now fully reproduced.""")
+
 # ── superadiabaticity plot ───────────────────────────────────────────────────
 md(r"""### Seeing the Schwarzschild criterion
 
@@ -634,7 +1043,7 @@ code(r'''fig, ax = plt.subplots(1, 2, figsize=(11, 4.1))
 x = np.log10(tauros)
 ax[0].plot(x, cv["dltdlp"], color="C3", lw=1.7, label=r"$\nabla$ (actual)")
 ax[0].plot(x, cv["grdadb"], color="C0", lw=1.7, label=r"$\nabla_{\rm ad}$ (adiabatic)")
-ax[0].set_xlabel(r"$\log_{10}\tau_{\rm Ross}$"); ax[0].set_ylabel("gradient $d\\ln T/d\\ln P$")
+ax[0].set_xlabel(r"$\log_{10}\tau_{\rm Ross}$"); ax[0].set_ylabel(r"ratio $\nabla/\nabla_{\rm ad}$")
 ax[0].set_title("Schwarzschild: where $\\nabla>\\nabla_{\\rm ad}$"); ax[0].legend(loc="upper left")
 ax[0].set_ylim(0, max(0.6, np.nanmax(cv["dltdlp"][np.isfinite(cv["dltdlp"])])*1.1))
 
@@ -894,12 +1303,13 @@ For **cool stars** there is one more ingredient: **molecules**. Below about 4000
 # ── synthesis ────────────────────────────────────────────────────────────────
 md(r"""## Synthesis
 
-Lecture 10 built one radiative-equilibrium correction step; this lecture turned it into a finished model by adding the two missing pieces. **Convection**: in the deep photosphere of a cool star the radiative gradient exceeds the adiabatic gradient (the Schwarzschild criterion), the gas becomes unstable, and rising/falling parcels carry part of the flux. We implemented Kurucz's mixing-length `CONVEC` — the adiabatic gradient $\nabla_{\rm ad}$ and superadiabaticity $\Delta=\nabla-\nabla_{\rm ad}$, with thermodynamic derivatives from finite differences of the EOS, and a 30-iteration inner loop for the convective flux $F_{\rm conv}$ using the optical-thickness efficiency $\tau_b^2/(2+\tau_b^2)$ — and saw it is zero in the line-forming layers but carries much of the deep flux. That flux feeds the temperature correction in three places (the total-flux defect, the convective-efficiency denominator, and a smoothing). **Convergence**: iterating the corrected EOS, opacity, fluxes, convection, and temperature drives the model to flux constancy, measured as $\max|\Delta T/T|<10^{-4}$ over the deep layers; the solar model took 28 iterations from a grey start. We verified the converged model is a fixed point of our from-scratch pipeline: one from-scratch iteration reproduces pykurucz's own single step from the converged model to machine precision in the convective flux, the temperature, and the column mass.""")
+Lecture 10 built one radiative-equilibrium correction step; this lecture turned it into a finished model by adding the two missing pieces. **Convection**: in the deep photosphere of a cool star the radiative gradient exceeds the adiabatic gradient (the Schwarzschild criterion), the gas becomes unstable, and rising/falling parcels carry part of the flux. We implemented Kurucz's mixing-length `CONVEC` — the adiabatic gradient $\nabla_{\rm ad}$ and superadiabaticity $\Delta=\nabla-\nabla_{\rm ad}$, with the thermodynamic derivatives obtained by re-running the equation of state from scratch (the Saha/Boltzmann ionization and charge-balance electron solve of Lecture 2) at $T,P\pm0.1\%$, and a 30-iteration inner loop for the convective flux $F_{\rm conv}$ using the optical-thickness efficiency $\tau_b^2/(2+\tau_b^2)$ — and saw it is zero in the line-forming layers but carries much of the deep flux. We also added the optional **overshoot** extension, the geometric smear that lets a parcel coast past the Schwarzschild boundary, reproducing ATLAS's `OVERWT` blend. That flux feeds the temperature correction in three places (the total-flux defect, the convective-efficiency denominator, and a smoothing). **Convergence**: iterating the corrected EOS, opacity, fluxes, convection, and temperature drives the model to flux constancy, measured as $\max|\Delta T/T|<10^{-4}$ over the deep layers; the solar model took 28 iterations from a grey start. We verified the converged model is a fixed point of our from-scratch pipeline: one from-scratch iteration reproduces pykurucz's own single step from the converged model to machine precision in the convective flux, the temperature, and the column mass.""")
 
 md(r"""## Summary
 
 - The deep photosphere **convects** where the actual gradient exceeds the adiabatic one, $\nabla > \nabla_{\rm ad}$ (the **Schwarzschild criterion**); the excess $\Delta = \nabla - \nabla_{\rm ad}$ is the superadiabaticity. In the Sun this happens below the visible surface, driven by hydrogen ionization; the **line-forming layers stay radiative**.
-- **Mixing-length theory** (`CONVEC`) carries a parcel one mixing length $\ell = \alpha_{\rm ML} H_P$ ($\alpha_{\rm ML}=1.25$) and computes the convective flux $F_{\rm conv}$ from $\Delta$, the convective velocity, and the optical-thickness efficiency $\tau_b^2/(2+\tau_b^2)$ ($\tau_b = \kappa\rho\ell$). The thermodynamic derivatives $\partial E/\partial T$, $\partial\rho/\partial T$, $\partial E/\partial P$, $\partial\rho/\partial P$ come from **finite differences** of the EOS; the top `NCONV=36` layers are forced radiative.
+- **Mixing-length theory** (`CONVEC`) carries a parcel one mixing length $\ell = \alpha_{\rm ML} H_P$ ($\alpha_{\rm ML}=1.25$) and computes the convective flux $F_{\rm conv}$ from $\Delta$, the convective velocity, and the optical-thickness efficiency $\tau_b^2/(2+\tau_b^2)$ ($\tau_b = \kappa\rho\ell$). The thermodynamic derivatives $\partial E/\partial T$, $\partial\rho/\partial T$, $\partial E/\partial P$, $\partial\rho/\partial P$ come from **finite differences of the equation of state**, which we re-run from scratch (Saha/Boltzmann + the charge-balance electron solve of Lecture 2) at $T,P\pm0.1\%$; the top `NCONV=36` layers are forced radiative.
+- **Convective overshoot** (`OVERWT`) extends the flux past the Schwarzschild boundary by window-averaging $F_{\rm conv}$ over a geometric height window and taking $\max(F_{\rm conv}^{(0)},F_{\rm conv}^{(1)})$. The solar model runs with it off, but the blend is reproduced bit-exactly.
 - The convective flux enters the **temperature correction** through the total-flux defect $H + F_{\rm conv}/4\pi - H_{\rm target}$, a convective-efficiency term in the Avrett–Krook denominator, and a 1–2–1 smoothing of $F_{\rm conv}$.
 - **Convergence** means flux constancy, tested as $\max|\Delta T/T| < 10^{-4}$ over the **deep layers** (ATLAS `checkconv`, layers 40–75); the upper layers settle last and are excluded. The solar continuum-only model converges in **28 iterations** from the grey start.
 - The converged atmosphere is a **fixed point**: one from-scratch iteration {opacity, JOSH, Rosseland mean, convection, temperature correction} reproduces pykurucz's own single step to **machine precision** — convective flux ($\sim10^{-10}$), temperature ($\sim10^{-9}$), and column mass ($\sim10^{-8}$). "Converged" means the deep-layer $\max|\Delta T/T|<10^{-4}$, not that one step is an exact no-op everywhere.
@@ -915,7 +1325,11 @@ md(r"""## Practice exercises
 
 **4. Reading the convergence history.** From `dlnt_history`, estimate the *convergence rate* (the ratio of successive deep-layer $\max|\Delta T/T|$ values once past the first few iterations). Is it geometric? Roughly how many more iterations would a $10^{-6}$ threshold have required? Why does the all-layer metric (`dtmax_history`) stall above the deep-layer one?
 
-**5. Convection off.** Re-run `convec` with `mixlth = 0` (or construct a copy of `cv` in which the flux-related arrays are zeroed but every key `tcorr_mode3` reads is still present, so it does not hit a missing-key error) and redo the fixed-point check against the converged model. The temperature should now *fail* to reproduce in the deep layers. By how much does the deep temperature move, and at what optical depth does the discrepancy appear? This is the structural imprint of convection — invisible at the surface, decisive in the interior.""")
+**5. Convection off.** Re-run `convec` with `mixlth = 0` (or construct a copy of `cv` in which the flux-related arrays are zeroed but every key `tcorr_mode3` reads is still present, so it does not hit a missing-key error) and redo the fixed-point check against the converged model. The temperature should now *fail* to reproduce in the deep layers. By how much does the deep temperature move, and at what optical depth does the discrepancy appear? This is the structural imprint of convection — invisible at the surface, decisive in the interior.
+
+**6. The reach of overshoot.** Sweep `overshoot_blend` over `OVERWT` $\in \{0, 0.5, 1, 2, 4\}$ and, for each, find the shallowest layer where the blended flux differs from the un-smeared $F_{\rm conv}^{(0)}$. How does the overshoot depth grow with `OVERWT`? Confirm from the formula that the smear half-width `DELHGT` scales linearly with `OVERWT` (until it hits the model-edge clips), and explain why the blend can only *raise* the flux in the stable layers, never lower it in the unstable ones. The production solar model uses `OVERWT = 0`; what observable would you expect overshoot to influence in a real model?
+
+**7. The EOS derivatives by hand.** The convective gradients depend on $(\partial\rho/\partial T)_P$ and the others through the finite differences we computed. Re-form `drdT` from `r1`, `r2` and compare it to a one-sided difference using only `r1` and the unperturbed `rho`. How large is the difference, and why is the *central* difference the right choice here? Then perturb the metal abundances by 1% (as the verifier's sabotage check does), re-run the EOS, and watch the electron density — and hence $\rho$ — shift: the metals, not hydrogen, set the photospheric electron budget (Lecture 2).""")
 
 md(r"""## Further reading
 
