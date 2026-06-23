@@ -237,29 +237,40 @@ md(r"""## JOSH, for the full depth profile (Lecture 8)
 
 Lecture 8 used JOSH to produce one number per wavelength — the emergent surface flux. The temperature correction needs **more**: at every depth and every frequency it needs the Eddington flux $H_\nu(\tau)$ and the moment $(J_\nu - S_\nu)(\tau)$, the difference between the mean intensity and the source function. So here we run the same JOSH algorithm but read out the *depth profiles*, not just the surface value.
 
-The mechanics are exactly Lecture 8's, so we keep `josh_profiles` as one block and lean on comments rather than re-deriving it. Reading the body top to bottom, it does four things. **(a)** Form the per-frequency optics: total extinction $\kappa_\nu$ (continuum absorption + scattering), scattering fraction $\alpha_\nu = \sigma_\nu/\kappa_\nu$, thermal-plus-scattering source $\bar S_\nu$, and the monochromatic optical depth $\tau_\nu=\int\kappa_\nu\,d(\rho x)$. **(b)** Map the source onto JOSH's fixed 51-point $\tau$-grid and run the **float32** $\Lambda$-iteration that solves the scattering problem there — the one place the whole pipeline drops to single precision (Lecture 8 explains why; it is the reason our final benchmark carries a float32 floor). **(c)** Solve the thin outer layers directly on the physical grid (JOSH's "label-401" branch, which for this solar continuum always applies near the surface) — we reproduce that branch faithfully. **(d)** Read the deep-layer moments off the grid solution and map them back. The function returns $\tau_\nu$, $H_\nu$, $(J_\nu - S_\nu)$, $\kappa_\nu$, and $\alpha_\nu$ at every layer — the five profiles the correction consumes.""")
+The mechanics are exactly Lecture 8's. Rather than one long block, we break JOSH into four named helpers — one per stage — and a thin `josh_profiles` driver that calls them in order. The four stages are: **(a)** form the per-frequency optics (total extinction $\kappa_\nu$, scattering fraction $\alpha_\nu$, thermal-plus-scattering source $\bar S_\nu$, monochromatic optical depth $\tau_\nu$); **(b)** map the source onto JOSH's fixed 51-point $\tau$-grid and run the **float32** $\Lambda$-iteration that solves the scattering problem there — the one place the whole pipeline drops to single precision (Lecture 8 explains why; it is the reason our final benchmark carries a float32 floor); **(c)** solve the thin outer layers directly on the physical grid (JOSH's "label-401" branch, which for this solar continuum always applies near the surface); **(d)** read the deep-layer moments off the grid solution and map them back. The driver returns $\tau_\nu$, $H_\nu$, $(J_\nu - S_\nu)$, $\kappa_\nu$, and $\alpha_\nu$ at every layer — the five profiles the correction consumes.
+
+First the JOSH tables and the two convergence constants, used by every stage below.""")
 
 code(r'''XTAU  = JT["xtau"].astype(np.float64)        # JOSH fixed optical-depth grid (51 points)
 COEFJ = JT["coefj"].astype(np.float64)       # J-moment operator (51x51), from Lecture 8
 COEFH = REF["josh_coefh"].astype(np.float64) # H-moment operator (51x51); shipped here (L8 omits it)
 NX = XTAU.size
 COEFJ_DIAG = np.diag(COEFJ).astype(np.float32)   # precomputed diagonal of the J operator (used every sweep)
-ITER_TOL = 1.0e-5                                # relative tolerance for both iterations
+ITER_TOL = 1.0e-5                                # relative tolerance for both iterations''')
 
-def josh_profiles(acont, scont, sigmac, rhox, bnu):
-    """JOSH depth profiles for one continuum frequency (ifscat=1, line opacity off).
-    Returns taunu, H_nu, (J_nu - S_nu), kappa_nu (=abtot), alpha_nu, all at every layer."""
-    # --- (a) per-frequency optics ---
+md(r"""### (a) Per-frequency optics
+
+The first stage turns this frequency's continuum opacity and source into the four quantities JOSH works with: the total extinction $\kappa_\nu$ (`abtot`, absorption + scattering, floored away from zero), the scattering fraction $\alpha_\nu=\sigma_\nu/\kappa_\nu$ (`alpha`), the thermal-plus-scattering source $\bar S_\nu$ (`snubar`, the absorption-weighted source — note that with no line absorption the denominator is just `acont`), and the monochromatic optical depth $\tau_\nu=\int\kappa_\nu\,d(\rho x)$ (`taunu`).""")
+
+code(r'''def josh_optics(acont, scont, sigmac, rhox, bnu):
+    """Stage (a): per-frequency optics. Returns kappa_nu, alpha_nu, Sbar_nu, tau_nu."""
     abtot = np.maximum(acont + sigmac, 1e-300)          # total extinction kappa_nu
     alpha = sigmac / abtot                               # scattering fraction sigma/kappa
     den   = acont                                        # (no line absorption in continuum-only)
     snubar = bnu.copy()
     np.divide(acont*scont, den, out=snubar, where=den > 0.0)   # thermal+scattering source Sbar_nu
     taunu = integ(rhox, abtot, abtot[0]*rhox[0])         # monochromatic optical depth tau_nu
-    snu = np.zeros(n); hnu = np.zeros(n); jnu = np.zeros(n); jmins = np.zeros(n)
-    xs = np.zeros(NX, dtype=np.float32)                  # the source iterate, on the JOSH grid (REAL*4)
+    return abtot, alpha, snubar, taunu''')
 
-    # --- (b) map source + alpha onto the JOSH grid and run the float32 Lambda-iteration ---
+md(r"""### (b) The float32 $\Lambda$-iteration on the JOSH grid
+
+Stage (b) has two parts: a *setup* that remaps the source and scattering fraction onto JOSH's fixed 51-point $\tau$-grid, and the tight **float32** $\Lambda$-iteration itself. We keep them as two helpers — the setup is pure preparation, the iteration is an irreducible single-precision kernel.
+
+The setup `josh_grid_setup` maps $\bar S_\nu$ and $\alpha_\nu$ from the physical $\tau_\nu$ grid onto `XTAU`, casts both to **float32**, clamps them to physical ranges, and flat-extrapolates any grid points that sit above the physical surface ($\tau<\tau_\nu[0]$). It returns the float32 source `xsbar8`, the float32 scattering fraction `xalpha8`, and `maxj`, the index of the deepest grid point still inside the physical atmosphere.""")
+
+code(r'''def josh_grid_setup(snubar, alpha, taunu):
+    """Stage (b) setup: remap Sbar and alpha onto the float32 JOSH grid, clamp, extrapolate.
+    Returns (xsbar8, xalpha8, maxj), all on XTAU; the float32 arrays seed the Lambda-iteration."""
     xsbar8, maxj = map1(taunu, snubar, XTAU)
     xalpha8, maxj = map1(taunu, alpha, XTAU)
     xalpha8 = np.maximum(xalpha8.astype(np.float32), np.float32(0.0))      # clamp to physical ranges
@@ -267,6 +278,25 @@ def josh_profiles(acont, scont, sigmac, rhox, bnu):
     mask = XTAU < taunu[0]                               # grid points above the physical surface
     if np.any(mask):
         xsbar8[mask] = max(snubar[0], 1.0e-38); xalpha8[mask] = max(alpha[0], 0.0)   # extrapolate flat
+    return xsbar8, xalpha8, maxj''')
+
+md(r"""Now the kernel itself — the one place the whole pipeline runs in single precision. We **keep it whole** (splitting it would change the float32 operation order) and walk through it step by step instead.
+
+It solves $(I-\alpha\Lambda)S = (1-\alpha)\bar S$ for the source `xs` on the JOSH grid by **backward Gauss–Seidel**, every operation in `float32` (Fortran `REAL*4`). Reading the body:
+
+1. **Initial guess and precomputed pieces.** The iterate `xs` starts at the thermal source `xsbar8`. We precompute `diag` $=1-\alpha\,\Lambda_{kk}$ (the diagonal of the operator $I-\alpha\Lambda$) and `xsbar_mod` $=(1-\alpha)\bar S$ (the right-hand side) once, since neither changes across sweeps.
+2. **Outer loop = one full sweep.** Each pass sets a convergence flag `iferr=0` and walks the grid.
+3. **Inner loop, deep → shallow.** The index `k = NX-1-kk` runs the sweep *upward* from the deepest grid point. For each `k`: form $(\Lambda\,xs)_k$ as a float32 dot product (`dot`); build the residual `num` $=\alpha_k\,(\Lambda xs)_k + (1-\alpha)\bar S_k - xs_k$; divide by the diagonal `dd` (guarded away from zero) to get the Gauss–Seidel update `delxs`.
+4. **Convergence test.** If the *relative* update `|delxs/xb|` exceeds the tolerance at any layer (with `xb` the current value, guarded from zero), set `iferr=1` — this sweep has not converged.
+5. **Apply, keep positive.** Update `xs[k] = max(xs[k]+delxs, 1e-37)`, immediately so the next (shallower) `k` sees it — that immediacy is what makes it Gauss–Seidel rather than Jacobi.
+6. **Stop.** When a whole sweep passes with `iferr==0`, every layer is below tolerance and we break.
+
+The function returns the converged float32 source `xs`.""")
+
+code(r'''def josh_lambda_iteration(xsbar8, xalpha8):
+    """Stage (b) kernel: backward Gauss-Seidel solve of (I - alpha Lambda) S = (1-alpha) Sbar,
+    every operation in float32 (Fortran REAL*4) -- KEPT WHOLE (the precision floor lives here)."""
+    xs = np.zeros(NX, dtype=np.float32)                  # the source iterate, on the JOSH grid (REAL*4)
     xs[:] = xsbar8                                       # initial guess: thermal source
     diag = np.float32(1.0) - xalpha8*COEFJ_DIAG          # diagonal of (I - alpha*Lambda)
     xsbar_mod = (np.float32(1.0) - xalpha8)*xsbar8        # thermal part of the source equation
@@ -284,9 +314,15 @@ def josh_profiles(acont, scont, sigmac, rhox, bnu):
             if np.float32(abs(float(delxs/xb))) > np.float32(ITER_TOL): iferr = 1   # not yet converged here
             xs[k] = np.float32(max(float(np.float32(xs[k] + delxs)), 1.0e-37))      # apply, keep positive
         if iferr == 0: break                             # every layer below tolerance -> done
-    snu_head, _ = map1(XTAU, xs.astype(np.float64), taunu[:maxj]); snu[:maxj] = snu_head   # back to physical grid
+    return xs''')
 
-    # --- (c) solve the outer (optically thin) layers on the physical TAUNU grid (JOSH "label-401") ---
+md(r"""### (c) The optically-thin outer layers
+
+Stage (c) is JOSH's "label-401" branch: the thin outer layers are solved by a short fixed-point iteration *directly on the physical $\tau_\nu$ grid*, because the diffusion-style moments are unreliable where there is little material above. Working back from the grid solution it sets the deep layers' source to thermal, then repeatedly: guards against negative source/flux (falling back to the Planck source if either goes non-physical), forms $H=\tfrac13\,dS/d\tau$ (the Eddington flux) and $(J-S)=dH/d\tau$ by `deriv`, rebuilds $J$, and updates each layer's source as $(1-\alpha)\bar S+\alpha J$ until it converges. It mutates the working arrays `snu`, `hnu`, `jnu`, `jmins`, `snubar` in place.""")
+
+code(r'''def josh_thin_layers(maxj, alpha, snubar, bnu, taunu, snu, hnu, jnu, jmins):
+    """Stage (c): fixed-point solve of the optically-thin outer layers on the physical grid
+    (JOSH label-401). Mutates snu/hnu/jnu/jmins/snubar in place; returns nothing."""
     maxj1 = maxj+1 if maxj != 1 else 1
     snu[maxj1-1:] = snubar[maxj1-1:]                     # deep layers: source = thermal (set below)
     m0 = max(maxj-1, 1) - 1; nmj0 = maxj-1
@@ -303,13 +339,30 @@ def josh_profiles(acont, scont, sigmac, rhox, bnu):
             jnu[j] = jmins[j] + snu[j]                    # rebuild J
             snew = (1.0-alpha[j])*snubar[j] + alpha[j]*jnu[j]   # source update: (1-alpha)Sbar + alpha J
             error += abs(snew - snu[j]) / max(abs(snew), 1e-300); snu[j] = snew
-        if error < ITER_TOL: break
+        if error < ITER_TOL: break''')
 
-    # --- (d) deeper layers: moments straight from the grid solution, mapped back ---
+md(r"""### (d) The deep-layer moments, and the driver
+
+Stage (d) reads the deep-layer moments straight off the converged grid solution `xs`: $(J-S)$ is $(-I+\Lambda)\,xs$ (the `COEFJ` operator minus identity) and $H$ is the `COEFH` operator applied to `xs`, both then remapped from the JOSH grid onto the physical layers above `maxj`. Finally `josh_profiles` is the thin driver that allocates the working arrays, calls stages (a)–(d) in order at exactly the points the original single block did, and returns the five profiles.""")
+
+code(r'''def josh_deep_moments(xs, maxj, taunu, hnu, jmins):
+    """Stage (d): moments straight from the grid solution, mapped back onto the physical layers.
+    Mutates hnu/jmins[:maxj] in place; returns nothing."""
     xjs = (-xs + COEFJ.astype(np.float32) @ xs).astype(np.float64)   # (J - S) on the JOSH grid
     xh  = (COEFH @ xs).astype(np.float64)                            # H on the JOSH grid
     jmins[:maxj], _ = map1(XTAU, xjs, taunu[:maxj])                  # remap onto physical layers
     hnu[:maxj], _   = map1(XTAU, xh,  taunu[:maxj])
+
+def josh_profiles(acont, scont, sigmac, rhox, bnu):
+    """JOSH depth profiles for one continuum frequency (ifscat=1, line opacity off).
+    Returns taunu, H_nu, (J_nu - S_nu), kappa_nu (=abtot), alpha_nu, all at every layer."""
+    abtot, alpha, snubar, taunu = josh_optics(acont, scont, sigmac, rhox, bnu)   # (a)
+    snu = np.zeros(n); hnu = np.zeros(n); jnu = np.zeros(n); jmins = np.zeros(n)
+    xsbar8, xalpha8, maxj = josh_grid_setup(snubar, alpha, taunu)                # (b) setup
+    xs = josh_lambda_iteration(xsbar8, xalpha8)                                  # (b) float32 kernel
+    snu_head, _ = map1(XTAU, xs.astype(np.float64), taunu[:maxj]); snu[:maxj] = snu_head   # back to physical grid
+    josh_thin_layers(maxj, alpha, snubar, bnu, taunu, snu, hnu, jnu, jmins)      # (c)
+    josh_deep_moments(xs, maxj, taunu, hnu, jmins)                              # (d)
     return taunu, hnu, jmins, abtot, alpha''')
 
 # ── frequency loop: ROSS + flux + accumulators ───────────────────────────────
@@ -587,6 +640,8 @@ code(r'''class Rosstab:
         w = [1.0/(np.sqrt(b[0])+1e-5) for b in best]; idx = [max(b[1], 0) for b in best]
         r = sum(self.k[idx[q]]*w[q] for q in range(4)) / max(sum(w), 1e-300)
         return 10.0**r''')
+
+md(r"""With that opacity table in hand, `ttaup` re-integrates hydrostatic equilibrium down the optical-depth grid, solving $dP/d\tau = g/\kappa$. Because the opacity itself depends on the pressure it is solving for ($\kappa = \kappa(T, P)$ via `ROSSTAB`), each layer runs an inner predictor–corrector loop — a low-order start at the top, a multistep formula deeper — that iterates the log-pressure until it converges, exactly as the Lecture-9 integrator did but reading the real Rosseland opacity instead of $\kappa\equiv1$.""")
 
 code(r'''def ttaup(t, tau, prad, grav, rosstab):
     """Hydrostatic re-integration in log pressure (Lecture 9 TTAUP), opacity from ROSSTAB.

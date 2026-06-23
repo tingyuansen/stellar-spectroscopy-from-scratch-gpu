@@ -123,6 +123,8 @@ code(r'''def parcoe(f, x):
     a[n1-1] = a[-1]; b[n1-1] = b[-1]; c[n1-1] = c[-1]
     return a, b, c''')
 
+md(r"""`integ` and `deriv` ride on those parabolic coefficients. `integ` analytically integrates each interval's parabola and accumulates the running sum, seeded at `start` — the quadrature behind every optical depth and flux integral here; `deriv` returns ATLAS's curvature-limited cubic-tangent derivative $df/dx$, used for the temperature and opacity gradients the convection kernel needs.""")
+
 code(r'''def integ(x, f, start):
     """Cumulative integral of f dx, each interval using its left-point parabola (Fortran INTEG)."""
     nn = f.size; out = np.zeros(nn)
@@ -149,6 +151,8 @@ def deriv(x, f):
         tan1 = d1/(s*np.sqrt(1.0+d1*d1)+1.0); tan0 = d0/(s*np.sqrt(1.0+d0*d0)+1.0)
         d[j] = (tan1+tan0)/(1.0-tan1*tan0)*scale
     return d''')
+
+md(r"""The last kernel, `map1`, is the piecewise-quadratic remap between depth grids. It is a single Fortran state machine: for each target point it advances a cursor through the source grid, fits a backward and a forward parabola around the bracket (reusing the previous step's forward fit when it can), blends them by curvature weight, and evaluates — falling back to straight lines at the ends. `map1_scalar` wraps it for a single point, and `_nz_signed` is the small signed-floor guard the convection code uses to avoid dividing by a near-zero value.""")
 
 code(r'''def map1(xold, fold, xnew):
     """Piecewise-quadratic remap matching Fortran MAP1.  Returns (fnew, ll-1)."""
@@ -248,6 +252,8 @@ def expi3(x):
     out = ex1
     for i in range(1, 3): out = (np.exp(-x) - x*out)/float(i)
     return out''')
+
+md(r"""`josh_profiles` is the Lecture 8/10 JOSH kernel, carried over verbatim, run for the full depth profile at one continuum frequency. It forms the per-frequency optics (total extinction, scattering fraction, thermal source, monochromatic $\tau_\nu$), maps them onto JOSH's fixed 51-point grid and runs the **float32** $\Lambda$-iteration that solves the scattering problem there, solves the optically thin outer layers directly on the physical grid, and reads the deep-layer moments off the grid solution — returning $\tau_\nu$, $H_\nu$, $(J_\nu - S_\nu)$, $\kappa_\nu$, and $\alpha_\nu$ at every layer.""")
 
 code(r'''def josh_profiles(acont, scont, sigmac, rhox, bnu):
     """JOSH full depth profiles for one frequency (Lecture 8/10).  Returns taunu, hnu, jmins, abtot, alpha.
@@ -563,14 +569,14 @@ code(r'''def ttaup(t, tau, prad, grav, rfun):
         plog4=plog3; plog3=plog2; plog2=plog1; plog1=plog; dplog3=dplog2; dplog2=dplog1; dplog1=dplog  # shift history
     return abstd, ptot, pgas''')
 
-code(r'''def tcorr_mode3(T, rhox, tauros, abross, flxrad, rjmins, rdabh, rdiagj, flux, teff, prad, grav,
-                rosstab, cv, mixlth=1.25, steplg=0.125, tau1lg=-6.875):
-    """ATLAS TCORR mode 3 with convection: T1 = dtflux + dtlamb + dtsurf, plus DRHOX (Lecture 10 + CONVEC)."""
-    nl = T.size
-    dtdrhx = deriv(rhox, T); dabros = deriv(rhox, abross)             # dT/d(rhox) and d(kappa)/d(rhox)
-    flxcnv=cv["flxcnv"]; flxcnv0=cv["flxcnv0"]; dltdlp=cv["dltdlp"]; grdadb=cv["grdadb"]   # unpack CONVEC arrays
-    hscale=cv["hscale"]; dlrdlt=cv["dlrdlt"]; heatcp=cv["heatcp"]; ptc=cv["ptotal"]; rhc=cv["rho"]
-    ddlt = deriv(rhox, dltdlp)                                        # gradient of the actual gradient
+md(r"""`tcorr_mode3` is the Lecture 10 temperature correction with convection folded in. It assembles the same three terms — $T_1 = \Delta T_{\rm flux} + \Delta T_\Lambda + \Delta T_{\rm surf}$ — but the convective flux enters in three places: the defect it drives toward zero is now the *total* flux $H + F_{\rm conv}/4\pi - H_{\rm target}$, the Avrett–Krook denominator picks up the convective-efficiency response `ddel`, and $F_{\rm conv}$ is 1–2–1 smoothed (with its top two layers re-zeroed) first. It then closes the iteration with the density correction by running `ttaup` above on $T$ and on $T+T_1$ and differencing the pressures.
+
+The routine has four separable blocks, which we extract into named helpers first — the convective-flux smoothing, the per-layer Avrett–Krook integrand, the local-$\Lambda$ surface term, and the density correction — so the main `tcorr_mode3` body reads as a short sequence of named steps. Each helper is moved out verbatim and called at the same point with the same inputs and outputs, so the arithmetic is bit-for-bit unchanged.""")
+
+md(r"""**Step 1 — smooth the convective flux.** The raw layer-by-layer $F_{\rm conv}$ is noisy, so before it enters the correction it is run through a 1–2–1 spatial filter, with the top two layers explicitly re-zeroed first (otherwise the filter would bleed deep convective flux up into the radiative boundary layers). `smooth_convective_flux` does exactly that and returns the smoothed copy `cnvflx`.""")
+
+code(r'''def smooth_convective_flux(flxcnv, nl):
+    """1-2-1 smoothing of the convective flux with the top two layers re-zeroed (Lecture 11 TCORR)."""
     cnvflx = flxcnv.copy(); cnvflx[0] = 0.0                            # smooth the convective flux: zero top two,
     if nl >= 2: cnvflx[1] = 0.0
     if nl >= 3:
@@ -579,7 +585,13 @@ code(r'''def tcorr_mode3(T, rhox, tauros, abross, flxrad, rjmins, rdabh, rdiagj,
         ccc[-1] = 0.25*cnvflx[-3] + 0.25*cnvflx[-2] + 0.5*cnvflx[-1]
         for j in range(1, nl-1): cnvflx[j] = ccc[j]
         cnvflx[-1] = ccc[-1]
-    rdabh_eff = rdabh - flxrad*dabros/np.maximum(abross, 1e-300)      # opacity-gradient term in the AK denominator
+    return cnvflx''')
+
+md(r"""**Step 2 — the Avrett–Krook integrand.** Per layer, this builds the integrand `codrhx` whose exponential integral is the Avrett–Krook integrating factor, and alongside it the convective-efficiency response `ddel = dF_conv/dT`. In a convective layer (`cnvflx>0` and `flxcnv0>0`) it re-forms the velocity, flux, and optical-thickness factors from `CONVEC` to get `ddel`; the numerator carries the convective flux only where it is more than 0.1% of the radiative flux, and the denominator is the total-flux response (radiative plus the convective `ddel` term). The top two layers of `codrhx` are zeroed. `ak_integrand` returns `(codrhx, ddel)`.""")
+
+code(r'''def ak_integrand(nl, T, flxrad, rdabh_eff, dtdrhx, ddlt, cnvflx, flxcnv0,
+                 dltdlp, grdadb, hscale, dlrdlt, heatcp, ptc, rhc, abross, mixlth):
+    """Per-layer Avrett-Krook integrand codrhx and convective-efficiency response ddel (Lecture 11 TCORR)."""
     codrhx = np.zeros(nl); ddel = np.zeros(nl)
     for j in range(nl):                                               # per layer: AK integrand + convective ddel
         delv = 1.0; d = 0.0
@@ -600,14 +612,12 @@ code(r'''def tcorr_mode3(T, rhox, tauros, abross, flxrad, rjmins, rdabh, rdiagj,
         codrhx[j] = num/_nz_signed(float(den))
     codrhx[0] = 0.0
     if nl >= 2: codrhx[1] = 0.0
-    g = np.exp(integ(rhox, codrhx, 0.0))                              # Avrett-Krook integrating factor
-    gfden = flxrad + cnvflx*1.5*dltdlp*ddel
-    gfden_s = np.where(np.abs(gfden) >= 1e-300, gfden, np.where(gfden >= 0.0, 1e-300, -1e-300))
-    gflux = g*(flxrad + cnvflx - flux)/gfden_s                         # total-flux defect drives Avrett-Krook
-    dtau = integ(tauros, gflux, 0.0)/np.maximum(g, 1e-300)
-    dtau = np.maximum(-tauros/3.0, np.minimum(tauros/3.0, dtau))       # stability clamp on the tau shift
-    dtflux = -dtau*dtdrhx/np.maximum(abross, 1e-300)
-    flxerr = (flxrad + cnvflx - flux)/np.maximum(flux, 1e-300)*100.0   # percent TOTAL-flux error
+    return codrhx, ddel''')
+
+md(r"""**Step 3 — the local-$\Lambda$ surface term.** This is the Lecture 10 surface correction: per layer it forms the flux-derivative driver `flxdrv` (switching to the net-heating form $\kappa(J-S)$ where the convective fraction is negligible), divides by the $\Lambda$-diagonal `rdiagj`, restricts the term to the optically-thin radiative surface, halves the five layers above any non-surface layer, and clamps the result to $\pm T_{\rm eff}/25$. `lambda_surface_term` returns the array `dtlamb`.""")
+
+code(r'''def lambda_surface_term(nl, tauros, abross, flxrad, rjmins, rdiagj, flxerr, cnvflx, flux, teff):
+    """Local-Lambda surface temperature term dtlamb (Lecture 10 TCORR, convection-gated)."""
     flxdrv = deriv(tauros, flxerr); dtlamb = np.zeros(nl); teff25 = teff/25.0
     for j in range(nl):                                               # local-Lambda surface term (Lecture 10)
         ratio = cnvflx[j]/np.maximum(flxrad[j], 1e-300)
@@ -620,6 +630,44 @@ code(r'''def tcorr_mode3(T, rhox, tauros, abross, flxrad, rjmins, rdabh, rdiagj,
             for k in range(1, 6):
                 if j-k >= 0: dtlamb[j-k] *= 0.5
         dtlamb[j] = float(np.clip(dtlamb[j], -teff25, teff25))
+    return dtlamb''')
+
+md(r"""**Step 4 — the density (DRHOX) correction.** Once $T_1$ is known, the column mass must follow. This remaps $T$, $T+T_1$, and $P_{\rm rad}$ onto the fixed standard optical-depth grid `taustd`, runs the hydrostatic `ttaup` integration twice (on $T$ and on $T+T_1$), and differences the resulting total pressures to get the fractional pressure change, mapped back to the Rosseland grid as `rrr` (the fractional $\Delta\rho x$). `drhox_density_correction` returns `rrr`.""")
+
+code(r'''def drhox_density_correction(tauros, T, t1, prad, grav, rosstab, nl, steplg, tau1lg):
+    """Density correction DRHOX: hydrostatic re-integration on T and T+t1, differenced (Lecture 10 TCORR)."""
+    taustd = 10.0**(tau1lg + np.arange(nl)*steplg); rfun = rosstab.eval   # DRHOX: re-run TTAUP on T and T+t1
+    tnew1, _ = map1(tauros, T, taustd); prdnew, _ = map1(tauros, prad, taustd)   # T and P_rad on the std grid
+    _a1, ptot1, _ = ttaup(tnew1, taustd, prdnew, grav, rfun)          # hydrostatic pressure for T
+    tnew2, _ = map1(tauros, T+t1, taustd)
+    _a2, ptot2, _ = ttaup(tnew2, taustd, prdnew, grav, rfun)          # hydrostatic pressure for T+T1
+    ppp = (ptot2-ptot1)/np.maximum(ptot1, 1e-300); rrr, _ = map1(taustd, ppp, tauros)   # fractional dP -> dRHOX
+    return rrr''')
+
+md(r"""**The assembled correction.** With the four helpers in place, `tcorr_mode3` reads as a short sequence: unpack the `CONVEC` arrays, smooth the convective flux, build the Avrett–Krook integrand, integrate it into the flux-driven term $\Delta T_{\rm flux}$, add the surface $\Lambda$ term and the surface-boundary term, clamp for monotonicity, and finally run the density correction. The same float operations execute in the same order as before.""")
+
+code(r'''def tcorr_mode3(T, rhox, tauros, abross, flxrad, rjmins, rdabh, rdiagj, flux, teff, prad, grav,
+                rosstab, cv, mixlth=1.25, steplg=0.125, tau1lg=-6.875):
+    """ATLAS TCORR mode 3 with convection: T1 = dtflux + dtlamb + dtsurf, plus DRHOX (Lecture 10 + CONVEC)."""
+    nl = T.size
+    dtdrhx = deriv(rhox, T); dabros = deriv(rhox, abross)             # dT/d(rhox) and d(kappa)/d(rhox)
+    flxcnv=cv["flxcnv"]; flxcnv0=cv["flxcnv0"]; dltdlp=cv["dltdlp"]; grdadb=cv["grdadb"]   # unpack CONVEC arrays
+    hscale=cv["hscale"]; dlrdlt=cv["dlrdlt"]; heatcp=cv["heatcp"]; ptc=cv["ptotal"]; rhc=cv["rho"]
+    ddlt = deriv(rhox, dltdlp)                                        # gradient of the actual gradient
+    cnvflx = smooth_convective_flux(flxcnv, nl)                       # 1-2-1 smoothing, top two re-zeroed
+    rdabh_eff = rdabh - flxrad*dabros/np.maximum(abross, 1e-300)      # opacity-gradient term in the AK denominator
+    codrhx, ddel = ak_integrand(nl, T, flxrad, rdabh_eff, dtdrhx, ddlt, cnvflx, flxcnv0,
+                                dltdlp, grdadb, hscale, dlrdlt, heatcp, ptc, rhc, abross, mixlth)
+    g = np.exp(integ(rhox, codrhx, 0.0))                              # Avrett-Krook integrating factor
+    gfden = flxrad + cnvflx*1.5*dltdlp*ddel
+    gfden_s = np.where(np.abs(gfden) >= 1e-300, gfden, np.where(gfden >= 0.0, 1e-300, -1e-300))
+    gflux = g*(flxrad + cnvflx - flux)/gfden_s                         # total-flux defect drives Avrett-Krook
+    dtau = integ(tauros, gflux, 0.0)/np.maximum(g, 1e-300)
+    dtau = np.maximum(-tauros/3.0, np.minimum(tauros/3.0, dtau))       # stability clamp on the tau shift
+    dtflux = -dtau*dtdrhx/np.maximum(abross, 1e-300)
+    flxerr = (flxrad + cnvflx - flux)/np.maximum(flux, 1e-300)*100.0   # percent TOTAL-flux error
+    dtlamb = lambda_surface_term(nl, tauros, abross, flxrad, rjmins, rdiagj, flxerr, cnvflx, flux, teff)
+    teff25 = teff/25.0
     dtsur = float(np.clip((flux-flxrad[0])/np.maximum(flux,1e-300)*0.25*T[0], -teff25, teff25))  # surface term
     tinteg = integ(tauros, dtflux+dtlamb, 0.0)
     tav = (map1_scalar(tauros, tinteg, 2.0) - map1_scalar(tauros, tinteg, 0.1))/2.0
@@ -632,12 +680,7 @@ code(r'''def tcorr_mode3(T, rhox, tauros, abross, flxrad, rjmins, rdabh, rdiagj,
     for i in range(1, nl):                                            # monotonicity: T increasing with depth
         j = nl-1-i; tnew[j] = np.fmin(tnew[j], tnew[j+1]-1.0)
         if not np.isfinite(tnew[j]): tnew[j] = max(T[j], 1.0)
-    taustd = 10.0**(tau1lg + np.arange(nl)*steplg); rfun = rosstab.eval   # DRHOX: re-run TTAUP on T and T+t1
-    tnew1, _ = map1(tauros, T, taustd); prdnew, _ = map1(tauros, prad, taustd)   # T and P_rad on the std grid
-    _a1, ptot1, _ = ttaup(tnew1, taustd, prdnew, grav, rfun)          # hydrostatic pressure for T
-    tnew2, _ = map1(tauros, T+t1, taustd)
-    _a2, ptot2, _ = ttaup(tnew2, taustd, prdnew, grav, rfun)          # hydrostatic pressure for T+T1
-    ppp = (ptot2-ptot1)/np.maximum(ptot1, 1e-300); rrr, _ = map1(taustd, ppp, tauros)   # fractional dP -> dRHOX
+    rrr = drhox_density_correction(tauros, T, t1, prad, grav, rosstab, nl, steplg, tau1lg)   # DRHOX
     return dict(t1=t1, dtflux=dtflux, dtlamb=dtlamb, flxerr=flxerr, cnvflx=cnvflx,
                 tnew=tnew, rhox_new=rhox + rrr*rhox)
 
