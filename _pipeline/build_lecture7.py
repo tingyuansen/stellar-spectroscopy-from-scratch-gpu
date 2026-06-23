@@ -39,6 +39,8 @@ We have everything the photons need. Lecture 1 gave the temperature structure; L
 
 The physics is a single first-order equation, and in LTE it has a closed-form **formal solution** — the emergent flux is a weighted average of the source function over depth, with the weighting set by how the optical depth builds up. We will write that solution, evaluate it on the opacity we assembled, and watch a forest of iron lines appear exactly where the line list said they would. This is the lecture where the whole pipeline pays off: a synthetic solar spectrum, built from $T_{\rm eff}$ and $\log g$, matching the production code to a part in a thousand.""")
 
+md(r"""We begin by loading the products this lecture builds on. Everything we need was saved at the end of Lecture 6 into `reference/L6.npz` (hence the name `REF`): the wavelength grid `wl`, the atmosphere's temperature and column-mass profiles (`T`, `rhox`), and — the new ingredient — the assembled opacity, split two ways. The arrays `total_abs`/`total_scat` hold the *full* opacity (continuum plus all the lines), while `cont_abs`/`cont_scat` hold the *continuum alone*; carrying both lets us form the line spectrum and the continuum it sits on from the same machinery. We also set the physical constants in CGS and define a small `compare` helper that reports the worst relative difference between a from-scratch array and its reference, the running check used throughout the book.""")
+
 code(r'''import pathlib
 import numpy as np
 import matplotlib.pyplot as plt
@@ -58,12 +60,17 @@ def compare(name, ours, ref, tol=1e-6):
     print(f"{name:30s}  max|rel diff| = {rel:.2e}   [{tag}]")
     return rel
 
-H_C, C, K = 6.62607015e-27, 2.99792458e10, 1.380649e-16   # Planck h, speed of light c, Boltzmann k  [CGS]
-wl = REF["wl"]; T = REF["T"]; rhox = REF["rhox"]; tau_ross = REF["tau"]   # grid: wavelength, T(depth), column mass, Rosseland tau
+# Planck h, speed of light c, Boltzmann k
+H_C, C, K = 6.62607015e-27, 2.99792458e10, 1.380649e-16   # [CGS]
+
+# The atmosphere grid: wavelength, T(depth), column mass, Rosseland tau.
+wl = REF["wl"]; T = REF["T"]; rhox = REF["rhox"]; tau_ross = REF["tau"]
+
 # Opacity assembled in the continuum (Lecture 3) and line (Lectures 4-6) lectures, per depth and wavelength [cm^2/g].
 # cont_* are continuum processes only; total_* add all the line opacity on top of the continuum.
 total_abs = REF["total_abs"].astype(float); total_scat = REF["total_scat"].astype(float)   # full opacity: absorption, scattering
 cont_abs = REF["cont_abs"].astype(float);   cont_scat = REF["cont_scat"].astype(float)      # continuum-only: absorption, scattering
+
 print(f"opacity grid: {total_abs.shape[0]} depths x {wl.size} wavelengths, {wl[0]:.1f}-{wl[-1]:.1f} nm")''')
 
 # ── transfer equation ───────────────────────────────────────────────────
@@ -106,15 +113,20 @@ One asymmetry is worth flagging now: we *do* include scattering in this attenuat
 
 code(r'''def optical_depth(kappa):
     """Cumulative optical depth over column mass: tau[depth, wl]."""
-    dtau = 0.5 * (kappa[1:] + kappa[:-1]) * np.diff(rhox)[:, None]     # trapezoid: mean kappa x column step between layers
+    # Trapezoid contribution of each layer: mean kappa times the column step between layers.
+    dtau = 0.5 * (kappa[1:] + kappa[:-1]) * np.diff(rhox)[:, None]
     tau = np.empty_like(kappa)
-    tau[0] = kappa[0] * rhox[0]                                        # seed the top layer with kappa * (column above it)
-    tau[1:] = tau[0] + np.cumsum(dtau, axis=0)                         # accumulate inward, depth by depth
+    # Seed the top layer with kappa times the column lying above it.
+    tau[0] = kappa[0] * rhox[0]
+    # Then accumulate inward, depth by depth.
+    tau[1:] = tau[0] + np.cumsum(dtau, axis=0)
     return tau
 
-tau_line = optical_depth(total_abs + total_scat)     # full optical depth: total extinction = absorption + scattering
-tau_cont = optical_depth(cont_abs + cont_scat)        # continuum-only optical depth (no lines)
-# sanity check: at 505 nm the scale should run from optically thin at the top to deep below the photosphere
+# Full optical depth uses the total extinction (absorption + scattering); continuum-only drops the lines.
+tau_line = optical_depth(total_abs + total_scat)
+tau_cont = optical_depth(cont_abs + cont_scat)
+
+# Sanity check: at 505 nm the scale should run from optically thin at the top to deep below the photosphere.
 print(f"at 505 nm, full optical depth spans {tau_line[:,2970].min():.1e} .. {tau_line[:,2970].max():.1e}")''')
 
 md(r"""## The emergent flux
@@ -130,8 +142,11 @@ code(r'''def planck_nu(nu, T):
     x = H_C * nu / (K * T)                                          # dimensionless h*nu / kT
     return 1.47439e-2 * (nu/1e15)**3 * np.exp(-x) / (1.0 - np.exp(-x))
 
-nu = C / (wl * 1e-7)                                   # frequency at each wavelength [Hz] (wl is in nm -> cm)
-S = planck_nu(nu[None, :], T[:, None])                 # source function S = B(T), broadcast to (depth, wl)''')
+# Frequency at each wavelength (wl is in nm, so convert to cm before dividing into c).
+nu = C / (wl * 1e-7)                                   # [Hz]
+
+# Source function S = B(T), broadcast to (depth, wl).
+S = planck_nu(nu[None, :], T[:, None])''')
 
 md(r"""Next the kernel. The angle integral left us with the second exponential integral $E_2$; we supply it from scratch with the standard Abramowitz & Stegun rational approximations — first for $E_1$ (one polynomial for $x\le1$, a rational form for $x>1$), then $E_2(x) = e^{-x} - x\,E_1(x)$, with the limit $E_2(0)=1$ handled explicitly. No SciPy needed.""")
 
@@ -139,15 +154,20 @@ code(r'''def expint2(x):
     """Second exponential integral E2(x) = exp(-x) - x*E1(x), from scratch (no SciPy).
     E1 via Abramowitz & Stegun 5.1.53 (x<=1) and 5.1.56 (x>1); E2(0)=1."""
     x = np.asarray(x, float)
-    xp = np.where(x > 0.0, x, 1.0)                      # placeholder at x=0 so log/division stay finite
+    # Placeholder value at x=0 so the log and divisions below stay finite; the true x=0 case is restored at the end.
+    xp = np.where(x > 0.0, x, 1.0)
+
     # E1 for small argument: polynomial fit minus the log singularity (A&S 5.1.53)
     a = (-0.57721566, 0.99999193, -0.24991055, 0.05519968, -0.00976004, 0.00107857)
     e1_small = (a[0] + xp*(a[1] + xp*(a[2] + xp*(a[3] + xp*(a[4] + xp*a[5]))))) - np.log(xp)
+
     # E1 for large argument: rational approximation times exp(-x)/x (A&S 5.1.56)
     a1, a2, b1, b2 = 2.334733, 0.250621, 3.330657, 1.681534
     e1_large = np.exp(-xp)/xp * (xp*xp + a1*xp + a2) / (xp*xp + b1*xp + b2)
-    E1 = np.where(x <= 1.0, e1_small, e1_large)         # pick the branch element-wise
-    return np.where(x > 0.0, np.exp(-x) - x*E1, 1.0)    # E2 from E1; force E2(0)=1''')
+
+    # Pick the branch element-wise, then form E2 from E1 and force the limit E2(0)=1.
+    E1 = np.where(x <= 1.0, e1_small, e1_large)
+    return np.where(x > 0.0, np.exp(-x) - x*E1, 1.0)''')
 
 md(r"""Finally the depth integral. With $S$ and $E_2$ in hand, the emergent flux $F_\lambda = 2\pi\int S_\lambda E_2(\tau_\lambda)\,d\tau_\lambda$ is just a trapezoidal sum of $S\,E_2$ over the optical-depth grid, evaluated independently at every wavelength. Running it on the full opacity gives the line spectrum; on the continuum alone, the continuum flux. Their ratio is the **normalised spectrum** — the rectified line depths a spectroscopist actually measures, independent of any absolute flux calibration.""")
 
@@ -157,10 +177,13 @@ code(r'''def emergent_flux(tau):
     integrand = S * E2                                 # source function weighted by the kernel
     return 2*np.pi * np.trapezoid(integrand, tau, axis=0)   # integrate over depth at each wavelength
 
-flux_line = emergent_flux(tau_line)                    # flux through the full (continuum + line) opacity
-flux_cont = emergent_flux(tau_cont)                    # flux through the continuum alone
+# Run the formal solution twice: full opacity gives the line flux, continuum opacity gives the flux it sits on.
+flux_line = emergent_flux(tau_line)
+flux_cont = emergent_flux(tau_cont)
 spectrum = flux_line / flux_cont                       # normalised (rectified) spectrum
-reference = REF["flux_total"] / REF["flux_continuum"]  # the pykurucz reference, normalised the same way
+
+# Compare against the pykurucz reference, normalised the same way.
+reference = REF["flux_total"] / REF["flux_continuum"]
 rel = np.abs(spectrum - reference) / reference         # pixel-by-pixel relative difference
 print(f"normalised spectrum vs reference:  median |rel diff| = {np.median(rel):.2e}   "
       f"max = {rel.max():.2e}  (the deepest line core)")''')
@@ -191,9 +214,11 @@ This is the **Eddington–Barbier** relation, and it is why a spectrum is a ther
 code(r'''# Eddington-Barbier: read T where tau_lambda = 2/3 (interpolate the line tau scale onto 2/3 at each wl)
 T_at_23 = np.array([np.interp(2/3, tau_line[:, k], T) for k in range(wl.size)])
 flux_EB = np.pi * planck_nu(nu, T_at_23)               # approximate flux: pi * B at the tau=2/3 layer
+
 # same shortcut for the continuum, so the EB spectrum is normalised exactly like the full one
 spectrum_EB = flux_EB / (np.pi * planck_nu(nu, np.array([np.interp(2/3, tau_cont[:, k], T)
                                                          for k in range(wl.size)])))
+
 print(f"Eddington-Barbier vs full formal solution: median |rel diff| = "
       f"{np.median(np.abs(spectrum_EB-spectrum)/spectrum):.2e}")
 print(f"in a deep line core the tau=2/3 surface sits at T = {T_at_23.min():.0f} K "
