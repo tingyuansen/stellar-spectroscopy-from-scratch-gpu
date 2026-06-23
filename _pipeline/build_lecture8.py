@@ -77,6 +77,7 @@ a single second-order equation for $J$ given the source $S$. We close it with th
 code(r'''import pathlib
 import numpy as np
 import matplotlib.pyplot as plt
+
 # shared plot styling for the whole notebook
 plt.rcParams.update({"figure.figsize": (7.2, 4.3), "figure.dpi": 120, "savefig.facecolor": "white",
     "axes.grid": True, "grid.alpha": 0.25, "axes.axisbelow": True,
@@ -90,6 +91,7 @@ CH   = T["ch"]            # surface-flux weights: H(0) = sum(CH * S)
 COEFJ = T["coefj"]        # the discrete Lambda operator: J = COEFJ @ S on the grid
 RHOX = T["rhox"]          # column mass of the model atmosphere [g/cm^2], 80 layers
 NXTAU = XTAU.size         # number of grid points we will solve on
+
 # report the grid extent and the shapes of the two operators
 print(f"fixed grid: {NXTAU} points, tau = {XTAU[0]:.3g} .. {XTAU[-1]:.3g}")
 print(f"COEFJ is {COEFJ.shape}, CH is {CH.shape}, atmosphere has {RHOX.size} layers")''')
@@ -105,15 +107,18 @@ The method rests on three precomputed objects, all defined on the **fixed optica
 Let us look at them.""")
 
 code(r'''fig, (a1, a2) = plt.subplots(1, 2, figsize=(11, 4.0))
+
 # left: the full operator as a heat map (log scale so the off-diagonal tails show)
 im = a1.imshow(np.log10(np.abs(COEFJ) + 1e-30), cmap="magma", aspect="auto")
 a1.set_title(r"$\log_{10}|\,$COEFJ$\,|$ — the discrete $\Lambda$ operator")
 a1.set_xlabel("source grid point $m$"); a1.set_ylabel("response grid point $k$")
 fig.colorbar(im, ax=a1, fraction=0.046)
+
 # right: the dominant diagonal of Lambda alongside the surface-flux weights
 a2.plot(np.arange(NXTAU), np.diag(COEFJ), "o-", ms=3, label="diagonal COEFJ$_{kk}$")
 a2.plot(np.arange(NXTAU), CH, "s-", ms=3, color="C3", label="CH (flux weights)")
 a2.set_xlabel("grid point $k$"); a2.set_title("diagonal of $\\Lambda$, and the flux weights")
+
 a2.legend(); fig.tight_layout(); plt.show()''')
 
 md(r"""The operator is strongly diagonal — the mean intensity at a point is dominated by the source there, with smaller contributions from neighbouring depths — exactly the local-plus-tails structure of $\Lambda$. The flux weights `CH` are concentrated near the surface points: the emergent flux is set by the source in the top few optical depths, the same Eddington–Barbier intuition as Lecture 7, now as a discrete sum.""")
@@ -141,23 +146,34 @@ which is the thermal ($B$-like) part of the source, before scattering mixes in $
 
 code(r'''# the per-wavelength opacities and source functions built in earlier lectures
 D = np.load(REF / "diag.npz")
+
+# the four opacity arrays, shape (depth, wl)
 cont_abs  = D["continuum_absorption"].astype(float)   # kappa_abs continuum  (depth, wl)
 cont_scat = D["continuum_scattering"].astype(float)    # kappa_scat continuum
 line_abs  = D["line_opacity"].astype(float)            # kappa_abs lines
 line_scat = D["line_scattering"].astype(float)         # kappa_scat lines
+
+# the two source functions, the wavelength axis, and the reference spectra
 S_cont    = D["slinec"].astype(float)                  # continuum source function
 S_line    = D["line_source"].astype(float)             # line source function
 wl        = D["wavelength"]                             # nm
-flux_total_ref = D["flux_total"]; flux_cont_ref = D["flux_continuum"]   # reference spectra
+# the production-code spectra we will compare against
+flux_total_ref = D["flux_total"]; flux_cont_ref = D["flux_continuum"]
+
 print(f"{cont_abs.shape[0]} depths x {wl.size} wavelengths, {wl[0]:.1f}-{wl[-1]:.1f} nm")''')
 
 md(r"""From those raw arrays a small helper builds the three quantities the moment solver needs at every depth: the total extinction, the scattering fraction $\alpha$, and the absorption-weighted thermal source $\bar S$. The `EPS` floor mirrors the Fortran's tiny constant, used to keep divisions safe rather than to change any physics.""")
 
 code(r'''EPS = 1e-38                                             # Fortran's tiny floor, avoids /0
+
 def source_and_alpha(acont, scont, aline, sline, sigmac, sigmal):
     """Total extinction, scattering fraction, and absorption-weighted source per depth."""
-    abtot = np.maximum(acont + aline + sigmac + sigmal, EPS)   # total extinction (abs + scat)
-    alpha = np.clip((sigmac + sigmal) / abtot, 0.0, 1.0)       # scattering fraction in [0,1]
+    # total extinction = absorption + scattering, continuum + lines
+    abtot = np.maximum(acont + aline + sigmac + sigmal, EPS)
+    # scattering fraction alpha, clipped into [0,1]
+    alpha = np.clip((sigmac + sigmal) / abtot, 0.0, 1.0)
+
+    # divide the thermal emissivity by the absorptive opacity only
     denom = acont + aline                                       # absorptive opacity only
     # thermal source: opacity-weighted blend of continuum and line source functions
     sbar = np.where(denom > 0, (acont*scont + aline*sline)/denom, scont)
@@ -176,11 +192,14 @@ code(r'''def parcoe(f, x):
     a = np.zeros(n); b = np.zeros(n); c = np.zeros(n)
     if n == 1:                                                      # single point: constant
         a[0] = f[0]; return a, b, c
+
     # linear fit at the two endpoints (no interior neighbour for a parabola)
     b[0]  = (f[1]-f[0])/(x[1]-x[0]);     a[0]  = f[0]-x[0]*b[0]
     n1 = n-1
     b[-1] = (f[-1]-f[n1-1])/(x[-1]-x[n1-1]); a[-1] = f[-1]-x[-1]*b[-1]
     if n == 2: return a, b, c                                       # two points: linear only
+
+    # fit a parabola through three consecutive points on each interior interval
     for j in range(1, n1):                                          # parabola through 3 points
         j1 = j-1
         d = (f[j]-f[j1])/(x[j]-x[j1])                               # local slope
@@ -188,14 +207,19 @@ code(r'''def parcoe(f, x):
                (f[j1]/(x[j+1]-x[j1]) - f[j]/(x[j+1]-x[j]))/(x[j]-x[j1])
         b[j] = d - (x[j]+x[j1])*c[j]
         a[j] = f[j1] - x[j1]*d + x[j]*x[j1]*c[j]
+
+    # force the first one or two interior intervals to be linear (no curvature)
     c[1] = 0.0; b[1] = (f[2]-f[1])/(x[2]-x[1]); a[1] = f[1]-x[1]*b[1]   # force pts 2,3 linear
     if n > 3:
         c[2] = 0.0; b[2] = (f[3]-f[2])/(x[3]-x[2]); a[2] = f[2]-x[2]*b[2]
+
+    # blend each parabola with its neighbour, weighted by relative curvature
     for j in range(1, n1):                                          # curvature-weighted blend
         if c[j] == 0.0: continue
         j1 = min(j+1, n-1); denom = abs(c[j1]) + abs(c[j])
         wt = abs(c[j1])/denom if denom > 0 else 0.0                 # weight by neighbour curvature
         a[j] = a[j1]+wt*(a[j]-a[j1]); b[j] = b[j1]+wt*(b[j]-b[j1]); c[j] = c[j1]+wt*(c[j]-c[j1])
+
     a[n1-1] = a[-1]; b[n1-1] = b[-1]; c[n1-1] = c[-1]               # copy last interval coeffs
     return a, b, c''')
 
@@ -226,10 +250,12 @@ code(r'''def map1(xold, fold, xnew):
     nold, nnew = xold.size, xnew.size
     fnew = np.zeros(nnew)
     if nold == 0 or nnew == 0: return fnew
+
     # 1-based padding so the index arithmetic matches the original Fortran exactly
     xo = np.empty(nold+1); fo = np.empty(nold+1); xo[1:] = xold; fo[1:] = fold
     l = 2; ll = 0                                          # l: bracketing index; ll: last one used
     cfor = bfor = afor = cbac = bbac = abac = a = b = c = 0.0
+
     for k in range(1, nnew+1):
         xk = xnew[k-1]                                     # the new abscissa to evaluate at
         while True:
@@ -292,17 +318,25 @@ def iterate_source(sbar_grid, alpha_grid):
     co = COEFJ.astype(np.float32)
     xs = sbar_grid.astype(np.float32)                 # initial guess: the thermal source
     al = alpha_grid.astype(np.float32)
-    sbar_mod = (sbar_grid * (1.0 - alpha_grid)).astype(np.float32)   # (1-alpha) * sbar, precomputed
-    diag = (1.0 - alpha_grid * COEFJ_DIAG).astype(np.float32)        # the Gauss-Seidel denominator
+
+    # (1-alpha) * sbar, the constant thermal term, precomputed once
+    sbar_mod = (sbar_grid * (1.0 - alpha_grid)).astype(np.float32)
+    # the per-point Gauss-Seidel denominator 1 - alpha * COEFJ_kk
+    diag = (1.0 - alpha_grid * COEFJ_DIAG).astype(np.float32)
     tol, eps = np.float32(ITER_TOL), np.float32(EPS)
+
     for _ in range(MAX_ITER):
         converged = True
+
+        # backward sweep: deepest (thermalised) point first, propagating up to the surface
         for k in range(NXTAU-1, -1, -1):              # backward sweep: deepest point first
             j_k = np.float32(np.dot(co[k], xs))       # (COEFJ @ S)_k, in place -> Gauss-Seidel
-            delta = (j_k*al[k] + sbar_mod[k] - xs[k]) / diag[k]      # the per-point increment
+            # the per-point increment from solving the diagonal-isolated fixed point
+            delta = (j_k*al[k] + sbar_mod[k] - xs[k]) / diag[k]
             if (abs(delta/xs[k]) if xs[k] != 0 else np.inf) > tol:   # track relative change
                 converged = False
             xs[k] = max(xs[k] + delta, eps)           # apply update, floored to stay positive
+
         if converged:                                 # stop once every point is below tolerance
             break
     return xs.astype(np.float64)''')
@@ -317,11 +351,16 @@ code(r'''def solve_josh(acont, scont, aline, sline, sigmac, sigmal):
     # build total extinction, scattering fraction, and thermal source at every depth
     abtot, alpha, sbar = source_and_alpha(acont, scont, aline, sline, sigmac, sigmal)
     tau = integ(RHOX, abtot, abtot[0]*RHOX[0])             # step 1: optical depth (seed = top dtau)
+
     sbar_g  = np.maximum(map1(tau, sbar,  XTAU), EPS)        # step 2: map source onto the grid
     alpha_g = np.clip(   map1(tau, alpha, XTAU), 0.0, 1.0)   #         and the scattering fraction
-    above = XTAU < tau[0]                                    # grid points above the atmosphere top
-    if above.any():                                         # hold them at the surface values
+
+    # grid points above the atmosphere top have nothing to interpolate from:
+    # hold them at the surface values (matters in strong, opaque line cores)
+    above = XTAU < tau[0]
+    if above.any():
         sbar_g[above] = max(sbar[0], EPS); alpha_g[above] = np.clip(alpha[0], 0.0, 1.0)
+
     S = iterate_source(sbar_g, alpha_g)                     # step 3: scattering iteration
     return float(CH @ S)                                    # step 4: CH-weighted surface flux H(0)
 
@@ -329,6 +368,7 @@ code(r'''def solve_josh(acont, scont, aline, sline, sigmac, sigmal):
 def solve_continuum(acont, scont, sigmac):
     zero = np.zeros_like(acont)                             # zero line opacity and line scattering
     return solve_josh(acont, scont, zero, scont, sigmac, zero)
+
 print("solver assembled")''')
 
 # ── worked example ──────────────────────────────────────────────────────
@@ -346,16 +386,20 @@ for ax, k, name in [(axes[0], kk, "continuum"), (axes[1], kc, "deep line core")]
     abtot, alpha, sbar = source_and_alpha(cont_abs[:,k], S_cont[:,k], line_abs[:,k],
                                           S_line[:,k], cont_scat[:,k], line_scat[:,k])
     tau = integ(RHOX, abtot, abtot[0]*RHOX[0])             # optical depth for this wavelength
+
     sbar_g  = np.maximum(map1(tau, sbar,  XTAU), EPS)        # thermal source on the grid
     alpha_g = np.clip(   map1(tau, alpha, XTAU), 0.0, 1.0)   # scattering fraction on the grid
     above = XTAU < tau[0]                                    # mask grid points above the atmosphere
     if above.any(): sbar_g[above] = max(sbar[0], EPS); alpha_g[above] = np.clip(alpha[0],0,1)
+
     S = iterate_source(sbar_g, alpha_g)                     # the scattering iteration
+
     # compare the thermal source (no scattering) with the iterated source (with scattering)
     ax.loglog(XTAU, sbar_g, "o-", ms=3, label=r"thermal $\bar S$ (no scattering)")
     ax.loglog(XTAU, S, "s-", ms=3, color="C3", label="iterated $S$ (with scattering)")
     ax.set_title(f"{name}:  $\\lambda$ = {wl[k]:.3f} nm,  max $\\alpha$ = {alpha_g.max():.2f}")
     ax.set_xlabel(r"optical depth $\tau$")
+
 axes[0].set_ylabel("source function"); axes[0].legend(loc="upper left", fontsize=9)
 fig.tight_layout(); plt.show()''')
 
@@ -373,9 +417,12 @@ flux_line = np.array([solve_josh(cont_abs[:,k], S_cont[:,k], line_abs[:,k],
 # continuum flux with the line terms switched off, for the normalisation
 flux_cont = np.array([solve_continuum(cont_abs[:,k], S_cont[:,k], cont_scat[:,k])
                       for k in range(wl.size)])
+
+# take the ratio and compare against the production-code spectrum, point by point
 spectrum  = flux_line / flux_cont                          # our normalised spectrum
 reference = flux_total_ref / flux_cont_ref                 # the production JOSH spectrum
 rel = np.abs(spectrum - reference) / np.abs(reference)     # relative difference, point by point
+
 print(f"normalised spectrum vs reference:  median |rel diff| = {np.median(rel):.2e}   "
       f"max = {rel.max():.2e}")
 print("the residual is the single-precision iteration's last bit — the engine is reproduced.")''')
@@ -384,14 +431,17 @@ md(r"""**Machine precision.** The from-scratch JOSH solver reproduces the refere
 
 code(r'''fig, (ax, axr) = plt.subplots(2, 1, figsize=(11, 5.2), sharex=True,
                               gridspec_kw={"height_ratios": [3, 1]})
+
 # top: the two spectra overlaid (they should be indistinguishable)
 ax.plot(wl, reference, color="0.6", lw=1.4, label="reference (production JOSH)")
 ax.plot(wl, spectrum, color="C3", lw=0.6, label="from scratch (this lecture)")
 ax.set_ylabel("normalised flux"); ax.set_ylim(0, 1.05); ax.legend(loc="lower right")
 ax.set_title("The solar spectrum, 500–510 nm — JOSH solver rebuilt, matched to the bit")
+
 # bottom: the relative residual on a log scale (floored so zeros are plottable)
 axr.semilogy(wl, np.maximum(rel, 1e-16), color="C0", lw=0.5)
 axr.set_xlabel("wavelength  [nm]"); axr.set_ylabel("|rel diff|"); axr.set_ylim(1e-15, 1e-7)
+
 fig.tight_layout(); plt.show()''')
 
 md(r"""The two spectra are indistinguishable, and the residual panel sits near $10^{-12}$ across the whole window, rising only to the single-precision floor in the sharpest cores. We have rebuilt the production radiative-transfer engine — moments, closure, operator, iteration, flux — and it reproduces the reference exactly.""")
