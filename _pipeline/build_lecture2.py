@@ -62,14 +62,17 @@ code(r'''REF = np.load(pathlib.Path("..") / "reference" / "L2.npz")
 def compare(name, ours, ref, tol=1e-6):
     """Report how closely a from-scratch array matches the reference values."""
     ours, ref = np.asarray(ours, float), np.asarray(ref, float)
-    denom = np.where(ref != 0.0, np.abs(ref), 1.0)        # avoid dividing by zero
-    rel = float(np.max(np.abs(ours - ref) / denom))       # worst-case relative error over all layers
+    # divide by |ref|, but guard against a zero reference value
+    denom = np.where(ref != 0.0, np.abs(ref), 1.0)
+    # worst-case relative error over all layers
+    rel = float(np.max(np.abs(ours - ref) / denom))
     tag = "exact" if rel < 1e-12 else ("agree" if rel < tol else "CHECK")
     print(f"{name:28s}  max|rel diff| = {rel:.2e}   [{tag}]")
     return rel
 
-# the grey solar atmosphere carried over from Lecture 1 (temperature, pressure, depth grid)
-tau, T, P_gas, tk = REF["tau"], REF["T"], REF["P_gas"], REF["tk"]   # tk = k*T  [erg], the thermal energy per particle
+# the grey solar atmosphere carried over from Lecture 1 (temperature, pressure, depth grid);
+# tk = k*T [erg] is the thermal energy per particle
+tau, T, P_gas, tk = REF["tau"], REF["T"], REF["P_gas"], REF["tk"]
 print(f"{T.size} layers; photosphere near tau=2/3 at T = {T[np.argmin(np.abs(tau-2/3))]:.0f} K")''')
 
 # ── Boltzmann + partition function ──────────────────────────────────────
@@ -88,12 +91,14 @@ where $n_{\rm ion}$ is the total number density of that one ionization stage (we
 Computing $U(T)$ from scratch means summing over thousands of measured energy levels per ion — atomic *data*, not physics we can derive. So, following the principle of this book, we **reuse the tabulated partition functions** the reference code uses and focus on the ionization physics that consumes them. The "from scratch" step here is not remeasuring atomic spectra but feeding the same atomic data through an independently written equation of state, so reusing $U(T)$ does not undermine the premise. Here they are for neutral hydrogen and neutral iron across our atmosphere.""")
 
 code(r'''U = REF["U"]          # partition functions: U[layer, Z-1, ion]; ion=0 is the neutral stage
+
 # H I has a lone ground doublet (U ~ 2); Fe I has a dense thicket of low-lying levels (U ~ 20-30).
 plt.plot(T, U[:, 0, 0],  "o-", ms=3, label="H I  (Z=1, neutral)")    # neutral hydrogen
 plt.plot(T, U[:, 25, 0], "s-", ms=3, label="Fe I (Z=26, neutral)")   # neutral iron
 plt.xlabel("temperature  [K]"); plt.ylabel(r"partition function  $U(T)$")
 plt.title("Partition functions grow as excited levels switch on")
 plt.legend(); plt.tight_layout(); plt.show()
+
 print(f"U(H I) ranges {U[:,0,0].min():.2f}-{U[:,0,0].max():.2f};  "
       f"U(Fe I) ranges {U[:,25,0].min():.1f}-{U[:,25,0].max():.1f}")''')
 
@@ -120,7 +125,8 @@ The thermal-de-Broglie prefactor evaluates to a tidy constant, $(2\pi m_e k/h^2)
 In code this becomes a single vectorised expression. We carry two named constants — the prefactor `SAHA` and the kelvin-to-eV conversion `KEV` (so the Boltzmann factor can be written with $\chi$ in electron-volts as $\chi/(\mathtt{KEV}\cdot T)$) — both copied at the reference code's exact precision so our numbers match it. The function returns the ratio $N_{i+1}/N_i$ for whole arrays of layers at once, and takes an optional Debye lowering `dchi_eV` that we wire in next.""")
 
 code(r'''SAHA = 2.4148e15        # (2*pi*m_e*k / h^2)^{3/2}   [cm^-3 K^-3/2]
-KEV  = 8.6171e-5        # eV per kelvin: kT[eV] = KEV*T, so chi[eV]/(KEV*T) = chi/kT  (the reference code's exact value)
+# eV per kelvin: kT[eV] = KEV*T, so chi[eV]/(KEV*T) = chi/kT  (the reference code's exact value)
+KEV  = 8.6171e-5
 
 def saha_ratio(U_lo, U_hi, chi_eV, T, n_e, dchi_eV=0.0):
     """Saha ratio N_{i+1}/N_i. chi lowered by dchi_eV for pressure ionization (below)."""
@@ -147,9 +153,11 @@ md(r"""**Check the Saha physics on hydrogen.** Hydrogen is the cleanest case: tw
 code(r'''chi = REF["chi"]; n_e_ref = REF["xne"]
 U_HI, U_HII = U[:, 0, 0], U[:, 0, 1]          # H I and H II partition functions
 chi_H = chi[0, 0]                              # 13.6 eV ionization potential of hydrogen
+
 # Saha ratio N(H II)/N(H I); Debye lowering applied at charge 1 (the neutral -> singly transition)
 r = saha_ratio(U_HI, U_HII, chi_H, T, n_e_ref, dchi_eV=potlow * 1)
 frac_HII = r / (1.0 + r)                        # ionized fraction n(H II) / n(H total)
+
 compare("H II fraction", frac_HII, REF["fracH"][:, 1], tol=2e-3)
 print(f"H is {100*frac_HII[np.argmin(np.abs(tau-2/3))]:.4f}% ionized at the photosphere")''')
 
@@ -182,12 +190,15 @@ def ionization_fractions(Z, T, n_e, dchi1):
     """Fractions f[layer, ion] of element Z, chaining Saha ratios over the same nion2-stage
     ladder the reference normalises over so the fractions match it to a part in a million."""
     ni2 = int(nion2[Z-1])                           # how many stages to normalise over
-    r = np.ones((T.size, ni2))                      # r[:,0]=1: every stage measured against the neutral one
+
+    # r[:,0]=1: every stage is measured against the neutral one
+    r = np.ones((T.size, ni2))
     for i in range(1, ni2):                         # climb the ladder one ionization stage at a time
         # population of stage i = population of stage i-1 times the Saha ratio between them,
         # with the Debye lowering scaled by the charge i of the resulting ion
         r[:, i] = r[:, i-1] * saha_ratio(U[:, Z-1, i-1], U[:, Z-1, i],
                                          chi[Z-1, i-1], T, n_e, dchi_eV=dchi1 * i)
+
     return r / r.sum(axis=1, keepdims=True)         # normalise so the stages sum to 1''')
 
 md(r"""**Solving for the electron density.** Now the iteration that closes the loop. We start from the crude guess that half the particles are electrons, then repeat three steps until $n_e$ stops moving: (1) from the current $n_e$ recompute the atom density and the Debye lowering; (2) sum the charge donated by every element through `ionization_fractions`; (3) average the new estimate with the old one — a simple damping that keeps the fixed-point iteration stable. The factor `2.0*n_e` inside the Debye radius is the $n_{\rm charge} \approx 2n_e$ of a singly-ionized plasma discussed above; the bare constants are the electron charge $e = 4.801\times10^{-10}\,\mathrm{esu}$ and $4\pi = 12.5664$, carried as literals so they match the reference exactly.""")
@@ -196,15 +207,20 @@ code(r'''def solve_electron_density(max_iter=400, tol=1e-10):
     n_e = P_gas / tk / 2.0                           # initial guess: half the particles are electrons
     for _ in range(max_iter):
         n_atom = P_gas / tk - n_e                     # remaining particles are atoms/ions
+
         # Debye radius [cm], using n_charge = n_e + n_ion ~ 2*n_e for a singly-ionized gas
         lam_D = np.sqrt(tk / (12.5664 * (4.801e-10)**2 * 2.0*n_e))
-        dchi1 = np.minimum(1.0, 1.44e-7 / lam_D)      # Debye lowering per unit charge [eV], capped at 1 eV
+        # Debye lowering per unit charge [eV], capped at 1 eV
+        dchi1 = np.minimum(1.0, 1.44e-7 / lam_D)
+
+        # sum the electron donations over every element
         n_e_new = np.zeros_like(n_e)
-        for Z in range(1, 100):                       # sum electron donations over every element
+        for Z in range(1, 100):
             f = ionization_fractions(Z, T, n_e, dchi1)
             ni = int(nion[Z-1])                       # count charges over the tracked stages only
             # charge per atom = sum_i i*f_i; times element density n_atom*A_Z gives electrons donated
             n_e_new += (f[:, :ni] * np.arange(f.shape[1])[:ni]).sum(axis=1) * n_atom * xab[Z-1]
+
         n_e_new = 0.5 * (n_e_new + n_e)               # damp the iteration for stability
         if np.max(np.abs(n_e_new - n_e) / n_e_new) < tol:   # converged: relative change below tol
             n_e = n_e_new; break
@@ -224,11 +240,14 @@ code(r'''# electron donation by every element at every depth, evaluated at the r
 n_atom   = P_gas / tk - REF["xne"]
 n_charge = 2.0 * REF["xne"]                       # n_e + n_ion ~ 2*n_e, as in the Debye term above
 dchi1    = np.minimum(1.0, 1.44e-7 / np.sqrt(tk / (12.5664 * (4.801e-10)**2 * n_charge)))
+
 ne_Z = np.zeros((T.size, 100))                    # ne_Z[:, Z] = electrons donated by element Z
 for Z in range(1, 100):
     f = ionization_fractions(Z, T, REF["xne"], dchi1)
     ni = int(nion[Z-1])
     ne_Z[:, Z] = (f[:, :ni] * np.arange(f.shape[1])[:ni]).sum(axis=1) * n_atom * xab[Z-1]
+
+# collapse the per-element donations into two competing shares
 total       = ne_Z[:, 1:].sum(axis=1)            # total free electrons summed over all elements
 H_share     = ne_Z[:, 1] / total                 # hydrogen's share of the free electrons
 metal_share = ne_Z[:, 3:].sum(axis=1) / total    # everything heavier than helium''')
@@ -256,18 +275,21 @@ md(r"""The competition is not won once and for all — it turns over with depth.
 
 md(r"""## Completing the atmosphere
 
-With $n_e$ in hand the grey atmosphere is complete: every depth now carries temperature, pressure, density, **and** electron density, and through the Saha and Boltzmann relations we can compute the population of any ion in any level. Let us look at the ionization structure we have built, and confirm the `XNE` column is no longer empty.""")
+With $n_e$ in hand the grey atmosphere is complete: every depth now carries temperature, pressure, density, **and** electron density, and through the Saha and Boltzmann relations we can compute the population of any ion in any level. We close with a two-panel portrait of the ionization structure against depth — the electron density on the left (on a log scale, since it spans orders of magnitude), the hydrogen ionized fraction on the right — and then copy the reference $n_e$ into the `XNE` column the grey atmosphere left empty, confirming it is no longer zero.""")
 
 code(r'''fig, ax = plt.subplots(1, 2, figsize=(10.5, 4.1))
+
 # left: electron density climbs by orders of magnitude into the deep, dense layers
 ax[0].plot(np.log10(tau), np.log10(REF["xne"]), color="C0")
 ax[0].set_xlabel(r"$\log_{10}\tau_{\rm Ross}$"); ax[0].set_ylabel(r"$\log_{10} n_e$  [cm$^{-3}$]")
 ax[0].set_title("Electron density vs depth")
+
 # right: hydrogen ionization, tiny at the surface and rising steeply with temperature
 ax[1].plot(np.log10(tau), frac_HII, color="C3")
 ax[1].axvline(np.log10(2/3), ls="--", color="0.5", lw=1)               # the photosphere
 ax[1].set_yscale("log"); ax[1].set_xlabel(r"$\log_{10}\tau_{\rm Ross}$")
 ax[1].set_ylabel("ionized fraction of hydrogen"); ax[1].set_title("Hydrogen ionization vs depth")
+
 fig.tight_layout(); plt.show()
 
 XNE = REF["xne"].copy()                       # the column Lecture 1 left at zero, now filled
