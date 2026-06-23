@@ -42,6 +42,13 @@ predates THIS restructure — the working tree is now ahead of that pushed commi
   fastmath/float32-iteration ULP (quantify it).
 - House voice: pedagogical, no rah-rah, no AI-tell adverbs, equation-complete, explain every
   input/parameter. Closing arc per lecture: Synthesis / Summary / Practice exercises / Further reading.
+- **CODE CELLS: bite-size + well-commented (user directive 2026-06-23).** Target Lecture 1's
+  standard: each code cell does ONE conceptual step (aim ≤ ~20 source lines; split anything bigger
+  into consecutive cells with a sentence of markdown between), and ~30% comment density (a short
+  `#` on each non-trivial step). Worst current offenders: L3 (17 cells >22 lines, up to 67), L6
+  (10, density 17%), L5 (7). NEVER change code logic/constants/numbers when splitting/commenting —
+  machine precision is locked; only restructure + annotate, then rebuild and confirm the benchmark
+  is unchanged. Applies to all future lectures (incl. L10+).
 - No `\boxed{}` on equations. Inline math: never a space before a closing `$` (KaTeX breaks).
 - Byline affiliation: "Max Planck Institute for Astronomy & The Ohio State University".
 - Engines get their OWN dedicated lectures (JOSH, KAPP, hydrogen) — keep each digestible,
@@ -192,3 +199,23 @@ machine-precision number.
 - KAPP `_parcoe`/`_integ`-style routines: must port exactly (left-point parabola; forced-linear
   points 2,3; curvature blend) — a naive version is ~1e-3 off.
 - FASTEX (tabulated exp) is used for the Boltzmann factor in line opacity, NOT np.exp.
+
+## CONTENT MAP & FLOW (maintain this — check before writing/revising any lecture)
+Each lecture OWNS its new concepts; prior concepts get a 1–2 sentence recap + a back-reference,
+NEVER a re-derivation. What each lecture introduces (owns):
+- **L1** pipeline overview; units/constants; Planck function; LTE; **optical depth & the τ=2/3 photosphere**; the **grey atmosphere** — grey/Hopf T(τ), the **80-layer τ grid**; **hydrostatic equilibrium** intro + the closed-form P=gτ.
+- **L2** Boltzmann; partition functions; **Saha**; Debye pressure-ionization; charge conservation → nₑ.
+- **L3** continuum opacity; H⁻ (Saha balance→John fits); Rayleigh/Thomson; stimulated emission; then the **exact KAPP engine** (tables, edge grid, MAP1/Karsas/COULFF/Gavrila, 3-pt interp).
+- **L4** line strength (log gf); lower-level Boltzmann population; **Voigt profile** (Doppler core + Lorentz wings); damping.
+- **L5** line-list anatomy; log-λ grid; exact population (population_per_ion); Voigt Harris tables; cutoff; **wing-accumulation kernel**; metals all-Z + He.
+- **L6** hydrogen **Stark broadening**; Holtsmark microfield; HPROF4 (sofbeta, 3-piece profile).
+- **L7** transfer equation; **formal solution**; E₂ kernel; Eddington–Barbier; the scattering approximation.
+- **L8** moment equations; Eddington closure; the **Λ operator (COEFJ)**; parabolic integ/MAP1; scattering iteration; CH flux.
+- **L9** the **exact hydrostatic integrator** (`_ttaup` predictor–corrector in log-pressure, κ≡1 cold start). ← its ONLY new content.
+
+REDUNDANCY FLAGS to fix in the revision pass:
+- **L1 ↔ L9 (user-reported):** L9 currently RE-COVERS L1's grey/Hopf T(τ), the 80-layer τ grid, and the hydrostatic-equilibrium intro. TRIM: L9 should recap those in 1–2 sentences + "(Lecture 1)" back-ref and own ONLY the exact `_ttaup` integrator (why P=gτ was approximate → predictor–corrector → bit-exact P/ρ).
+- Watch **optical depth** (defined in L1) recurring in L3/L7/L8 — back-ref L1, don't redefine.
+- Watch **Saha** (L2) reused in L3 (H⁻) — fine, but back-ref L2.
+- Watch L3 internal: the merged physics-half and engine-half both touch H⁻/Rayleigh/Thomson — H⁻ Saha is derived once (good); ensure the engine half references it, not re-derives.
+RULE: the revision pass (bite-size + comments + critic prose) ALSO trims redundancy and fixes flow against this map. Update this map whenever a lecture is added/changed.

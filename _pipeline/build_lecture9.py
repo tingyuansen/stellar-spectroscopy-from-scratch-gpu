@@ -73,7 +73,7 @@ $$
 with $g$ the surface gravity, taken constant across the thin photosphere. The structure codes do not work in height, though — they work in **optical depth** $\tau$, because that is the variable the radiation field cares about. Recall from the first lecture that optical depth is built from the opacity per gram $\kappa$ and the **column mass** $\rho x$ (grams of material above a square centimetre), with $d\tau = \kappa\,d(\rho x)$ and $d(\rho x) = -\rho\,dz$. Substituting,
 
 $$
-\boxed{\;\frac{dP}{d\tau} = \frac{g}{\kappa}\;}
+\frac{dP}{d\tau} = \frac{g}{\kappa}
 $$
 
 This is hydrostatic equilibrium in the form the codes integrate. Read it as a statement about the column mass: since $dP/d(\rho x) = g$, the total pressure is just $g$ times the column mass, $P_{\rm total} = g\cdot\rho x$ — the weight per unit area of everything above. The optical-depth form makes the opacity explicit: where the gas is more opaque (large $\kappa$), a given range of $\tau$ spans less pressure, because you reach optical depth one in less material.
