@@ -66,11 +66,13 @@ plt.rcParams.update({"figure.figsize": (7.2, 4.3), "figure.dpi": 120, "savefig.f
     "axes.grid": True, "grid.alpha": 0.25, "axes.axisbelow": True,
     "font.size": 11, "axes.titlesize": 12.5, "axes.labelsize": 11.5})
 
+# the converged solar model and the Lecture 8 JOSH tables are the only inputs
 REF = np.load(pathlib.Path("..") / "reference" / "converged_ref.npz")
 JT  = np.load(pathlib.Path("..") / "reference" / "josh_tables.npz")   # Lecture 8 tables
 
 TEFF = float(REF["teff"]); GRAV = float(REF["gravity_cgs"]); LOGG = float(np.log10(GRAV))
 N_ITER = int(REF["n_iterations"])
+
 print(f"target: converged continuum-only model for Teff = {TEFF:.0f} K, log g = {LOGG:.2f}")
 print(f"  production run: grey start -> convergence in {N_ITER} iterations (convection ON)")
 print(f"  continuum grid: {REF['freq_hz'].size} frequencies x {REF['T_conv'].size} layers")''')
@@ -84,8 +86,10 @@ $$\max_{j}\ \left|\frac{T^{(N)}_j - T^{(N-1)}_j}{T^{(N)}_j}\right| < 10^{-4},$$
 
 the maximum fractional temperature change taken over the **deep layers** (ATLAS's `checkconv` uses layers 40–75 of the 80-layer grid — the upper layers are noisier and settle last in absolute terms but are less diagnostic of the global energy balance, so ATLAS does not use them as the stopping criterion). The loop stops when this drops below $10^{-4}$, after a minimum number of iterations. The reference shipped that history; here it is.""")
 
-code(r'''dlnt  = REF["dlnt_history"]    # max|dT/T| over deep layers 40..75, per iteration
-dtmax = REF["dtmax_history"]   # max|dT/T| over ALL layers, per iteration (top layers settle last)
+code(r'''# max|dT/T| over the deep layers 40..75 (the checkconv metric), per iteration
+dlnt  = REF["dlnt_history"]
+# max|dT/T| over ALL layers, per iteration -- the top layers settle last
+dtmax = REF["dtmax_history"]
 
 print(" iter   dTmax(all)    checkconv_dlnt(deep)")
 for i in range(dlnt.size):
@@ -373,14 +377,22 @@ code(r'''freq = REF["freq_hz"].astype(np.float64); rco = REF["rco"].astype(np.fl
 acont = REF["acont"].astype(np.float64); sigmac = REF["sigmac"].astype(np.float64); scont = REF["scont"].astype(np.float64)
 nf = freq.size; z = np.zeros(n)
 
+# the depth integrals we accumulate over frequency
 ross_acc = np.zeros(n)                                   # Rosseland mean accumulator
 flxrad = np.zeros(n); rjmins = np.zeros(n); rdabh = np.zeros(n); rdiagj = np.zeros(n)  # TCORR integrals
+
 for inu in range(nf):
     f = float(freq[inu]); rcowt = float(rco[inu])
+
+    # Planck function B_nu at this frequency, with the stimulated-emission factor
     ehvkt = np.exp(-f*hkt); stim = np.maximum(1.0-ehvkt, 1e-300)   # stimulated-emission factor
     bnu = 1.47439e-2*((f/1e15)**3)*ehvkt/stim                       # Planck function B_nu
+
+    # JOSH depth profiles, then guard the flux against a negative excursion
     taunu, hnu, jmins, abtot, alpha = josh_profiles(acont[:, inu], scont[:, inu], sigmac[:, inu], rhox, bnu)
     if np.any(hnu < 0.0): hnu = np.maximum(hnu, 1e-99)
+
+    # accumulate this frequency's contribution to the Rosseland mean and the four TCORR integrals
     dbdt = bnu*f*hkt/np.maximum(T*stim, 1e-300)                     # dB_nu/dT (the diffusion weight)
     ross_acc += dbdt/np.maximum(abtot, 1e-300)*rcowt               # Rosseland: harmonic 1/kappa weighting
     dabtot = deriv(rhox, abtot)                                    # d(kappa_nu)/d(rhox), for rdabh
@@ -388,6 +400,7 @@ for inu in range(nf):
     rjmins += abtot*jmins*rcowt                                    # net heating integral kappa (J - S)
     flxrad += hnu*rcowt                                            # radiative flux H(tau), summed over nu
     accumulate_rdiagj(rdiagj, taunu, bnu, hkt, T, stim, alpha, abtot, f, rcowt, n)
+
 print(f"swept {nf} continuum frequencies; flux at surface = {flxrad[0]:.4e}, deep = {flxrad[-1]:.4e}")''')
 
 md(r"""## The Rosseland optical-depth scale and its lookup table
@@ -461,13 +474,16 @@ md(r"""### The thermodynamic derivatives, from finite differences
 
 Mixing-length theory needs four thermodynamic derivatives at each layer: how the internal energy and the mass density respond to temperature and to pressure, $(\partial E/\partial T)_P$, $(\partial\rho/\partial T)_P$, $(\partial E/\partial P)_T$, $(\partial\rho/\partial P)_T$. In a partially-ionized gas these have no simple closed form — they depend on the full Saha/Boltzmann equilibrium (Lecture 2). ATLAS computes them by **finite differences**: it re-runs the equation of state at $T\pm0.1\%$ and at $P\pm0.1\%$ and differences the resulting internal-energy quantity `edens` and mass density `rho`. We ship those four pairs of samples (`edens1..4`, `rho1..4`) as a given input — re-deriving the full EOS here would just repeat Lecture 2 — and form the derivatives by central differencing. The perturbation is **fractional** ($\pm0.1\%$ of $T$ and of $P$), so the absolute step is $\Delta T = 2\times0.001\,T = 0.002\,T$, and the central difference is $\partial E/\partial T \approx (E_+ - E_-)/(0.002\,T) = (E_+ - E_-)\times 500/T$ — which is exactly the code's `* 500.0 / T` (and likewise `* 500.0 / p_in` for the pressure derivatives): the constant $500 = 1/(2\times0.001)$ is the central-difference denominator and the division by $T$ (or $P$) converts the fractional spacing into the absolute one. The `edens` samples already carry the radiation-energy term ATLAS adds.""")
 
-code(r'''ed1 = REF["edens1"]; ed2 = REF["edens2"]; ed3 = REF["edens3"]; ed4 = REF["edens4"]   # EDENS at T+, T-, P+, P-
+code(r'''# the EOS finite-difference samples: edens and rho re-evaluated at T,P +-0.1%
+ed1 = REF["edens1"]; ed2 = REF["edens2"]; ed3 = REF["edens3"]; ed4 = REF["edens4"]   # EDENS at T+, T-, P+, P-
 r1  = REF["rho1"];   r2  = REF["rho2"];   r3  = REF["rho3"];   r4  = REF["rho4"]        # RHO   at T+, T-, P+, P-
 
-dEdT = (ed1-ed2)/np.maximum(T, 1e-300)*500.0     # (dE/dT)_P  -- central difference, 1/(2*0.001)=500
+# central differences; the 500 = 1/(2*0.001) folds the fractional +-0.1% step into the absolute one
+dEdT = (ed1-ed2)/np.maximum(T, 1e-300)*500.0     # (dE/dT)_P
 drdT = (r1 -r2 )/np.maximum(T, 1e-300)*500.0     # (drho/dT)_P
 dEdP = (ed3-ed4)/np.maximum(p_in, 1e-300)*500.0  # (dE/dP)_T
 drdP = (r3 -r4 )/np.maximum(p_in, 1e-300)*500.0  # (drho/dP)_T
+
 print(f"thermodynamic derivatives formed from EOS finite differences at T,P +-0.1%")''')
 
 md(r"""### The mixing-length kernel
@@ -561,23 +577,34 @@ code(r'''def convec(rosstab, rhox, tauros, t, p, rho, abross, pradk, ptotal, gra
            dEdT, drdT, dEdP, drdP, mixlth=1.25, nconv=36):
     """Mixing-length convective flux per layer (Fortran CONVEC, finite-difference derivative path)."""
     nl = t.size
-    dtdrhx = deriv(rhox, t)                          # dT/dRHOX, feeds the actual (radiative) gradient
-    dilut  = 1.0 - np.exp(-tauros)                   # geometric dilution of the P_rad gradient
+
+    # dT/dRHOX feeds the actual (radiative) gradient; dilut is the geometric dilution of the P_rad gradient
+    dtdrhx = deriv(rhox, t)
+    dilut  = 1.0 - np.exp(-tauros)
+
+    # per-layer output arrays, filled in the loop below
     dltdlp=np.zeros(nl); heatcp=np.zeros(nl); dlrdlt=np.zeros(nl); velsnd=np.zeros(nl)
     grdadb=np.zeros(nl); hscale=np.zeros(nl); flxcnv=np.zeros(nl); vconv=np.zeros(nl)
     deltat=np.zeros(nl); rosst=np.zeros(nl)
+
     for j in range(nl):
         convec_layer_thermo(j, t, rho, ptotal, pradk, grav, dilut, dtdrhx,
                             dEdT, drdT, dEdP, drdP, dltdlp, heatcp, dlrdlt, velsnd, grdadb, hscale)
         if mixlth == 0.0 or j < 3: continue
-        delt = dltdlp[j] - grdadb[j]                                   # superadiabaticity Delta = grad - grad_ad
-        if delt < 0.0: continue                                        # Schwarzschild-stable -> no convection
+
+        # Schwarzschild test: convect only where the superadiabaticity Delta = grad - grad_ad is positive
+        delt = dltdlp[j] - grdadb[j]                                   # superadiabaticity Delta
+        if delt < 0.0: continue                                        # Schwarzschild-stable -> radiative
+
+        # the velocity and flux scales that seed the inner iteration
         vco = 0.5*mixlth*np.sqrt(max(-0.5*ptotal[j]/max(rho[j],1e-300)*dlrdlt[j], 0.0))   # velocity scale
         if vco == 0.0: continue
         fluxco = 0.5*rho[j]*heatcp[j]*t[j]*mixlth/FOURPI               # flux scale rho c_P T ell
         rosst[j] = rosstab.eval(float(t[j]), float(p[j]))             # cell-center opacity
+
         convec_flux_iteration(j, rosstab, rosst, deltat, vconv, flxcnv, t, p, abross,
                               hscale, rho, fluxco, vco, mixlth, delt)
+
     flxcnv0 = flxcnv.copy()                                           # pre-patch flux (used by TCORR)
     height = high_from_rhox(rhox, rho)
     k = int(max(min(nconv, nl), 0))
@@ -585,7 +612,7 @@ code(r'''def convec(rosstab, rhox, tauros, t, p, rho, abross, pradk, ptotal, gra
     return dict(flxcnv=flxcnv, flxcnv0=flxcnv0, dltdlp=dltdlp, grdadb=grdadb, hscale=hscale,
                 dlrdlt=dlrdlt, heatcp=heatcp, vconv=vconv, velsnd=velsnd, height=height)''')
 
-md(r"""Run it on the converged model and look at where convection lives.""")
+md(r"""Run it on the converged model and look at where convection lives. We pass the converged $T$, column mass, density, pressures, opacity, and the EOS derivatives into `convec`, then stash `ptotal` and `rho` back into the returned dict — the temperature correction will need them for its convective-efficiency term. The diagnostics read straight off `cv["flxcnv"]`: the boolean `flxcnv > 0` flags the convecting layers, `argmax` of that mask gives the shallowest one (reported as its $\tau_{\rm Ross}$), and the peak of $F_{\rm conv}/(4\pi H)$ is the largest fraction of the total flux convection carries.""")
 
 code(r'''cv = convec(rosstab, rhox, tauros, T, p_in, rho_in, abross, pradk, ptotal, GRAV, flux,
             dEdT, drdT, dEdP, drdP, mixlth=1.25, nconv=36)
@@ -755,24 +782,34 @@ code(r'''def tcorr_mode3(T, rhox, tauros, abross, flxrad, rjmins, rdabh, rdiagj,
                 rosstab, cv, mixlth=1.25, steplg=0.125, tau1lg=-6.875):
     """ATLAS TCORR mode 3 with convection: T1 = dtflux + dtlamb + dtsurf, plus DRHOX (Lecture 10 + CONVEC)."""
     nl = T.size
+
+    # the depth derivatives and the CONVEC arrays the correction reads
     dtdrhx = deriv(rhox, T); dabros = deriv(rhox, abross)             # dT/d(rhox) and d(kappa)/d(rhox)
     flxcnv=cv["flxcnv"]; flxcnv0=cv["flxcnv0"]; dltdlp=cv["dltdlp"]; grdadb=cv["grdadb"]   # unpack CONVEC arrays
     hscale=cv["hscale"]; dlrdlt=cv["dlrdlt"]; heatcp=cv["heatcp"]; ptc=cv["ptotal"]; rhc=cv["rho"]
     ddlt = deriv(rhox, dltdlp)                                        # gradient of the actual gradient
+
+    # Step 1-2: smooth the convective flux, then build the Avrett-Krook integrand
     cnvflx = smooth_convective_flux(flxcnv, nl)                       # 1-2-1 smoothing, top two re-zeroed
     rdabh_eff = rdabh - flxrad*dabros/np.maximum(abross, 1e-300)      # opacity-gradient term in the AK denominator
     codrhx, ddel = ak_integrand(nl, T, flxrad, rdabh_eff, dtdrhx, ddlt, cnvflx, flxcnv0,
                                 dltdlp, grdadb, hscale, dlrdlt, heatcp, ptc, rhc, abross, mixlth)
+
+    # Step 3-6: the three temperature terms -- flux-driven, surface Lambda, surface boundary
     dtflux = flux_driven_term(rhox, tauros, codrhx, ddel, flxrad, cnvflx, dltdlp, flux, dtdrhx, abross)
     flxerr = (flxrad + cnvflx - flux)/np.maximum(flux, 1e-300)*100.0   # percent TOTAL-flux error
     dtlamb = lambda_surface_term(nl, tauros, abross, flxrad, rjmins, rdiagj, flxerr, cnvflx, flux, teff)
     dtsurf = surface_boundary_term(nl, teff, flux, flxrad, T, tauros, dtflux, dtlamb)
+
+    # assemble T1 = dtflux + dtlamb + dtsurf and enforce monotonicity with depth
     dtflux = np.nan_to_num(dtflux); dtlamb = np.nan_to_num(dtlamb); dtsurf = np.nan_to_num(dtsurf)   # sanitize
     t1 = dtflux + dtlamb + dtsurf                                     # total temperature correction
     tnew = np.maximum(np.where(np.isfinite(T+t1), T+t1, T), 1.0)       # iter 1: damping skipped
     for i in range(1, nl):                                            # monotonicity: T increasing with depth
         j = nl-1-i; tnew[j] = np.fmin(tnew[j], tnew[j+1]-1.0)
         if not np.isfinite(tnew[j]): tnew[j] = max(T[j], 1.0)
+
+    # close the iteration with the hydrostatic density (DRHOX) correction
     rrr = drhox_density_correction(tauros, T, t1, prad, grav, rosstab, nl, steplg, tau1lg)   # DRHOX
     return dict(t1=t1, dtflux=dtflux, dtlamb=dtlamb, flxerr=flxerr, cnvflx=cnvflx,
                 tnew=tnew, rhox_new=rhox + rrr*rhox)

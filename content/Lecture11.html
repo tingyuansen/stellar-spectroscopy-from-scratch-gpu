@@ -27,11 +27,13 @@ plt.rcParams.update({&quot;figure.figsize&quot;: (7.2, 4.3), &quot;figure.dpi&qu
     &quot;axes.grid&quot;: True, &quot;grid.alpha&quot;: 0.25, &quot;axes.axisbelow&quot;: True,
     &quot;font.size&quot;: 11, &quot;axes.titlesize&quot;: 12.5, &quot;axes.labelsize&quot;: 11.5})
 
+# the converged solar model and the Lecture 8 JOSH tables are the only inputs
 REF = np.load(pathlib.Path(&quot;..&quot;) / &quot;reference&quot; / &quot;converged_ref.npz&quot;)
 JT  = np.load(pathlib.Path(&quot;..&quot;) / &quot;reference&quot; / &quot;josh_tables.npz&quot;)   # Lecture 8 tables
 
 TEFF = float(REF[&quot;teff&quot;]); GRAV = float(REF[&quot;gravity_cgs&quot;]); LOGG = float(np.log10(GRAV))
 N_ITER = int(REF[&quot;n_iterations&quot;])
+
 print(f&quot;target: converged continuum-only model for Teff = {TEFF:.0f} K, log g = {LOGG:.2f}&quot;)
 print(f&quot;  production run: grey start -&gt; convergence in {N_ITER} iterations (convection ON)&quot;)
 print(f&quot;  continuum grid: {REF[&#39;freq_hz&#39;].size} frequencies x {REF[&#39;T_conv&#39;].size} layers&quot;)" aria-label="Copy code">
@@ -44,11 +46,13 @@ plt.rcParams.update({<span class="hljs-string">&quot;figure.figsize&quot;</span>
     <span class="hljs-string">&quot;axes.grid&quot;</span>: <span class="hljs-literal">True</span>, <span class="hljs-string">&quot;grid.alpha&quot;</span>: <span class="hljs-number">0.25</span>, <span class="hljs-string">&quot;axes.axisbelow&quot;</span>: <span class="hljs-literal">True</span>,
     <span class="hljs-string">&quot;font.size&quot;</span>: <span class="hljs-number">11</span>, <span class="hljs-string">&quot;axes.titlesize&quot;</span>: <span class="hljs-number">12.5</span>, <span class="hljs-string">&quot;axes.labelsize&quot;</span>: <span class="hljs-number">11.5</span>})
 
+<span class="hljs-comment"># the converged solar model and the Lecture 8 JOSH tables are the only inputs</span>
 REF = np.load(pathlib.Path(<span class="hljs-string">&quot;..&quot;</span>) / <span class="hljs-string">&quot;reference&quot;</span> / <span class="hljs-string">&quot;converged_ref.npz&quot;</span>)
 JT  = np.load(pathlib.Path(<span class="hljs-string">&quot;..&quot;</span>) / <span class="hljs-string">&quot;reference&quot;</span> / <span class="hljs-string">&quot;josh_tables.npz&quot;</span>)   <span class="hljs-comment"># Lecture 8 tables</span>
 
 TEFF = <span class="hljs-built_in">float</span>(REF[<span class="hljs-string">&quot;teff&quot;</span>]); GRAV = <span class="hljs-built_in">float</span>(REF[<span class="hljs-string">&quot;gravity_cgs&quot;</span>]); LOGG = <span class="hljs-built_in">float</span>(np.log10(GRAV))
 N_ITER = <span class="hljs-built_in">int</span>(REF[<span class="hljs-string">&quot;n_iterations&quot;</span>])
+
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;target: converged continuum-only model for Teff = <span class="hljs-subst">{TEFF:<span class="hljs-number">.0</span>f}</span> K, log g = <span class="hljs-subst">{LOGG:<span class="hljs-number">.2</span>f}</span>&quot;</span>)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;  production run: grey start -&gt; convergence in <span class="hljs-subst">{N_ITER}</span> iterations (convection ON)&quot;</span>)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;  continuum grid: <span class="hljs-subst">{REF[<span class="hljs-string">&#x27;freq_hz&#x27;</span>].size}</span> frequencies x <span class="hljs-subst">{REF[<span class="hljs-string">&#x27;T_conv&#x27;</span>].size}</span> layers&quot;</span>)</code></pre>
@@ -66,8 +70,10 @@ c-10,0,-16.667,5,-20,15z M188 15 H145 v585 v1800 v585 h43z"/></svg></span></span
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[2]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="dlnt  = REF[&quot;dlnt_history&quot;]    # max|dT/T| over deep layers 40..75, per iteration
-dtmax = REF[&quot;dtmax_history&quot;]   # max|dT/T| over ALL layers, per iteration (top layers settle last)
+        <button class="copy-btn" type="button" data-code="# max|dT/T| over the deep layers 40..75 (the checkconv metric), per iteration
+dlnt  = REF[&quot;dlnt_history&quot;]
+# max|dT/T| over ALL layers, per iteration -- the top layers settle last
+dtmax = REF[&quot;dtmax_history&quot;]
 
 print(&quot; iter   dTmax(all)    checkconv_dlnt(deep)&quot;)
 for i in range(dlnt.size):
@@ -78,8 +84,10 @@ print(f&quot;determinism: two full runs identical  &quot;
       f&quot;T={bool(int(REF[&#39;determinism_T&#39;]))}  RHOX={bool(int(REF[&#39;determinism_R&#39;]))}&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">dlnt  = REF[<span class="hljs-string">&quot;dlnt_history&quot;</span>]    <span class="hljs-comment"># max|dT/T| over deep layers 40..75, per iteration</span>
-dtmax = REF[<span class="hljs-string">&quot;dtmax_history&quot;</span>]   <span class="hljs-comment"># max|dT/T| over ALL layers, per iteration (top layers settle last)</span>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># max|dT/T| over the deep layers 40..75 (the checkconv metric), per iteration</span>
+dlnt  = REF[<span class="hljs-string">&quot;dlnt_history&quot;</span>]
+<span class="hljs-comment"># max|dT/T| over ALL layers, per iteration -- the top layers settle last</span>
+dtmax = REF[<span class="hljs-string">&quot;dtmax_history&quot;</span>]
 
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot; iter   dTmax(all)    checkconv_dlnt(deep)&quot;</span>)
 <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(dlnt.size):
@@ -631,14 +639,22 @@ ITER_TOL = <span class="hljs-number">1.0e-5</span>
 acont = REF[&quot;acont&quot;].astype(np.float64); sigmac = REF[&quot;sigmac&quot;].astype(np.float64); scont = REF[&quot;scont&quot;].astype(np.float64)
 nf = freq.size; z = np.zeros(n)
 
+# the depth integrals we accumulate over frequency
 ross_acc = np.zeros(n)                                   # Rosseland mean accumulator
 flxrad = np.zeros(n); rjmins = np.zeros(n); rdabh = np.zeros(n); rdiagj = np.zeros(n)  # TCORR integrals
+
 for inu in range(nf):
     f = float(freq[inu]); rcowt = float(rco[inu])
+
+    # Planck function B_nu at this frequency, with the stimulated-emission factor
     ehvkt = np.exp(-f*hkt); stim = np.maximum(1.0-ehvkt, 1e-300)   # stimulated-emission factor
     bnu = 1.47439e-2*((f/1e15)**3)*ehvkt/stim                       # Planck function B_nu
+
+    # JOSH depth profiles, then guard the flux against a negative excursion
     taunu, hnu, jmins, abtot, alpha = josh_profiles(acont[:, inu], scont[:, inu], sigmac[:, inu], rhox, bnu)
     if np.any(hnu &lt; 0.0): hnu = np.maximum(hnu, 1e-99)
+
+    # accumulate this frequency&#39;s contribution to the Rosseland mean and the four TCORR integrals
     dbdt = bnu*f*hkt/np.maximum(T*stim, 1e-300)                     # dB_nu/dT (the diffusion weight)
     ross_acc += dbdt/np.maximum(abtot, 1e-300)*rcowt               # Rosseland: harmonic 1/kappa weighting
     dabtot = deriv(rhox, abtot)                                    # d(kappa_nu)/d(rhox), for rdabh
@@ -646,6 +662,7 @@ for inu in range(nf):
     rjmins += abtot*jmins*rcowt                                    # net heating integral kappa (J - S)
     flxrad += hnu*rcowt                                            # radiative flux H(tau), summed over nu
     accumulate_rdiagj(rdiagj, taunu, bnu, hkt, T, stim, alpha, abtot, f, rcowt, n)
+
 print(f&quot;swept {nf} continuum frequencies; flux at surface = {flxrad[0]:.4e}, deep = {flxrad[-1]:.4e}&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
@@ -653,14 +670,22 @@ print(f&quot;swept {nf} continuum frequencies; flux at surface = {flxrad[0]:.4e}
 acont = REF[<span class="hljs-string">&quot;acont&quot;</span>].astype(np.float64); sigmac = REF[<span class="hljs-string">&quot;sigmac&quot;</span>].astype(np.float64); scont = REF[<span class="hljs-string">&quot;scont&quot;</span>].astype(np.float64)
 nf = freq.size; z = np.zeros(n)
 
+<span class="hljs-comment"># the depth integrals we accumulate over frequency</span>
 ross_acc = np.zeros(n)                                   <span class="hljs-comment"># Rosseland mean accumulator</span>
 flxrad = np.zeros(n); rjmins = np.zeros(n); rdabh = np.zeros(n); rdiagj = np.zeros(n)  <span class="hljs-comment"># TCORR integrals</span>
+
 <span class="hljs-keyword">for</span> inu <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nf):
     f = <span class="hljs-built_in">float</span>(freq[inu]); rcowt = <span class="hljs-built_in">float</span>(rco[inu])
+
+    <span class="hljs-comment"># Planck function B_nu at this frequency, with the stimulated-emission factor</span>
     ehvkt = np.exp(-f*hkt); stim = np.maximum(<span class="hljs-number">1.0</span>-ehvkt, <span class="hljs-number">1e-300</span>)   <span class="hljs-comment"># stimulated-emission factor</span>
     bnu = <span class="hljs-number">1.47439e-2</span>*((f/<span class="hljs-number">1e15</span>)**<span class="hljs-number">3</span>)*ehvkt/stim                       <span class="hljs-comment"># Planck function B_nu</span>
+
+    <span class="hljs-comment"># JOSH depth profiles, then guard the flux against a negative excursion</span>
     taunu, hnu, jmins, abtot, alpha = josh_profiles(acont[:, inu], scont[:, inu], sigmac[:, inu], rhox, bnu)
     <span class="hljs-keyword">if</span> np.<span class="hljs-built_in">any</span>(hnu &lt; <span class="hljs-number">0.0</span>): hnu = np.maximum(hnu, <span class="hljs-number">1e-99</span>)
+
+    <span class="hljs-comment"># accumulate this frequency&#x27;s contribution to the Rosseland mean and the four TCORR integrals</span>
     dbdt = bnu*f*hkt/np.maximum(T*stim, <span class="hljs-number">1e-300</span>)                     <span class="hljs-comment"># dB_nu/dT (the diffusion weight)</span>
     ross_acc += dbdt/np.maximum(abtot, <span class="hljs-number">1e-300</span>)*rcowt               <span class="hljs-comment"># Rosseland: harmonic 1/kappa weighting</span>
     dabtot = deriv(rhox, abtot)                                    <span class="hljs-comment"># d(kappa_nu)/d(rhox), for rdabh</span>
@@ -668,6 +693,7 @@ flxrad = np.zeros(n); rjmins = np.zeros(n); rdabh = np.zeros(n); rdiagj = np.zer
     rjmins += abtot*jmins*rcowt                                    <span class="hljs-comment"># net heating integral kappa (J - S)</span>
     flxrad += hnu*rcowt                                            <span class="hljs-comment"># radiative flux H(tau), summed over nu</span>
     accumulate_rdiagj(rdiagj, taunu, bnu, hkt, T, stim, alpha, abtot, f, rcowt, n)
+
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;swept <span class="hljs-subst">{nf}</span> continuum frequencies; flux at surface = <span class="hljs-subst">{flxrad[<span class="hljs-number">0</span>]:<span class="hljs-number">.4</span>e}</span>, deep = <span class="hljs-subst">{flxrad[-<span class="hljs-number">1</span>]:<span class="hljs-number">.4</span>e}</span>&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">swept 30000 continuum frequencies; flux at surface = 5.0009e+09, deep = 5.0653e+08
 </pre></div></div><div class="prose"><h2>The Rosseland optical-depth scale and its lookup table</h2>
@@ -793,23 +819,29 @@ tauros = integ(rhox, abross, abross[<span class="hljs-number">0</span>]*rhox[<sp
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[18]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="ed1 = REF[&quot;edens1&quot;]; ed2 = REF[&quot;edens2&quot;]; ed3 = REF[&quot;edens3&quot;]; ed4 = REF[&quot;edens4&quot;]   # EDENS at T+, T-, P+, P-
+        <button class="copy-btn" type="button" data-code="# the EOS finite-difference samples: edens and rho re-evaluated at T,P +-0.1%
+ed1 = REF[&quot;edens1&quot;]; ed2 = REF[&quot;edens2&quot;]; ed3 = REF[&quot;edens3&quot;]; ed4 = REF[&quot;edens4&quot;]   # EDENS at T+, T-, P+, P-
 r1  = REF[&quot;rho1&quot;];   r2  = REF[&quot;rho2&quot;];   r3  = REF[&quot;rho3&quot;];   r4  = REF[&quot;rho4&quot;]        # RHO   at T+, T-, P+, P-
 
-dEdT = (ed1-ed2)/np.maximum(T, 1e-300)*500.0     # (dE/dT)_P  -- central difference, 1/(2*0.001)=500
+# central differences; the 500 = 1/(2*0.001) folds the fractional +-0.1% step into the absolute one
+dEdT = (ed1-ed2)/np.maximum(T, 1e-300)*500.0     # (dE/dT)_P
 drdT = (r1 -r2 )/np.maximum(T, 1e-300)*500.0     # (drho/dT)_P
 dEdP = (ed3-ed4)/np.maximum(p_in, 1e-300)*500.0  # (dE/dP)_T
 drdP = (r3 -r4 )/np.maximum(p_in, 1e-300)*500.0  # (drho/dP)_T
+
 print(f&quot;thermodynamic derivatives formed from EOS finite differences at T,P +-0.1%&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">ed1 = REF[<span class="hljs-string">&quot;edens1&quot;</span>]; ed2 = REF[<span class="hljs-string">&quot;edens2&quot;</span>]; ed3 = REF[<span class="hljs-string">&quot;edens3&quot;</span>]; ed4 = REF[<span class="hljs-string">&quot;edens4&quot;</span>]   <span class="hljs-comment"># EDENS at T+, T-, P+, P-</span>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># the EOS finite-difference samples: edens and rho re-evaluated at T,P +-0.1%</span>
+ed1 = REF[<span class="hljs-string">&quot;edens1&quot;</span>]; ed2 = REF[<span class="hljs-string">&quot;edens2&quot;</span>]; ed3 = REF[<span class="hljs-string">&quot;edens3&quot;</span>]; ed4 = REF[<span class="hljs-string">&quot;edens4&quot;</span>]   <span class="hljs-comment"># EDENS at T+, T-, P+, P-</span>
 r1  = REF[<span class="hljs-string">&quot;rho1&quot;</span>];   r2  = REF[<span class="hljs-string">&quot;rho2&quot;</span>];   r3  = REF[<span class="hljs-string">&quot;rho3&quot;</span>];   r4  = REF[<span class="hljs-string">&quot;rho4&quot;</span>]        <span class="hljs-comment"># RHO   at T+, T-, P+, P-</span>
 
-dEdT = (ed1-ed2)/np.maximum(T, <span class="hljs-number">1e-300</span>)*<span class="hljs-number">500.0</span>     <span class="hljs-comment"># (dE/dT)_P  -- central difference, 1/(2*0.001)=500</span>
+<span class="hljs-comment"># central differences; the 500 = 1/(2*0.001) folds the fractional +-0.1% step into the absolute one</span>
+dEdT = (ed1-ed2)/np.maximum(T, <span class="hljs-number">1e-300</span>)*<span class="hljs-number">500.0</span>     <span class="hljs-comment"># (dE/dT)_P</span>
 drdT = (r1 -r2 )/np.maximum(T, <span class="hljs-number">1e-300</span>)*<span class="hljs-number">500.0</span>     <span class="hljs-comment"># (drho/dT)_P</span>
 dEdP = (ed3-ed4)/np.maximum(p_in, <span class="hljs-number">1e-300</span>)*<span class="hljs-number">500.0</span>  <span class="hljs-comment"># (dE/dP)_T</span>
 drdP = (r3 -r4 )/np.maximum(p_in, <span class="hljs-number">1e-300</span>)*<span class="hljs-number">500.0</span>  <span class="hljs-comment"># (drho/dP)_T</span>
+
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;thermodynamic derivatives formed from EOS finite differences at T,P +-0.1%&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">thermodynamic derivatives formed from EOS finite differences at T,P +-0.1%
 </pre></div></div><div class="prose"><h3>The mixing-length kernel</h3>
@@ -991,23 +1023,34 @@ M834 80h400000v40h-400000z"/></svg></span></span></span><span class="vlist-s">�
            dEdT, drdT, dEdP, drdP, mixlth=1.25, nconv=36):
     &quot;&quot;&quot;Mixing-length convective flux per layer (Fortran CONVEC, finite-difference derivative path).&quot;&quot;&quot;
     nl = t.size
-    dtdrhx = deriv(rhox, t)                          # dT/dRHOX, feeds the actual (radiative) gradient
-    dilut  = 1.0 - np.exp(-tauros)                   # geometric dilution of the P_rad gradient
+
+    # dT/dRHOX feeds the actual (radiative) gradient; dilut is the geometric dilution of the P_rad gradient
+    dtdrhx = deriv(rhox, t)
+    dilut  = 1.0 - np.exp(-tauros)
+
+    # per-layer output arrays, filled in the loop below
     dltdlp=np.zeros(nl); heatcp=np.zeros(nl); dlrdlt=np.zeros(nl); velsnd=np.zeros(nl)
     grdadb=np.zeros(nl); hscale=np.zeros(nl); flxcnv=np.zeros(nl); vconv=np.zeros(nl)
     deltat=np.zeros(nl); rosst=np.zeros(nl)
+
     for j in range(nl):
         convec_layer_thermo(j, t, rho, ptotal, pradk, grav, dilut, dtdrhx,
                             dEdT, drdT, dEdP, drdP, dltdlp, heatcp, dlrdlt, velsnd, grdadb, hscale)
         if mixlth == 0.0 or j &lt; 3: continue
-        delt = dltdlp[j] - grdadb[j]                                   # superadiabaticity Delta = grad - grad_ad
-        if delt &lt; 0.0: continue                                        # Schwarzschild-stable -&gt; no convection
+
+        # Schwarzschild test: convect only where the superadiabaticity Delta = grad - grad_ad is positive
+        delt = dltdlp[j] - grdadb[j]                                   # superadiabaticity Delta
+        if delt &lt; 0.0: continue                                        # Schwarzschild-stable -&gt; radiative
+
+        # the velocity and flux scales that seed the inner iteration
         vco = 0.5*mixlth*np.sqrt(max(-0.5*ptotal[j]/max(rho[j],1e-300)*dlrdlt[j], 0.0))   # velocity scale
         if vco == 0.0: continue
         fluxco = 0.5*rho[j]*heatcp[j]*t[j]*mixlth/FOURPI               # flux scale rho c_P T ell
         rosst[j] = rosstab.eval(float(t[j]), float(p[j]))             # cell-center opacity
+
         convec_flux_iteration(j, rosstab, rosst, deltat, vconv, flxcnv, t, p, abross,
                               hscale, rho, fluxco, vco, mixlth, delt)
+
     flxcnv0 = flxcnv.copy()                                           # pre-patch flux (used by TCORR)
     height = high_from_rhox(rhox, rho)
     k = int(max(min(nconv, nl), 0))
@@ -1020,30 +1063,41 @@ M834 80h400000v40h-400000z"/></svg></span></span></span><span class="vlist-s">�
            dEdT, drdT, dEdP, drdP, mixlth=<span class="hljs-number">1.25</span>, nconv=<span class="hljs-number">36</span></span>):
     <span class="hljs-string">&quot;&quot;&quot;Mixing-length convective flux per layer (Fortran CONVEC, finite-difference derivative path).&quot;&quot;&quot;</span>
     nl = t.size
-    dtdrhx = deriv(rhox, t)                          <span class="hljs-comment"># dT/dRHOX, feeds the actual (radiative) gradient</span>
-    dilut  = <span class="hljs-number">1.0</span> - np.exp(-tauros)                   <span class="hljs-comment"># geometric dilution of the P_rad gradient</span>
+
+    <span class="hljs-comment"># dT/dRHOX feeds the actual (radiative) gradient; dilut is the geometric dilution of the P_rad gradient</span>
+    dtdrhx = deriv(rhox, t)
+    dilut  = <span class="hljs-number">1.0</span> - np.exp(-tauros)
+
+    <span class="hljs-comment"># per-layer output arrays, filled in the loop below</span>
     dltdlp=np.zeros(nl); heatcp=np.zeros(nl); dlrdlt=np.zeros(nl); velsnd=np.zeros(nl)
     grdadb=np.zeros(nl); hscale=np.zeros(nl); flxcnv=np.zeros(nl); vconv=np.zeros(nl)
     deltat=np.zeros(nl); rosst=np.zeros(nl)
+
     <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nl):
         convec_layer_thermo(j, t, rho, ptotal, pradk, grav, dilut, dtdrhx,
                             dEdT, drdT, dEdP, drdP, dltdlp, heatcp, dlrdlt, velsnd, grdadb, hscale)
         <span class="hljs-keyword">if</span> mixlth == <span class="hljs-number">0.0</span> <span class="hljs-keyword">or</span> j &lt; <span class="hljs-number">3</span>: <span class="hljs-keyword">continue</span>
-        delt = dltdlp[j] - grdadb[j]                                   <span class="hljs-comment"># superadiabaticity Delta = grad - grad_ad</span>
-        <span class="hljs-keyword">if</span> delt &lt; <span class="hljs-number">0.0</span>: <span class="hljs-keyword">continue</span>                                        <span class="hljs-comment"># Schwarzschild-stable -&gt; no convection</span>
+
+        <span class="hljs-comment"># Schwarzschild test: convect only where the superadiabaticity Delta = grad - grad_ad is positive</span>
+        delt = dltdlp[j] - grdadb[j]                                   <span class="hljs-comment"># superadiabaticity Delta</span>
+        <span class="hljs-keyword">if</span> delt &lt; <span class="hljs-number">0.0</span>: <span class="hljs-keyword">continue</span>                                        <span class="hljs-comment"># Schwarzschild-stable -&gt; radiative</span>
+
+        <span class="hljs-comment"># the velocity and flux scales that seed the inner iteration</span>
         vco = <span class="hljs-number">0.5</span>*mixlth*np.sqrt(<span class="hljs-built_in">max</span>(-<span class="hljs-number">0.5</span>*ptotal[j]/<span class="hljs-built_in">max</span>(rho[j],<span class="hljs-number">1e-300</span>)*dlrdlt[j], <span class="hljs-number">0.0</span>))   <span class="hljs-comment"># velocity scale</span>
         <span class="hljs-keyword">if</span> vco == <span class="hljs-number">0.0</span>: <span class="hljs-keyword">continue</span>
         fluxco = <span class="hljs-number">0.5</span>*rho[j]*heatcp[j]*t[j]*mixlth/FOURPI               <span class="hljs-comment"># flux scale rho c_P T ell</span>
         rosst[j] = rosstab.<span class="hljs-built_in">eval</span>(<span class="hljs-built_in">float</span>(t[j]), <span class="hljs-built_in">float</span>(p[j]))             <span class="hljs-comment"># cell-center opacity</span>
+
         convec_flux_iteration(j, rosstab, rosst, deltat, vconv, flxcnv, t, p, abross,
                               hscale, rho, fluxco, vco, mixlth, delt)
+
     flxcnv0 = flxcnv.copy()                                           <span class="hljs-comment"># pre-patch flux (used by TCORR)</span>
     height = high_from_rhox(rhox, rho)
     k = <span class="hljs-built_in">int</span>(<span class="hljs-built_in">max</span>(<span class="hljs-built_in">min</span>(nconv, nl), <span class="hljs-number">0</span>))
     <span class="hljs-keyword">if</span> k &gt; <span class="hljs-number">0</span>: flxcnv[:k] = <span class="hljs-number">0.0</span>                                        <span class="hljs-comment"># force the top NCONV layers radiative</span>
     <span class="hljs-keyword">return</span> <span class="hljs-built_in">dict</span>(flxcnv=flxcnv, flxcnv0=flxcnv0, dltdlp=dltdlp, grdadb=grdadb, hscale=hscale,
                 dlrdlt=dlrdlt, heatcp=heatcp, vconv=vconv, velsnd=velsnd, height=height)</code></pre>
-    </div></div><div class="prose"><p>Run it on the converged model and look at where convection lives.</p>
+    </div></div><div class="prose"><p>Run it on the converged model and look at where convection lives. We pass the converged <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>T</mi></mrow><annotation encoding="application/x-tex">T</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span></span></span></span>, column mass, density, pressures, opacity, and the EOS derivatives into <code>convec</code>, then stash <code>ptotal</code> and <code>rho</code> back into the returned dict — the temperature correction will need them for its convective-efficiency term. The diagnostics read straight off <code>cv[&quot;flxcnv&quot;]</code>: the boolean <code>flxcnv &gt; 0</code> flags the convecting layers, <code>argmax</code> of that mask gives the shallowest one (reported as its <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>τ</mi><mrow><mi mathvariant="normal">R</mi><mi mathvariant="normal">o</mi><mi mathvariant="normal">s</mi><mi mathvariant="normal">s</mi></mrow></msub></mrow><annotation encoding="application/x-tex">\tau_{\rm Ross}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:-0.1132em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">Ross</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>), and the peak of <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>F</mi><mrow><mi mathvariant="normal">c</mi><mi mathvariant="normal">o</mi><mi mathvariant="normal">n</mi><mi mathvariant="normal">v</mi></mrow></msub><mi mathvariant="normal">/</mi><mo stretchy="false">(</mo><mn>4</mn><mi>π</mi><mi>H</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">F_{\rm conv}/(4\pi H)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">F</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.1389em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight" style="margin-right:0.01389em;">conv</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mord">/</span><span class="mopen">(</span><span class="mord">4</span><span class="mord mathnormal" style="margin-right:0.03588em;">π</span><span class="mord mathnormal" style="margin-right:0.08125em;">H</span><span class="mclose">)</span></span></span></span> is the largest fraction of the total flux convection carries.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[23]</span>Python</span>
@@ -1363,24 +1417,34 @@ fig.tight_layout(); plt.show()</code></pre>
                 rosstab, cv, mixlth=1.25, steplg=0.125, tau1lg=-6.875):
     &quot;&quot;&quot;ATLAS TCORR mode 3 with convection: T1 = dtflux + dtlamb + dtsurf, plus DRHOX (Lecture 10 + CONVEC).&quot;&quot;&quot;
     nl = T.size
+
+    # the depth derivatives and the CONVEC arrays the correction reads
     dtdrhx = deriv(rhox, T); dabros = deriv(rhox, abross)             # dT/d(rhox) and d(kappa)/d(rhox)
     flxcnv=cv[&quot;flxcnv&quot;]; flxcnv0=cv[&quot;flxcnv0&quot;]; dltdlp=cv[&quot;dltdlp&quot;]; grdadb=cv[&quot;grdadb&quot;]   # unpack CONVEC arrays
     hscale=cv[&quot;hscale&quot;]; dlrdlt=cv[&quot;dlrdlt&quot;]; heatcp=cv[&quot;heatcp&quot;]; ptc=cv[&quot;ptotal&quot;]; rhc=cv[&quot;rho&quot;]
     ddlt = deriv(rhox, dltdlp)                                        # gradient of the actual gradient
+
+    # Step 1-2: smooth the convective flux, then build the Avrett-Krook integrand
     cnvflx = smooth_convective_flux(flxcnv, nl)                       # 1-2-1 smoothing, top two re-zeroed
     rdabh_eff = rdabh - flxrad*dabros/np.maximum(abross, 1e-300)      # opacity-gradient term in the AK denominator
     codrhx, ddel = ak_integrand(nl, T, flxrad, rdabh_eff, dtdrhx, ddlt, cnvflx, flxcnv0,
                                 dltdlp, grdadb, hscale, dlrdlt, heatcp, ptc, rhc, abross, mixlth)
+
+    # Step 3-6: the three temperature terms -- flux-driven, surface Lambda, surface boundary
     dtflux = flux_driven_term(rhox, tauros, codrhx, ddel, flxrad, cnvflx, dltdlp, flux, dtdrhx, abross)
     flxerr = (flxrad + cnvflx - flux)/np.maximum(flux, 1e-300)*100.0   # percent TOTAL-flux error
     dtlamb = lambda_surface_term(nl, tauros, abross, flxrad, rjmins, rdiagj, flxerr, cnvflx, flux, teff)
     dtsurf = surface_boundary_term(nl, teff, flux, flxrad, T, tauros, dtflux, dtlamb)
+
+    # assemble T1 = dtflux + dtlamb + dtsurf and enforce monotonicity with depth
     dtflux = np.nan_to_num(dtflux); dtlamb = np.nan_to_num(dtlamb); dtsurf = np.nan_to_num(dtsurf)   # sanitize
     t1 = dtflux + dtlamb + dtsurf                                     # total temperature correction
     tnew = np.maximum(np.where(np.isfinite(T+t1), T+t1, T), 1.0)       # iter 1: damping skipped
     for i in range(1, nl):                                            # monotonicity: T increasing with depth
         j = nl-1-i; tnew[j] = np.fmin(tnew[j], tnew[j+1]-1.0)
         if not np.isfinite(tnew[j]): tnew[j] = max(T[j], 1.0)
+
+    # close the iteration with the hydrostatic density (DRHOX) correction
     rrr = drhox_density_correction(tauros, T, t1, prad, grav, rosstab, nl, steplg, tau1lg)   # DRHOX
     return dict(t1=t1, dtflux=dtflux, dtlamb=dtlamb, flxerr=flxerr, cnvflx=cnvflx,
                 tnew=tnew, rhox_new=rhox + rrr*rhox)
@@ -1393,24 +1457,34 @@ print(f&quot;temperature correction T1 spans {res[&#39;t1&#39;].min():+.3e} to {
                 rosstab, cv, mixlth=<span class="hljs-number">1.25</span>, steplg=<span class="hljs-number">0.125</span>, tau1lg=-<span class="hljs-number">6.875</span></span>):
     <span class="hljs-string">&quot;&quot;&quot;ATLAS TCORR mode 3 with convection: T1 = dtflux + dtlamb + dtsurf, plus DRHOX (Lecture 10 + CONVEC).&quot;&quot;&quot;</span>
     nl = T.size
+
+    <span class="hljs-comment"># the depth derivatives and the CONVEC arrays the correction reads</span>
     dtdrhx = deriv(rhox, T); dabros = deriv(rhox, abross)             <span class="hljs-comment"># dT/d(rhox) and d(kappa)/d(rhox)</span>
     flxcnv=cv[<span class="hljs-string">&quot;flxcnv&quot;</span>]; flxcnv0=cv[<span class="hljs-string">&quot;flxcnv0&quot;</span>]; dltdlp=cv[<span class="hljs-string">&quot;dltdlp&quot;</span>]; grdadb=cv[<span class="hljs-string">&quot;grdadb&quot;</span>]   <span class="hljs-comment"># unpack CONVEC arrays</span>
     hscale=cv[<span class="hljs-string">&quot;hscale&quot;</span>]; dlrdlt=cv[<span class="hljs-string">&quot;dlrdlt&quot;</span>]; heatcp=cv[<span class="hljs-string">&quot;heatcp&quot;</span>]; ptc=cv[<span class="hljs-string">&quot;ptotal&quot;</span>]; rhc=cv[<span class="hljs-string">&quot;rho&quot;</span>]
     ddlt = deriv(rhox, dltdlp)                                        <span class="hljs-comment"># gradient of the actual gradient</span>
+
+    <span class="hljs-comment"># Step 1-2: smooth the convective flux, then build the Avrett-Krook integrand</span>
     cnvflx = smooth_convective_flux(flxcnv, nl)                       <span class="hljs-comment"># 1-2-1 smoothing, top two re-zeroed</span>
     rdabh_eff = rdabh - flxrad*dabros/np.maximum(abross, <span class="hljs-number">1e-300</span>)      <span class="hljs-comment"># opacity-gradient term in the AK denominator</span>
     codrhx, ddel = ak_integrand(nl, T, flxrad, rdabh_eff, dtdrhx, ddlt, cnvflx, flxcnv0,
                                 dltdlp, grdadb, hscale, dlrdlt, heatcp, ptc, rhc, abross, mixlth)
+
+    <span class="hljs-comment"># Step 3-6: the three temperature terms -- flux-driven, surface Lambda, surface boundary</span>
     dtflux = flux_driven_term(rhox, tauros, codrhx, ddel, flxrad, cnvflx, dltdlp, flux, dtdrhx, abross)
     flxerr = (flxrad + cnvflx - flux)/np.maximum(flux, <span class="hljs-number">1e-300</span>)*<span class="hljs-number">100.0</span>   <span class="hljs-comment"># percent TOTAL-flux error</span>
     dtlamb = lambda_surface_term(nl, tauros, abross, flxrad, rjmins, rdiagj, flxerr, cnvflx, flux, teff)
     dtsurf = surface_boundary_term(nl, teff, flux, flxrad, T, tauros, dtflux, dtlamb)
+
+    <span class="hljs-comment"># assemble T1 = dtflux + dtlamb + dtsurf and enforce monotonicity with depth</span>
     dtflux = np.nan_to_num(dtflux); dtlamb = np.nan_to_num(dtlamb); dtsurf = np.nan_to_num(dtsurf)   <span class="hljs-comment"># sanitize</span>
     t1 = dtflux + dtlamb + dtsurf                                     <span class="hljs-comment"># total temperature correction</span>
     tnew = np.maximum(np.where(np.isfinite(T+t1), T+t1, T), <span class="hljs-number">1.0</span>)       <span class="hljs-comment"># iter 1: damping skipped</span>
     <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, nl):                                            <span class="hljs-comment"># monotonicity: T increasing with depth</span>
         j = nl-<span class="hljs-number">1</span>-i; tnew[j] = np.fmin(tnew[j], tnew[j+<span class="hljs-number">1</span>]-<span class="hljs-number">1.0</span>)
         <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> np.isfinite(tnew[j]): tnew[j] = <span class="hljs-built_in">max</span>(T[j], <span class="hljs-number">1.0</span>)
+
+    <span class="hljs-comment"># close the iteration with the hydrostatic density (DRHOX) correction</span>
     rrr = drhox_density_correction(tauros, T, t1, prad, grav, rosstab, nl, steplg, tau1lg)   <span class="hljs-comment"># DRHOX</span>
     <span class="hljs-keyword">return</span> <span class="hljs-built_in">dict</span>(t1=t1, dtflux=dtflux, dtlamb=dtlamb, flxerr=flxerr, cnvflx=cnvflx,
                 tnew=tnew, rhox_new=rhox + rrr*rhox)
