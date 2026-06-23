@@ -57,7 +57,7 @@ md(r"""## The dominant absorber: the negative hydrogen ion
 
 In a cool star like the Sun the dominant continuous absorber is one of the more surprising species in astrophysics: the **negative hydrogen ion, H$^-$** — a neutral hydrogen atom that has captured a *second*, very loosely bound electron. It binds that electron by only $0.754\ \mathrm{eV}$, so it is fragile and rare, but neutral hydrogen is so overwhelmingly abundant, and the free electrons supplied by the metals (Lecture 2) so available, that H$^-$ swamps every other continuum source across the optical. We build it, the scattering terms, and the total — and check each against the reference.""")
 
-md(r"""Load the reference continuum and the atmosphere it was built on.""")
+md(r"""Set up the imports and plotting defaults, load the reference continuum grid (`L3.npz`), and define a small `compare` helper we reuse throughout: it takes our opacity and the reference, guards the divide-by-zero where the reference is zero, and prints the worst relative difference with a pass/fail tag.""")
 
 code(r'''import pathlib
 import numpy as np
@@ -78,14 +78,19 @@ def compare(name, ours, ref, tol=1e-6):
 
 md(r"""Unpack the arrays we need from the reference file — the wavelength and temperature grids, the populations from the equation of state (Lecture 2), the optical-depth scale (Lecture 1) — and set the CGS constants. The temperature, densities, and populations are reshaped to broadcast over the wavelength axis.""")
 
-code(r'''wl  = REF["wl"]                                   # wavelength grid [nm]
-T   = REF["T"][:, None]                            # temperature [K], shaped for broadcasting over wl
+code(r'''# the grids and populations, reshaped (where needed) to broadcast over the wavelength axis
+wl  = REF["wl"]                                   # wavelength grid [nm]
+T   = REF["T"][:, None]                            # temperature [K]
 n_e = REF["n_e"][:, None]                          # electron density [cm^-3]
 rho = REF["rho"][:, None]                          # mass density [g cm^-3]
 nHI = REF["nHI"][:, None]                          # neutral hydrogen number density [cm^-3]
 tau, rhox = REF["tau"], REF["rhox"]                # Rosseland optical depth and column mass
-H, C, K = 6.62607015e-27, 2.99792458e10, 1.380649e-16       # Planck, c, Boltzmann (CGS)
-KEV, SAHA = 1.0/11604.5, 2.4148e15                 # eV-per-K conversion; Saha (2pi m_e k/h^2)^3/2 prefactor
+
+# physical constants (CGS)
+H, C, K = 6.62607015e-27, 2.99792458e10, 1.380649e-16       # Planck, c, Boltzmann
+# eV-per-K conversion; Saha (2pi m_e k/h^2)^3/2 prefactor
+KEV, SAHA = 1.0/11604.5, 2.4148e15
+
 nu = C / (wl[None, :] * 1e-7)                       # frequency [Hz] at each wavelength
 print(f"continuum grid: {REF['absorption'].shape[0]} layers x {wl.size} wavelengths, "
       f"{wl[0]:.0f}-{wl[-1]:.0f} nm")''')
@@ -157,13 +162,17 @@ kappa_bf = n_Hminus * sigma_bf * stim / rho          # cm^2/g (with stimulated e
 
 md(r"""The free-free coefficient is the second John (1988) polynomial: a double power series in $\theta=5040/T$ and in inverse wavelength. It returns the absorption per neutral H atom per unit electron pressure $P_e = n_e kT$, so we multiply by $P_e$ and the neutral-H density to get the opacity per gram. (No explicit stimulated-emission factor — it is already folded into John's fit, as noted above.)""")
 
-code(r'''# John (1988) H- free-free coefficient (lambda > 0.3645 um branch), per H I atom per unit P_e
+code(r'''# John (1988) H- free-free coefficient (lambda > 0.3645 um branch), per H I atom per unit P_e.
+# The six coefficient rows (A..F) are the double power series in theta and inverse wavelength.
 A=[0,2483.346,-3449.889,2200.040,-696.271,88.283]; B=[0,285.827,-1158.382,2427.719,-1841.400,444.517]
 Cc=[0,-2054.291,8746.523,-13651.105,8624.970,-1863.864]; D=[0,2827.776,-11485.632,16755.524,-10051.530,2095.288]
 E=[0,-1341.537,5303.609,-7510.494,4400.067,-901.788]; F=[0,208.952,-812.939,1132.738,-655.020,132.985]
+
 theta = 5040.0 / T                                   # the John temperature variable
 kff = sum(theta**((n+1)/2.0) * (A[n]*lam_um**2 + B[n] + Cc[n]/lam_um + D[n]/lam_um**2
                                 + E[n]/lam_um**3 + F[n]/lam_um**4) for n in range(1, 6))
+
+# multiply by the electron pressure and the neutral-H density to get the opacity per gram
 P_e = n_e * K * T                                    # electron pressure [dyn cm^-2]
 kappa_ff = 1e-29 * kff * P_e * nHI / rho             # cm^2/g
 kappa_Hminus = kappa_bf + kappa_ff                   # total analytic H- absorption''')
@@ -615,16 +624,20 @@ code(r'''def hminus_opacity(freq, pops, ehvkt, stim, bnu):
     n_layers = temp.size
     tkev = temp * KBOLTZ_EV; theta = 5040.0 / temp
     bmin = np.ones(n_layers); bhyd1 = np.ones(n_layers)    # departure coefficients (=1 in LTE)
+
     # Saha prefactor: number of H- ions per gram (the 0.754 eV detachment energy is in the exp)
     xhmin = (np.exp(0.754209/tkev) / (2.0*2.4148e15*temp*np.sqrt(temp)) * bmin*bhyd1*xnfph1*xne)
     f = freq; wave = C_LIGHT_NM / f; wavelog = np.log(wave)
+
     # free-free: interp in wavelength for every theta column, then in theta for each layer
     fftt_for_theta = np.array([np.exp(linter(WFFLOG, FFLOG[:, it], np.array([wavelog]))[0])
                                for it in range(NTHETAFF)])
     fftheta = np.array([linter(HMINOP_THETAFF, fftt_for_theta, np.array([theta[layer]]))[0]
                         for layer in range(n_layers)])
     hminff = fftheta * xnfph1 * 2.0 * bhyd1 * xne / rho * 1e-26
-    # bound-free: MAP1 on the cross-section table, gated above the 1.6 micron threshold
+
+    # bound-free: MAP1 on the cross-section table, gated above the 1.6 micron threshold,
+    # with the stimulated-emission factor applied
     hminbf = map1(HMINOP_WBF, HMINOP_BF, np.array([wave]))[0] if f > 1.82365e14 else 0.0
     h_bf = hminbf * 1e-18 * (1.0 - ehvkt/np.maximum(bmin, 1e-40)) * xhmin / rho
     return h_bf + hminff''')
@@ -665,6 +678,7 @@ code(r'''def hydrogen_opacity(freq, pops, ehvkt, stim, bnu, hckt):
     n_layers = temp.size
     f = freq; wno = f / C_LIGHT_CM                         # photon wavenumber [cm^-1]
     freq3 = 2.815e29 / (f*f*f)                             # the nu^-3 bound-free scaling
+
     # n >= 16 partition-function tail (the high levels merged into an analytic sum)
     h = freq3 * 2.0/2.0 / (RYDBERG_CM*hckt) * (
         np.exp(-np.maximum(109250.336, 109678.764 - wno)*hckt) - np.exp(-109678.764*hckt)) * stim
@@ -677,7 +691,9 @@ code(r'''def hydrogen_opacity(freq, pops, ehvkt, stim, bnu, hckt):
     if wno >= 109678.764:                                  # n=1 (far-UV, inactive here)
         h = h + xkarsas(f, 1.0, 1, 1) * 2.0 * (1.0 - ehvkt)
     h = h * xnfph1 / rho                                   # bound-free, weighted by ground-state H I
-    cff = coulff(1, f, np.log(f), temp, tlog)              # free-free off protons
+
+    # free-free off protons, scaled by the Coulomb Gaunt factor
+    cff = coulff(1, f, np.log(f), temp, tlog)
     h = h + 3.6919e8/np.sqrt(temp) * cff/f * xne/f * xnfph2/f * stim / rho
     return h''')
 
@@ -774,18 +790,23 @@ def minor_terms(freq, pops, ehvkt, stim, bnu, hckt):
     n_layers = temp.size; f = freq; wno = f/C_LIGHT_CM     # photon wavenumber [cm^-1]
     abs_minor = np.zeros(n_layers); scat_minor = np.zeros(n_layers)
     bhyd1 = np.ones(n_layers)                              # departure coefficient (=1 in LTE)
+
     # H2+ molecular ion (bound-free + free-free of the H + H+ quasi-molecule)
     if f <= 3.28805e15:
         freqlg = np.log(f); freq15 = f/1.0e15
-        fr = -3.0233e3 + (3.7797e2 + (-1.82496e1 + (3.9207e-1 - 3.1672e-3*freqlg)*freqlg)*freqlg)*freqlg   # log cross-section
-        es = -7.342e-3 + (-2.409e0 + (1.028e0 + (-4.230e-1 + (1.224e-1 - 1.351e-2*freq15)*freq15)*freq15)*freq15)*freq15   # binding energy fit
-        abs_minor += (np.exp(-es/tkev + fr + np.log(np.maximum(xnfph1, 1e-40)))   # weighted by H I x H II
+        # fr = log cross-section; es = binding-energy fit (both frequency polynomials)
+        fr = -3.0233e3 + (3.7797e2 + (-1.82496e1 + (3.9207e-1 - 3.1672e-3*freqlg)*freqlg)*freqlg)*freqlg
+        es = -7.342e-3 + (-2.409e0 + (1.028e0 + (-4.230e-1 + (1.224e-1 - 1.351e-2*freq15)*freq15)*freq15)*freq15)*freq15
+        # weighted by the product of the H I and H II densities
+        abs_minor += (np.exp(-es/tkev + fr + np.log(np.maximum(xnfph1, 1e-40)))
                       * 2.0*bhyd1*xnfph2/rho*stim)
+
     # He- free-free: three frequency-dependent coefficients (a,b,c) of a temperature polynomial
     ac = 3.397e-01 + (-5.216e14 + 7.039e30/f)/f
     bc = -4.116e03 + (1.067e19 + 8.135e34/f)/f
     cc = 5.081e08 + (-8.724e22 - 5.659e37/f)/f
-    abs_minor += (ac*temp + bc + cc/temp)/1.0e15 * xne/1.0e15 * pops["he1_mode12"]/1.0e15 / rho   # x n_e x He I
+    # the polynomial, weighted by the electron and He I densities
+    abs_minor += (ac*temp + bc + cc/temp)/1.0e15 * xne/1.0e15 * pops["he1_mode12"]/1.0e15 / rho
     # C I, Mg I, Al I, Si I bound-free edges (each: cross-section x pop / rho).  The engine
     # seeds each metal with a 1e-30 floor before adding its active edges; C I's nearest edge
     # (22006 cm^-1) is blueward of our window, so C I contributes only that tiny floor here.
@@ -793,6 +814,7 @@ def minor_terms(freq, pops, ehvkt, stim, bnu, hckt):
     if wno >= 22006.370:                                   # C I 2P 1D edge (inactive at 500-510 nm)
         c1 += 2.1e-18*(22006.370/wno)**1.5 * 3.0*np.exp(-68856.33*hckt)*stim
     abs_minor += c1 * pops["xnfpc"][:, 0]/rho
+
     # Mg I edges: (threshold wavenumber, cross-section, power, weight, level energy)
     MG1 = [(13713.986, 25e-18, 2.7, 15.0, 47957.034), (13823.223, 33.8e-18, 2.8, 9.0, 47847.797),
            (15267.955, 45e-18, 2.7, 5.0, 46403.065), (18167.687, 0.43e-18, 2.6, 1.0, 43503.333),
@@ -802,7 +824,9 @@ def minor_terms(freq, pops, ehvkt, stim, bnu, hckt):
         if wno >= thr:
             mg += c0*(thr/wno)**p0 * g*np.exp(-e*hckt)*stim
     abs_minor += mg * pops["xnfpmg"]/rho
-    AL1 = [(8002.467, 50e-18, 3, 6.0, 40275.903), (9346.231, 50e-18, 3, 10.0, 38932.139),   # Al I edges
+
+    # Al I edges (same layout as Mg I), but carrying a ground-state departure factor
+    AL1 = [(8002.467, 50e-18, 3, 6.0, 40275.903), (9346.231, 50e-18, 3, 10.0, 38932.139),
            (10588.957, 56.7e-18, 1.9, 2.0, 37689.413), (15318.007, 14.5e-18, 1, 6.0, 32960.363),
            (15842.129, 47e-18, 1.83, 10.0, 32436.241)]
     al = 1e-30 * np.ones(n_layers); bal2 = np.exp(-48278.37*hckt)   # Al ground-state departure factor
@@ -810,16 +834,22 @@ def minor_terms(freq, pops, ehvkt, stim, bnu, hckt):
         if wno >= thr:
             al += c0*(thr/wno)**p0 * g*np.exp(-e*hckt)*(1.0 - bal2*ehvkt)
     abs_minor += al * pops["xnfpal"]/rho
+
+    # Si I edge
     si = 1e-30 * np.ones(n_layers)
     if wno >= 17777.641:                                   # Si I PP 3D edge (the active visible one)
         si += 18e-18*(17777.641/wno)**3 * 15.0*np.exp(-48161.459*hckt)*(1.0 - ehvkt)
     abs_minor += si * pops["xnfpsi"]/rho
+
     # He Rayleigh + H2 Rayleigh scattering (small additions to the scattering coefficient)
-    wave_he = 2.99792458e18/min(f, 5.15e15); ww = wave_he**2   # capped wavelength^2 for the He fit
+    # He: capped wavelength^2 feeds the He polarisability fit
+    wave_he = 2.99792458e18/min(f, 5.15e15); ww = wave_he**2
     sig_he = 5.484e-14/(ww*ww)*(1.0 + (2.44e5 + 5.94e10/max(ww - 2.90e5, 1e-10))/ww)**2   # He Rayleigh cross-section
     scat_minor += sig_he * pops["he1_mode12"]/rho
+
+    # H2: number density from a Saha-like balance, then the H2 Rayleigh cross-section
     poly_T = (1.63660e-3 + (-4.93992e-7 + (1.11822e-10 + (-1.49567e-14 + (1.06206e-18 - 3.08720e-23*temp)*temp)*temp)*temp)*temp)*temp   # H2 formation temperature polynomial
-    xnh2 = (pops["xnf_h"]/hydrogen_partition(temp)*2.0*bhyd1)**2 * np.exp(np.clip(4.478/tkev - 4.64584e1 + poly_T - 1.5*tlog, -100, 100))/rho   # H2 number density from the Saha-like balance
+    xnh2 = (pops["xnf_h"]/hydrogen_partition(temp)*2.0*bhyd1)**2 * np.exp(np.clip(4.478/tkev - 4.64584e1 + poly_T - 1.5*tlog, -100, 100))/rho
     wave_h2 = 2.99792458e18/min(f, 2.922e15); ww2 = wave_h2**2
     scat_minor += (8.14e-13 + 1.28e-6/ww2 + 1.61/(ww2*ww2))/(ww2*ww2) * xnh2   # H2 Rayleigh cross-section x n_H2
     return abs_minor, scat_minor''')
@@ -902,6 +932,7 @@ code(r'''def helium_opacity(freq, pops, ehvkt, stim, hckt):
     if wno >= 198310.760:                                   # 1S 1S (far-UV)
         h = h + np.exp(33.32 - 2.0*freqlg)*(one - one*ehvkt)
     h = h * pops["he1_mode11"] / rho                        # weighted by He I (mode-11)
+
     cff = coulff(1, f, freqlg, temp, tlog)                  # Coulomb Gaunt factor for the ff term
     # free-free weighted by He II (mode-11): the reference convention; matters only in deep hot layers
     ahe1 = h + 3.619e8/np.sqrt(temp)*cff/f*xne/f*pops["he2_mode11"]/f*stim/rho
@@ -924,6 +955,7 @@ code(r'''def helium_opacity(freq, pops, ehvkt, stim, hckt):
             x = freq3*16.0/div*(poly[0] + (poly[1] + poly[2]/f)/f)
             fac = (one - ehvkt) if e == 0.0 else np.exp(-e*hckt)*(one - ehvkt)
             h2 = h2 + x*wt*fac*xnfprho
+
     cff2 = coulff(2, f, np.log(f), temp, tlog)              # ff Gaunt factor for charge Z=2
     ahe2 = h2 + 3.6919e8*4.0/np.sqrt(temp)*cff2/f*xne/f*pops["he3_mode11"]/f*stim/rho
     return ahe1, ahe2''')
@@ -997,10 +1029,15 @@ md(r"""## Reading the budget: who absorbs and who scatters
 
 Before interpolating, look at the split at a representative photospheric layer (near $\tau\approx 1$, $T\approx 6400\,$K). The H$^-$ term dominates the absorption; H$_2^+$ and H I are the largest of the rest; the metals are a few tenths of a percent. On the scattering side, Rayleigh off neutral hydrogen and Thomson off electrons are comparable, with Rayleigh the larger here. This is the same physical picture the first half drew — now produced by the production tables rather than analytic fits.""")
 
-code(r'''layer = int(np.argmin(np.abs(Tk - 6400.0)))
+code(r'''# a representative photospheric layer (near tau ~ 1, T ~ 6400 K) and the first sample frequency
+layer = int(np.argmin(np.abs(Tk - 6400.0)))
 f0 = freqset[sel][0]
+
+# the per-layer factors the opacity terms need at this frequency
 ehv = np.exp(-H_PLANCK*f0/(K_BOLTZ*Tk)); st = 1.0 - ehv; bn = planck_nu(f0, Tk)
 hckt0 = H_PLANCK/(K_BOLTZ*Tk)*C_LIGHT_CM
+
+# evaluate each absorption term, plus the scattering split
 a_hmin = hminus_opacity(f0, pops, ehv, st, bn)
 a_hyd  = hydrogen_opacity(f0, pops, ehv, st, bn, hckt0)
 a_min, s_min = minor_terms(f0, pops, ehv, st, bn, hckt0)
@@ -1008,6 +1045,7 @@ ahe1_b, ahe2_b = helium_opacity(f0, pops, ehv, st, hckt0)
 ahot_b, aluke_b = hot_and_si2(f0, pops, st, Tk*KBOLTZ_EV, np.log(np.maximum(Tk, 1e-10)))
 a_rest = a_min + ahe1_b + ahe2_b + ahot_b + aluke_b       # all terms beyond H- and H I
 sigh, sigel = scattering_opacity(f0, pops)
+
 a_tot = a_hmin[layer] + a_hyd[layer] + a_rest[layer]
 print(f"per-term budget at layer {layer} (T = {Tk[layer]:.0f} K), freq[0]:")
 print(f"  ABS  H-              = {a_hmin[layer]:.4e}  ({100*a_hmin[layer]/a_tot:6.2f}%)")
@@ -1080,9 +1118,12 @@ ra = rel_engine(absorption, cabs_ref); rs = rel_engine(scattering, cscat_ref)
 print(f"continuum_absorption : max rel = {ra.max():.3e}   median = {np.median(ra):.3e}")
 print(f"continuum_scattering : max rel = {rs.max():.3e}   median = {np.median(rs):.3e}")
 
+# locate the single worst absorption point
 err = np.abs(absorption - cabs_ref) / np.maximum(np.abs(cabs_ref), 1e-300)
 li, wi = np.unravel_index(np.argmax(err), err.shape)
 print(f"  worst absorption point: layer {li} (T = {Tk[li]:.0f} K), lambda = {wlk[wi]:.3f} nm")
+
+# and the worst over the cool, continuum-forming photosphere alone
 cool = Tk < 8000.0
 photo = (np.abs(absorption[cool] - cabs_ref[cool]) / np.abs(cabs_ref[cool])).max()
 print(f"  max rel over the photosphere (T < 8000 K, {cool.sum()} layers) = {photo:.3e}")''')
