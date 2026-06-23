@@ -161,7 +161,7 @@ code(r'''def parcoe(f, x):
     a[n1-1] = a[-1]; b[n1-1] = b[-1]; c[n1-1] = c[-1]   # last interior point inherits the endpoint fit
     return a, b, c''')
 
-md(r"""`integ` and `deriv` both ride on those coefficients: `integ` analytically integrates each interval's parabola and accumulates the running total (this is the quadrature behind every optical-depth and flux integral in the lecture); `deriv` returns ATLAS's curvature-limited cubic-tangent derivative, which damps overshoot at sharp features.""")
+md(r"""`integ` and `deriv` both ride on those coefficients. We take them one at a time. First `integ`: it analytically integrates each interval's parabola and accumulates the running total — this is the quadrature behind every optical-depth and flux integral in the lecture.""")
 
 code(r'''def integ(x, f, start):
     """Cumulative integral of f dx (each interval's parabola), seeded at start (Fortran INTEG)."""
@@ -173,9 +173,11 @@ code(r'''def integ(x, f, start):
         # exact integral of (a + b x + c x^2) across [x_i, x_{i+1}], factored for stability
         term = a[i] + 0.5*b[i]*(x[i+1]+x[i]) + (c[i]/3.0)*((x[i+1]+x[i])*x[i+1] + x[i]*x[i])
         out[i+1] = out[i] + term*dx                  # accumulate
-    return out
+    return out''')
 
-def deriv(x, f):
+md(r"""And `deriv`, the cubic-tangent derivative: one-sided slopes at the ends, and at each interior point a curvature-limited combination of the left and right slopes via the tangent addition formula — the same kernel Lecture 8 introduced.""")
+
+code(r'''def deriv(x, f):
     """Cubic-tangent derivative df/dx (Fortran DERIV)."""
     nn = f.size; d = np.zeros(nn)
     if nn < 2: return d
@@ -434,9 +436,31 @@ code(r'''def expi3(x):
         out = (np.exp(-x) - x*out) / float(i)
     return out''')
 
+md(r"""### The $\Lambda$-diagonal accumulator
+
+Before the sweep itself, we pull the most intricate piece — the per-frequency `rdiagj` accumulation — into its own helper. It is a tight numerical loop that walks the layers building the running diagonal `diagj` from the optical-depth step `d` between adjacent layers: small steps ($d\le0.01$) use a series expansion of the $E_3$ contribution to avoid cancellation, larger steps the direct `expi3` evaluation. Each layer's value is then scaled by $\kappa_\nu$, the scattering correction $1/(1-\alpha\,\text{diagj})$, the $(1-\alpha)$ factor, and $\partial B_\nu/\partial T$ at that layer, and added into `rdiagj` with the quadrature weight $w$. Because `diagj` carries forward from one layer to the next, this loop is irreducible — we lift it out whole (same statements, same order) and mutate `rdiagj` in place.""")
+
+code(r'''def accumulate_rdiagj(rdiagj, taunu, bnu, hkt, T, stim, abtot, alpha, f, w, n):
+    """Add one frequency's E_3-based Lambda-diagonal contribution into rdiagj (in place).
+    Tight numerical loop: diagj carries forward layer to layer, so it is kept whole."""
+    term2 = 0.0
+    for j in range(n):
+        term1 = term2                                                # carry the previous layer's half-step term
+        d = 1e-10 if j == n-1 else (taunu[j+1] - taunu[j]); d = max(1e-10, float(d))   # optical-depth step to next layer
+        if d <= 0.01:
+            # tiny step: series expansion of the E_3 contribution (avoids cancellation)
+            term2 = (0.922784335098467 - np.log(d))*d/4.0 + d*d/12.0 - d**3/96.0 + d**4/720.0
+        else:
+            ex = expi3(d) if d < 10.0 else 0.0                       # direct E_3 (negligible past d=10)
+            term2 = 0.5*(d + ex - 0.5)/d
+        diagj = term1 + term2                                        # the local Lambda-operator diagonal value
+        dbdtj = bnu[j]*f*hkt[j] / max(T[j]*stim[j], 1e-300)          # dB/dT at this layer
+        # scale by kappa, the scattering correction, and dB/dT; accumulate with weight w
+        rdiagj[j] += abtot[j]*(diagj-1.0)/max(1.0-alpha[j]*diagj, 1e-300)*(1.0-alpha[j])*dbdtj*w''')
+
 md(r"""### The sweep
 
-Now the loop. For each frequency we build $B_\nu$ and $\partial B_\nu/\partial T$ (the latter being $\partial B_\nu/\partial T = B_\nu\,[h\nu/(kT)]\,/\,[T(1-e^{-h\nu/kT})]$ — note the explicit extra $1/T$, which the code carries), call JOSH, and add this frequency's contribution into the five accumulators with the quadrature weight `rco`. The Rosseland accumulator gets $\frac{1}{\kappa_\nu}\frac{\partial B_\nu}{\partial T}$; the flux gets $H_\nu$; the heating gets $\kappa_\nu(J_\nu - S_\nu)$; the opacity-gradient term gets $\frac{1}{\kappa_\nu}\frac{d\kappa_\nu}{d(\rho x)}H_\nu$; and `rdiagj` gets the $E_3$-based $\Lambda$-diagonal scaled by $\partial B_\nu/\partial T$ and the scattering fraction. The `rdiagj` inner block walks the layers building the running diagonal `diagj` from the optical-depth step between adjacent layers — small steps use a series expansion of $E_3$, larger steps the direct evaluation — exactly as ATLAS does. This is the heavy lift of the lecture; on 30000 frequencies it takes a couple of minutes.""")
+Now the loop. For each frequency we build $B_\nu$ and $\partial B_\nu/\partial T$ (the latter being $\partial B_\nu/\partial T = B_\nu\,[h\nu/(kT)]\,/\,[T(1-e^{-h\nu/kT})]$ — note the explicit extra $1/T$, which the code carries), call JOSH, and add this frequency's contribution into the five accumulators with the quadrature weight `rco`. The Rosseland accumulator gets $\frac{1}{\kappa_\nu}\frac{\partial B_\nu}{\partial T}$; the flux gets $H_\nu$; the heating gets $\kappa_\nu(J_\nu - S_\nu)$; the opacity-gradient term gets $\frac{1}{\kappa_\nu}\frac{d\kappa_\nu}{d(\rho x)}H_\nu$; and `rdiagj` gets the $E_3$-based $\Lambda$-diagonal, accumulated by the `accumulate_rdiagj` helper just defined. This is the heavy lift of the lecture; on 30000 frequencies it takes a couple of minutes.""")
 
 code(r'''for inu in range(nf):
     f = float(freq[inu]); w = float(rco[inu])                        # this frequency and its quadrature weight d_nu
@@ -454,21 +478,8 @@ code(r'''for inu in range(nf):
     rjmins   += abtot * jmins * w                                    # kappa (J-S): net heating
     flxrad   += hnu * w                                              # H_nu: the radiative flux
 
-    # --- the Lambda diagonal: running E_3-based contribution, layer by layer ---
-    term2 = 0.0
-    for j in range(n):
-        term1 = term2                                                # carry the previous layer's half-step term
-        d = 1e-10 if j == n-1 else (taunu[j+1] - taunu[j]); d = max(1e-10, float(d))   # optical-depth step to next layer
-        if d <= 0.01:
-            # tiny step: series expansion of the E_3 contribution (avoids cancellation)
-            term2 = (0.922784335098467 - np.log(d))*d/4.0 + d*d/12.0 - d**3/96.0 + d**4/720.0
-        else:
-            ex = expi3(d) if d < 10.0 else 0.0                       # direct E_3 (negligible past d=10)
-            term2 = 0.5*(d + ex - 0.5)/d
-        diagj = term1 + term2                                        # the local Lambda-operator diagonal value
-        dbdtj = bnu[j]*f*hkt[j] / max(T[j]*stim[j], 1e-300)          # dB/dT at this layer
-        # scale by kappa, the scattering correction, and dB/dT; accumulate with weight w
-        rdiagj[j] += abtot[j]*(diagj-1.0)/max(1.0-alpha[j]*diagj, 1e-300)*(1.0-alpha[j])*dbdtj*w
+    # the Lambda diagonal: running E_3-based contribution, layer by layer (in place)
+    accumulate_rdiagj(rdiagj, taunu, bnu, hkt, T, stim, abtot, alpha, f, w, n)
 print("frequency sweep complete.")''')
 
 # ── ROSS finalize ────────────────────────────────────────────────────────────
@@ -602,7 +613,24 @@ Moving the temperature changes the pressure, and pressure balance must be restor
 
 The one new ingredient since Lecture 9 is the **opacity** the integrator uses. On the cold start, `TTAUP` had an empty table and used $\kappa\equiv1$. Now, having just computed $\kappa_{\rm Ross}$ at every layer, ATLAS builds a small **`ROSSTAB`** lookup table from this iteration's $(T, P, \kappa_{\rm Ross})$ triples, and `TTAUP` interpolates that table for the opacity at each step. So the pressure re-integration uses the *real* Rosseland opacity, not the placeholder. We reproduce `ROSSTAB` (a normalised log-space nearest-neighbour-per-quadrant interpolation) and the `TTAUP` integrator below.
 
-`Rosstab` works entirely in normalised $(\log T, \log P)$ coordinates: `__init__` stores every layer's normalised point and its $\log_{10}\kappa_{\rm Ross}$; `eval(T, P)` finds, for a query point, the nearest stored sample in each of the four sign-quadrants of $(\Delta\log T, \Delta\log P)$ and does a bilinear blend across them (falling back to an inverse-distance weight if a quadrant is empty). It is a small enough class to keep whole; the comments mark the quadrant logic and the blend.""")
+`Rosstab` works entirely in normalised $(\log T, \log P)$ coordinates. `__init__` stores every layer's normalised point and its $\log_{10}\kappa_{\rm Ross}$; `eval(T, P)` finds, for a query point, the nearest stored sample in each of the four sign-quadrants of $(\Delta\log T, \Delta\log P)$, then either blends them bilinearly (all four populated) or falls back to an inverse-distance weight (a quadrant empty, i.e. the query is outside the hull). The bilinear blend across the four corner samples is a self-contained calculation, so we pure-extract it into a free function `rosstab_bilinear` (same expressions, same order) that `eval` calls; we define it first.""")
+
+code(r'''def rosstab_bilinear(best, tl, pl, t, p, k):
+    """Bilinear blend of log10(kappa) across the four per-quadrant corner samples (all populated).
+    best holds (dist^2, layer-index) per quadrant; t, p, k are the stored normalised (logT, logP, log kappa)."""
+    # pull the four corner samples (++, +-, -+, --)
+    (tpp, ppp, vpp) = (t[best[0][1]], p[best[0][1]], k[best[0][1]])
+    (tpm, ppm, vpm) = (t[best[1][1]], p[best[1][1]], k[best[1][1]])
+    (tmp, pmp, vmp) = (t[best[2][1]], p[best[2][1]], k[best[2][1]])
+    (tmm, pmm, vmm) = (t[best[3][1]], p[best[3][1]], k[best[3][1]])
+    den_tp = max(tpp-tmp, 1e-300); den_tm = max(tpm-tmm, 1e-300)
+    # interpolate in T along each P-edge, then in P between the two edges
+    rA = ((tl-tmp)*vpp + (tpp-tl)*vmp)/den_tp; rB = ((tl-tmm)*vpm + (tpm-tl)*vmm)/den_tm
+    pA = ((tl-tmp)*ppp + (tpp-tl)*pmp)/den_tp; pB = ((tl-tmm)*ppm + (tpm-tl)*pmm)/den_tm
+    r = ((pl-pB)*rA + (pA-pl)*rB)/max(pA-pB, 1e-300)
+    return 10.0**r''')
+
+md(r"""And now the class. `__init__` builds the normalised frame and stores the per-layer samples; `eval` does the per-quadrant nearest-neighbour search, dispatches to `rosstab_bilinear` when all four quadrants are populated, and otherwise falls back to the inverse-distance weight. The comments mark the quadrant logic.""")
 
 code(r'''class Rosstab:
     """Small opacity lookup built from this iteration's (T, P, kappa_Ross) at every layer.
@@ -625,23 +653,29 @@ code(r'''class Rosstab:
             q = (0 if dt >= 0 else 2) + (0 if dp >= 0 else 1)                 # which quadrant sample i sits in
             if r2 < best[q][0]: best[q] = (r2, i)                            # keep the closest per quadrant
         if all(b[1] >= 0 for b in best):                       # all four quadrants populated -> bilinear blend
-            # pull the four corner samples (++, +-, -+, --)
-            (tpp, ppp, vpp) = (self.t[best[0][1]], self.p[best[0][1]], self.k[best[0][1]])
-            (tpm, ppm, vpm) = (self.t[best[1][1]], self.p[best[1][1]], self.k[best[1][1]])
-            (tmp, pmp, vmp) = (self.t[best[2][1]], self.p[best[2][1]], self.k[best[2][1]])
-            (tmm, pmm, vmm) = (self.t[best[3][1]], self.p[best[3][1]], self.k[best[3][1]])
-            den_tp = max(tpp-tmp, 1e-300); den_tm = max(tpm-tmm, 1e-300)
-            # interpolate in T along each P-edge, then in P between the two edges
-            rA = ((tl-tmp)*vpp + (tpp-tl)*vmp)/den_tp; rB = ((tl-tmm)*vpm + (tpm-tl)*vmm)/den_tm
-            pA = ((tl-tmp)*ppp + (tpp-tl)*pmp)/den_tp; pB = ((tl-tmm)*ppm + (tpm-tl)*pmm)/den_tm
-            r = ((pl-pB)*rA + (pA-pl)*rB)/max(pA-pB, 1e-300)
-            return 10.0**r
+            return rosstab_bilinear(best, tl, pl, self.t, self.p, self.k)
         # a quadrant is empty (query outside the hull): inverse-distance weight of the nearest samples
         w = [1.0/(np.sqrt(b[0])+1e-5) for b in best]; idx = [max(b[1], 0) for b in best]
         r = sum(self.k[idx[q]]*w[q] for q in range(4)) / max(sum(w), 1e-300)
         return 10.0**r''')
 
-md(r"""With that opacity table in hand, `ttaup` re-integrates hydrostatic equilibrium down the optical-depth grid, solving $dP/d\tau = g/\kappa$. Because the opacity itself depends on the pressure it is solving for ($\kappa = \kappa(T, P)$ via `ROSSTAB`), each layer runs an inner predictor–corrector loop — a low-order start at the top, a multistep formula deeper — that iterates the log-pressure until it converges, exactly as the Lecture-9 integrator did but reading the real Rosseland opacity instead of $\kappa\equiv1$.""")
+md(r"""With that opacity table in hand, `ttaup` re-integrates hydrostatic equilibrium down the optical-depth grid, solving $dP/d\tau = g/\kappa$. Because the opacity itself depends on the pressure it is solving for ($\kappa = \kappa(T, P)$ via `ROSSTAB`), each layer runs an inner predictor–corrector loop — a low-order start at the top, a multistep formula deeper — that iterates the log-pressure until it converges, exactly as the Lecture-9 integrator did but reading the real Rosseland opacity instead of $\kappa\equiv1$.
+
+Both the predictor and the corrector switch between three forms by depth: a boundary form at the top layer ($j=0$), a low-order start for the first few layers ($j\le3$), and a high-order multistep formula deeper. Each is a fixed scalar expression of the rolling log-pressure history $(p_1, p_3, p_4)$ and its derivative history $(q_1, q_2, q_3)$, so we lift the two switches into small pure helpers `ttaup_predict` and `ttaup_correct` — same expressions, same operation order, called at exactly the same points — leaving the actual predictor–corrector *iteration* (the genuinely sequential while-loop) whole.""")
+
+code(r'''def ttaup_predict(j, abstd0, tau0, grav, p1, p4, q1, q2, q3):
+    """Predictor for log P at layer j: boundary form (j=0), low-order start (j<=3), else multistep."""
+    if j == 0:   return np.log(max(grav/max(abstd0, 1e-300)*tau0, 1e-300))
+    elif j <= 3: return p1 + q1
+    else:        return (3.0*p4 + 8.0*q1 - 4.0*q2 + 8.0*q3)/3.0
+
+def ttaup_correct(j, abstd_j, tau_j, grav, plog, dplog, p1, p3, p4, q1, q2, q3):
+    """Corrected log P at layer j: boundary form (j=0), low-order (j<=3), else high-order multistep."""
+    if j == 0:   return np.log(max(grav/max(abstd_j, 1e-300)*tau_j, 1e-300))
+    elif j <= 3: return (plog + 2.0*p1 + dplog + q1)/3.0
+    else:        return (126.0*p1 - 14.0*p3 + 9.0*p4 + 42.0*dplog + 108.0*q1 - 54.0*q2 + 24.0*q3)/121.0''')
+
+md(r"""Now the integrator itself. It allocates the working arrays and the rolling multistep history, seeds the top-layer opacity, then marches down the $\tau$ grid: at each layer it forms a predictor with `ttaup_predict` and runs the inner corrector loop — guard the exponential, take the gas pressure, look up the opacity from `ROSSTAB`, form $d(\log P)$, and refine the log-pressure with `ttaup_correct` under a damped update — until it converges, then rolls the history forward. The inner `while` loop is the irreducible predictor–corrector iteration and stays whole.""")
 
 code(r'''def ttaup(t, tau, prad, grav, rosstab):
     """Hydrostatic re-integration in log pressure (Lecture 9 TTAUP), opacity from ROSSTAB.
@@ -651,10 +685,7 @@ code(r'''def ttaup(t, tau, prad, grav, rosstab):
     p1 = p2 = p3 = p4 = 0.0; q1 = q2 = q3 = 0.0   # rolling history of log P and its derivative (multistep predictor)
     abstd[0] = min(0.1, grav*tau[0]/max(prad[0], 1e-300)/2.0) if prad[0] > 0.0 else 0.1   # top-layer opacity seed
     for j in range(nn):
-        # predictor for log P at this layer: boundary form, then low-order, then the multistep formula
-        if j == 0:   plog = np.log(max(grav/max(abstd[0], 1e-300)*tau[0], 1e-300))
-        elif j <= 3: plog = p1 + q1
-        else:        plog = (3.0*p4 + 8.0*q1 - 4.0*q2 + 8.0*q3)/3.0
+        plog = ttaup_predict(j, abstd[0], tau[0], grav, p1, p4, q1, q2, q3)   # predictor for log P
         err = 1.0; dplog = 0.0; itn = 1
         while True:                                   # corrector loop: kappa depends on P, so iterate
             plog = min(plog, 709.78); ptotal[j] = np.exp(plog)   # guard against exp overflow
@@ -664,15 +695,14 @@ code(r'''def ttaup(t, tau, prad, grav, rosstab):
             dplog = grav/max(abstd[j], 1e-300)*tau[j]/max(ptotal[j], 1e-300)*dlg   # d(log P)
             itn += 1
             if itn > 1000 or err <= 5.0e-5: break     # converged (or give up)
-            # corrected log P: boundary form, low-order, then the high-order multistep corrector
-            if j == 0:   pnew = np.log(max(grav/max(abstd[j], 1e-300)*tau[j], 1e-300))
-            elif j <= 3: pnew = (plog + 2.0*p1 + dplog + q1)/3.0
-            else:        pnew = (126.0*p1 - 14.0*p3 + 9.0*p4 + 42.0*dplog + 108.0*q1 - 54.0*q2 + 24.0*q3)/121.0
+            pnew = ttaup_correct(j, abstd[j], tau[j], grav, plog, dplog, p1, p3, p4, q1, q2, q3)   # corrected log P
             err = abs(pnew - plog); plog = 0.5*(pnew + plog)   # damped update
         p4 = p3; p3 = p2; p2 = p1; p1 = plog; q3 = q2; q2 = q1; q1 = dplog   # roll the history forward
-    return ptotal
+    return ptotal''')
 
-# build ROSSTAB from this iteration's (T, P, kappa_Ross), then run TTAUP on T and on T+T1
+md(r"""With the integrator in hand we run the density correction. We build the `ROSSTAB` table from this iteration's $(T, P, \kappa_{\rm Ross})$, lay down the standard optical-depth grid, remap the radiation pressure onto it, then run `ttaup` **twice** — on the old temperature $T$ and on the corrected $T+T_1$ — and read off the fractional pressure change. Mapping that fraction back onto $\tau_{\rm Ross}$ gives $\Delta\rho x = \text{frac}\times\rho x$, and the corrected column mass $\rho x_{\rm new}=\rho x+\Delta\rho x$.""")
+
+code(r'''# build ROSSTAB from this iteration's (T, P, kappa_Ross), then run TTAUP on T and on T+T1
 rt = Rosstab(T, p_in, abross)
 prad = REF["prad_ref"].astype(np.float64)
 taustd = 10.0**(-6.875 + np.arange(n)*0.125)        # the standard optical-depth grid
