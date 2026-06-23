@@ -438,7 +438,8 @@ dabros = deriv(rhox, abross)                    # d kappa_Ross / d(rhox)
 
 # --- (1) Avrett-Krook flux term -------------------------------------------------
 rdabh_eff = rdabh - flxrad * dabros/np.maximum(abross, 1e-300)
-codrhx = np.where(np.abs(flxrad) >= 1e-300, rdabh_eff/flxrad, rdabh_eff/1e-300)
+flxrad_safe = np.where(np.abs(flxrad) >= 1e-300, flxrad, 1e-300)   # floor the divisor: one division, no overflow in a discarded np.where branch
+codrhx = rdabh_eff / flxrad_safe
 codrhx[0] = 0.0; codrhx[1] = 0.0                # boundary layers carry no gradient weighting
 g = np.exp(integ(rhox, codrhx, 0.0))            # Avrett-Krook weighting g(rhox)
 gflux = g * (flxrad - flux) / np.where(np.abs(flxrad) >= 1e-300, flxrad, 1e-300)
