@@ -115,11 +115,11 @@ Stellar-atmosphere physics is done in **Gaussian CGS** units — centimetres, gr
 | $c$ | speed of light | $2.99792458\times10^{10}\ \mathrm{cm\,s^{-1}}$ | relates wavelength and frequency, $\lambda\nu=c$ |
 | $k$ | Boltzmann constant | $1.380649\times10^{-16}\ \mathrm{erg\,K^{-1}}$ | sets the thermal energy scale, $kT$ |
 
-These are the 2019-SI exact values in CGS — the same literals the reference calculation uses — so that no discrepancy can ever be blamed on a constant.""")
+These are the 2019-SI exact values in CGS — the same literals the reference calculation uses — so that no discrepancy can ever be blamed on a constant. We define the three as module-level literals and, to feel their scale, combine them into a sample photon energy at 500 nm and the thermal energy $kT$ at the solar surface — together with the Planck prefactor $2h/c^2$ we are about to meet again.""")
 
-code(r'''H = 6.62607015e-27   # Planck constant   [erg s]
-C = 2.99792458e10    # speed of light    [cm s^-1]
-K = 1.380649e-16     # Boltzmann constant[erg K^-1]
+code(r'''H = 6.62607015e-27   # Planck constant    [erg s]
+C = 2.99792458e10    # speed of light     [cm s^-1]
+K = 1.380649e-16     # Boltzmann constant [erg K^-1]
 
 # A photon's energy at 500 nm, and the thermal energy at the solar surface, for scale:
 lam = 500e-7                       # 500 nm expressed in cm
@@ -160,18 +160,26 @@ code(r'''def planck_nu(freq_hz, temperature):
 
     freq_hz : photon frequency nu [Hz]      temperature : array of T [K]
     """
-    x = H * freq_hz / (K * np.asarray(temperature, float))   # x = h*nu / (k*T), dimensionless
-    ehvkt = np.exp(-x)                                        # e^{-x} <= 1, never overflows
-    return 1.47439e-2 * (freq_hz / 1e15)**3 * ehvkt / (1.0 - ehvkt)   # photon occupation factor''')
+    # the dimensionless ratio x = h*nu / (k*T)
+    x = H * freq_hz / (K * np.asarray(temperature, float))
+
+    # work with e^{-x}, which is <= 1 and so never overflows on the Wien tail
+    ehvkt = np.exp(-x)
+
+    # nu_15^3 prefactor times the photon occupation factor e^{-x} / (1 - e^{-x})
+    return 1.47439e-2 * (freq_hz / 1e15)**3 * ehvkt / (1.0 - ehvkt)''')
 
 md(r"""Let us look at it: $B_\lambda(T)$ for three temperatures bracketing the Sun. As $T$ rises the curve lifts at every wavelength and its peak slides blueward (Wien's displacement law, $\lambda_{\rm peak}T = \text{const}$). Our $500$–$510\ \mathrm{nm}$ window sits just blueward of the solar peak.""")
 
 code(r'''lam_nm = np.linspace(200, 2000, 400)
 lam_cm = lam_nm * 1e-7
+
 for T in (4500, 5770, 7500):
     Bnu = planck_nu(C / lam_cm, T)        # B_nu at each wavelength
-    Blam = Bnu * C / lam_cm**2            # convert to per-wavelength: B_lambda = B_nu * c/lambda^2
+    # convert to per-wavelength: B_lambda = B_nu * c/lambda^2
+    Blam = Bnu * C / lam_cm**2
     plt.plot(lam_nm, Blam, label=f"T = {T} K")
+
 plt.axvspan(500, 510, color="0.5", alpha=0.25, label="our window")
 plt.xlabel("wavelength  [nm]"); plt.ylabel(r"$B_\lambda(T)$  [erg s$^{-1}$ cm$^{-2}$ cm$^{-1}$ sr$^{-1}$]")
 plt.title("The Planck function across the optical"); plt.legend(); plt.tight_layout(); plt.show()''')
@@ -237,7 +245,8 @@ code(r'''def grey_temperature(teff, tau):
     q = 0.710 + tau - 0.1331 * np.exp(-3.4488 * tau)   # Kurucz's Hopf-function fit
     return teff * (0.75 * q)**0.25
 
-TEFF, LOGG = 5770.0, 4.44          # the Sun: effective temperature [K], log surface gravity [cgs]
+# the Sun: effective temperature [K], and log surface gravity [cgs]
+TEFF, LOGG = 5770.0, 4.44
 g_cgs = 10.0**LOGG                 # surface gravity g [cm s^-2]
 
 # The atmosphere is tabulated on an 80-layer grid, equally spaced in log(tau_Rosseland):
@@ -245,6 +254,7 @@ g_cgs = 10.0**LOGG                 # surface gravity g [cm s^-2]
 j = np.arange(80)
 tau = 10.0**(-6.875 + 0.125 * j)
 T = grey_temperature(TEFF, tau)
+
 print(f"layers: {T.size}   tau: {tau[0]:.2e} .. {tau[-1]:.2e}")
 print(f"T(top) = {T[0]:.1f} K    T(tau=2/3) ~ {grey_temperature(TEFF, 2/3):.1f} K    T(bottom) = {T[-1]:.1f} K")''')
 
@@ -274,13 +284,17 @@ The total pressure has a gas part and a radiation part, $P_{\rm total} = P_{\rm 
 
 code(r'''# Hydrostatic equilibrium on the grey cold start: kappa_Ross == 1  =>  P_total = g * tau
 P_total = g_cgs * tau                      # total pressure [dyn cm^-2]
-RHOX    = P_total / g_cgs                   # column mass [g cm^-2]  (numerically equal to tau here)
+# the column mass rho*x = P_total / g, which is numerically equal to tau here
+RHOX    = P_total / g_cgs                   # [g cm^-2]
 
-P_rad = 2.521e-15 * np.maximum(T**4, TEFF**4 / 2.0)   # radiation pressure, Kurucz's floor form
-P_rad = P_rad - P_rad[0]                               # measured relative to the top boundary
-P_gas = P_total - P_rad                               # gas pressure -> feeds the EOS in Lecture 2
+# radiation pressure in Kurucz's floor form, then measured relative to the top boundary
+P_rad = 2.521e-15 * np.maximum(T**4, TEFF**4 / 2.0)
+P_rad = P_rad - P_rad[0]
+# gas pressure is what is left over; it feeds the EOS in Lecture 2
+P_gas = P_total - P_rad
 
-XNE = np.zeros_like(tau)                    # electron density [cm^-3]: 0 until the EOS fills it (L2)
+# electron density [cm^-3]: held at 0 until the EOS fills it in Lecture 2
+XNE = np.zeros_like(tau)
 
 print(f"{'log tau':>8} {'T [K]':>9} {'P_gas [dyn/cm2]':>16} {'RHOX [g/cm2]':>13}")
 for i in (0, 20, 40, 60, 79):
@@ -296,12 +310,17 @@ compare("RHOX",  RHOX,  REF["grey_rhox"], tol=1e-4)''')
 md(r"""The temperature matched to the bit; the pressure and density agree to $\sim2\times10^{-5}$. That residual is not physics — it is the difference between our one-line analytic integral $P_{\rm total}=g\tau$ and the multi-step predictor–corrector the reference uses to integrate the same hydrostatic equation in log-pressure. When we rebuild hydrostatic equilibrium in full in Lecture 9, reproducing the exact predictor–corrector integrator, the last digits fall into place. For now we have a complete, self-consistent grey model atmosphere of the Sun, built from two numbers, agreeing with the reference to one part in $10^{5}$.""")
 
 code(r'''fig, ax = plt.subplots(1, 2, figsize=(10.5, 4.1))
+
+# left panel: gas pressure against optical depth
 ax[0].plot(np.log10(tau), np.log10(P_gas), color="C0")
 ax[0].set_xlabel(r"$\log_{10}\tau_{\rm Ross}$"); ax[0].set_ylabel(r"$\log_{10}\,P_{\rm gas}$  [dyn cm$^{-2}$]")
 ax[0].set_title("Gas pressure")
+
+# right panel: column mass against optical depth
 ax[1].plot(np.log10(tau), np.log10(RHOX), color="C2")
 ax[1].set_xlabel(r"$\log_{10}\tau_{\rm Ross}$"); ax[1].set_ylabel(r"$\log_{10}\,\rho x$  [g cm$^{-2}$]")
 ax[1].set_title("Column mass")
+
 fig.suptitle("Grey solar atmosphere: the structure we carry into Lecture 2")
 fig.tight_layout(); plt.show()''')
 
