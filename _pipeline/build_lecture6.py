@@ -57,7 +57,7 @@ The concrete payoff for our 500–510 nm window: the H$\beta$ line sits at 486 n
 # ── bridge from the line list ─────────────────────────────────────────────
 md(r"""## The bridge from the line list: why a Voigt profile is not enough
 
-Recall the Voigt damping parameter from the line-list lecture, $a = \gamma_{\rm tot}/(4\pi\,\Delta\nu_D)$, where $\gamma_{\rm tot} = \gamma_{\rm rad} + \gamma_{\rm Stark}\,n_e + \gamma_{\rm vdW}\,n_{\rm pert}$ is the sum of the radiative, (quadratic) Stark, and van der Waals damping rates, and $\Delta\nu_D$ is the Doppler width. For a metal line $a$ is a small number ($\sim 10^{-2}$): the wing is a faint Lorentzian skirt on a Gaussian core, and the line is a few Doppler widths wide.
+Recall the Voigt damping parameter from the line-list lecture (Lecture 5), $a = \gamma_{\rm tot}/(4\pi\,\Delta\nu_D)$, where $\gamma_{\rm tot} = \gamma_{\rm rad} + \gamma_{\rm Stark}\,n_e + \gamma_{\rm vdW}\,n_{\rm pert}$ is the sum of the radiative, (quadratic) Stark, and van der Waals damping rates, and $\Delta\nu_D$ is the Doppler width (built in Lectures 4–5 from the thermal-plus-turbulent velocity; we reuse it here unchanged). For a metal line $a$ is a small number ($\sim 10^{-2}$): the wing is a faint Lorentzian skirt on a Gaussian core, and the line is a few Doppler widths wide.
 
 For hydrogen the **linear** Stark effect makes the wing decay as a *power law* in detuning, not the Lorentzian $1/\Delta\nu^2$. In the quasi-static limit the wing of a hydrogen line falls off as
 
@@ -65,18 +65,19 @@ $$
 \phi(\Delta\nu) \;\propto\; \Delta\nu^{-5/2},
 $$
 
-the Holtsmark asymptotic form, which is broader than the Lorentzian's $\Delta\nu^{-2}$ near the centre transition region and is set by the *field distribution* rather than a single damping rate. A Voigt profile cannot represent this — its functional form is wrong. So hydrogen gets its own profile function, built around the microfield rather than around a damping parameter.
+the Holtsmark asymptotic form, set by the *field distribution* rather than a single damping rate. The far-tail exponent $-5/2$ is in fact *steeper* than the Lorentzian's $-2$; the reason a hydrogen wing is so much larger than a metal-line wing is not the exponent but the *scale*. The linear-Stark splitting is enormous compared with a lifetime width, so over the tens of nanometres of detuning that matter for a stellar spectrum the Balmer wing sits vastly higher than any Voigt profile built from metal-line damping parameters, and it carries that strength through the transition region where the simple power law has not yet set in. A Voigt profile cannot represent this — its functional form is wrong. So hydrogen gets its own profile function, built around the microfield rather than around a damping parameter.
 
 Everything else about how a line enters the opacity is unchanged: a line centre, a line-strength prefactor $\kappa_0$, a profile $\phi$ normalised to unit area, and a walk outward from the centre accumulating $\kappa_0\,\phi$ until it drops below a fraction of the continuum. Only the profile $\phi$ is replaced. We start from the data, then build the profile, then do the walk.""")
 
 # ── load data ──────────────────────────────────────────────────────────────
 md(r"""## The data: three Balmer lines, the atmosphere, and the Stark tables
 
-We load the same three reference files the rest of the book uses, and pull out only what the hydrogen engine needs. The line catalog holds the three in-window **Balmer lines** — H$\beta$, H$\gamma$, H$\delta$ (lower level $n=2$, upper levels $m=4,5,6$) — selected by line type ($-1$ for a hydrogen line) and ionisation stage (neutral, ion $=1$). The atmosphere file holds the depth state: temperature, electron density, the perturber densities (neutral helium and molecular hydrogen), the proton populations, and the turbulent velocity. The `htab_*` arrays are the **HPROF4 Stark tables** — the tabulated Holtsmark statistical-broadening functions and the various asymptotic-correction coefficients, shipped as data exactly as the production code stores them.""")
+We load the same three reference files the rest of the book uses, and pull out only what the hydrogen engine needs. The line catalog holds the three **Balmer lines** retained for this window — H$\beta$, H$\gamma$, H$\delta$ (lower level $n=2$, upper levels $m=4,5,6$). Their centres lie *outside* 500–510 nm; it is their broad wings that reach in. They are selected by line type ($-1$ for a hydrogen line) and ionisation stage (neutral, ion $=1$). The atmosphere file holds the depth state: temperature, electron density, the perturber densities (neutral helium and molecular hydrogen), the hydrogen level populations (the `xnfph` arrays, whose ground-state neutral-H population drives the resonance self-broadening), and the turbulent velocity. The `htab_*` arrays are the **HPROF4 Stark tables** — the tabulated Holtsmark statistical-broadening functions and the various asymptotic-correction coefficients, shipped as data exactly as the production code stores them.""")
 
 code(r'''import pathlib, math
 import numpy as np
 import matplotlib.pyplot as plt
+# plotting defaults shared with the rest of the book
 plt.rcParams.update({"figure.figsize": (7.2, 4.3), "figure.dpi": 120, "savefig.facecolor": "white",
     "axes.grid": True, "grid.alpha": 0.25, "axes.axisbelow": True,
     "font.size": 11, "axes.titlesize": 12.5, "axes.labelsize": 11.5})
@@ -91,15 +92,17 @@ cont = D["continuum_absorption"] + D["continuum_scattering"]     # total continu
 T    = A["temperature"]                                          # K, surface -> deep
 n_depths = T.size
 gt_ahline = C["gt_ahline"]                                       # ground-truth hydrogen-line opacity (depth, wl)
+print(f"loaded: window {wl[0]:.1f}-{wl[-1]:.1f} nm, {wl.size} points x {n_depths} layers")''')
 
-# select the hydrogen Balmer lines: type -1/-2, neutral (ion 1)
+md(r"""Now pick out the hydrogen lines from the catalog. A line is hydrogen if its type code is $-1$ or $-2$; we keep the neutral stage (ion $=1$). The three that survive in this window are H$\beta$, H$\gamma$, H$\delta$.""")
+
+code(r'''# select the hydrogen Balmer lines: type -1/-2, neutral (ion 1)
 lt  = C["cat_line_types"].astype(np.int64); ion = C["cat_ion"].astype(np.int64)
 hidx = np.where(np.isin(lt, [-1, -2]) & (ion == 1))[0]
 for i in hidx:
-    nl, nu = int(C["cat_n_lower"][i]), int(C["cat_n_upper"][i])
+    nl, nu = int(C["cat_n_lower"][i]), int(C["cat_n_upper"][i])   # lower/upper principal quantum number
     name = {4: "H-beta", 5: "H-gamma", 6: "H-delta"}.get(nu, f"n={nl}->{nu}")
-    print(f"  {name:8s}: n={nl}->{nu}  lambda={C['cat_wl'][i]:8.3f} nm  gf={C['cat_gf'][i]:.4e}")
-print(f"\\nwindow {wl[0]:.1f}-{wl[-1]:.1f} nm, {wl.size} points x {n_depths} layers")''')
+    print(f"  {name:8s}: n={nl}->{nu}  lambda={C['cat_wl'][i]:8.3f} nm  gf={C['cat_gf'][i]:.4e}")''')
 
 # ── the Holtsmark microfield ────────────────────────────────────────────────
 md(r"""## The Holtsmark microfield and the dimensionless detuning $\beta$
@@ -110,7 +113,7 @@ $$
 F_0 = 1.25\times10^{-9}\; n_e^{2/3}
 $$
 
-(in the cgs-Gaussian units the code uses, with $n_e$ in cm$^{-3}$). The code writes $n_e^{2/3}$ as $(n_e^{1/6})^4$ to reuse the sixth root elsewhere; the value is the same. $F_0$ is the field the line "sees" on average, and it sets the **scale of the Stark splitting**.
+(in the cgs-Gaussian units the code uses, with $n_e$ in cm$^{-3}$). The code writes $n_e^{2/3}$ as $(n_e^{1/6})^4$ to reuse the sixth root elsewhere; the value is the same. $F_0$ is the **characteristic (normal) scale** of the microfield distribution — not literally the mean field, which for a Holtsmark distribution is a more subtle quantity — and it sets the **scale of the Stark splitting**.
 
 Because the linear Stark splitting is proportional to the field, the natural variable for the profile is the **detuning measured in units of $F_0$**. For a transition $n\to m$ with line-centre frequency $\nu_{nm}$ and a Stark constant $K_{nm}$ (tabulated, `xknmtb`), define
 
@@ -120,11 +123,11 @@ $$
 \beta = \frac{|\nu - \nu_{nm}|}{F_0}\,\mathrm{d}\beta .
 $$
 
-$\beta$ is the **dimensionless detuning**: a frequency offset expressed in units of the typical Stark splitting. The entire Stark profile is a function of $\beta$ and a weak pressure parameter $p$. Build $F_0$ and $\mathrm{d}\beta$ for H$\beta$, and see how big $\beta$ gets across our window.""")
+Despite the notation inherited from the code, $\mathrm{d}\beta$ is a finite conversion factor, not an infinitesimal differential. $\beta$ is the **dimensionless detuning**: a frequency offset expressed in units of the typical Stark splitting. The entire Stark profile is a function of $\beta$ and a weak pressure parameter $p$. Build $F_0$ and $\mathrm{d}\beta$ for H$\beta$, and see how big $\beta$ gets across our window.""")
 
 code(r'''RYDH       = 3.2880515e15          # Hz, Rydberg frequency
 C_LIGHT_AA = 2.99792458e18         # AA/s
-xne        = np.maximum(A["electron_density"], 1e-40)
+xne        = np.maximum(A["electron_density"], 1e-40)   # electron density per depth, floored
 
 # normal Holtsmark field strength F0 = 1.25e-9 * ne^(2/3), per depth
 xne16 = xne ** (1.0/6.0)           # sixth root, reused below
@@ -135,12 +138,12 @@ n, m   = 2, 4
 gnm    = (m*m - n*n) / (m*m * n*n)            # 1/n^2 - 1/m^2
 freqnm = RYDH * gnm                            # line-centre frequency (Hz)
 xknm   = C["htab_xknmtb"][n-1, (m-n)-1]        # tabulated Stark constant K_nm
-dbeta  = C_LIGHT_AA / (freqnm * freqnm * xknm) # the beta scale factor
+dbeta  = C_LIGHT_AA / (freqnm * freqnm * xknm) # the beta scale factor (finite, not a differential)
 
 # how big is beta at 505 nm, deep vs photosphere?
 freq_505 = C_LIGHT_AA / 5050.0                 # 505 nm in Angstrom
 for di, lab in [(int(np.argmin(np.abs(T-6400))), "photosphere ~6400K"), (n_depths-1, "deepest ~30000K")]:
-    beta = abs(freq_505 - freqnm) / fo[di] * dbeta
+    beta = abs(freq_505 - freqnm) / fo[di] * dbeta   # detuning in units of the Stark splitting
     print(f"{lab:22s}: ne={xne[di]:.2e}  F0={fo[di]:.3e}  beta(505nm)={beta:7.2f}")
 print(f"\\nH-beta centre = {C_LIGHT_AA/freqnm/10:.3f} nm,  dbeta = {dbeta:.4e}")''')
 
@@ -151,49 +154,55 @@ md(r"""Two things to read off. First, $F_0$ swings over five orders of magnitude
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## Small numerical helpers
 
-Before the profile, three short functions the engine calls. `_fast_ex` is a guarded $e^{-x}$ that returns $0$ for large arguments (the Gaussian core tail). `_vcse1f` is the first exponential integral $E_1(x)\,e^{x}$ — strictly, $e^{x}E_1(x)$ — evaluated by the standard rational/polynomial approximations; it appears in the electron-impact width. `_hf_nm` is the hydrogen oscillator strength $f_{nm}$ from the Menzel–Pekeris asymptotic formula, used to size the **resonance** (self-broadening) width. None of these is interchangeable with a library call at the bit level — they are the production code's own approximations, and reproducing them exactly is part of matching the reference.""")
+Before the profile, three short functions the engine calls. `_fast_ex` is a guarded $e^{-x}$ that returns $0$ for large arguments (the Gaussian core tail). `_vcse1f` evaluates the first exponential integral $E_1(x)$ using the production code's piecewise rational/polynomial approximations (note its large-$x$ branch carries the $e^{-x}$ decay of $E_1$); it appears in the electron-impact width. `_hf_nm` is the hydrogen oscillator strength $f_{nm}$ from the Menzel–Pekeris asymptotic formula, used to size the **resonance** (self-broadening) width. None of these is interchangeable with a library call at the bit level — they are the production code's own approximations, and reproducing them exactly is part of matching the reference.""")
 
 code(r'''def _fast_ex(x):
     """Guarded exp(-x): the Gaussian-core tail is set to zero past x = 80."""
+    # past x = 80 the exponential underflows to ~0; short-circuit it to avoid math.exp overflow guards
     return 0.0 if x > 80.0 else math.exp(-x)
+print("_fast_ex ready")''')
 
+md(r"""Next, $E_1(x)$, evaluated in three pieces: a small-$x$ logarithmic expansion, a mid-range polynomial fit, and a large-$x$ rational form carrying the $e^{-x}$ decay. The branch points ($0.01$, $1$, $30$) and coefficients are the production code's, copied verbatim — reproducing them exactly is what matches the reference at the bit level.""")
 
-def _vcse1f(x):
-    """e^x * E_1(x), the (scaled) first exponential integral, by piecewise approximation."""
+code(r'''def _vcse1f(x):
+    """First exponential integral E_1(x), by the production code's piecewise approximation."""
     if x <= 0.0:
         return 0.0
-    if x <= 0.01:
+    if x <= 0.01:                                   # small x: leading log + linear correction
         return -math.log(x) - 0.577215 + x
-    if x <= 1.0:
+    if x <= 1.0:                                    # mid range: polynomial fit (Abramowitz & Stegun form)
         return (-math.log(x) - 0.57721566
                 + x*(0.99999193 + x*(-0.24991055 + x*(0.05519968
                 + x*(-0.00976004 + x*0.00107857)))))
-    if x > 30.0:
+    if x > 30.0:                                    # far tail: E_1 has underflowed to ~0
         return 0.0
-    num = x*(x + 2.334733) + 0.25062
+    num = x*(x + 2.334733) + 0.25062                # large x: rational approximation x*num/den ...
     den = (x*(x + 3.330657) + 1.681534) * x
-    return num/den * math.exp(-x)
+    return num/den * math.exp(-x)                   # ... times the exp(-x) decay of E_1
+print("_vcse1f ready")''')
 
+md(r"""Last, the hydrogen oscillator strength $f_{n\to m}$ from the Menzel–Pekeris asymptotic formula. It feeds the resonance (self-broadening) width, which depends on the line's own oscillator strength.""")
 
-def _hf_nm(n, m):
+code(r'''def _hf_nm(n, m):
     """Hydrogen absorption oscillator strength f_{n->m} (Menzel-Pekeris asymptotic form)."""
-    if m <= n:
+    if m <= n:                                      # no absorption for m <= n
         return 0.0
     xn, xm = float(n), float(m)
+    # Gaunt-factor and correction terms in the Menzel-Pekeris expansion
     ginf = 0.2027 / xn**0.71;  gca = 0.124 / xn
     fkn  = xn * 1.9603;        wtc = 0.45 - 2.4/xn**3 * (xn - 1.0)
-    xmn  = xm - xn
-    fk   = fkn * (xm / (xmn*(xm + xn)))**3
+    xmn  = xm - xn                                  # n -> m spacing
+    fk   = fkn * (xm / (xmn*(xm + xn)))**3          # leading Kramers strength
     xmn12 = xmn**1.2
-    wt   = (xmn12 - 1.0) / (xmn12 + wtc)
+    wt   = (xmn12 - 1.0) / (xmn12 + wtc)            # weight blending the asymptotic corrections
     return fk * (1.0 - wt*ginf - (0.222 + gca/xm)*(1.0 - wt))
 
-print("helpers ready:", f"f(2->4) = {_hf_nm(2,4):.4f}")''')
+print("oscillator strength ready:", f"f(2->4) = {_hf_nm(2,4):.4f}")''')
 
 # ── sofbeta ─────────────────────────────────────────────────────────────────
 md(r"""## The quasi-static Stark profile $S(\beta)$: `sofbeta`
 
-The heart of the linear-Stark physics is the **quasi-static profile** $S(\beta)$ — the line shape produced by averaging the linearly-split line over the Holtsmark field distribution, with electron-collision corrections folded in. It is the function `sofbeta`, evaluated by interpolation in the tabulated Holtsmark tables `htab_propbm`, `htab_c`, `htab_d` on the grids `htab_pp` (the pressure parameter $p$) and `htab_beta` (the detuning $\beta$). The structure is three regimes in $\beta$:
+The heart of the linear-Stark physics is the **quasi-static profile** $S(\beta)$ — the line shape produced by averaging the linearly-split line over the Holtsmark field distribution, with electron-collision corrections folded in. It is the function `sofbeta`. The implementation interpolates the tabulated Holtsmark corrections in two dimensions: it brackets the pressure parameter $p$ in the grid `htab_pp` (an integer-part index times $5$, giving two adjacent columns and a linear weight), brackets the detuning $\beta$ in `htab_beta` with `np.searchsorted`, and combines them **bilinearly** — interpolate in $p$ at each $\beta$ node, then in $\beta$ — to read a correction factor out of `htab_propbm` (or the simpler `htab_c`/`htab_d` tables in the wing). That correction multiplies an analytic Holtsmark form. The structure is three regimes in $\beta$:
 
 - **$\beta \le 25.12$** (near to moderate detuning): blend two analytic forms — a near-centre term $\propto 1/(83 + \dots)$ and the asymptotic term — with a tabulated correction factor `corr` interpolated bilinearly in $(p,\beta)$ from `propbm`.
 - **$25.12 < \beta \le 500$** (the wing): the asymptotic Holtsmark form $\tfrac{1}{\beta^{2}}\big(\tfrac{1.5}{\sqrt\beta} + \tfrac{27}{\beta^{2}}\big)$ times a correction $1 + d/(c + \beta^{3/2})$ from the `c`, `d` tables.
@@ -210,24 +219,27 @@ code(r'''def sofbeta(beta, p, n, m, propbm, c_arr, d_arr, pp_arr, beta_arr):
         mmn = m - n                                  # select the table column for this transition
         indx = 2*(n-1) + mmn if (n <= 3 and mmn <= 2) else 7
         indx = min(max(indx, 1), 7)
+        # bracket the pressure parameter p in the pp grid -> two-point interpolation weights
         im = min(int(5.0*p) + 1, 4); im = max(im, 1); ip = im + 1
         wtp = min(max(5.0*(p - pp_arr[im-1]), 0.0), 1.0); wtm = 1.0 - wtp   # p-interpolation weights
         if beta <= 25.12:                            # near/moderate: tabulated correction + analytic blend
+            # bracket beta in the beta grid (searchsorted) -> linear weights along beta
             j = int(np.searchsorted(beta_arr, beta)); j = min(max(j, 1), beta_arr.shape[0]-1)
             jm, jp = j-1, j
             denom = beta_arr[jp] - beta_arr[jm]
             wtb = 0.0 if denom <= 0.0 else (beta - beta_arr[jm])/denom; wtbm = 1.0 - wtb
+            # bilinear interpolation in (p, beta): interpolate in p at each beta node, then in beta
             cbp = propbm[indx-1, ip-1, jp]*wtp + propbm[indx-1, im-1, jp]*wtm
             cbm = propbm[indx-1, ip-1, jm]*wtp + propbm[indx-1, im-1, jm]*wtm
             corr = 1.0 + cbp*wtb + cbm*wtbm
-            wt = min(max(0.5*(10.0 - beta), 0.0), 1.0)
+            wt = min(max(0.5*(10.0 - beta), 0.0), 1.0)                        # near<->asymptotic blend weight
             pr1 = 8.0/(83.0 + (2.0 + 0.95*b2)*beta) if beta <= 10.0 else 0.0   # near-centre form
             pr2 = (1.5/sb + 27.0/b2)/b2 if beta >= 8.0 else 0.0                # asymptotic form
             return (pr1*wt + pr2*(1.0 - wt)) * corr
-        cc = c_arr[im-1, indx-1]*wtp + c_arr[ip-1, indx-1]*wtm                 # wing: c,d correction
+        cc = c_arr[im-1, indx-1]*wtp + c_arr[ip-1, indx-1]*wtm                 # wing: c,d correction (p-interp)
         dd = d_arr[im-1, indx-1]*wtp + d_arr[ip-1, indx-1]*wtm
         denom2 = cc + beta*sb
-        if denom2 == 0.0: denom2 = 1e-30
+        if denom2 == 0.0: denom2 = 1e-30                                       # guard divide-by-zero
         corr = 1.0 + dd/denom2
     return (1.5/sb + 27.0/b2)/b2 * corr              # far wing: bare Holtsmark beta^-5/2 tail
 print("sofbeta ready")''')
@@ -240,7 +252,7 @@ md(r"""## The HPROF4 profile: three pieces, selected by the dominant width
 Now the profile function itself. For a transition $n\to m$ at a wavelength offset $\Delta\lambda$ from line centre, the engine computes three line-broadening half-widths and builds three corresponding profile pieces:
 
 1. **Doppler core** — a sum of Gaussians over the **fine-structure components** of the transition (each Balmer line is several closely spaced sub-lines; `fine_offsets`/`fine_weights` carry their frequency offsets and relative strengths). The Gaussian width is the Doppler width $\Delta\nu_D = \nu_{nm}\,(v_D/c)$.
-2. **Lorentzian** — from the lifetime widths: **resonance** (self-broadening by neutral H, from the oscillator strength `resont` and the proton/H population), **radiative** (`radamp`, from the `htab_asum` radiative-damping table), and **van der Waals** (`vdw`, scaled by the neutral-He and H$_2$ perturber densities). These add to a Lorentzian half-width $\gamma_{\rm Lor}$.
+2. **Lorentzian** — from the lifetime widths: **resonance** (self-broadening, neutral H colliding with neutral H, from the oscillator strength `resont` scaled by the neutral-hydrogen population), **radiative** (`radamp`, from the `htab_asum` radiative-damping table), and **van der Waals** (`vdw`, scaled by the neutral-He and H$_2$ perturber densities). These add to a Lorentzian half-width $\gamma_{\rm Lor}$.
 3. **Linear-Stark wing** — the quasi-static term `sofbeta` $\times$ a Holtsmark normalisation, plus an **electron-impact** term, a Lorentzian $\gamma/[\pi(\gamma^2+\beta^2)]$ whose width $\gamma$ comes from the impact theory (the `c1d/c2d` coefficients, the `vcse1f` exponential integrals, the `gcon` corrections). This is the broad piece.
 
 The engine compares the **Doppler, Lorentz, and Stark half-widths** and uses whichever dominates: in the core ($|\Delta\nu|$ within the largest half-width) it returns the single dominant piece; in the wing it returns the **sum** of all three. The next cell is the full profile; we annotate each block.""")
@@ -276,18 +288,18 @@ code(r'''def hydrogen_line_profile(n, m, delta_lambda_nm, hyd, tabs, foff, fwt, 
     resont *= 3.579e-24/gnm                                          # resonance (self) broadening
     vdw   = 4.45e-26/gnm * (xm2*(7.0*xm2 + 5.0))**0.4                # van der Waals coefficient
     hwvdw = vdw*t3nhe + 2.0*vdw*t3nh2                                # scaled by He + H2 perturbers
-    hwrad = radamp
+    hwrad = radamp                                                  # radiative half-width
     stark = 1.6678e-18 * freqnm * xknm                              # linear-Stark half-width scale
-    hwres = resont * xnfph_0 * 2.0
-    hwstk = stark * fo
+    hwres = resont * xnfph_0 * 2.0                                  # resonance width x neutral-H population
+    hwstk = stark * fo                                             # Stark half-width (scales with F0)
     hwlor = hwres + hwvdw + hwrad                                    # total Lorentzian half-width
 
     # --- map the wavelength offset to a frequency offset and a detuning ---
     wlA = wavenm + delta_lambda_nm*10.0                             # this point's wavelength (Angstrom)
     if wlA <= 0.0:
         return 0.0
-    freq = C_LIGHT_AA / wlA; del_freq = abs(freq - freqnm)
-    dop = freqnm * max(dopph, 1e-40)
+    freq = C_LIGHT_AA / wlA; del_freq = abs(freq - freqnm)         # frequency and detuning from centre
+    dop = freqnm * max(dopph, 1e-40)                               # Doppler width in frequency units
     hfwidth = freqnm * max(max(dopph, 1e-40), hwlor, hwstk)         # the dominant half-width
     ifcore  = del_freq <= hfwidth                                   # are we inside the core?
     nwid = 1
@@ -300,7 +312,7 @@ code(r'''def hydrogen_line_profile(n, m, delta_lambda_nm, hyd, tabs, foff, fwt, 
                            y1wtm, propbm, c_t, d_t, pp_t, beta_t, foff, fwt, n_fine,
                            ifcore, nwid)''')
 
-md(r"""The half-widths set two flags. `ifcore` asks whether the point is within the dominant half-width of line centre. `nwid` records *which* width dominates: $1$ if Doppler is largest (a pure Gaussian core), $2$ if the Lorentzian is largest, $3$ if the Stark width is largest. Inside the core the engine returns the single dominant piece (the others are negligible there); in the wing it sums all three. We split the construction of the three pieces into a second function so each block stays readable.""")
+md(r"""The half-widths set two flags. `ifcore` asks whether the point is within the dominant half-width of line centre. `nwid` records *which* width dominates: $1$ if Doppler is largest (a pure Gaussian core), $2$ if the Lorentzian is largest, $3$ if the Stark width is largest. By the HPROF4 prescription, inside the dominant half-width the engine uses only the dominant component; outside it sums all three. We split the construction of the three pieces into a second function so each block stays readable.""")
 
 code(r'''def _profile_pieces(n, m, freq, freqnm, del_freq, dop, hwlor, hwres, hwvdw, hwrad,
                     fo, dbeta, c1d, c2d, c1con, c2con, y1s, y1b, gcon1, gcon2, pp_val, ne,
@@ -313,37 +325,37 @@ code(r'''def _profile_pieces(n, m, freq, freqnm, del_freq, dop, hwlor, hwres, hw
         if dd <= 7.0:
             core += _fast_ex(dd*dd) * fwt[fi]
     # --- (2) Lorentzian (resonance + radiative + van der Waals), as a single Lorentz of width hwlor ---
-    hhw = freqnm * hwlor
+    hhw = freqnm * hwlor                                           # Lorentzian half-width in frequency
     lorentz = (hhw/math.pi/(del_freq*del_freq + hhw*hhw) * 1.77245 * dop) if hhw > 0.0 else 0.0
     # --- (3a) electron-impact width gamma (impact-broadening Lorentzian in beta) ---
-    y1num = 320.0 if m > 3 else (550.0 if m == 2 else 380.0)
-    y1wht = 1.0e14 if mmn <= 3 else 1.0e13
+    y1num = 320.0 if m > 3 else (550.0 if m == 2 else 380.0)        # impact-width numerator per upper level
+    y1wht = 1.0e14 if mmn <= 3 else 1.0e13                          # default electron-density threshold
     if mmn <= 2 and 1 <= n <= 2 and n <= y1wtm.shape[0] and mmn <= y1wtm.shape[1]:
-        y1wht = y1wtm[n-1, mmn-1]
+        y1wht = y1wtm[n-1, mmn-1]                                   # tabulated threshold for low transitions
     wty1 = 1.0/(1.0 + max(ne, 0.0)/max(y1wht, 1e-30))               # electron-density weight
-    y1_scal = y1num*y1s*wty1 + y1b*(1.0 - wty1)
-    c1 = c1d*c1con*y1_scal; c2 = c2d*c2con
+    y1_scal = y1num*y1s*wty1 + y1b*(1.0 - wty1)                     # blend low- and high-density factors
+    c1 = c1d*c1con*y1_scal; c2 = c2d*c2con                          # the two impact-width coefficients
     beta = del_freq/max(fo, 1e-30) * dbeta                          # the dimensionless detuning
-    y1 = c1*beta; y2 = c2*beta*beta
-    g1 = 6.77*math.sqrt(max(c1, 1e-30))
+    y1 = c1*beta; y2 = c2*beta*beta                                 # scaled detunings for the impact width
+    g1 = 6.77*math.sqrt(max(c1, 1e-30))                            # impact-width scale
     ratio = math.sqrt(c2)/max(c1, 1e-30) if (c1 > 0.0 and c2 > 0.0) else 0.0
     log_term = math.log(max(ratio, 1e-30)) if ratio > 0.0 else 0.0
-    gamma = g1*max(0.0, 0.2114 + log_term)*(1.0 - gcon1 - gcon2)
+    gamma = g1*max(0.0, 0.2114 + log_term)*(1.0 - gcon1 - gcon2)    # simple analytic gamma (low y1)
     if y2 > 1e-4 and y1 > 1e-5:                                     # exponential-integral form when valid
         gamma = (g1*(0.5*_fast_ex(min(80.0, y1)) + _vcse1f(y1) - 0.5*_vcse1f(y2))
                  * (1.0 - gcon1/(1.0 + (90.0*y1)**3) - gcon2/(1.0 + 2000.0*y1)))
-    f = gamma/math.pi/(gamma*gamma + beta*beta) if gamma > 0.0 else 0.0
+    f = gamma/math.pi/(gamma*gamma + beta*beta) if gamma > 0.0 else 0.0   # impact-broadening Lorentzian
     # --- (3b) quasi-static Stark term, plus the impact term, normalised by F0 ---
-    prqs = sofbeta(beta, pp_val, n, m, propbm, c_t, d_t, pp_t, beta_t)
+    prqs = sofbeta(beta, pp_val, n, m, propbm, c_t, d_t, pp_t, beta_t)   # quasi-static Holtsmark profile
     p1  = (0.9*y1)**2
     fns = (p1 + 0.03*math.sqrt(max(y1, 0.0)))/(p1 + 1.0)            # quasi-static/impact blend factor
-    stark_core = (prqs*(1.0 + fns) + f)/max(fo, 1e-30) * dbeta * 1.77245 * dop
-    # --- select by the dominant width ---
+    stark_core = (prqs*(1.0 + fns) + f)/max(fo, 1e-30) * dbeta * 1.77245 * dop   # combined Stark piece
+    # --- select by the dominant width: dominant piece in the core, sum in the wing ---
     if ifcore:
-        if nwid == 1: return max(core, 0.0)
-        if nwid == 2: return max(lorentz, 0.0)
-        return max(stark_core, 0.0)
-    return max(core + lorentz + stark_core, 0.0)
+        if nwid == 1: return max(core, 0.0)                        # Doppler dominates: pure Gaussian core
+        if nwid == 2: return max(lorentz, 0.0)                     # Lorentzian dominates
+        return max(stark_core, 0.0)                                # Stark dominates
+    return max(core + lorentz + stark_core, 0.0)                   # wing: sum all three pieces
 print("profile pieces ready")''')
 
 md(r"""A few parameters earn a word. The factor `1.77245` is $\sqrt\pi$, which converts the Gaussian/Lorentzian normalisation between the code's convention and unit area; `dop` $= \nu_{nm}\,(v_D/c)$ is the Doppler width in frequency, so dividing the Stark term by `fo` and multiplying by `dbeta`$\cdot$`dop` puts all three pieces on the same per-frequency footing. The `c1d`, `c2d` coefficients (built per depth, below) carry the temperature and electron-density dependence of the impact width; `gcon1`, `gcon2` are small impact-theory corrections that switch off the simple analytic $\gamma$ at high $y_1$. The blend `fns` interpolates between the pure quasi-static Holtsmark profile (far wing) and the impact-broadened profile (nearer the core), which is the physical content of the Stark line shape.""")
@@ -356,7 +368,7 @@ md(r"""## The per-depth hydrogen state
 Every coefficient the profile needs is a function of the local temperature, electron density, and perturber densities. The production code computes this **per-depth state** once per layer and hands it to the profile. We reproduce it exactly. The pieces:
 
 - $F_0 = 1.25\times10^{-9}\,n_e^{2/3}$ — the Holtsmark field (above).
-- $p = 0.08989\,n_e^{1/6}/\sqrt{T}$ — the **pressure parameter** that indexes the Stark tables (the ratio of the Debye length to the mean inter-ion distance, roughly).
+- $p = 0.08989\,n_e^{1/6}/\sqrt{T}$ — the **pressure parameter** that indexes the Stark tables: a Debye-screening parameter, roughly the mean inter-particle spacing divided by the Debye length (it grows as $n_e^{1/6}T^{-1/2}$, the inverse of the Debye-length-to-spacing ratio).
 - $c_{1d} = F_0\cdot 78940/T$ and $c_{2d} = F_0^2/(5.96\times10^{-23}\,n_e)$ — the impact-width coefficients, carrying the $T$ and $n_e$ dependence of the electron-collision broadening.
 - $y_{1s} = (T/10^4)^{0.3}/n_e^{1/6}$ and $y_{1b} = 2/(1 + 0.012\,T^{-1}\sqrt{n_e/T})$ — temperature/density factors that blend the impact width with electron density.
 - $\gamma_{\rm con,1}, \gamma_{\rm con,2}$ — the small high-density corrections.
@@ -370,20 +382,20 @@ vturb_cms = A["turbulent_velocity"]
 
 def hydrogen_state(di):
     """All per-depth coefficients the HPROF4 profile needs, for layer di."""
-    temp = max(float(T[di]), 1.0); ne_d = float(xne[di]); x16 = ne_d**(1.0/6.0)
+    temp = max(float(T[di]), 1.0); ne_d = float(xne[di]); x16 = ne_d**(1.0/6.0)   # sixth root of ne
     fo_d  = x16**4 * 1.25e-9                                  # Holtsmark field
     pp    = x16 * 0.08989 / math.sqrt(temp)                   # pressure parameter (table index)
-    y1b   = 2.0/(1.0 + 0.012/temp*math.sqrt(ne_d/temp))
-    t43   = (temp/1.0e4)**0.3
-    y1s   = t43 / x16
+    y1b   = 2.0/(1.0 + 0.012/temp*math.sqrt(ne_d/temp))       # high-density blend factor
+    t43   = (temp/1.0e4)**0.3                                 # weak T scaling, reused below
+    y1s   = t43 / x16                                         # low-density impact factor
     c1d   = fo_d * 78940.0 / temp                             # impact-width T-coefficient
     c2d   = fo_d**2 / 5.96e-23 / ne_d                         # impact-width ne-coefficient
-    gcon1 = 0.2 + 0.09*math.sqrt(max(temp/1e4, 1e-12))/(1.0 + ne_d/1.0e13)
-    gcon2 = 0.2/(1.0 + ne_d/1.0e15)
-    # Doppler width of hydrogen: thermal + turbulence, in units of c
-    vth   = math.sqrt(2.0*KBOLTZ*temp/(MASS_H*AMU)) / C_CMS
-    vtb   = (float(vturb_cms[di])/1e5) / C_KMS
-    dopph = math.sqrt(vth*vth + vtb*vtb)
+    gcon1 = 0.2 + 0.09*math.sqrt(max(temp/1e4, 1e-12))/(1.0 + ne_d/1.0e13)   # high-density correction 1
+    gcon2 = 0.2/(1.0 + ne_d/1.0e15)                                          # high-density correction 2
+    # Doppler width of hydrogen: thermal + turbulence, in units of c (built as in Lectures 4-5)
+    vth   = math.sqrt(2.0*KBOLTZ*temp/(MASS_H*AMU)) / C_CMS   # thermal velocity / c
+    vtb   = (float(vturb_cms[di])/1e5) / C_KMS                # turbulent velocity / c
+    dopph = math.sqrt(vth*vth + vtb*vtb)                      # combined Doppler width / c
     return dict(t3nhe=t43*float(xnf_he1[di]), t3nh2=t43*float(xnf_h2[di]),
                 fo=fo_d, dopph=dopph, c1d=c1d, c2d=c2d, y1s=y1s, y1b=y1b,
                 gcon1=gcon1, gcon2=gcon2, pp=pp, ne=ne_d,
@@ -398,17 +410,21 @@ md(r"""## Bundling the Stark tables
 
 Collect the `htab_*` arrays into one dictionary so the profile can read them by name. These are the production code's own tables: `asum` is the radiative-damping sum per level; `propbm`, `c`, `d` are the Holtsmark statistical-broadening corrections on the `pp`$\times$`beta` grid; `xknmtb` holds the Stark constants $K_{nm}$ for the low-$n$ transitions; `y1wtm` holds the electron-density weights for the impact width.""")
 
-code(r'''tabs = dict(asum=C["htab_asum"], y1wtm=C["htab_y1wtm"], xknmtb=C["htab_xknmtb"],
+code(r'''# bundle the htab_* Stark tables into one dict the profile reads by name
+tabs = dict(asum=C["htab_asum"], y1wtm=C["htab_y1wtm"], xknmtb=C["htab_xknmtb"],
             propbm=C["htab_propbm"], c=C["htab_c"], d=C["htab_d"],
             pp=C["htab_pp"], beta=C["htab_beta"])
+print("tables bundled:", list(tabs))''')
 
-# fine-structure components keyed by (n_lower, n_upper)
+md(r"""Each Balmer line is really several closely spaced fine-structure sub-lines. The reference stores their frequency offsets and relative weights keyed by the transition $(n_{\rm lower}, n_{\rm upper})$; we build a lookup so the Doppler core can sum over them.""")
+
+code(r'''# fine-structure components keyed by (n_lower, n_upper)
 fkeys = C["fine_keys"]; foff_a = C["fine_offsets"]; fwt_a = C["fine_weights"]; fn_a = C["fine_n"]
 fine_map = {(int(fkeys[j,0]), int(fkeys[j,1])): (foff_a[j], fwt_a[j], int(fn_a[j]))
-            for j in range(fkeys.shape[0])}
-print("tables bundled; fine-structure keys:", list(fine_map))''')
+            for j in range(fkeys.shape[0])}   # (offsets, weights, count) per transition
+print("fine-structure keys:", list(fine_map))''')
 
-md(r"""Look at the profile in isolation to see the qualitative point of the lecture: the linear-Stark wing is broad. Evaluate H$\beta$'s profile across a wide span of detuning at a deep layer and compare its shape to a Lorentzian of the same Lorentz half-width.""")
+md(r"""Look at the profile in isolation to see the qualitative point of the lecture: the linear-Stark wing is broad. Evaluate H$\beta$'s profile across a wide span of detuning at a deep layer; the prose below contrasts its slow decay with that of a Lorentzian (the explicit Lorentzian overlay is left to the exercises).""")
 
 code(r'''di = n_depths - 1; hyd = hydrogen_state(di)
 off, wt_f, nf = fine_map[(2, 4)]
@@ -423,14 +439,14 @@ ax.set_xlabel("wavelength [nm]"); ax.set_ylabel(r"profile $\phi$  [arb.]")
 ax.set_title(f"H-beta Stark profile, deep layer (T = {T[di]:.0f} K) — the wing reaches 500-510 nm")
 ax.legend(fontsize=9); fig.tight_layout(); plt.show()''')
 
-md(r"""The profile centred at 486 nm has a core, but its **wing decays slowly** — slowly enough that at 500–510 nm, nearly 20 nm away, it is still well above the floor. That is the $\beta^{-5/2}$ Holtsmark tail at work. A Lorentzian of the same near-core width would have dropped far below this by 500 nm. This slow wing is the physical reason hydrogen contributes a smooth opacity floor across our window.""")
+md(r"""The profile centred at 486 nm has a core, but its **wing stays high** — high enough that at 500–510 nm, nearly 20 nm away, it is still well above the floor. The wing follows the Holtsmark form (asymptotically $\beta^{-5/2}$), but the point is the *scale*: the linear-Stark width is so large that a Lorentzian built from H$\beta$'s lifetime widths would have collapsed far below this curve long before 500 nm. This persistent wing is the physical reason hydrogen contributes a smooth opacity floor across our window.""")
 
 # ════════════════════════════════════════════════════════════════════════════
 #  THE OUTWARD WALK
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## Forming $\kappa_0$ and walking outward from line centre
 
-With the profile in hand, a hydrogen line enters the opacity exactly like any other line, with one new piece of bookkeeping (the continuum-merge taper). The line-strength prefactor is the same as the line-list lecture,
+With the profile in hand, a hydrogen line enters the opacity exactly like any other line, with one new piece of bookkeeping (the continuum-merge taper). The line-strength prefactor is the same line-centre opacity we built in the line-list lecture (Lecture 5),
 
 $$
 \kappa_0 = \underbrace{\frac{0.026538}{\sqrt\pi}\,\frac{gf}{\nu}}_{\rm cgf}\;\cdot\;\frac{n_{\rm H}}{\rho\,v_D}\;\cdot\;e^{-\chi/kT},
@@ -438,61 +454,76 @@ $$
 
 with $gf$ the oscillator strength times statistical weight, $\nu$ the line-centre frequency, $n_{\rm H}/(\rho\,v_D)$ the population per gram per Doppler width, and $e^{-\chi/kT}$ the Boltzmann factor for the lower level ($\chi$ is its excitation energy). The opacity at a grid point is $\kappa_0\,\phi(\Delta\lambda)$ times the stimulated-emission factor $1 - e^{-h\nu/kT}$.
 
-The walk starts at the line-centre grid index and steps outward in both directions, adding $\kappa_0\,\phi$ at each point, and **stops** when the contribution drops below the cutoff fraction ($10^{-3}$) of the continuum. The new piece is the **continuum-merge taper**: at small detuning the high Balmer lines crowd together and merge into the continuum, so the engine defines a merge wavelength `wcon` (inside which the line is folded into the continuum and skipped) and a taper wavelength `wtail` (over which the profile is linearly ramped down). For the well-separated low Balmer lines this taper is inactive, but we carry it so the code reads as the full engine. Two small index helpers first.""")
+The walk starts at the line-centre grid index and steps outward in both directions, adding $\kappa_0\,\phi$ at each point, and **stops** when the contribution drops below the cutoff fraction ($10^{-3}$) of the continuum. The new piece is the **continuum-merge taper**: near the series limit the high Balmer lines crowd together (their spacing vanishes at large upper level $n$) and merge into the continuum, so the engine defines a merge wavelength `wcon` (inside which the line is folded into the continuum and skipped) and a taper wavelength `wtail` (over which the profile is linearly ramped down). For the well-separated low Balmer lines this taper is inactive, but we carry it so the code reads as the full engine. A few constants and small helpers first.""")
 
 code(r'''CGF_CONSTANT = 0.026538 / 1.77245      # the cgf prefactor constant (1/sqrt(pi) folded in)
 C_LIGHT_NM   = 2.99792458e17            # nm/s
 H_PLANCK = 6.62607015e-27; K_BOLTZ = 1.380649e-16
 CUTOFF = 1e-3                           # stop the wing when below 1e-3 * continuum
+print("kappa0 prefactor constants ready")''')
 
-# FASTEX: the production code's tabulated exp(-x) (matters at the bit level for the Boltzmann factor)
-_EXTAB  = np.exp(-np.arange(1001, dtype=np.float64))
-_EXTABF = np.exp(-np.arange(1001, dtype=np.float64) * 0.001)
+md(r"""The Boltzmann factor must be evaluated with the *production code's* tabulated $e^{-x}$ (FASTEX), not NumPy's, because the tiny rounding difference would show up at the bit level in the benchmark. FASTEX splits $x$ into an integer and a thousandths part and multiplies two precomputed tables.""")
+
+code(r'''# FASTEX: the production code's tabulated exp(-x) (matters at the bit level for the Boltzmann factor)
+_EXTAB  = np.exp(-np.arange(1001, dtype=np.float64))           # exp(-integer part)
+_EXTABF = np.exp(-np.arange(1001, dtype=np.float64) * 0.001)   # exp(-thousandths part)
 def fast_ex_array(x):
     v = np.asarray(x, float); out = np.empty_like(v)
-    out[v == 0.0] = 1.0; neg = v < 0.0; out[neg] = np.exp(-v[neg]); pos = v > 0.0
+    out[v == 0.0] = 1.0                                        # exp(0) = 1
+    neg = v < 0.0; out[neg] = np.exp(-v[neg])                  # negative x: exact exp
+    pos = v > 0.0
     if np.any(pos):
-        p = v[pos]; i = np.floor(p).astype(np.int64); tab = i < _EXTAB.size; po = np.empty_like(p)
-        if np.any(tab):
+        p = v[pos]; i = np.floor(p).astype(np.int64)           # integer part
+        tab = i < _EXTAB.size; po = np.empty_like(p)
+        if np.any(tab):                                        # in table range: multiply the two tables
             it = i[tab]; j = np.clip(np.floor((p[tab]-it)*1000.0 + 0.5).astype(np.int64), 0, _EXTABF.size-1)
             po[tab] = _EXTAB[it]*_EXTABF[j]
-        if np.any(~tab): po[~tab] = np.exp(-p[~tab])
+        if np.any(~tab): po[~tab] = np.exp(-p[~tab])           # out of range: fall back to exact exp
         out[pos] = po
     return out
+print("FASTEX ready")''')
 
-def center_index(grid, value):
+md(r"""One more helper: the synthesis grid is logarithmic, so the line-centre grid index is found from the log of the wavelength, exactly as the production code's `IXWL` does.""")
+
+code(r'''def center_index(grid, value):
     """Log-grid centre index: IXWL = int(log(wl)/ratiolg + 0.5), offset to the grid origin."""
-    ratiolg = np.log(grid[1]/grid[0]); ix0 = int(np.log(grid[0])/ratiolg + 0.5)
+    ratiolg = np.log(grid[1]/grid[0])                          # log spacing of the grid
+    ix0 = int(np.log(grid[0])/ratiolg + 0.5)                   # index of the grid origin
     return int(np.log(value)/ratiolg + 0.5) - ix0
-print("kappa0 prefactor and index helpers ready")''')
+print("center_index ready")''')
 
 # ── EHYD + merge limits ──────────────────────────────────────────────────────
 md(r"""## The continuum-merge limits: `wcon`, `wtail`, and the neighbour cutoffs
 
-The merge bookkeeping needs the hydrogen level energies (to locate the neighbouring Balmer lines $m\pm1$, $m\pm2$, whose overlap defines where the wing should stop) and the per-depth **Inglis–Teller** merge level: at high $n_e$ the high-$n$ lines blur into the continuum at a principal quantum number $n_{\rm merge} \approx 1600\,n_e^{-2/15}$, which fixes the merge frequency. The cutoffs `redcut`, `bluecut` mark where the line should hand off to the bound-free continuum; `wlminus1/2`, `wlplus1/2` are the wavelengths of the neighbouring upper levels; `wcon` is the per-depth merge wavelength and `wtail` the taper boundary. For the three low Balmer lines in our window these limits sit well outside 500–510 nm, so the taper never fires here — but the code computes them exactly as the engine does.""")
+The merge bookkeeping needs the hydrogen level energies (to locate the neighbouring Balmer lines $m\pm1$, $m\pm2$, whose overlap defines where the wing should stop) and the per-depth **Inglis–Teller** merge level: at high $n_e$ the high-$n$ lines blur into the continuum at a principal quantum number $n_{\rm merge} \approx 1600\,n_e^{-2/15}$, which fixes the merge frequency. The cutoffs `redcut`, `bluecut` mark where the engine begins checking whether a *neighbouring* line ($m\pm2$) dominates, terminating the current line's wing if it does (the bound-free continuum handoff is handled separately by `wcon`); `wlminus1/2`, `wlplus1/2` are the wavelengths of the neighbouring upper levels; `wcon` is the per-depth merge wavelength and `wtail` the taper boundary. For the three low Balmer lines in our window these limits sit well outside 500–510 nm, so the taper never fires here — but the code computes them exactly as the engine does.""")
 
-code(r'''_EHYD_CM = np.array([0.0, 82259.105, 97492.302, 102823.893, 105291.651,
-                     106632.160, 107440.444, 107965.051])      # H level energies (cm^-1), n=1..8
+code(r'''# H level energies (cm^-1), n=1..8; above n=8 use the Rydberg formula
+_EHYD_CM = np.array([0.0, 82259.105, 97492.302, 102823.893, 105291.651,
+                     106632.160, 107440.444, 107965.051])
 _RYD_CM, _EINF_CM = 109677.576, 109678.764
 conth = C["conth"]                                             # continuum-edge wavenumbers per lower level
 
 def ehyd_cm(nn):
+    """Energy of hydrogen level nn in cm^-1 (table for low nn, Rydberg formula above)."""
     if nn <= 0: return 0.0
     return float(_EHYD_CM[nn-1]) if nn-1 < _EHYD_CM.size else _EINF_CM - _RYD_CM/float(nn*nn)
+print("level energies ready")''')
 
-# Inglis-Teller merge level -> merge wavenumber per depth
-inglis  = 1600.0 / np.power(xne, 2.0/15.0)
+md(r"""The per-depth merge frequency comes from the **Inglis–Teller** relation: at electron density $n_e$ the Balmer lines blur into the continuum above a principal quantum number $n_{\rm merge} \approx 1600\,n_e^{-2/15}$. Convert that level to a wavenumber per depth, then `merge_limits` turns it (and the line's own continuum edge) into the merge wavelength `wcon` and taper boundary `wtail`.""")
+
+code(r'''# Inglis-Teller merge level -> merge wavenumber per depth
+inglis  = 1600.0 / np.power(xne, 2.0/15.0)                     # principal quantum number where lines merge
 nmerge  = np.maximum(inglis - 1.5, 1.0)
-emerge_h = _RYD_CM / np.maximum(nmerge*nmerge, 1e-12)
+emerge_h = _RYD_CM / np.maximum(nmerge*nmerge, 1e-12)          # energy of that level (cm^-1)
 
 def merge_limits(nl, nu, di, conth_val, wshift):
     """Per-depth continuum-merge wavelength wcon and taper boundary wtail (nm)."""
     denom = conth_val - emerge_h[di]
-    wmerge = 1.0e7/denom if denom > 0.0 else (wshift + wshift)
+    wmerge = 1.0e7/denom if denom > 0.0 else (wshift + wshift)  # merge wavelength from Inglis-Teller level
     wcon = max(wshift, wmerge)
-    inner = 1.0e7/wcon - 500.0 if wcon > 0.0 else -1.0
+    inner = 1.0e7/wcon - 500.0 if wcon > 0.0 else -1.0          # taper spans 500 cm^-1 inward of wcon
     wtail = 1.0e7/inner if inner > 0.0 else wcon + wcon
-    wcon  = min(wshift + wshift, wcon)
+    wcon  = min(wshift + wshift, wcon)                          # clamp both to sane bounds
     if wtail < 0.0: wtail = wcon + wcon
     wtail = min(wcon + wcon, wtail)
     return wcon, wtail
@@ -501,40 +532,40 @@ print("merge limits ready")''')
 # ── the accumulation walk ────────────────────────────────────────────────────
 md(r"""## The accumulation walk for one line at one depth
 
-The walk itself. Starting at the line-centre index, it steps outward in offset, evaluating the profile at each grid point on the red and blue sides and adding $\kappa_0\,\phi\cdot(1-e^{-h\nu/kT})$ to the opacity buffer. It stops a side when the value falls below $10^{-3}$ of the continuum (the same cutoff metals use). For lines with closely spaced upper levels (`simple_wings` is true when $m\le n+2$, which covers all three of our Balmer lines) the walk is the plain symmetric march; the `wcon`/`wtail` taper and the neighbour-cutoff logic only engage for the higher, crowded lines. We keep the full branch so the engine is reproduced faithfully.""")
+The walk itself. Starting at the line-centre index, it steps outward in offset, evaluating the profile at each grid point on the red and blue sides and adding $\kappa_0\,\phi\cdot(1-e^{-h\nu/kT})$ to the opacity buffer. It stops a side when the value falls below $10^{-3}$ of the continuum (the same cutoff metals use). The `simple` flag (true when $m\le n+2$) takes the plain symmetric march; the `wcon`/`wtail` taper and the neighbour-cutoff logic only engage for the higher, crowded lines. Of our three Balmer lines this is true only for H$\beta$ ($m=4$); for H$\gamma$ ($m=5$) and H$\delta$ ($m=6$) the flag is false, but their taper and neighbour limits sit well outside 500–510 nm, so the walk through our window is unperturbed either way. We keep the full branch so the engine is reproduced faithfully.""")
 
 code(r'''def accumulate(buffer, cont_row, stim_row, grid, ci, line_wl, kappa0, nl, nu,
                wcon, wtail, wlm1, wlm2, wlp1, wlp2, redcut, bluecut, cutoff,
                hyd, tabs, foff, fwt, n_fine):
     npts = buffer.shape[0]
-    simple = nu <= nl + 2                                       # all three low Balmer lines: True
-    taper  = (not simple) and (wtail > wcon)
-    um2 = max(nu - 2, nl + 1); up2 = nu + 2
-    def prof(a, b, dl):
+    simple = nu <= nl + 2                                       # plain march (m<=n+2; true for H-beta here)
+    taper  = (not simple) and (wtail > wcon)                    # is the continuum-merge taper active?
+    um2 = max(nu - 2, nl + 1); up2 = nu + 2                     # the neighbour upper levels m-2, m+2
+    def prof(a, b, dl):                                         # shorthand for the profile evaluation
         return hydrogen_line_profile(a, b, dl, hyd, tabs, foff, fwt, n_fine)
-    red, blue = True, True; off = 1
-    msteps = max(ci, npts - ci - 1)
+    red, blue = True, True; off = 1                             # both sides live; step counter
+    msteps = max(ci, npts - ci - 1)                             # furthest we could ever need to walk
     # --- line centre ---
     if 0 <= ci < npts:
         wave = grid[ci]
-        if not (not simple and wave < wcon):
+        if not (not simple and wave < wcon):                    # skip if folded into the continuum
             v = kappa0 * prof(nl, nu, wave - line_wl) * stim_row[ci]
-            if taper and wave < wtail: v *= (wave - wcon)/(wtail - wcon)
-            if v >= cont_row[ci]*cutoff: buffer[ci] += v
+            if taper and wave < wtail: v *= (wave - wcon)/(wtail - wcon)   # linear taper ramp
+            if v >= cont_row[ci]*cutoff: buffer[ci] += v        # accumulate if above cutoff
     elif ci >= npts:
-        red = False; off = max(1, ci - (npts - 1))
+        red = False; off = max(1, ci - (npts - 1))              # centre off the red edge: walk blue only
     else:
-        blue = False; off = max(1, -ci)
-    # --- march outward ---
+        blue = False; off = max(1, -ci)                         # centre off the blue edge: walk red only
+    # --- march outward, one offset at a time, on each live side ---
     while off <= msteps and (red or blue):
         if red:
-            idx = ci + off
-            if idx >= npts: red = False
+            idx = ci + off                                      # red side: increasing wavelength
+            if idx >= npts: red = False                         # ran off the grid
             else:
                 wave = grid[idx]
                 if not simple:
-                    if wave > wlm1: red = False
-                    elif wave < wcon: pass
+                    if wave > wlm1: red = False                 # reached the neighbour line: stop
+                    elif wave < wcon: pass                      # inside the merge region: skip point
                     else:
                         v = kappa0*prof(nl, nu, wave - line_wl)*stim_row[idx]
                         if taper and wave < wtail: v *= (wave - wcon)/(wtail - wcon)
@@ -542,29 +573,29 @@ code(r'''def accumulate(buffer, cont_row, stim_row, grid, ci, line_wl, kappa0, n
                             v2 = kappa0*prof(nl, um2, wave - wlm2)*stim_row[idx]
                             if taper and wave < wtail: v2 *= (wave - wcon)/(wtail - wcon)
                             if v2 >= v: red = False; v = 0.0
-                        if v <= 0.0 or v < cont_row[idx]*cutoff: red = False
+                        if v <= 0.0 or v < cont_row[idx]*cutoff: red = False   # dropped below cutoff: stop
                         else: buffer[idx] += v
-                else:
+                else:                                           # simple line: plain march, no taper/neighbour
                     v = kappa0*prof(nl, nu, wave - line_wl)*stim_row[idx]
                     if v <= 0.0 or v < cont_row[idx]*cutoff: red = False
                     else: buffer[idx] += v
         if blue:
-            idx = ci - off
-            if idx < 0: blue = False
+            idx = ci - off                                      # blue side: decreasing wavelength
+            if idx < 0: blue = False                            # ran off the grid
             else:
                 wave = grid[idx]
-                if not simple and (wave < wcon or wave < wlp1): blue = False
+                if not simple and (wave < wcon or wave < wlp1): blue = False   # merge region / neighbour: stop
                 else:
                     v = kappa0*prof(nl, nu, wave - line_wl)*stim_row[idx]
                     if not simple:
-                        if taper and wave < wtail: v *= (wave - wcon)/(wtail - wcon)
-                        if wave < bluecut:
+                        if taper and wave < wtail: v *= (wave - wcon)/(wtail - wcon)   # taper ramp
+                        if wave < bluecut:                      # neighbour overlap: stop if it dominates
                             v2 = kappa0*prof(nl, up2, wave - wlp2)*stim_row[idx]
                             if taper and wave < wtail: v2 *= (wave - wcon)/(wtail - wcon)
                             if v2 >= v: blue = False; v = 0.0
-                    if v <= 0.0 or v < cont_row[idx]*cutoff: blue = False
+                    if v <= 0.0 or v < cont_row[idx]*cutoff: blue = False   # dropped below cutoff: stop
                     else: buffer[idx] += v
-        off += 1
+        off += 1                                                # next offset outward
 print("accumulation walk ready")''')
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -589,33 +620,34 @@ code(r'''def compute_hydrogen_opacity():
     ahline = np.zeros((n_depths, grid.size))
 
     for li in hidx:
-        line_wl = float(wl_all[li]); ci = center_index(grid, float(idx_all[li]))
-        cgf = CGF_CONSTANT * float(gf_all[li]) / (C_LIGHT_NM/line_wl)
-        nl = max(int(nl_all[li]), 1); nu = max(int(nu_all[li]), nl+1)
-        elo = ehyd_cm(nl)
-        wlm1 = (1.0e7/(ehyd_cm(nu-1)-elo)) if nu-1 > nl else line_wl
-        wlm2 = (1.0e7/(ehyd_cm(nu-2)-elo)) if nu-2 > nl else line_wl
-        wlp1 = 1.0e7/(ehyd_cm(nu+1)-elo);  wlp2 = 1.0e7/(ehyd_cm(nu+2)-elo)
-        redcut  = 1.0e7/(conth[0] - _RYD_CM/(nu-0.8)**2 - elo)
-        bluecut = 1.0e7/(conth[0] - _RYD_CM/(nu+0.8)**2 - elo)
-        conth_val = float(conth[max(1, min(nl, conth.size))-1])
-        wshift = 1.0e7/(conth_val - _RYD_CM/81.0**2)
-        off_f, wt_f, nf = fine_map.get((nl, nu), (np.zeros(1), np.zeros(1), 0))
+        # --- per-line setup: centre, strength, and the neighbour/merge limits ---
+        line_wl = float(wl_all[li]); ci = center_index(grid, float(idx_all[li]))   # line-centre grid index
+        cgf = CGF_CONSTANT * float(gf_all[li]) / (C_LIGHT_NM/line_wl)              # the cgf strength prefactor
+        nl = max(int(nl_all[li]), 1); nu = max(int(nu_all[li]), nl+1)             # lower/upper levels
+        elo = ehyd_cm(nl)                                                          # lower-level energy (cm^-1)
+        wlm1 = (1.0e7/(ehyd_cm(nu-1)-elo)) if nu-1 > nl else line_wl              # neighbour m-1 wavelength
+        wlm2 = (1.0e7/(ehyd_cm(nu-2)-elo)) if nu-2 > nl else line_wl              # neighbour m-2 wavelength
+        wlp1 = 1.0e7/(ehyd_cm(nu+1)-elo);  wlp2 = 1.0e7/(ehyd_cm(nu+2)-elo)        # neighbours m+1, m+2
+        redcut  = 1.0e7/(conth[0] - _RYD_CM/(nu-0.8)**2 - elo)                     # red neighbour-overlap cutoff
+        bluecut = 1.0e7/(conth[0] - _RYD_CM/(nu+0.8)**2 - elo)                     # blue neighbour-overlap cutoff
+        conth_val = float(conth[max(1, min(nl, conth.size))-1])                    # continuum edge for this series
+        wshift = 1.0e7/(conth_val - _RYD_CM/81.0**2)                               # reference wavelength scale
+        off_f, wt_f, nf = fine_map.get((nl, nu), (np.zeros(1), np.zeros(1), 0))     # fine-structure components
         boltz = fast_ex_array(elow_all[li] * hckt)             # Boltzmann factor per depth
 
         for di in range(n_depths):
-            pv = pop3[di, 0]; dv = dop3[di, 0]; rd = float(rho[di])
-            if pv <= 0.0 or dv <= 0.0 or rd <= 0.0: continue
-            kapmin = cont[di, max(0, min(ci, grid.size-1))] * CUTOFF
-            k0pre = cgf * pv/(rd*dv)
-            if k0pre < kapmin: continue
-            kappa0 = k0pre * boltz[di]
-            if kappa0 < kapmin: continue
-            hyd = hydrogen_state(di)
-            wcon, wtail = merge_limits(nl, nu, di, conth_val, wshift)
+            pv = pop3[di, 0]; dv = dop3[di, 0]; rd = float(rho[di])   # population, Doppler width, density
+            if pv <= 0.0 or dv <= 0.0 or rd <= 0.0: continue          # skip unphysical/empty layers
+            kapmin = cont[di, max(0, min(ci, grid.size-1))] * CUTOFF  # the per-depth cutoff opacity
+            k0pre = cgf * pv/(rd*dv)                                  # kappa0 without the Boltzmann factor
+            if k0pre < kapmin: continue                              # too weak even before Boltzmann: skip
+            kappa0 = k0pre * boltz[di]                                # full line-centre opacity
+            if kappa0 < kapmin: continue                             # still below cutoff: skip this layer
+            hyd = hydrogen_state(di)                                  # per-depth profile coefficients
+            wcon, wtail = merge_limits(nl, nu, di, conth_val, wshift) # per-depth merge/taper limits
             accumulate(ahline[di], cont[di], stim[di], grid, ci, line_wl, kappa0, nl, nu,
                        wcon, wtail, wlm1, wlm2, wlp1, wlp2, redcut, bluecut, CUTOFF,
-                       hyd, tabs, off_f, wt_f, nf)
+                       hyd, tabs, off_f, wt_f, nf)                    # walk the wing into the opacity array
     return ahline
 
 ahline = compute_hydrogen_opacity()
@@ -629,8 +661,8 @@ md(r"""## Benchmark: machine precision against the reference
 
 Compare to the reference hydrogen-line opacity the production code wrote into the data file (`gt_ahline`). We measure the relative difference where the reference is non-zero, and report the maximum and median.""")
 
-code(r'''big = gt_ahline > 1e-10
-rel = np.abs(ahline[big] - gt_ahline[big]) / np.abs(gt_ahline[big])
+code(r'''big = gt_ahline > 1e-10                                          # compare only where the reference is non-zero
+rel = np.abs(ahline[big] - gt_ahline[big]) / np.abs(gt_ahline[big])   # relative error per point
 print(f"hydrogen-line opacity vs reference (|ref| > 1e-10, N = {big.sum()}):")
 print(f"  max relative error    = {rel.max():.3e}")
 print(f"  median relative error = {np.median(rel):.3e}")
