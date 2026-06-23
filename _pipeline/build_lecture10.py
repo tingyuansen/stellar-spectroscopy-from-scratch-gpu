@@ -37,8 +37,8 @@ md(r"""# Lecture 10 — Radiative Equilibrium & the Temperature Correction
 
 **Learning objectives.** By the end of this lecture you will be able to:
 
-- **Measure** the radiative flux as a function of depth in the grey starting atmosphere and see directly that it is *not* constant — so the grey model violates **radiative equilibrium** and its temperature must be corrected.
-- Build the **Rosseland mean opacity** $\kappa_{\rm Ross}$ — a *harmonic*, flux-weighted average over frequency — and the real **Rosseland optical-depth scale** $\tau_{\rm Ross}$ that replaces the grey-start placeholder.
+- **Measure** the radiative flux as a function of depth in the grey starting atmosphere and see directly that it is *not* constant — so the grey starting model, evaluated with the real non-grey opacity, violates **radiative equilibrium** and its temperature must be corrected.
+- Build the **Rosseland mean opacity** $\kappa_{\rm Ross}$ — a *harmonic*, $\partial B_\nu/\partial T$-weighted average over frequency — and the real **Rosseland optical-depth scale** $\tau_{\rm Ross}$ that replaces the grey-start placeholder.
 - Compute the per-frequency Eddington flux $H_\nu$ and the moment $(J_\nu-S_\nu)$ with the **JOSH** solver from Lecture 8, and accumulate the four depth integrals the correction needs.
 - Assemble the ATLAS temperature correction $T_1 = \Delta T_{\rm flux} + \Delta T_\Lambda + \Delta T_{\rm surf}$ from its three physically distinct pieces — the **Avrett–Krook** flux-constancy term, the **local-$\Lambda$** surface term, and the **surface-boundary** term — and explain what each one fixes.
 - Re-integrate hydrostatic equilibrium for the density correction $\Delta\rho x$, take **one converging step**, and reproduce the production code's corrected temperature to **machine precision** and corrected column mass to the float32 floor.""")
@@ -46,11 +46,15 @@ md(r"""# Lecture 10 — Radiative Equilibrium & the Temperature Correction
 # ── introduction ───────────────────────────────────────────────────────────
 md(r"""## Introduction: the half of the atmosphere we still owe
 
-Lecture 9 built the **hydrostatic** half of a model atmosphere: from $T_{\rm eff}$ and $\log g$ it produced a run of temperature, pressure, and column mass that balances the weight of the overlying gas exactly. But it built that structure on two placeholders. The temperature came from the **grey/Hopf law**, which assumes the opacity is the same at every wavelength; and the opacity itself was the crude cold-start value $\kappa\equiv1$. Neither is true of a real star, where the opacity swings over orders of magnitude from one wavelength to the next, and the temperature that the grey law predicts is *not* the temperature that conserves energy.
+Lecture 9 built the **hydrostatic** half of a model atmosphere: from $T_{\rm eff}$ and $\log g$ it produced a run of temperature, pressure, and column mass that balances the weight of the overlying gas exactly. But it built that structure on two placeholders. The temperature came from the **grey/Hopf law**, which assumes the opacity is the same at every wavelength; and the opacity itself was the crude cold-start value $\kappa\equiv1$. Neither assumption is true of a real star, where the opacity swings over orders of magnitude from one wavelength to the next, and the temperature that the grey law predicts is *not* the temperature that conserves energy.
+
+A note on notation before we start, because one symbol recurs everywhere below. Following ATLAS, `RHOX` (written $\rho x$ in formulas) denotes the **column mass** $m$ in g cm$^{-2}$ — the integrated mass of gas above a layer — *not* the local mass density $\rho$. So the "density correction" $\Delta\rho x$ we build at the end is really a *column-mass* correction; read $\rho x$ as a single bookkeeping variable, the natural depth coordinate for a hydrostatic atmosphere.
 
 The missing constraint is **radiative equilibrium**. In the photosphere of a star like the Sun, essentially all the energy flows outward as radiation, and none is created or destroyed locally: nuclear burning is far below, and (with convection switched off, as we keep it here for a clean first reproduction) there is no other channel. Energy conservation then demands that the **radiative flux be the same at every depth** — whatever flux crosses one layer must cross the next. Equivalently, the frequency-integrated flux must equal $\sigma T_{\rm eff}^4$ everywhere, and its divergence must vanish.
 
-The grey atmosphere does not satisfy this. We will *measure* its flux layer by layer and watch it drift with depth — proof that the grey temperature is wrong. ATLAS fixes it with a **temperature correction**: at each depth it computes how far the flux is off, works out which way and by how much the temperature must move to push the flux back toward constancy, and applies that shift. Iterating the correction (recomputing opacities and fluxes on the new temperature, correcting again) drives the model to radiative equilibrium. This lecture builds **one step** of that correction engine — Kurucz's `TCORR` — and benchmarks it to the bit. It reuses two engines we have already built from scratch: the **JOSH** moment solver (Lecture 8) for the per-frequency flux, and the **continuum opacity** (Lecture 3), which we take as a given input so we can spend our effort on the genuinely new physics: the Rosseland mean and the correction itself.""")
+A true grey atmosphere *does* hold constant flux — but only for its own idealized grey opacity. The moment we evaluate the grey starting model's flux with the **actual frequency-dependent continuum opacity**, it no longer satisfies radiative equilibrium. We will *measure* that flux layer by layer and watch it drift with depth — proof that the grey-start temperature is wrong for the real opacity. ATLAS fixes it with a **temperature correction**: at each depth it computes how far the flux is off, works out which way and by how much the temperature must move to push the flux back toward constancy, and applies that shift. Iterating the correction (recomputing opacities and fluxes on the new temperature, correcting again) drives the model to radiative equilibrium. This lecture builds **one step** of that correction engine — Kurucz's `TCORR`, sketched below — and benchmarks it to the bit. It reuses two engines we have already built from scratch: the **JOSH** moment solver (Lecture 8) for the per-frequency flux, and the **continuum opacity** (Lecture 3), which we take as a given input so we can spend our effort on the genuinely new physics: the Rosseland mean and the correction itself.
+
+![The temperature-correction loop: measure the depth-dependent flux, build the Rosseland scale, assemble the three-term correction $T_1$, restore hydrostatic balance, and remap — one ATLAS `TCORR` iteration toward radiative equilibrium.](resources/figures/s9_tcorr.png)""")
 
 # ── setup ────────────────────────────────────────────────────────────────
 md(r"""## Setup and the reference
@@ -103,95 +107,129 @@ flux = SIGMA / 12.5664 * TEFF**4
 print(f"target Eddington flux  H = sigma Teff^4 / (4 pi) = {flux:.4e} erg cm^-2 s^-1 sr^-1")
 print(f"  (physical surface flux F = 4 pi H = sigma Teff^4 = {SIGMA*TEFF**4:.4e} erg cm^-2 s^-1)")''')
 
+# ── array glossary ───────────────────────────────────────────────────────────
+md(r"""### A glossary of the main arrays
+
+This lecture juggles many similarly named arrays. For reference, here are the ones that recur, with shape and meaning (all per-layer arrays have length $N=80$; the continuum arrays are $N\times N_\nu$ with $N_\nu=30000$):
+
+| code name | shape | units | meaning |
+|---|---|---|---|
+| `T`, `rhox`, `p_in` | $N$ | K, g cm$^{-2}$, dyn cm$^{-2}$ | grey-start temperature, column mass, gas pressure |
+| `acont`, `sigmac`, `scont` | $N\times N_\nu$ | cm$^2$ g$^{-1}$ (abs/scat), source units | continuum absorption, scattering, source (Lecture 3) |
+| `freq`, `rco` | $N_\nu$ | Hz, Hz | frequency grid and its quadrature weights $d\nu$ |
+| `abtot`, `alpha` | $N$ | cm$^2$ g$^{-1}$, — | per-frequency total extinction $\kappa_\nu$ and scattering fraction |
+| `abross`, `tauros` | $N$ | cm$^2$ g$^{-1}$, — | Rosseland mean opacity and optical depth |
+| `flxrad`, `rjmins`, `rdabh`, `rdiagj` | $N$ | (ATLAS conventions) | the four frequency-integrated correction accumulators |
+| `t1`, `tnew` | $N$ | K | the temperature correction $T_1$ and the corrected temperature |
+
+Keep this handy; the meaning of each is spelled out again where it is first built.""")
+
 # ── numerical helpers ────────────────────────────────────────────────────────
 md(r"""## The numerical toolbox (Lecture 8)
 
-Everything below — the optical-depth integrals, the moment derivatives, the remap onto JOSH's fixed grid — is built from the same four Fortran kernels Lecture 8 introduced, so we reproduce them compactly here rather than re-deriving them. `parcoe` fits a smoothly-blended parabola through each triple of points; `integ` integrates a tabulated function using each interval's parabola (this is how every optical depth and every flux integral is taken); `deriv` is the cubic-tangent derivative that ATLAS uses for $dH/d\tau$ and friends; and `map1` is the piecewise-quadratic interpolation that moves a quantity from one depth grid to another. We will lean on all four. (If any line here is unfamiliar, Lecture 8 walks through it; the point of this lecture is what we *do* with them.)""")
+Everything below — the optical-depth integrals, the moment derivatives, the remap onto JOSH's fixed grid — is built from the same four Fortran kernels Lecture 8 introduced, so we reproduce them compactly here rather than re-deriving them. Treat them as black boxes with a fixed contract:
+
+- `parcoe(f, x)` — fit smoothly-blended **parabolic coefficients** $a,b,c$ through each triple of points (the helper that `integ` and `deriv` are built on).
+- `integ(x, f, start)` — **cumulative integral** $\int f\,dx$ using each interval's parabola; this is how *every* optical depth and *every* flux integral in the lecture is taken.
+- `deriv(x, f)` — ATLAS's **cubic-tangent derivative** $df/dx$, used for $dH/d\tau$, opacity gradients, and $dT/d(\rho x)$.
+- `map1(xold, fold, xnew)` — **piecewise-quadratic remap** of a quantity from one depth grid to another.
+
+That is all you need to retain. (If any line is unfamiliar, Lecture 8 walks through it; the point of *this* lecture is what we do with these kernels, not the kernels themselves.) We start with the first three, which share the parabola helper.""")
 
 code(r'''def parcoe(f, x):
     """Smoothly-blended parabolic coefficients a,b,c so f ~ a + b x + c x^2 (Fortran PARCOE)."""
     nn = f.size; a = np.zeros(nn); b = np.zeros(nn); c = np.zeros(nn)
     if nn == 1: a[0] = f[0]; return a, b, c
+    # endpoints: straight lines (no curvature term)
     b[0] = (f[1]-f[0])/(x[1]-x[0]); a[0] = f[0]-x[0]*b[0]
     n1 = nn-1
     b[-1] = (f[-1]-f[n1-1])/(x[-1]-x[n1-1]); a[-1] = f[-1]-x[-1]*b[-1]
     if nn == 2: return a, b, c
+    # interior: exact parabola through each (j-1, j, j+1) triple
     for j in range(1, n1):
         j1 = j-1; d = (f[j]-f[j1])/(x[j]-x[j1])
         c[j] = f[j+1]/((x[j+1]-x[j])*(x[j+1]-x[j1])) + (f[j1]/(x[j+1]-x[j1]) - f[j]/(x[j+1]-x[j]))/(x[j]-x[j1])
         b[j] = d - (x[j]+x[j1])*c[j]; a[j] = f[j1] - x[j1]*d + x[j]*x[j1]*c[j]
+    # the two near-boundary points use straight segments (ATLAS convention)
     c[1] = 0.0; b[1] = (f[2]-f[1])/(x[2]-x[1]); a[1] = f[1]-x[1]*b[1]
     if nn > 3: c[2] = 0.0; b[2] = (f[3]-f[2])/(x[3]-x[2]); a[2] = f[2]-x[2]*b[2]
+    # blend each interior parabola with its neighbour, weighted by curvature
     for j in range(1, n1):
         if c[j] == 0.0: continue
         j1 = min(j+1, nn-1); den = abs(c[j1])+abs(c[j]); wt = abs(c[j1])/den if den > 0 else 0.0
         a[j] = a[j1]+wt*(a[j]-a[j1]); b[j] = b[j1]+wt*(b[j]-b[j1]); c[j] = c[j1]+wt*(c[j]-c[j1])
-    a[n1-1] = a[-1]; b[n1-1] = b[-1]; c[n1-1] = c[-1]
-    return a, b, c
+    a[n1-1] = a[-1]; b[n1-1] = b[-1]; c[n1-1] = c[-1]   # last interior point inherits the endpoint fit
+    return a, b, c''')
 
-def integ(x, f, start):
+md(r"""`integ` and `deriv` both ride on those coefficients: `integ` analytically integrates each interval's parabola and accumulates the running total (this is the quadrature behind every optical-depth and flux integral in the lecture); `deriv` returns ATLAS's curvature-limited cubic-tangent derivative, which damps overshoot at sharp features.""")
+
+code(r'''def integ(x, f, start):
     """Cumulative integral of f dx (each interval's parabola), seeded at start (Fortran INTEG)."""
     nn = f.size; out = np.zeros(nn)
     if nn == 0: return out
-    a, b, c = parcoe(f, x); out[0] = start
+    a, b, c = parcoe(f, x); out[0] = start          # parabola coefficients per interval; seed the running sum
     for i in range(nn-1):
-        dx = x[i+1]-x[i]
+        dx = x[i+1]-x[i]                             # width of this interval
+        # exact integral of (a + b x + c x^2) across [x_i, x_{i+1}], factored for stability
         term = a[i] + 0.5*b[i]*(x[i+1]+x[i]) + (c[i]/3.0)*((x[i+1]+x[i])*x[i+1] + x[i]*x[i])
-        out[i+1] = out[i] + term*dx
+        out[i+1] = out[i] + term*dx                  # accumulate
     return out
 
 def deriv(x, f):
     """Cubic-tangent derivative df/dx (Fortran DERIV)."""
     nn = f.size; d = np.zeros(nn)
     if nn < 2: return d
-    d[0] = (f[1]-f[0])/(x[1]-x[0]); d[-1] = (f[-1]-f[-2])/(x[-1]-x[-2])
+    d[0] = (f[1]-f[0])/(x[1]-x[0]); d[-1] = (f[-1]-f[-2])/(x[-1]-x[-2])   # one-sided at the ends
     if nn == 2: return d
-    s = abs(x[1]-x[0])/(x[1]-x[0]) if x[1] != x[0] else 1.0
+    s = abs(x[1]-x[0])/(x[1]-x[0]) if x[1] != x[0] else 1.0               # sign of the grid direction
     for j in range(1, nn-1):
-        scale = max(abs(f[j-1]), abs(f[j]), abs(f[j+1]))
+        scale = max(abs(f[j-1]), abs(f[j]), abs(f[j+1]))                  # local magnitude, for the tangent limiter
         scale = scale/abs(x[j]) if x[j] != 0.0 else scale
         if scale == 0.0: scale = 1.0
-        d1 = (f[j+1]-f[j])/(x[j+1]-x[j])/scale; d0 = (f[j]-f[j-1])/(x[j]-x[j-1])/scale
-        t1 = d1/(s*np.sqrt(1.0+d1*d1)+1.0); t0 = d0/(s*np.sqrt(1.0+d0*d0)+1.0)
-        d[j] = (t1+t0)/(1.0-t1*t0)*scale
+        d1 = (f[j+1]-f[j])/(x[j+1]-x[j])/scale; d0 = (f[j]-f[j-1])/(x[j]-x[j-1])/scale   # right/left slopes
+        t1 = d1/(s*np.sqrt(1.0+d1*d1)+1.0); t0 = d0/(s*np.sqrt(1.0+d0*d0)+1.0)           # tangent half-angles
+        d[j] = (t1+t0)/(1.0-t1*t0)*scale             # combine via the tangent addition formula (curvature-limited)
     return d''')
+
+md(r"""The fourth kernel, `map1`, is the one we keep as a single block: it is a Fortran state machine that walks the new grid and the old grid together, so splitting it would break the carried-over interpolation coefficients. The logic is a single sweep — for each target point `xk` it advances a cursor `l` through the source grid until it brackets `xk`, fits a backward and a forward parabola around that bracket (reusing the previous step's forward fit as this step's backward fit when it can), blends the two by curvature weight, and evaluates. The endpoints and the first two intervals fall back to straight lines, exactly as ATLAS does. It returns the remapped array plus the final cursor position. The comments below mark each branch.""")
 
 code(r'''def map1(xold, fold, xnew):
     """Piecewise-quadratic remap of fold(xold) onto xnew (Fortran MAP1).  Returns (fnew, ll-1)."""
     nold, nnew = xold.size, xnew.size
     fnew = np.zeros(nnew)
     if nold == 0 or nnew == 0: return fnew, 0
-    xo = np.empty(nold+1); fo = np.empty(nold+1); xo[1:] = xold; fo[1:] = fold
-    l = 2; ll = 0; cfor = bfor = afor = cbac = bbac = abac = a = b = c = 0.0
+    xo = np.empty(nold+1); fo = np.empty(nold+1); xo[1:] = xold; fo[1:] = fold   # 1-based padding (Fortran indexing)
+    l = 2; ll = 0; cfor = bfor = afor = cbac = bbac = abac = a = b = c = 0.0     # cursor + carried parabola coeffs
     for k in range(1, nnew+1):
-        xk = xnew[k-1]
+        xk = xnew[k-1]                                  # the target abscissa we want fold at
         while True:
-            if xk < xo[l]:
-                if l == ll: break
-                if l == 2 or l == 3:
+            if xk < xo[l]:                              # cursor now brackets xk: l-1 <= xk < l
+                if l == ll: break                       # same bracket as last point -> reuse a,b,c
+                if l == 2 or l == 3:                    # first interval: straight line only
                     l = min(nold, l); c = 0.0
                     b = (fo[l]-fo[l-1])/(xo[l]-xo[l-1]); a = fo[l]-xo[l]*b; ll = l; break
                 l1 = l-1
-                if l > ll+1 or l == 3 or l == 4:
+                if l > ll+1 or l == 3 or l == 4:        # build the backward parabola through (l-2, l-1, l)
                     l2 = l-2; d = (fo[l1]-fo[l2])/(xo[l1]-xo[l2])
                     cbac = fo[l]/((xo[l]-xo[l1])*(xo[l]-xo[l2])) + (fo[l2]/(xo[l]-xo[l2]) - fo[l1]/(xo[l]-xo[l1]))/(xo[l1]-xo[l2])
                     bbac = d - (xo[l1]+xo[l2])*cbac; abac = fo[l2] - xo[l2]*d + xo[l1]*xo[l2]*cbac
                 else:
-                    cbac, bbac, abac = cfor, bfor, afor
-                if l >= nold: c, b, a, ll = cbac, bbac, abac, l; break
-                d = (fo[l]-fo[l1])/(xo[l]-xo[l1])
+                    cbac, bbac, abac = cfor, bfor, afor # else reuse last step's forward fit as this backward fit
+                if l >= nold: c, b, a, ll = cbac, bbac, abac, l; break   # no forward neighbour: use backward only
+                d = (fo[l]-fo[l1])/(xo[l]-xo[l1])        # build the forward parabola through (l-1, l, l+1)
                 cfor = fo[l+1]/((xo[l+1]-xo[l])*(xo[l+1]-xo[l1])) + (fo[l1]/(xo[l+1]-xo[l1]) - fo[l]/(xo[l+1]-xo[l]))/(xo[l]-xo[l1])
                 bfor = d - (xo[l]+xo[l1])*cfor; afor = fo[l1] - xo[l1]*d + xo[l]*xo[l1]*cfor
-                wt = abs(cfor)/(abs(cfor)+abs(cbac)) if abs(cfor) != 0.0 else 0.0
+                wt = abs(cfor)/(abs(cfor)+abs(cbac)) if abs(cfor) != 0.0 else 0.0   # curvature-weighted blend
                 a = afor+wt*(abac-afor); b = bfor+wt*(bbac-bfor); c = cfor+wt*(cbac-cfor); ll = l; break
-            l += 1
-            if l > nold:
+            l += 1                                      # xk not yet bracketed: advance the cursor
+            if l > nold:                                # ran off the deep end: straight line on the last interval
                 l = min(nold, l); c = 0.0
                 b = (fo[l]-fo[l-1])/(xo[l]-xo[l-1]); a = fo[l]-xo[l]*b; ll = l; break
-        fnew[k-1] = a + (b + c*xk)*xk
+        fnew[k-1] = a + (b + c*xk)*xk                   # evaluate the chosen parabola at xk
     return fnew, max(ll-1, 0)
 
 def map1_scalar(xold, fold, xv):
+    """Convenience wrapper: remap to a single abscissa and return a Python float."""
     out, _ = map1(np.asarray(xold), np.asarray(fold), np.asarray([xv])); return float(out[0])''')
 
 # ── JOSH ────────────────────────────────────────────────────────────────────
@@ -199,77 +237,78 @@ md(r"""## JOSH, for the full depth profile (Lecture 8)
 
 Lecture 8 used JOSH to produce one number per wavelength — the emergent surface flux. The temperature correction needs **more**: at every depth and every frequency it needs the Eddington flux $H_\nu(\tau)$ and the moment $(J_\nu - S_\nu)(\tau)$, the difference between the mean intensity and the source function. So here we run the same JOSH algorithm but read out the *depth profiles*, not just the surface value.
 
-The mechanics are exactly Lecture 8's. For a given frequency we form the total extinction $\kappa_\nu$ (continuum absorption + scattering), the scattering fraction $\alpha_\nu = \sigma_\nu/\kappa_\nu$, the thermal-plus-scattering source $\bar S_\nu$, and the monochromatic optical depth $\tau_\nu=\int\kappa_\nu\,d(\rho x)$. We map the source onto JOSH's fixed 51-point $\tau$-grid, run the **float32** $\Lambda$-iteration that solves the scattering problem on that grid (the one place the whole pipeline drops to single precision — Lecture 8 explains why, and it is the reason our final benchmark has a float32 floor), then map the moments $J_\nu - S_\nu$ and $H_\nu$ back onto the physical layers. For this solar continuum the surface optical depth is always thin enough that JOSH solves the outer layers directly on the physical grid (its "label-401" branch) — we reproduce that branch faithfully. The function returns $\tau_\nu$, $H_\nu$, $(J_\nu - S_\nu)$, $\kappa_\nu$, and $\alpha_\nu$ at every layer — the five profiles the correction consumes.""")
+The mechanics are exactly Lecture 8's, so we keep `josh_profiles` as one block and lean on comments rather than re-deriving it. Reading the body top to bottom, it does four things. **(a)** Form the per-frequency optics: total extinction $\kappa_\nu$ (continuum absorption + scattering), scattering fraction $\alpha_\nu = \sigma_\nu/\kappa_\nu$, thermal-plus-scattering source $\bar S_\nu$, and the monochromatic optical depth $\tau_\nu=\int\kappa_\nu\,d(\rho x)$. **(b)** Map the source onto JOSH's fixed 51-point $\tau$-grid and run the **float32** $\Lambda$-iteration that solves the scattering problem there — the one place the whole pipeline drops to single precision (Lecture 8 explains why; it is the reason our final benchmark carries a float32 floor). **(c)** Solve the thin outer layers directly on the physical grid (JOSH's "label-401" branch, which for this solar continuum always applies near the surface) — we reproduce that branch faithfully. **(d)** Read the deep-layer moments off the grid solution and map them back. The function returns $\tau_\nu$, $H_\nu$, $(J_\nu - S_\nu)$, $\kappa_\nu$, and $\alpha_\nu$ at every layer — the five profiles the correction consumes.""")
 
 code(r'''XTAU  = JT["xtau"].astype(np.float64)        # JOSH fixed optical-depth grid (51 points)
 COEFJ = JT["coefj"].astype(np.float64)       # J-moment operator (51x51), from Lecture 8
 COEFH = REF["josh_coefh"].astype(np.float64) # H-moment operator (51x51); shipped here (L8 omits it)
 NX = XTAU.size
-COEFJ_DIAG = np.diag(COEFJ).astype(np.float32)
-ITER_TOL = 1.0e-5
+COEFJ_DIAG = np.diag(COEFJ).astype(np.float32)   # precomputed diagonal of the J operator (used every sweep)
+ITER_TOL = 1.0e-5                                # relative tolerance for both iterations
 
 def josh_profiles(acont, scont, sigmac, rhox, bnu):
     """JOSH depth profiles for one continuum frequency (ifscat=1, line opacity off).
     Returns taunu, H_nu, (J_nu - S_nu), kappa_nu (=abtot), alpha_nu, all at every layer."""
+    # --- (a) per-frequency optics ---
     abtot = np.maximum(acont + sigmac, 1e-300)          # total extinction kappa_nu
-    alpha = sigmac / abtot                               # scattering fraction
+    alpha = sigmac / abtot                               # scattering fraction sigma/kappa
     den   = acont                                        # (no line absorption in continuum-only)
     snubar = bnu.copy()
     np.divide(acont*scont, den, out=snubar, where=den > 0.0)   # thermal+scattering source Sbar_nu
-    taunu = integ(rhox, abtot, abtot[0]*rhox[0])         # monochromatic optical depth
+    taunu = integ(rhox, abtot, abtot[0]*rhox[0])         # monochromatic optical depth tau_nu
     snu = np.zeros(n); hnu = np.zeros(n); jnu = np.zeros(n); jmins = np.zeros(n)
-    xs = np.zeros(NX, dtype=np.float32)
+    xs = np.zeros(NX, dtype=np.float32)                  # the source iterate, on the JOSH grid (REAL*4)
 
-    # --- map source onto the JOSH grid and run the float32 Lambda-iteration ---
+    # --- (b) map source + alpha onto the JOSH grid and run the float32 Lambda-iteration ---
     xsbar8, maxj = map1(taunu, snubar, XTAU)
     xalpha8, maxj = map1(taunu, alpha, XTAU)
-    xalpha8 = np.maximum(xalpha8.astype(np.float32), np.float32(0.0))
+    xalpha8 = np.maximum(xalpha8.astype(np.float32), np.float32(0.0))      # clamp to physical ranges
     xsbar8  = np.maximum(xsbar8.astype(np.float32),  np.float32(1.0e-38))
-    mask = XTAU < taunu[0]
+    mask = XTAU < taunu[0]                               # grid points above the physical surface
     if np.any(mask):
-        xsbar8[mask] = max(snubar[0], 1.0e-38); xalpha8[mask] = max(alpha[0], 0.0)
-    xs[:] = xsbar8
-    diag = np.float32(1.0) - xalpha8*COEFJ_DIAG
-    xsbar_mod = (np.float32(1.0) - xalpha8)*xsbar8
+        xsbar8[mask] = max(snubar[0], 1.0e-38); xalpha8[mask] = max(alpha[0], 0.0)   # extrapolate flat
+    xs[:] = xsbar8                                       # initial guess: thermal source
+    diag = np.float32(1.0) - xalpha8*COEFJ_DIAG          # diagonal of (I - alpha*Lambda)
+    xsbar_mod = (np.float32(1.0) - xalpha8)*xsbar8        # thermal part of the source equation
     for _ in range(NX):                                  # backward Gauss-Seidel sweep, REAL*4
         iferr = 0
         for kk in range(NX):
-            k = NX-1-kk
-            dot = np.float32(np.dot(COEFJ[k, :].astype(np.float32), xs))
-            num = np.float32(dot*xalpha8[k] + xsbar_mod[k] - xs[k])
+            k = NX-1-kk                                  # sweep from the deep grid upward
+            dot = np.float32(np.dot(COEFJ[k, :].astype(np.float32), xs))   # (Lambda xs)_k
+            num = np.float32(dot*xalpha8[k] + xsbar_mod[k] - xs[k])        # residual at k
             dd = np.float32(diag[k])
-            if abs(float(dd)) < 1.0e-37: dd = np.float32(1.0e-37 if float(dd) >= 0.0 else -1.0e-37)
-            delxs = np.float32(num/dd)
+            if abs(float(dd)) < 1.0e-37: dd = np.float32(1.0e-37 if float(dd) >= 0.0 else -1.0e-37)  # guard /0
+            delxs = np.float32(num/dd)                   # Gauss-Seidel update
             xb = np.float32(xs[k])
             if abs(float(xb)) < 1.0e-37: xb = np.float32(1.0e-37 if float(xb) >= 0.0 else -1.0e-37)
-            if np.float32(abs(float(delxs/xb))) > np.float32(ITER_TOL): iferr = 1
-            xs[k] = np.float32(max(float(np.float32(xs[k] + delxs)), 1.0e-37))
-        if iferr == 0: break
-    snu_head, _ = map1(XTAU, xs.astype(np.float64), taunu[:maxj]); snu[:maxj] = snu_head
+            if np.float32(abs(float(delxs/xb))) > np.float32(ITER_TOL): iferr = 1   # not yet converged here
+            xs[k] = np.float32(max(float(np.float32(xs[k] + delxs)), 1.0e-37))      # apply, keep positive
+        if iferr == 0: break                             # every layer below tolerance -> done
+    snu_head, _ = map1(XTAU, xs.astype(np.float64), taunu[:maxj]); snu[:maxj] = snu_head   # back to physical grid
 
-    # --- solve the outer layers on the physical TAUNU grid (JOSH "label-401" branch) ---
+    # --- (c) solve the outer (optically thin) layers on the physical TAUNU grid (JOSH "label-401") ---
     maxj1 = maxj+1 if maxj != 1 else 1
-    snu[maxj1-1:] = snubar[maxj1-1:]
+    snu[maxj1-1:] = snubar[maxj1-1:]                     # deep layers: source = thermal (set below)
     m0 = max(maxj-1, 1) - 1; nmj0 = maxj-1
     for _ in range(NX):
         error = 0.0; ifneg = 0
-        if np.any(snu[m0:] <= 0.0): ifneg = 1; snubar[m0:] = bnu[m0:]; snu[m0:] = bnu[m0:]
-        hnu[m0:] = deriv(taunu[m0:], snu[m0:]) / 3.0
-        if np.any(hnu[m0:] <= 0.0):
+        if np.any(snu[m0:] <= 0.0): ifneg = 1; snubar[m0:] = bnu[m0:]; snu[m0:] = bnu[m0:]   # negativity guard
+        hnu[m0:] = deriv(taunu[m0:], snu[m0:]) / 3.0     # H = (1/3) dS/dtau (Eddington)
+        if np.any(hnu[m0:] <= 0.0):                      # H must stay outward-positive
             ifneg = 1; snubar[m0:] = bnu[m0:]; snu[m0:] = bnu[m0:]
             hnu[m0:] = deriv(taunu[m0:], snu[m0:]) / 3.0
-        jmins[nmj0:] = deriv(taunu[nmj0:], hnu[nmj0:])
+        jmins[nmj0:] = deriv(taunu[nmj0:], hnu[nmj0:])   # (J - S) = dH/dtau
         for j in range(maxj1-1, n):
             if ifneg == 1: jmins[j] = 0.0
-            jnu[j] = jmins[j] + snu[j]
-            snew = (1.0-alpha[j])*snubar[j] + alpha[j]*jnu[j]
+            jnu[j] = jmins[j] + snu[j]                    # rebuild J
+            snew = (1.0-alpha[j])*snubar[j] + alpha[j]*jnu[j]   # source update: (1-alpha)Sbar + alpha J
             error += abs(snew - snu[j]) / max(abs(snew), 1e-300); snu[j] = snew
         if error < ITER_TOL: break
 
-    # --- deeper layers: moments from the grid solution, mapped back ---
+    # --- (d) deeper layers: moments straight from the grid solution, mapped back ---
     xjs = (-xs + COEFJ.astype(np.float32) @ xs).astype(np.float64)   # (J - S) on the JOSH grid
     xh  = (COEFH @ xs).astype(np.float64)                            # H on the JOSH grid
-    jmins[:maxj], _ = map1(XTAU, xjs, taunu[:maxj])
+    jmins[:maxj], _ = map1(XTAU, xjs, taunu[:maxj])                  # remap onto physical layers
     hnu[:maxj], _   = map1(XTAU, xh,  taunu[:maxj])
     return taunu, hnu, jmins, abtot, alpha''')
 
@@ -278,7 +317,7 @@ md(r"""## Sweeping the spectrum: the Rosseland mean and the flux integrals
 
 We now sweep all 30000 continuum frequencies. At each one we build the Planck function $B_\nu(T)$ and the stimulated-emission factor, run JOSH for the depth profiles, and accumulate **five** depth integrals over frequency. Four of them feed the temperature correction; the fifth is the Rosseland mean.
 
-**The Rosseland mean opacity** is the single most important new quantity. To compress a wildly wavelength-dependent opacity into one number per layer for the optical-depth scale, ATLAS uses the *Rosseland mean* — a **harmonic** average of $\kappa_\nu$ weighted by $\partial B_\nu/\partial T$:
+**The Rosseland mean opacity** is the single most important new quantity. To compress a wildly wavelength-dependent opacity into one number per layer for the optical-depth scale, ATLAS uses the *Rosseland mean* — a **harmonic** average of $\kappa_\nu$ weighted by $\partial B_\nu/\partial T$ (the weighting that appears in the diffusion-limit flux, not the actual computed flux $H_\nu$):
 
 $$
 \frac{1}{\kappa_{\rm Ross}} = \frac{\displaystyle\int_0^\infty \frac{1}{\kappa_\nu}\,\frac{\partial B_\nu}{\partial T}\,d\nu}{\displaystyle\int_0^\infty \frac{\partial B_\nu}{\partial T}\,d\nu},
@@ -286,17 +325,19 @@ $$
 \int_0^\infty\frac{\partial B_\nu}{\partial T}\,d\nu = \frac{4\sigma}{\pi}T^3 .
 $$
 
-The harmonic (reciprocal) weighting is not a convention — it is what falls out of the diffusion limit deep in the star, where the flux is set by *how easily* radiation leaks through, so the *transparent* windows dominate. A simple average would be swamped by the opaque lines; the harmonic mean correctly lets the low-opacity windows carry the flux. We accumulate the denominator integrand $\frac{1}{\kappa_\nu}\frac{\partial B_\nu}{\partial T}$ frequency by frequency (note the $1/\kappa_\nu$), then finalize $\kappa_{\rm Ross} = \frac{4\sigma}{\pi}T^3 / (\text{accumulator})$. The frequency integral is done with the quadrature weights `rco` that ship with the grid (the spacing-aware $d\nu$).""")
+The harmonic (reciprocal) weighting is not a convention — it is what falls out of the diffusion limit deep in the star, where the flux is set by *how easily* radiation leaks through, so the *transparent* windows dominate. A simple average would be swamped by the opaque lines; the harmonic mean correctly lets the low-opacity windows carry the flux. In code we accumulate the integral $\int \frac{1}{\kappa_\nu}\frac{\partial B_\nu}{\partial T}\,d\nu$ frequency by frequency (note the $1/\kappa_\nu$); it sits in the *numerator* of the equation above, and becomes the **denominator** when we invert to solve for $\kappa_{\rm Ross} = \frac{4\sigma}{\pi}T^3 / (\text{accumulator})$. The frequency integral is done with the quadrature weights `rco` that ship with the grid (the spacing-aware $d\nu$).""")
 
 code(r'''freq   = REF["freq_hz"].astype(np.float64)   # 30000 continuum frequencies [Hz]
 rco    = REF["rco"].astype(np.float64)       # frequency quadrature weights (d_nu)
 acont  = REF["acont"].astype(np.float64)     # continuum absorption [per layer, per freq] (Lecture 3)
 sigmac = REF["sigmac"].astype(np.float64)    # continuum scattering
 scont  = REF["scont"].astype(np.float64)     # continuum source function
-nf = freq.size
+nf = freq.size''')
 
-# five accumulators, all functions of depth:
-ross_acc = np.zeros(n)   # Rosseland denominator: int (1/kappa) dB/dT d_nu
+md(r"""We accumulate **five** depth profiles as we sweep frequency. The Rosseland accumulator (`ross_acc`) becomes the optical-depth scale; the other four (`flxrad`, `rjmins`, `rdabh`, `rdiagj`) feed the temperature correction. We allocate them as zeros and add each frequency's weighted contribution inside the loop.""")
+
+code(r'''# five accumulators, all functions of depth:
+ross_acc = np.zeros(n)   # Rosseland integral: int (1/kappa) dB/dT d_nu  (becomes the denominator)
 flxrad   = np.zeros(n)   # int H_nu d_nu        -> the radiative flux at each depth
 rjmins   = np.zeros(n)   # int kappa (J-S) d_nu -> the net radiative heating
 rdabh    = np.zeros(n)   # int (d kappa/d rhox)/kappa * H_nu d_nu  (opacity-gradient term)
@@ -309,7 +350,7 @@ md(r"""### What the four correction integrals mean
 Before we run the loop, here is what each correction integral is for — the physics is easier to follow now than buried in code.
 
 - **`flxrad` $=\int H_\nu\,d\nu$** is simply the **total radiative flux** at each depth. Radiative equilibrium says this should equal the constant target $H$; the whole correction exists to make it so.
-- **`rjmins` $=\int \kappa_\nu (J_\nu - S_\nu)\,d\nu$** is the **net radiative heating rate**. Where the gas absorbs more than it emits ($J_\nu>S_\nu$, mean intensity exceeds source), it is being heated; the integral measures that imbalance and is the surface diagnostic for the local correction.
+- **`rjmins` $=\int \kappa_\nu (J_\nu - S_\nu)\,d\nu$** is the ATLAS heating residual, **proportional to the net radiative heating rate** (constant angular factors like $4\pi$ are absorbed into the code's flux convention, so do not read its absolute value as erg s$^{-1}$ cm$^{-3}$). Where the gas absorbs more than it emits ($J_\nu>S_\nu$, mean intensity exceeds source), it is being heated; the integral measures that imbalance and is the surface diagnostic for the local correction.
 - **`rdabh`** carries the **opacity gradient** $\frac{d\kappa_\nu/d(\rho x)}{\kappa_\nu}$ weighted by the flux: it tells the flux-correction term how the optical-depth scale itself shifts when the structure moves.
 - **`rdiagj`** is the **diagonal of the $\Lambda$ operator** — how strongly the radiation field at a layer responds to a change in that same layer's source function. It is built from the third exponential integral $E_3$ of the local optical-depth step, and it is the denominator of the local-$\Lambda$ correction below (it converts a flux error into the temperature change that would cancel it).
 
@@ -317,6 +358,7 @@ We need one special function, $E_3$. The exponential integral $E_3(\tau)=\int_1^
 
 code(r'''def expi3(x):
     """Third exponential integral E_3(x) via Kurucz's rational approximation (Fortran EXPI(3,x))."""
+    # Kurucz's fitted rational-polynomial coefficients for E_1, in three argument ranges:
     a = (-44178.5471728217, 57721.7247139444, 9938.31388962037, 1842.11088668, 101.093806161906, 5.03416184097568)
     b = (76537.3323337614, 32597.1881290275, 6106.10794245759, 635.419418378382, 37.2298352833327)
     c = (4.65627107975096e-7, 0.999979577051595, 9.04161556946329, 24.3784088791317, 23.0192559391333, 6.90522522784444, 0.430967839469389)
@@ -324,51 +366,55 @@ code(r'''def expi3(x):
     e = (-0.999999999998447, -26.6271060431811, -241.055827097015, -895.927957772937, -1298.85688746484, -545.374158883133, -5.66575206533869)
     fc = (28.6271060422192, 292.310039388533, 1332.78537748257, 2777.61949509163, 2404.01713225909, 631.6574832808)
     if x <= 0.0:
-        ex1 = 0.0
+        ex1 = 0.0                          # E_1(0) handled by the recurrence below
     else:
         ex = np.exp(-x)
-        if x > 4.0:
+        if x > 4.0:                        # large x: asymptotic rational form for E_1
             ex1 = (ex + ex*(e[0]+(e[1]+(e[2]+(e[3]+(e[4]+(e[5]+e[6]/x)/x)/x)/x)/x)/x)
                    / (x+fc[0]+(fc[1]+(fc[2]+(fc[3]+(fc[4]+fc[5]/x)/x)/x)/x)/x)) / x
-        elif x > 1.0:
+        elif x > 1.0:                      # intermediate x
             ex1 = ex*(c[6]+(c[5]+(c[4]+(c[3]+(c[2]+(c[1]+c[0]*x)*x)*x)*x)*x)*x) / (dd[5]+(dd[4]+(dd[3]+(dd[2]+(dd[1]+(dd[0]+x)*x)*x)*x)*x)*x)
-        else:
+        else:                              # small x: rational fit minus the log singularity
             ex1 = (a[0]+(a[1]+(a[2]+(a[3]+(a[4]+a[5]*x)*x)*x)*x)*x) / (b[0]+(b[1]+(b[2]+(b[3]+(b[4]+x)*x)*x)*x)*x) - np.log(x)
-    out = ex1
-    for i in range(1, 3):                  # E_1 -> E_2 -> E_3 recurrence (two steps)
+    out = ex1                              # out now holds E_1(x)
+    for i in range(1, 3):                  # climb E_1 -> E_2 -> E_3 via E_{n+1} = (e^-x - x E_n)/n
         out = (np.exp(-x) - x*out) / float(i)
     return out''')
 
 md(r"""### The sweep
 
-Now the loop. For each frequency we build $B_\nu$ and $\partial B_\nu/\partial T$ (the latter being $B_\nu\cdot h\nu/kT/(1-e^{-h\nu/kT})$), call JOSH, and add this frequency's contribution into the five accumulators with the quadrature weight `rco`. The Rosseland accumulator gets $\frac{1}{\kappa_\nu}\frac{\partial B_\nu}{\partial T}$; the flux gets $H_\nu$; the heating gets $\kappa_\nu(J_\nu - S_\nu)$; the opacity-gradient term gets $\frac{1}{\kappa_\nu}\frac{d\kappa_\nu}{d(\rho x)}H_\nu$; and `rdiagj` gets the $E_3$-based $\Lambda$-diagonal scaled by $\partial B_\nu/\partial T$ and the scattering fraction. The `rdiagj` inner block walks the layers building the running diagonal `diagj` from the optical-depth step between adjacent layers — small steps use a series expansion of $E_3$, larger steps the direct evaluation — exactly as ATLAS does. This is the heavy lift of the lecture; on 30000 frequencies it takes a couple of minutes.""")
+Now the loop. For each frequency we build $B_\nu$ and $\partial B_\nu/\partial T$ (the latter being $\partial B_\nu/\partial T = B_\nu\,[h\nu/(kT)]\,/\,[T(1-e^{-h\nu/kT})]$ — note the explicit extra $1/T$, which the code carries), call JOSH, and add this frequency's contribution into the five accumulators with the quadrature weight `rco`. The Rosseland accumulator gets $\frac{1}{\kappa_\nu}\frac{\partial B_\nu}{\partial T}$; the flux gets $H_\nu$; the heating gets $\kappa_\nu(J_\nu - S_\nu)$; the opacity-gradient term gets $\frac{1}{\kappa_\nu}\frac{d\kappa_\nu}{d(\rho x)}H_\nu$; and `rdiagj` gets the $E_3$-based $\Lambda$-diagonal scaled by $\partial B_\nu/\partial T$ and the scattering fraction. The `rdiagj` inner block walks the layers building the running diagonal `diagj` from the optical-depth step between adjacent layers — small steps use a series expansion of $E_3$, larger steps the direct evaluation — exactly as ATLAS does. This is the heavy lift of the lecture; on 30000 frequencies it takes a couple of minutes.""")
 
 code(r'''for inu in range(nf):
-    f = float(freq[inu]); w = float(rco[inu])
-    ehvkt = np.exp(-f*hkt); stim = np.maximum(1.0 - ehvkt, 1e-300)   # stimulated-emission factor
-    bnu = 1.47439e-2 * ((f/1e15)**3) * ehvkt / stim                   # Planck function B_nu(T)
-    ac = acont[:, inu]; sc = sigmac[:, inu]; so = scont[:, inu]
+    f = float(freq[inu]); w = float(rco[inu])                        # this frequency and its quadrature weight d_nu
+    ehvkt = np.exp(-f*hkt); stim = np.maximum(1.0 - ehvkt, 1e-300)   # e^{-hv/kT} and the stimulated-emission factor
+    bnu = 1.47439e-2 * ((f/1e15)**3) * ehvkt / stim                   # Planck function B_nu(T) (ATLAS constant)
+    ac = acont[:, inu]; sc = sigmac[:, inu]; so = scont[:, inu]       # this frequency's continuum opacity/source
 
-    taunu, hnu, jmins, abtot, alpha = josh_profiles(ac, so, sc, rhox, bnu)
-    if np.any(hnu < 0.0): hnu = np.maximum(hnu, 1e-99)                # ATLAS safety clamp
+    taunu, hnu, jmins, abtot, alpha = josh_profiles(ac, so, sc, rhox, bnu)   # JOSH depth profiles
+    if np.any(hnu < 0.0): hnu = np.maximum(hnu, 1e-99)                # ATLAS safety clamp on the flux
 
-    dbdt = bnu * f * hkt / np.maximum(T*stim, 1e-300)                 # dB_nu/dT
-    ross_acc += dbdt / np.maximum(abtot, 1e-300) * w                 # Rosseland: 1/kappa weighting
-    rdabh    += deriv(rhox, abtot) / np.maximum(abtot, 1e-300) * hnu * w
-    rjmins   += abtot * jmins * w
-    flxrad   += hnu * w
+    # dB_nu/dT, with the explicit 1/T factor (= B_nu * hv/kT / [T (1-e^{-hv/kT})])
+    dbdt = bnu * f * hkt / np.maximum(T*stim, 1e-300)
+    ross_acc += dbdt / np.maximum(abtot, 1e-300) * w                 # Rosseland integrand: (1/kappa) dB/dT
+    rdabh    += deriv(rhox, abtot) / np.maximum(abtot, 1e-300) * hnu * w   # (dkappa/d rhox)/kappa * H_nu
+    rjmins   += abtot * jmins * w                                    # kappa (J-S): net heating
+    flxrad   += hnu * w                                              # H_nu: the radiative flux
 
+    # --- the Lambda diagonal: running E_3-based contribution, layer by layer ---
     term2 = 0.0
-    for j in range(n):                                                # build the Lambda diagonal
-        term1 = term2
-        d = 1e-10 if j == n-1 else (taunu[j+1] - taunu[j]); d = max(1e-10, float(d))
+    for j in range(n):
+        term1 = term2                                                # carry the previous layer's half-step term
+        d = 1e-10 if j == n-1 else (taunu[j+1] - taunu[j]); d = max(1e-10, float(d))   # optical-depth step to next layer
         if d <= 0.01:
+            # tiny step: series expansion of the E_3 contribution (avoids cancellation)
             term2 = (0.922784335098467 - np.log(d))*d/4.0 + d*d/12.0 - d**3/96.0 + d**4/720.0
         else:
-            ex = expi3(d) if d < 10.0 else 0.0
+            ex = expi3(d) if d < 10.0 else 0.0                       # direct E_3 (negligible past d=10)
             term2 = 0.5*(d + ex - 0.5)/d
-        diagj = term1 + term2
-        dbdtj = bnu[j]*f*hkt[j] / max(T[j]*stim[j], 1e-300)
+        diagj = term1 + term2                                        # the local Lambda-operator diagonal value
+        dbdtj = bnu[j]*f*hkt[j] / max(T[j]*stim[j], 1e-300)          # dB/dT at this layer
+        # scale by kappa, the scattering correction, and dB/dT; accumulate with weight w
         rdiagj[j] += abtot[j]*(diagj-1.0)/max(1.0-alpha[j]*diagj, 1e-300)*(1.0-alpha[j])*dbdtj*w
 print("frequency sweep complete.")''')
 
@@ -425,9 +471,9 @@ $$
 T_1 = \Delta T_{\rm flux} + \Delta T_\Lambda + \Delta T_{\rm surf}.
 $$
 
-**(1) The Avrett–Krook flux term $\Delta T_{\rm flux}$** enforces flux *constancy* in the deep, optically thick layers. It is the workhorse. The idea (Avrett & Krook 1963) is to find the optical-depth shift $\Delta\tau$ that would make the flux constant, then convert that into a temperature shift via the local temperature gradient. We build a weighting $g(\rho x)=\exp\!\int(\ldots)d(\rho x)$ that carries the opacity-gradient information (`rdabh`), integrate the flux defect against it, clamp the resulting $\Delta\tau$ to $\pm\tau/3$ for stability, and multiply by $-(dT/d(\rho x))/\kappa_{\rm Ross}$ to turn an optical-depth shift into a temperature shift. This term is large and accurate where the atmosphere is thick and the diffusion picture holds.
+**(1) The Avrett–Krook flux term $\Delta T_{\rm flux}$** enforces flux *constancy* in the deep, optically thick layers. It is the workhorse. The idea (Avrett & Krook 1963) is to find the optical-depth shift $\Delta\tau$ that would make the flux constant, then convert that into a temperature shift via the local temperature gradient. We build a weighting $g(\rho x)=\exp\!\int(\ldots)d(\rho x)$ that carries the opacity-gradient information — specifically the *difference* between the true frequency-weighted opacity gradient `rdabh` and the Rosseland mean's own gradient (the code's `rdabh_eff = rdabh - flxrad*dabros/abross`) — integrate the flux defect against it, clamp the resulting $\Delta\tau$ to $\pm\tau/3$ for stability, and multiply by $-(dT/d(\rho x))/\kappa_{\rm Ross}$ to turn an optical-depth shift into a temperature shift. This term is large and accurate where the atmosphere is thick and the diffusion picture holds.
 
-**(2) The local-$\Lambda$ term $\Delta T_\Lambda$** handles the thin **surface** layers, where the Avrett–Krook scheme weakens (there is too little material above to define a meaningful $\Delta\tau$). Here ATLAS uses the local net heating `rjmins` directly: the temperature change needed to cancel the heating is the heating divided by how strongly the radiation responds to it — and that response is exactly the $\Lambda$-diagonal `rdiagj`. So $\Delta T_\Lambda \approx -(\text{flux defect})/\text{rdiagj}\times\kappa_{\rm Ross}$, applied only where the layer is thin ($\tau<1$) and convection is absent. It is smoothed over its five shallower neighbours (to avoid layer-to-layer ringing) and clamped to $\pm T_{\rm eff}/25$.
+**(2) The local-$\Lambda$ term $\Delta T_\Lambda$** handles the thin **surface** layers, where the Avrett–Krook scheme weakens (there is too little material above to define a meaningful $\Delta\tau$). Here ATLAS uses the local **net heating** `rjmins` directly: the temperature change needed to cancel the heating is the heating divided by how strongly the radiation responds to a change in that same layer — and that response is exactly the $\Lambda$-diagonal `rdiagj`. So $\Delta T_\Lambda \approx -(\text{net heating})/\text{rdiagj}$ (the $\kappa_{\rm Ross}$ that the code divides out to form `flxdrv` is multiplied back in `dtlamb`, so it cancels and the physical scaling is simply heating over diagonal response), applied only where the layer is thin ($\tau<1$) and convection is absent. It is smoothed over its five shallower neighbours (to avoid layer-to-layer ringing) and clamped to $\pm T_{\rm eff}/25$.
 
 **(3) The surface-boundary term $\Delta T_{\rm surf}$** fixes the very top layer's emergent flux. The surface flux should be the target $H$; the deviation $(H - H_{\rm surface})/H$ scaled by a quarter of the surface temperature gives a uniform shift, which is then adjusted so it does not double-count what the other two terms already did between $\tau=0.1$ and $\tau=2$, and clamped to $\pm T_{\rm eff}/25$.
 
@@ -437,47 +483,54 @@ code(r'''dtdrhx = deriv(rhox, T)                         # dT/d(rhox), needed to
 dabros = deriv(rhox, abross)                    # d kappa_Ross / d(rhox)
 
 # --- (1) Avrett-Krook flux term -------------------------------------------------
+# rdabh_eff = (true flux-weighted opacity gradient) - (Rosseland mean's own gradient)
 rdabh_eff = rdabh - flxrad * dabros/np.maximum(abross, 1e-300)
 flxrad_safe = np.where(np.abs(flxrad) >= 1e-300, flxrad, 1e-300)   # floor the divisor: one division, no overflow in a discarded np.where branch
-codrhx = rdabh_eff / flxrad_safe
+codrhx = rdabh_eff / flxrad_safe                # gradient integrand for the weighting g
 codrhx[0] = 0.0; codrhx[1] = 0.0                # boundary layers carry no gradient weighting
-g = np.exp(integ(rhox, codrhx, 0.0))            # Avrett-Krook weighting g(rhox)
-gflux = g * (flxrad - flux) / np.where(np.abs(flxrad) >= 1e-300, flxrad, 1e-300)
-dtau = integ(tauros, gflux, 0.0) / np.maximum(g, 1e-300)
+g = np.exp(integ(rhox, codrhx, 0.0))            # Avrett-Krook weighting g(rhox) = exp(int codrhx d rhox)
+gflux = g * (flxrad - flux) / np.where(np.abs(flxrad) >= 1e-300, flxrad, 1e-300)   # flux defect, weighted by g
+dtau = integ(tauros, gflux, 0.0) / np.maximum(g, 1e-300)          # the optical-depth shift that flattens the flux
 dtau = np.clip(dtau, -tauros/3.0, tauros/3.0)   # stability clamp on the optical-depth shift
-dtflux = -dtau * dtdrhx / np.maximum(abross, 1e-300)
+dtflux = -dtau * dtdrhx / np.maximum(abross, 1e-300)   # convert dtau -> dT via the local gradient
 dtflux = np.nan_to_num(dtflux)
+print(f"(1) Avrett-Krook flux term: dtflux[40] = {dtflux[40]:+.2f} K  (deep, optically thick)")''')
 
-# --- (2) local-Lambda surface term ----------------------------------------------
-teff25 = TEFF/25.0
-flxdrv = rjmins / np.maximum(abross, 1e-300) / flux * 100.0   # surface heating diagnostic (% units)
+md(r"""**Term (2), the local-$\Lambda$ surface term.** We loop over layers, dividing the net heating by the $\Lambda$-diagonal at each one to get the temperature change that cancels the local heating residual. We keep it only in the optically thin surface ($\tau_{\rm Ross}<1$); below that the Avrett–Krook term owns the structure, so we zero $\Delta T_\Lambda$ there and halve it over the five shallower neighbours to suppress layer-to-layer ringing. Each value is clamped to $\pm T_{\rm eff}/25$.""")
+
+code(r'''# --- (2) local-Lambda surface term ----------------------------------------------
+teff25 = TEFF/25.0                                            # the per-term clamp magnitude
+flxdrv = rjmins / np.maximum(abross, 1e-300) / flux * 100.0   # net-heating diagnostic (% units; abross cancels below)
 dtlamb = np.zeros(n)
 for j in range(n):
-    denom = rdiagj[j] if abs(rdiagj[j]) > 1e-300 else np.sign(rdiagj[j])*1e-300
-    dtlamb[j] = -flxdrv[j] * flux/100.0 / denom * abross[j]    # flux defect / Lambda-diagonal
-    if not (tauros[j] < 1.0):                                  # apply only in the thin surface
+    denom = rdiagj[j] if abs(rdiagj[j]) > 1e-300 else np.sign(rdiagj[j])*1e-300   # guard /0
+    dtlamb[j] = -flxdrv[j] * flux/100.0 / denom * abross[j]    # net heating / Lambda-diagonal (abross multiplies back in)
+    if not (tauros[j] < 1.0):                                  # apply only in the thin surface (tau < 1)
         dtlamb[j] = 0.0
         for k in range(1, 6):                                 # smooth over 5 shallower neighbours
             if j-k >= 0: dtlamb[j-k] *= 0.5
-    dtlamb[j] = float(np.clip(dtlamb[j], -teff25, teff25))
+    dtlamb[j] = float(np.clip(dtlamb[j], -teff25, teff25))    # clamp to +/- Teff/25
 dtlamb = np.nan_to_num(dtlamb)
+print(f"(2) local-Lambda surface term: dtlamb[0] = {dtlamb[0]:+.1f} K  (thin surface only)")''')
 
-# --- (3) surface-boundary term --------------------------------------------------
-dtsur = float(np.clip((flux - flxrad[0])/flux * 0.25 * T[0], -teff25, teff25))
-tinteg = integ(tauros, dtflux + dtlamb, 0.0)    # remove the part the other terms already did
-tav = (map1_scalar(tauros, tinteg, 2.0) - map1_scalar(tauros, tinteg, 0.1)) / 2.0
-if dtsur*tav <= 0.0: tav = 0.0
-if abs(tav) > abs(dtsur): tav = dtsur
-dtsurf = np.full(n, dtsur - tav)
+md(r"""**Term (3), the surface-boundary term.** The very top layer's emergent flux should equal the target $H$; the scaled deviation $(H - H_{\rm surface})/H\times\tfrac14 T[0]$ gives a uniform offset `dtsur`. We then subtract the part of the offset that the other two terms have *already* applied between $\tau_{\rm Ross}=0.1$ and $2$ (read off by integrating $\Delta T_{\rm flux}+\Delta T_\Lambda$ and averaging across that range), so the surface term does not double-count — and clamp. Summing the three gives the total correction $T_1$.""")
+
+code(r'''# --- (3) surface-boundary term --------------------------------------------------
+dtsur = float(np.clip((flux - flxrad[0])/flux * 0.25 * T[0], -teff25, teff25))   # scaled surface flux deviation
+tinteg = integ(tauros, dtflux + dtlamb, 0.0)    # cumulative of the other two terms vs tau
+tav = (map1_scalar(tauros, tinteg, 2.0) - map1_scalar(tauros, tinteg, 0.1)) / 2.0   # their average over tau in [0.1, 2]
+if dtsur*tav <= 0.0: tav = 0.0                  # only remove overlap of the same sign
+if abs(tav) > abs(dtsur): tav = dtsur           # never over-subtract
+dtsurf = np.full(n, dtsur - tav)                # uniform surface offset, double-count removed
 dtsurf = np.nan_to_num(dtsurf)
 
-t1 = dtflux + dtlamb + dtsurf                   # the total temperature correction
-print(f"correction terms (K):  dtflux[40]={dtflux[40]:+.2f}  dtlamb[0]={dtlamb[0]:+.1f}  dtsurf={dtsur:+.1f}")
+t1 = dtflux + dtlamb + dtsurf                   # the total temperature correction T1
+print(f"(3) surface-boundary term: dtsur = {dtsur:+.1f} K")
 print(f"total T1: surface={t1[0]:+.1f} K   deep={t1[-1]:+.1f} K")''')
 
 md(r"""### Applying the correction (with the monotonicity guard)
 
-The new temperature is $T + T_1$, with one guard: the temperature must increase monotonically with depth (a physical atmosphere never gets cooler as you go deeper into the photosphere). ATLAS enforces this from the bottom up, forcing each layer to be at least 1 K cooler than the one below it. We apply that clamp and benchmark the corrected temperature against the reference correction terms.""")
+The new temperature is $T + T_1$, with one guard: in this 1D LTE photospheric ATLAS model the temperature is expected to increase inward (chromospheres, irradiated atmospheres, and other non-standard cases can invert it, but none arise here), so ATLAS enforces monotonicity from the bottom up, forcing each layer to be at least 1 K cooler than the one below it. We apply that clamp and benchmark the corrected temperature against the reference correction terms.""")
 
 code(r'''tnew = np.maximum(T + t1, 1.0)
 for i in range(1, n):                            # monotonicity: each layer >= 1 K below its deeper neighbour
@@ -494,65 +547,74 @@ md(r"""## Re-integrating hydrostatic equilibrium: the density correction
 
 Moving the temperature changes the pressure, and pressure balance must be restored. ATLAS recomputes the hydrostatic structure for the corrected temperature and reads off the fractional change in total pressure as the density correction $\Delta\rho x$. Concretely it runs the Lecture-9 `TTAUP` integrator **twice** — once on the old temperature $T$ and once on $T+T_1$ — on the standard optical-depth grid, takes the fractional pressure difference $(P_{T+T_1} - P_T)/P_T$, and maps it back to apply $\rho x \to \rho x\,(1+\text{that fraction})$.
 
-The one new ingredient since Lecture 9 is the **opacity** the integrator uses. On the cold start, `TTAUP` had an empty table and used $\kappa\equiv1$. Now, having just computed $\kappa_{\rm Ross}$ at every layer, ATLAS builds a small **`ROSSTAB`** lookup table from this iteration's $(T, P, \kappa_{\rm Ross})$ triples, and `TTAUP` interpolates that table for the opacity at each step. So the pressure re-integration uses the *real* Rosseland opacity, not the placeholder. We reproduce `ROSSTAB` (a normalised log-space nearest-neighbour-per-quadrant interpolation) and the `TTAUP` integrator below.""")
+The one new ingredient since Lecture 9 is the **opacity** the integrator uses. On the cold start, `TTAUP` had an empty table and used $\kappa\equiv1$. Now, having just computed $\kappa_{\rm Ross}$ at every layer, ATLAS builds a small **`ROSSTAB`** lookup table from this iteration's $(T, P, \kappa_{\rm Ross})$ triples, and `TTAUP` interpolates that table for the opacity at each step. So the pressure re-integration uses the *real* Rosseland opacity, not the placeholder. We reproduce `ROSSTAB` (a normalised log-space nearest-neighbour-per-quadrant interpolation) and the `TTAUP` integrator below.
+
+`Rosstab` works entirely in normalised $(\log T, \log P)$ coordinates: `__init__` stores every layer's normalised point and its $\log_{10}\kappa_{\rm Ross}$; `eval(T, P)` finds, for a query point, the nearest stored sample in each of the four sign-quadrants of $(\Delta\log T, \Delta\log P)$ and does a bilinear blend across them (falling back to an inverse-distance weight if a quadrant is empty). It is a small enough class to keep whole; the comments mark the quadrant logic and the blend.""")
 
 code(r'''class Rosstab:
     """Small opacity lookup built from this iteration's (T, P, kappa_Ross) at every layer.
     Interpolates log10(kappa) in normalised (log T, log P) space by a nearest-neighbour-
     per-quadrant bilinear scheme (Fortran ROSSTAB)."""
     def __init__(self, T, P, kappa):
+        # normalise (log T, log P) to [0,1] across the layer range, so distances are comparable
         self.zerot = np.log10(max(float(T[0]), 1e-300));  self.zerop = np.log10(max(float(P[0]), 1e-300))
         self.slopet = (np.log10(max(float(T[-1]), 1e-300)) - self.zerot) or 1.0
         self.slopep = (np.log10(max(float(P[-1]), 1e-300)) - self.zerop) or 1.0
-        self.t = (np.log10(np.maximum(T, 1e-300)) - self.zerot)/self.slopet
-        self.p = (np.log10(np.maximum(P, 1e-300)) - self.zerop)/self.slopep
-        self.k = np.log10(np.maximum(kappa, 1e-300)); self.nn = T.size
+        self.t = (np.log10(np.maximum(T, 1e-300)) - self.zerot)/self.slopet   # normalised log T per layer
+        self.p = (np.log10(np.maximum(P, 1e-300)) - self.zerop)/self.slopep   # normalised log P per layer
+        self.k = np.log10(np.maximum(kappa, 1e-300)); self.nn = T.size        # stored log10 kappa
     def eval(self, temp, pressure):
-        tl = (np.log10(max(temp, 1e-300)) - self.zerot)/self.slopet
+        tl = (np.log10(max(temp, 1e-300)) - self.zerot)/self.slopet           # query point in the same frame
         pl = (np.log10(max(pressure, 1e-300)) - self.zerop)/self.slopep
-        best = [(1e30, -1)]*4   # four quadrants: (++, +-, -+, --) by sign of (dt, dp)
+        best = [(1e30, -1)]*4   # nearest sample in each of four quadrants: (++, +-, -+, --) by sign of (dt, dp)
         for i in range(self.nn):
-            dt = self.t[i]-tl; dp = self.p[i]-pl; r2 = dt*dt+dp*dp
-            q = (0 if dt >= 0 else 2) + (0 if dp >= 0 else 1)
-            if r2 < best[q][0]: best[q] = (r2, i)
-        if all(b[1] >= 0 for b in best):                       # bilinear blend across the four
+            dt = self.t[i]-tl; dp = self.p[i]-pl; r2 = dt*dt+dp*dp            # squared distance to sample i
+            q = (0 if dt >= 0 else 2) + (0 if dp >= 0 else 1)                 # which quadrant sample i sits in
+            if r2 < best[q][0]: best[q] = (r2, i)                            # keep the closest per quadrant
+        if all(b[1] >= 0 for b in best):                       # all four quadrants populated -> bilinear blend
+            # pull the four corner samples (++, +-, -+, --)
             (tpp, ppp, vpp) = (self.t[best[0][1]], self.p[best[0][1]], self.k[best[0][1]])
             (tpm, ppm, vpm) = (self.t[best[1][1]], self.p[best[1][1]], self.k[best[1][1]])
             (tmp, pmp, vmp) = (self.t[best[2][1]], self.p[best[2][1]], self.k[best[2][1]])
             (tmm, pmm, vmm) = (self.t[best[3][1]], self.p[best[3][1]], self.k[best[3][1]])
             den_tp = max(tpp-tmp, 1e-300); den_tm = max(tpm-tmm, 1e-300)
+            # interpolate in T along each P-edge, then in P between the two edges
             rA = ((tl-tmp)*vpp + (tpp-tl)*vmp)/den_tp; rB = ((tl-tmm)*vpm + (tpm-tl)*vmm)/den_tm
             pA = ((tl-tmp)*ppp + (tpp-tl)*pmp)/den_tp; pB = ((tl-tmm)*ppm + (tpm-tl)*pmm)/den_tm
             r = ((pl-pB)*rA + (pA-pl)*rB)/max(pA-pB, 1e-300)
             return 10.0**r
+        # a quadrant is empty (query outside the hull): inverse-distance weight of the nearest samples
         w = [1.0/(np.sqrt(b[0])+1e-5) for b in best]; idx = [max(b[1], 0) for b in best]
         r = sum(self.k[idx[q]]*w[q] for q in range(4)) / max(sum(w), 1e-300)
         return 10.0**r''')
 
 code(r'''def ttaup(t, tau, prad, grav, rosstab):
-    """Hydrostatic re-integration in log pressure (Lecture 9 TTAUP), opacity from ROSSTAB."""
+    """Hydrostatic re-integration in log pressure (Lecture 9 TTAUP), opacity from ROSSTAB.
+    Marches down the tau grid solving dP/dtau = g/kappa, inner-iterating because kappa = kappa(T, P)."""
     nn = int(t.size); abstd = np.zeros(nn); ptotal = np.zeros(nn); pgas = np.zeros(nn)
-    dlg = np.log(max(float(tau[1]/max(tau[0], 1e-300)), 1e-300)) if nn > 1 else 0.0
-    p1 = p2 = p3 = p4 = 0.0; q1 = q2 = q3 = 0.0
-    abstd[0] = min(0.1, grav*tau[0]/max(prad[0], 1e-300)/2.0) if prad[0] > 0.0 else 0.1
+    dlg = np.log(max(float(tau[1]/max(tau[0], 1e-300)), 1e-300)) if nn > 1 else 0.0   # log-tau step
+    p1 = p2 = p3 = p4 = 0.0; q1 = q2 = q3 = 0.0   # rolling history of log P and its derivative (multistep predictor)
+    abstd[0] = min(0.1, grav*tau[0]/max(prad[0], 1e-300)/2.0) if prad[0] > 0.0 else 0.1   # top-layer opacity seed
     for j in range(nn):
+        # predictor for log P at this layer: boundary form, then low-order, then the multistep formula
         if j == 0:   plog = np.log(max(grav/max(abstd[0], 1e-300)*tau[0], 1e-300))
         elif j <= 3: plog = p1 + q1
         else:        plog = (3.0*p4 + 8.0*q1 - 4.0*q2 + 8.0*q3)/3.0
         err = 1.0; dplog = 0.0; itn = 1
-        while True:
-            plog = min(plog, 709.78); ptotal[j] = np.exp(plog)
-            pgas[j] = ptotal[j] + (prad[0]-prad[j])
+        while True:                                   # corrector loop: kappa depends on P, so iterate
+            plog = min(plog, 709.78); ptotal[j] = np.exp(plog)   # guard against exp overflow
+            pgas[j] = ptotal[j] + (prad[0]-prad[j])   # gas pressure = total - radiation-pressure offset
             if pgas[j] <= 0.0: pgas[j] = 1e-30; abstd[j] = 0.1; break
-            abstd[j] = rosstab.eval(float(t[j]), float(pgas[j]))
-            dplog = grav/max(abstd[j], 1e-300)*tau[j]/max(ptotal[j], 1e-300)*dlg
+            abstd[j] = rosstab.eval(float(t[j]), float(pgas[j]))   # opacity from the ROSSTAB lookup
+            dplog = grav/max(abstd[j], 1e-300)*tau[j]/max(ptotal[j], 1e-300)*dlg   # d(log P)
             itn += 1
-            if itn > 1000 or err <= 5.0e-5: break
+            if itn > 1000 or err <= 5.0e-5: break     # converged (or give up)
+            # corrected log P: boundary form, low-order, then the high-order multistep corrector
             if j == 0:   pnew = np.log(max(grav/max(abstd[j], 1e-300)*tau[j], 1e-300))
             elif j <= 3: pnew = (plog + 2.0*p1 + dplog + q1)/3.0
             else:        pnew = (126.0*p1 - 14.0*p3 + 9.0*p4 + 42.0*dplog + 108.0*q1 - 54.0*q2 + 24.0*q3)/121.0
-            err = abs(pnew - plog); plog = 0.5*(pnew + plog)
-        p4 = p3; p3 = p2; p2 = p1; p1 = plog; q3 = q2; q2 = q1; q1 = dplog
+            err = abs(pnew - plog); plog = 0.5*(pnew + plog)   # damped update
+        p4 = p3; p3 = p2; p2 = p1; p1 = plog; q3 = q2; q2 = q1; q1 = dplog   # roll the history forward
     return ptotal
 
 # build ROSSTAB from this iteration's (T, P, kappa_Ross), then run TTAUP on T and on T+T1
@@ -584,7 +646,7 @@ rX = rel("corrected RHOX", rhox_out, "rhox_out")''')
 # ── benchmark verdict ────────────────────────────────────────────────────────
 md(r"""## The benchmark
 
-The corrected temperature reproduces the production code to **machine precision** ($\sim10^{-9}$). The corrected column mass sits at $\sim10^{-5}$ — its only floor. That floor is the **float32** $\Lambda$-iteration inside JOSH (the one single-precision step in the whole pipeline, Lecture 8): its last-bit jitter in $\kappa_\nu$ propagates into $\kappa_{\rm Ross}$, then into the `ROSSTAB` table, where the nearest-neighbour-per-quadrant lookup can occasionally pick a *different* sample when $\kappa_{\rm Ross}$ moves by that ULP — producing a tiny discrete jump in the density correction. It is the same $10^{-5}$ floor the production code's own `TCORR` shows when fed identical inputs; it is far below the $10^{-4}$ convergence threshold, and it washes out over the iteration sequence. The temperature — the quantity radiative equilibrium is actually solving for — is exact to the bit.""")
+The corrected temperature reproduces the production code at the **accumulated float64 roundoff level** for this pipeline — $\sim10^{-9}$ relative, i.e. bit-for-bit agreement with the reference path within rounding (not the much smaller double-precision $\epsilon$ itself, but the roundoff accumulated through the whole chain). The corrected column mass sits at $\sim10^{-5}$ — its only floor. That floor is the **float32** $\Lambda$-iteration inside JOSH (the one single-precision step in the whole pipeline, Lecture 8): its last-bit jitter in $\kappa_\nu$ propagates into $\kappa_{\rm Ross}$, then into the `ROSSTAB` table, where the nearest-neighbour-per-quadrant lookup can occasionally pick a *different* sample when $\kappa_{\rm Ross}$ moves by that ULP — producing a tiny discrete jump in the density correction. It is the same $10^{-5}$ floor the production code's own `TCORR` shows when fed identical inputs; it is far below the $10^{-4}$ convergence threshold, and it washes out over the iteration sequence. The temperature — the quantity radiative equilibrium is actually solving for — is exact to the bit.""")
 
 code(r'''print("="*64)
 print("LECTURE 10 BENCHMARK")
