@@ -52,7 +52,7 @@ $$
 \kappa^{\rm line}_\lambda = \underbrace{\kappa^{\rm metal}_\lambda + \kappa^{\rm He}_\lambda}_{\text{this lecture (atomic, Voigt)}} \;+\; \underbrace{\kappa^{\rm H}_\lambda}_{\text{next lecture (hydrogen, linear Stark)}},
 $$
 
-and we rebuild the first piece here, to the bit. The new ideas beyond Lecture 4 are practical and exact: the format of a line record, the logarithmic grid, the production code's **exact population normalisation** (the missing ingredient that earlier left an overall offset), the tabulated **FASTEX** exponential, and the **wing-accumulation kernel** that walks outward from each line center and stops at the cutoff. The output is the total atomic line opacity per depth and wavelength — the last microphysics ingredient the radiative transfer of Lectures 7–8 needs.
+and we rebuild the first piece here, to point-by-point agreement with the reference. The new ideas beyond Lecture 4 are practical and exact: the format of a line record, the logarithmic grid, the production code's **exact population normalisation** (the missing ingredient that earlier left an overall offset), the tabulated **FASTEX** exponential, and the **wing-accumulation kernel** that walks outward from each line center and stops at the cutoff. The output is the total atomic line opacity per depth and wavelength — the last microphysics ingredient the radiative transfer of Lectures 7–8 needs.
 
 ![Total line opacity is the sum of every line's Voigt profile on the wavelength grid; a cutoff skips the lines too weak to register against the continuum.](resources/figures/s5_linelist.png)""")
 
@@ -93,9 +93,9 @@ md(r"""## Anatomy of a line record
 
 Each line in the Kurucz list is one row of fixed-width fields. The ones that drive the opacity are:
 
-- **wavelength** (nm, vacuum) — where the line sits;
+- **wavelength** (nm, vacuum, as stored in this preprocessed pykurucz catalog) — where the line sits;
 - **`log gf`** — the base-ten log of oscillator strength times lower-level statistical weight, the line's intrinsic strength (Lecture 4);
-- the **species code** $Z.\mathrm{ion}$ (e.g. $26.00 = \mathrm{Fe\,I}$, $26.01 = \mathrm{Fe\,II}$) — which atom and ionization stage;
+- the **species code** $Z.\mathrm{ion}$ (e.g. $26.00 = \mathrm{Fe\,I}$, $26.01 = \mathrm{Fe\,II}$) — which atom and ionization stage. The printed species code uses `.00` for neutral, but the array variable `ion` in the code below is one-based: `1 = neutral`, `2 = singly ionized`, and so on.
 - the **lower-level excitation energy** $\chi_\ell$ (stored in $\mathrm{cm^{-1}}$; divide by $8065.54$ for eV) — which, with the population, sets the line strength;
 - three **damping constants** $\gamma_{\rm rad}, \gamma_{\rm Stark}, \gamma_{\rm vdW}$ — the natural, Stark, and van der Waals broadening rates;
 - a **line-type code** that routes the line to the right kernel: $0$ for an ordinary metal Voigt line, $-3/-4/-6$ for the helium lines, $-1/-2$ for hydrogen.
@@ -118,7 +118,7 @@ print(f"{'wavelength':>11} {'species':>8} {'log gf':>7} {'chi_l[eV]':>9}")
 for i in order:
     print(f"{lam[i]:11.4f} {SYM.get(Zc[i],Zc[i]):>6} {ion[i]:<2}{loggf[i]:7.2f} {Elow_eV[i]:9.3f}")''')
 
-md(r"""The list is not limited to the iron peak. Beyond zinc ($Z=30$) the window also holds **754 heavy lines** — strontium, yttrium, barium, the rare earths — the slow- and rapid-neutron-capture species. They are weaker on average but they are real opacity, and reproducing the production code *to the bit* means including every one of them, all the way to uranium. The catalog spans $Z = 3$ (lithium) to $Z = 92$.""")
+md(r"""The list is not limited to the iron peak. Beyond zinc ($Z=30$) the window also holds **754 heavy lines** — strontium, yttrium, barium, the rare earths — the slow- and rapid-neutron-capture species. They are weaker on average but they are real opacity, and reference-level agreement with the production code means including every one of them, all the way to uranium. The catalog spans $Z = 3$ (lithium) to $Z = 92$.""")
 
 code(r'''nZ = np.unique(Zc[metal])
 print(f"metal lines: {metal.sum()}  spanning Z = {nZ.min()} (Li) to {nZ.max()} (U), {nZ.size} elements")
@@ -134,39 +134,42 @@ md(r"""## The wavelength grid
 
 A synthesis samples wavelength on a **logarithmic grid** of constant resolving power $R = \lambda/\Delta\lambda$, so the spacing $\Delta\lambda = \lambda/R$ grows with wavelength and every line is resolved by the same number of points. Two consequences of the log grid we will use directly:
 
-- **the resolving power** $R$ is fixed by the ratio of adjacent points, $R = 1/(\lambda_{i+1}/\lambda_i - 1)$;
+- **the resolving power** $R$ is fixed by the ratio of adjacent points, $R = 1/(\lambda_{i+1}/\lambda_i - 1)$. This is the code's grid sampling parameter, not an instrumental line-spread resolving power.
 - **a wavelength maps to a grid index** by a logarithm, $\mathrm{index} = \mathrm{round}\!\big(\log\lambda/\log r\big) - \mathrm{index}_0$, where $r = \lambda_{i+1}/\lambda_i$. This is how the code finds each line's center pixel without searching.
 
-Our reference uses $R \approx 300{,}000$, a spacing of $\sim17\ \mathrm{m\AA}$ at $505\ \mathrm{nm}$ — fine enough to resolve the Doppler cores (Lecture 4) of even the narrowest metal lines. We adopt the reference grid so we can compare point by point.""")
+Our reference uses $R \approx 300{,}000$, a spacing of $\sim17\ \mathrm{m\AA}$ at $505\ \mathrm{nm}$ — fine enough to resolve the Doppler cores (Lecture 4) of even the narrowest metal lines. We adopt the reference grid so we can compare point by point. First, read off its resolving power and spacing.""")
 
 code(r'''ratio = grid[1] / grid[0]                                # constant ratio of a log grid
-R = 1.0 / (ratio - 1.0)
+R = 1.0 / (ratio - 1.0)                                  # grid sampling parameter (not instrumental)
 spacing_mA = 1e4 * (grid[grid.size//2+1] - grid[grid.size//2])    # nm -> milli-Angstrom
 print(f"grid: {grid.size} points, {grid[0]:.2f}-{grid[-1]:.2f} nm, R = {R:.0f}, "
-      f"spacing at 505 nm = {spacing_mA:.1f} mA")
+      f"spacing at 505 nm = {spacing_mA:.1f} mA")''')
 
-# log-grid index helpers (engine/opacity._nearest_grid_indices): the exact rounding
-# the production code uses to place a line center and to anchor its wing walk.
-def nearest_grid_indices(grid, values):
+md(r"""**Placing a line on the grid.** The code never searches the grid for a line's wavelength; it inverts the log-grid formula. The **center** index rounds $\log\lambda/\log r$ to the nearest grid point and offsets by the grid's start index, clamping lines that fall off either end. This is the exact rounding the production engine uses (`engine/opacity._nearest_grid_indices`).""")
+
+code(r'''def nearest_grid_indices(grid, values):
     """Center index: IXWL = round(log(wl)/ratiolg); idx = IXWL - IXWLBEG, clamped off-grid."""
-    ratiolg = np.log(grid[1] / grid[0])
-    ix_start = int(np.log(grid[0]) / ratiolg + 0.5)
-    ixwl = (np.log(values) / ratiolg + 0.5).astype(np.int64)
-    indices = ixwl - ix_start
-    indices[values < grid[0]] = -1
-    indices[values > grid[-1]] = grid.size
+    ratiolg = np.log(grid[1] / grid[0])                 # log of the constant grid ratio
+    ix_start = int(np.log(grid[0]) / ratiolg + 0.5)     # rounded log index of the grid origin
+    ixwl = (np.log(values) / ratiolg + 0.5).astype(np.int64)   # rounded log index of each line
+    indices = ixwl - ix_start                           # offset into the grid array
+    indices[values < grid[0]] = -1                      # below the grid: off-grid sentinel
+    indices[values > grid[-1]] = grid.size              # above the grid: off-grid sentinel
     return indices
+print("center-index helper defined")''')
 
-def nearest_grid_indices_raw(grid, values, origin_start):
+md(r"""**The wing anchor is a different index.** The outward wing walk does not start from the rounded center pixel; it is anchored at an index measured from `wbegin`, the *floor* of the grid origin in log space (nudged up if it lands just below the grid). The two anchors differ by at most a pixel, but we reproduce both exactly so the accumulation matches the reference to the bit.""")
+
+code(r'''def nearest_grid_indices_raw(grid, values, origin_start):
     """Wing index: round(log(wl/wbegin)/ratiolg), wbegin = floor of the grid origin in log space."""
     ratiolg = np.log(grid[1] / grid[0])
-    ix_floor = int(np.floor(np.log(origin_start) / ratiolg))
-    wbegin = np.exp(ix_floor * ratiolg)
-    if wbegin < origin_start:
+    ix_floor = int(np.floor(np.log(origin_start) / ratiolg))   # floor (not round) of the origin
+    wbegin = np.exp(ix_floor * ratiolg)                        # log-grid point at or below origin
+    if wbegin < origin_start:                                  # nudge up if it fell below the grid
         ix_floor += 1
         wbegin = np.exp(ix_floor * ratiolg)
     return np.rint(np.log(values / wbegin) / ratiolg).astype(np.int64)
-print("index helpers defined")''')
+print("wing-anchor helper defined")''')
 
 # ════════════════════════════════════════════════════════════════════════════
 #  The exact lower-level population
@@ -181,14 +184,14 @@ $$
 \texttt{population\_per\_ion}[Z,\,\mathrm{ion}] \;=\; \frac{n_{\rm ion}(Z)}{U(Z,\,\mathrm{ion})}.
 $$
 
-Dividing by $U$ up front is the production code's convention, and it is the piece an from-scratch derivation usually misplaces. Second, the fraction of that ion in the specific lower level of the line is the **Boltzmann factor** of its excitation energy. So the lower-level population per unit statistical weight is
+Dividing by $U$ up front is the production code's convention (it ties back to the partition functions $U(Z,\,\mathrm{ion})$ built in Lecture 2), and it is the piece a from-scratch derivation usually misplaces. Second, the fraction of that ion in the specific lower level of the line is the **Boltzmann factor** of its excitation energy. So the lower-level population per unit statistical weight is
 
 $$
-\frac{n_\ell}{g_\ell} \;=\; \frac{n_{\rm ion}(Z)}{U(Z,\,\mathrm{ion})}\;e^{-\chi_\ell / kT}
+\frac{n_\ell}{g_\ell} \;=\; \frac{n_{\rm ion}(Z)}{U(Z,\,\mathrm{ion})}\;e^{-E_\ell / kT}
 \;=\; \texttt{population\_per\_ion}\times e^{-\chi_\ell\,hc/kT},
 $$
 
-with $\chi_\ell$ in $\mathrm{cm^{-1}}$ so that $\chi_\ell\,hc/kT$ is dimensionless (the catalog stores $hc/kT$ as `hckt`). We take `population_per_ion` straight from the atmosphere file — it *is* $n_{\rm ion}/U$, computed once by the equation of state — rather than rebuilding the Saha ladder, so the normalisation is exactly the production code's.""")
+where $E_\ell = \chi_\ell\,hc$ is the lower-level energy. The catalog stores $\chi_\ell$ in $\mathrm{cm^{-1}}$, so multiplying by $hc$ converts the wavenumber to an energy and $\chi_\ell\,hc/kT$ is dimensionless (the catalog stores $hc/kT$ as `hckt`). We take `population_per_ion` straight from the atmosphere file — it *is* $n_{\rm ion}/U$, computed once by the equation of state of Lecture 2 — rather than rebuilding the Saha ladder, so the normalisation is exactly the production code's.""")
 
 code(r'''pop3 = atm["population_per_ion"]    # (depth, ion-1, Z-1) = n_ion / U, the EOS output of Lecture 2
 dop3 = atm["doppler_per_ion"]       # (depth, ion-1, Z-1) Doppler width v_D/c (dimensionless)
@@ -213,22 +216,26 @@ def fast_ex(x):
     """Vectorized FASTEX: e^{-x} with the production table rounding (tables.py EXTAB/EXTABF)."""
     v = np.asarray(x, dtype=np.float64)
     out = np.empty_like(v)
-    out[v == 0.0] = 1.0
+    out[v == 0.0] = 1.0                                 # e^0 = 1 exactly
     neg = v < 0.0;  out[neg] = np.exp(-v[neg])          # negative args: exact exp
     pos = v > 0.0
     if np.any(pos):
-        p = v[pos]; i = np.floor(p).astype(np.int64)
-        tab = i < _EXTAB.size; po = np.empty_like(p)
+        p = v[pos]; i = np.floor(p).astype(np.int64)    # integer part -> EXTAB index
+        tab = i < _EXTAB.size; po = np.empty_like(p)    # within the table range?
         if np.any(tab):
             pt, it = p[tab], i[tab]
+            # fractional part -> EXTABF index, rounded to the nearest 0.001 step
             j = np.clip(np.floor((pt - it) * 1000.0 + 0.5).astype(np.int64), 0, _EXTABF.size - 1)
-            po[tab] = _EXTAB[it] * _EXTABF[j]
+            po[tab] = _EXTAB[it] * _EXTABF[j]           # e^{-x} = e^{-floor} * e^{-frac}
         if np.any(~tab):
-            po[~tab] = np.exp(-p[~tab])                  # out of table: fall back to exp
+            po[~tab] = np.exp(-p[~tab])                 # out of table: fall back to exp
         out[pos] = po
     return out
+print("FASTEX ready")''')
 
-# how close is the table to a true exp? (it is deliberately not identical)
+md(r"""How close is the table to a true `exp`? Below we sample it and print the relative difference. The integer arguments here land (almost) exactly on the `EXTAB` entries, so the difference vanishes; the deliberate rounding only shows up for generic non-integer arguments, where the fractional `EXTABF` lookup introduces its $\sim10^{-3}$-spaced quantization. That tiny, reproducible quantization is exactly what we must match.""")
+
+code(r'''# sample the table against a true exp (the discrepancy lives in non-integer arguments)
 x = np.linspace(0.0, 12.0, 7)
 print("x        FASTEX        np.exp(-x)    rel diff")
 for xi, fe, ex in zip(x, fast_ex(x), np.exp(-x)):
@@ -239,68 +246,73 @@ for xi, fe, ex in zip(x, fast_ex(x), np.exp(-x)):
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## The Voigt profile, from the Harris tables
 
-Lecture 4 built one Voigt profile with `scipy`'s complex error function. The production code instead evaluates the Voigt function $H(a,v)$ from Kurucz's **Harris polynomial tables** `h0tab/h1tab/h2tab` (Harris 1948), with three branches:
+Lecture 4 built one Voigt profile $H(a,v)$ — the convolution of the Doppler core with the Lorentz damping wing — using `scipy`'s complex error function, and tabulated Kurucz's **Harris polynomial coefficients** `h0tab/h1tab/h2tab` (Harris 1948). We reuse those exact tables here (they ship in the catalog), so this is a recap, not a re-derivation: the production code evaluates $H(a,v)$ from them with three branches selected by the damping parameter $a$ and offset $v$:
 
 - a **near-core** table lookup for small damping $a < 0.2$;
 - a **far-wing** asymptotic for large $a$ or large $a+v$ (where $H \to a/\sqrt{\pi}/(a^2+v^2)$);
 - a **mid** polynomial that blends the two.
 
-These tables ship in the catalog (identical to the ones Lecture 4's reference used). We reproduce the exact branch logic because the accumulation below calls it hundreds of times per line, and any deviation accumulates.""")
+We reproduce the exact branch logic because the accumulation below calls it hundreds of times per line, and any deviation accumulates. First, the scalar profile evaluated at a single $(a,v)$.""")
 
-code(r'''h0tab, h1tab, h2tab = cat["h0tab"], cat["h1tab"], cat["h2tab"]   # Harris Voigt tables (== L5)
+code(r'''h0tab, h1tab, h2tab = cat["h0tab"], cat["h1tab"], cat["h2tab"]   # Harris Voigt tables (from L4)
 
 def voigt_profile(v, a, h0tab, h1tab, h2tab):
     """Scalar Voigt H(a,v) via the Kurucz Harris-table routine (voigt_jit.voigt_profile_jit)."""
-    iv = int(abs(v) * 200.0 + 0.5)
-    iv = max(0, min(iv, h0tab.size - 1))
-    if a < 0.2:                                              # near-core: table lookup
+    iv = int(abs(v) * 200.0 + 0.5)                          # |v| -> table index (200 steps / unit)
+    iv = max(0, min(iv, h0tab.size - 1))                    # clamp to the table range
+    if a < 0.2:                                              # near-core: direct table lookup
         if abs(v) > 10.0:
-            return 0.5642 * a / (v * v)
-        return (h2tab[iv] * a + h1tab[iv]) * a + h0tab[iv]
+            return 0.5642 * a / (v * v)                      # far Lorentzian tail of the core branch
+        return (h2tab[iv] * a + h1tab[iv]) * a + h0tab[iv]   # quadratic in a from the tables
     elif a > 1.4 or (a + abs(v)) > 3.2:                      # far wing: Lorentzian asymptote
         aa = a * a; vv = v * v; u = (aa + vv) * 1.4142
         val = a * 0.79788 / u
-        if a <= 100.0:
+        if a <= 100.0:                                       # higher-order correction term
             aau = aa / u; vvu = vv / u; uu = u * u
             val = ((((aau - 10.0*vvu)*aau*3.0 + 15.0*vvu*vvu) + 3.0*vv - aa)/uu + 1.0) * val
         return val
-    else:                                                   # mid: blended polynomial
+    else:                                                   # mid: polynomial blending the two
         vv = v * v; h0 = h0tab[iv]
         h1 = h1tab[iv] + h0 * 1.12838
         h2 = h2tab[iv] + h1 * 1.12838 - h0
         h3 = (1.0 - h2tab[iv]) * 0.37613 - h1 * 0.66667 * vv + h2 * 1.12838
         h4 = (3.0 * h3 - h1) * 0.37613 + h0 * 0.66667 * vv * vv
-        pa = (((h4*a + h3)*a + h2)*a + h1)*a + h0
+        pa = (((h4*a + h3)*a + h2)*a + h1)*a + h0           # Horner: power series in a
         pb = ((-0.122727278*a + 0.532770573)*a - 0.96284325)*a + 0.979895032
         return pa * pb
+print("scalar Voigt profile ready")''')
 
-def voigt_h_at_zero(adamp, h0tab, h1tab, h2tab):
+md(r"""**The center value $H(a,0)$, vectorized over depth.** The wing walk needs the profile's peak amplitude to normalise itself (we explain why below), so we also need $H(a,0)$ — the same branch logic, but with $v=0$ and evaluated for all depths' damping parameters at once. We floor the result at $10^{-30}$ to keep the later division well-defined.""")
+
+code(r'''def voigt_h_at_zero(adamp, h0tab, h1tab, h2tab):
     """Vectorized H(a,0): used to back-solve the wing peak kappa0 (_voigt_h_at_zero)."""
+    # precompute the v=0 polynomial coefficients from the first table entry
     h0_0, h1_0, h2_0 = float(h0tab[0]), float(h1tab[0]), float(h2tab[0])
     h0v = h0_0; h1v = h1_0 + h0v*1.12838; h2v = h2_0 + h1v*1.12838 - h0v
     h3v = (1.0 - h2_0)*0.37613 + h2v*1.12838; h4v = (3.0*h3v - h1v)*0.37613
     a = np.asarray(adamp, dtype=np.float64)
-    h_low = (h2_0*a + h1_0)*a + h0_0
+    h_low = (h2_0*a + h1_0)*a + h0_0                        # a < 0.2 branch
     h_mid = ((((h4v*a + h3v)*a + h2v)*a + h1v)*a + h0v) * \
-            (((-0.122727278*a + 0.532770573)*a - 0.96284325)*a + 0.979895032)
+            (((-0.122727278*a + 0.532770573)*a - 0.96284325)*a + 0.979895032)   # mid branch
     aa = a*a; u = np.maximum(aa*1.4142, 1e-40); base = a*0.79788/u; aau = aa/u
-    h_high = np.where(a <= 100.0,
+    h_high = np.where(a <= 100.0,                           # far-wing branch
                       ((aau*aau*3.0 - aa)/np.maximum(u*u, 1e-40) + 1.0)*base, base)
+    # select the branch per depth, floored to keep the back-solve division safe
     return np.maximum(np.where(a < 0.2, h_low, np.where((a > 1.4) | (a > 3.2), h_high, h_mid)), 1e-30)
-print("Voigt kernel ready")''')
+print("center-value H(a,0) ready")''')
 
 # ════════════════════════════════════════════════════════════════════════════
 #  Line-center opacity (TRANSP)
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## The line-center opacity, and the cutoff
 
-For every line we now form its **peak** opacity per depth, the quantity the production code calls TRANSP, then decide whether the line is worth keeping. Three constants and one factor:
+For every line we now form its **peak** opacity per depth, the quantity the production code calls TRANSP (which we denote $\kappa_0$), then decide whether the line is worth keeping. Three constants and one factor:
 
 $$
 \kappa_0(\text{depth}) \;=\; \underbrace{\frac{0.026538}{\sqrt\pi}\,\frac{gf}{\nu_0}}_{c_{gf}}\;\underbrace{\frac{n_\ell/g_\ell}{\rho\,v_D}}_{\text{population / broadening}}\;e^{-\chi_\ell\,hc/kT},
 $$
 
-where $0.026538 = \pi e^2/m_e c$ is the classical line cross-section integral, $\nu_0$ is the line frequency, $v_D$ is the species' Doppler width (`doppler_per_ion`, in $v/c$), and the last factor is the FASTEX Boltzmann population. Note the stimulated-emission factor $1-e^{-h\nu/kT}$ is **not** here — the production code applies it once to the whole array at the very end, so we do too.
+where $0.026538 = \pi e^2/m_e c$ is the classical line cross-section integral, $\nu_0$ is the line frequency, $\rho$ is the mass density (converting the volumetric cross-section to an opacity per gram), $v_D$ is the species' Doppler width (`doppler_per_ion`, in $v/c$), and the last factor is the FASTEX Boltzmann population. In the implementation below we form the factors in two stages: first the **pre-excitation** amplitude `kappa0_pre` $= c_{gf}\,(n_\ell/g_\ell)/(\rho v_D)$ *without* the Boltzmann factor, then multiply by FASTEX to get $\kappa_0$ — so the Boltzmann factor is applied exactly once, not double-counted. Note the stimulated-emission factor $1-e^{-h\nu/kT}$ is **not** here either — the production code applies it once to the whole array at the very end, so we do too.
 
 The **cutoff** is what makes a million-line synthesis tractable. A line is kept only if its center opacity exceeds $10^{-3}$ of the local continuum, checked twice — before and after the Boltzmann factor:
 
@@ -308,7 +320,9 @@ $$
 \kappa_0^{\rm pre} \ge 10^{-3}\,\kappa^{\rm cont}\quad\text{and}\quad \kappa_0 \ge 10^{-3}\,\kappa^{\rm cont}.
 $$
 
-A line failing either test is too weak to register against the continuum and is dropped entirely — center and wings.""")
+A line failing either test is too weak to register against the continuum and is dropped entirely — center and wings.
+
+Two later quantities follow from this $\kappa_0$, and it is worth naming them now to avoid confusion. $\kappa_0$ is the production-code *amplitude*, before the final Harris $H(a,v)$ normalisation; the actual center-pixel contribution we add to the grid is `kapcen` $= \kappa_0\,(1-1.128\,a)$ (small $a$) or $\kappa_0\,H(a,0)$. The wing routine, conversely, divides `kapcen` by $H(a,0)$ to recover the profile amplitude used in the outward walk.""")
 
 code(r'''C_LIGHT_NM  = 2.99792458e17        # nm / s
 H_PLANCK    = 6.62607015e-27       # erg s
@@ -323,7 +337,8 @@ gf_lin  = cat["cat_gf"]                                              # gf = 10**
 freq_hz = C_LIGHT_NM / lam                                          # line frequency [Hz]
 cgf     = CGF_CONSTANT * gf_lin / freq_hz                           # the c_gf prefactor, per line
 
-# the van der Waals perturber count txnxn = (n_H + 0.42 n_HeI + 0.85 n_H2) (T/1e4)^0.3
+# the effective van der Waals perturber density (the equation's n_vdW): neutral H, He I, and
+# H2 perturbers, with the (T/1e4)^0.3 van der Waals velocity scaling baked in.
 txnxn = (atm["xnf_h"] + 0.42*atm["xnf_he1"] + 0.85*atm["xnf_h2"]) * (T/1e4)**0.3
 print(f"c_gf prefactor: {cgf.min():.3e} .. {cgf.max():.3e}")
 print(f"cutoff = {CUTOFF:.0e} x local continuum, checked before AND after the Boltzmann factor")''')
@@ -335,60 +350,73 @@ md(r"""## The wing-accumulation kernel
 
 Adding a line is not "evaluate the Voigt profile on a fixed window." The production code **walks outward** from the line center, one grid step at a time in each direction (red and blue), adding the profile value to the running opacity array — and **stops** as soon as the profile falls below the local cutoff. This is what makes the cost scale with how far a line actually reaches, not with a fixed window: a strong line walks far into its wings, a weak one stops after a few steps.
 
-The walk has two regimes, matching the Voigt branches:
+In pseudocode, for one line at one depth:
+
+```
+back-solve the wing amplitude from the center opacity   (divide by H(a,0))
+walk the near wing (steps up to 10 v_D), evaluating H(a,v) from the tables;
+    record where it first drops below the cutoff
+if it never dropped:  set the reach analytically from the 1/v^2 far-wing tail
+walk red and blue together, offset = 1, 2, 3, ...:
+    profile value = near-wing table  OR  far-wing  x_far / offset^2
+    add to the red pixel and the blue pixel
+    stop a direction at the array edge; stop the loop at the reach
+```
+
+So the walk has two regimes, matching the Voigt branches:
 
 - **near wing** (steps up to $10\,v_D$ from center): evaluate $H(a,v)$ from the tables at each step;
 - **far wing** (beyond $10\,v_D$): the profile is Lorentzian, $\propto 1/v^2$, so the code switches to a cheap $x_{\rm far}/n^2$ form anchored at the last tabulated value, and the maximum reach is set analytically by where that falls below the cutoff.
 
-The kernel back-solves the wing peak from the center opacity (dividing by $H(a,0)$) so the profile is exactly normalised, then accumulates. Below is the production routine, with the JIT decorators stripped; the logic is unchanged.""")
+The kernel back-solves the wing peak from the center opacity (dividing by $H(a,0)$) so the profile is exactly normalised, then accumulates. Below is the production routine, with the JIT decorators stripped; the logic is unchanged. The function is one self-contained idea — the three numbered stages above map to the three blocks inside it.""")
 
 code(r'''def process_wing_pair(asynth_d, grid, center_idx, kappa0, adamp, doppler_width,
                       line_wavelength, kapmin_ref, resolu, h0tab, h1tab, h2tab):
     """One (line, depth) wing walk (line_opacity._process_asynth_wing_pair_nb)."""
     n_w = grid.size
-    if doppler_width <= 0.0:
+    if doppler_width <= 0.0:                              # no broadening -> nothing to walk
         return
     dopple = doppler_width / line_wavelength if line_wavelength > 0.0 else 1e-10
     n10dop = int(10.0 * dopple * resolu)                  # last "near-wing" step (10 Doppler widths)
-    dvoigt = 1.0 / (dopple * resolu) if dopple > 0.0 else 1.0
+    dvoigt = 1.0 / (dopple * resolu) if dopple > 0.0 else 1.0   # v increment per grid step
 
-    # 1) find where the near wing drops below the cutoff (or run out at n10dop)
+    # ---- Stage 1: walk the near wing, find where it first drops below the cutoff ----
     nstep_cutoff = n10dop; profile_at_n10dop = 0.0
-    tabstep = 200.0 * dvoigt; tabi = 0.5; broke = False
+    tabstep = 200.0 * dvoigt; tabi = 0.5; broke = False   # tabi tracks the running table index
     for nstep in range(1, n10dop + 1):
-        if adamp < 0.2:
+        if adamp < 0.2:                                   # small-a: cheap table form
             tabi += tabstep; idx = max(int(tabi), 0); x = nstep * dvoigt
             if x > 10.0:
-                pv = kappa0 * (0.5642 * adamp / (x * x))
+                pv = kappa0 * (0.5642 * adamp / (x * x))   # far Lorentzian tail
             else:
                 pv = kappa0 * (h0tab[min(idx, h0tab.size-1)] + adamp * h1tab[min(idx, h1tab.size-1)])
         else:
-            pv = kappa0 * voigt_profile(nstep * dvoigt, adamp, h0tab, h1tab, h2tab)
+            pv = kappa0 * voigt_profile(nstep * dvoigt, adamp, h0tab, h1tab, h2tab)   # full branch
         if nstep == n10dop:
-            profile_at_n10dop = pv
-        if pv < kapmin_ref:
+            profile_at_n10dop = pv                         # anchor for the far-wing extrapolation
+        if pv < kapmin_ref:                                # below cutoff: stop the near wing here
             nstep_cutoff = nstep; broke = True; break
     if not broke and n10dop >= 1:
         nstep_cutoff = -1                                  # near wing never hit the cutoff
 
-    # 2) set the maximum reach: near-wing cutoff, or analytic far-wing reach
+    # ---- Stage 2: set the maximum reach (near-wing cutoff, or analytic far-wing reach) ----
     if nstep_cutoff != -1:
-        maxstep = nstep_cutoff; use_far = False; x_far = 0.0
+        maxstep = nstep_cutoff; use_far = False; x_far = 0.0   # near wing already crossed cutoff
     else:
-        use_far = True
+        use_far = True                                     # extend into the 1/v^2 far wing
         if n10dop > 0 and profile_at_n10dop > 0.0:
-            x_far = profile_at_n10dop * float(n10dop) ** 2
+            x_far = profile_at_n10dop * float(n10dop) ** 2 # anchor: profile * n^2 is constant in 1/v^2
             maxstep = int(np.sqrt(x_far / kapmin_ref) + 1.0) if kapmin_ref > 0.0 else MAX_PROFILE_STEPS
         else:
             x_far = 0.0; maxstep = 0
-        maxstep = min(maxstep, MAX_PROFILE_STEPS)
+        maxstep = min(maxstep, MAX_PROFILE_STEPS)          # never exceed the hard step cap
 
-    # 3) walk red and blue, accumulating, until the reach or the array edge
+    # ---- Stage 3: walk red and blue together, accumulating until the reach or the array edge ----
     red = blue = True; offset = 1; tabi = 0.5
     while offset <= maxstep and (red or blue):
         if use_far and offset > n10dop:
-            pv = x_far / float(offset) ** 2
-        elif adamp < 0.2:
+            pv = x_far / float(offset) ** 2                # far wing: cheap 1/v^2 form
+        elif adamp < 0.2:                                  # near wing, small-a table form
             tabi += tabstep; idx = max(int(tabi), 0); x = offset * dvoigt
             if x > 10.0:
                 pv = kappa0 * (0.5642 * adamp / (x * x))
@@ -398,13 +426,13 @@ code(r'''def process_wing_pair(asynth_d, grid, center_idx, kappa0, adamp, dopple
             pv = kappa0 * voigt_profile(offset * dvoigt, adamp, h0tab, h1tab, h2tab)
         if pv == 0.0:
             break
-        if red:
+        if red:                                            # step toward longer wavelengths
             j = center_idx + offset
-            if j >= n_w: red = False
+            if j >= n_w: red = False                        # ran off the red edge
             elif j >= 0: asynth_d[j] += pv
-        if blue:
+        if blue:                                           # step toward shorter wavelengths
             j = center_idx - offset
-            if j < 0: blue = False
+            if j < 0: blue = False                          # ran off the blue edge
             elif j < n_w: asynth_d[j] += pv
         offset += 1
 print("wing kernel ready")''')
@@ -416,7 +444,9 @@ md(r"""## Accumulating the metal lines
 
 Now the metal loop. For every type-0 line ($Z \ge 3$) we: look up its species' population and Doppler width; form $\kappa_0$ and apply the two-stage cutoff; build the damping parameter $a = (\gamma_{\rm rad} + \gamma_{\rm Stark}\,n_e + \gamma_{\rm vdW}\,n_{\rm vdW})/v_D$; add the **center** opacity at the line's grid pixel; and walk the **wings** with the kernel above. The depth axis is fully vectorised — all 80 layers at once — which is why this runs in well under a second despite the twelve-thousand-line loop.
 
-One subtlety the production code carries and we match: the **center** pixel uses the catalog's `index_wavelength` (a rounded log index), while the **wing** walk is anchored at a slightly different index built from the floor of the grid origin; the two helpers above produce exactly these. The stimulated-emission factor is held back to the end.""")
+A note on the damping parameter. In the code, $n_{\rm vdW}$ is the effective perturber density `txnxn` built above (neutral H, He I, H2 with the van der Waals velocity scaling), and the divisor is the SYNTHE/Kurucz `adamp` convention used by the Harris-table routine. The catalog's damping constants are already stored in the units this scaling expects, so $a$ should not be mentally replaced by the textbook $\Gamma/(4\pi\Delta\nu_D)$ without tracking those unit conventions.
+
+We set up the per-line indices and masks first, then run the loop. One subtlety the production code carries and we match: the **center** pixel uses the catalog's `index_wavelength` (a rounded log index), while the **wing** walk is anchored at a slightly different index built from the floor of the grid origin; the two helpers above produce exactly these. The stimulated-emission factor is held back to the end.""")
 
 code(r'''idxwl = cat["cat_index_wl"]                          # wavelength used for the index lookups
 elem_idx = Zc - 1; ion_idx = ion - 1                # 0-based element / ion indices
@@ -435,6 +465,8 @@ M = MAX_PROFILE_STEPS
 center_valid = line_ok & (center_idx >= 0) & (center_idx < n_w)
 wing_active  = line_ok & (wing_idx >= -M) & (wing_idx <= n_w - 1 + M)
 print(f"metal lines to accumulate: {line_ok.sum()}")''')
+
+md(r"""The loop body, per line, runs the recipe top to bottom: look up the species' population and Doppler width across all depths; form `kappa0_pre` then the post-Boltzmann $\kappa_0$ (`post`) and apply the two-stage cutoff; build the damping $a$; compute the center contribution `kapcen` and deposit it at the center pixel; then back-solve the wing amplitude (`kapcen` $/H(a,0)$) and hand each depth to the wing kernel. Skips short-circuit as soon as a line has no surviving depths.""")
 
 code(r'''metal_opacity = np.zeros((n_depths, n_w), dtype=np.float64)
 kept = 0
@@ -455,113 +487,126 @@ for i in np.where(line_ok)[0]:
         continue
     kept += 1
     doppler_width = dop * wl_i                        # Doppler width in nm
-    dopple = np.where(wl_i > 0, doppler_width / wl_i, 1e-6)
-    gamma_total = grad[i] + gstark[i] * xne + gvdw[i] * txnxn       # total damping rate
-    adamp = np.where((doppler_width > 0) & (dopple > 0), gamma_total / dopple, 0.0)
+    dopple = np.where(wl_i > 0, doppler_width / wl_i, 1e-6)         # Doppler width in v/c
+    # total damping rate = natural + Stark*n_e + van der Waals*n_vdW (the txnxn from above)
+    gamma_total = grad[i] + gstark[i] * xne + gvdw[i] * txnxn
+    adamp = np.where((doppler_width > 0) & (dopple > 0), gamma_total / dopple, 0.0)   # SYNTHE adamp
 
-    # line-center opacity: kappa0*(1-1.128 a) for a<0.2, else kappa0*H(0,a)
+    # center contribution kapcen: kappa0*(1-1.128 a) for small a, else kappa0*H(a,0)
     kapcen = np.zeros(n_depths)
-    cd = passcut & (adamp >= 0.0) & (post > 0.0)
+    cd = passcut & (adamp >= 0.0) & (post > 0.0)      # depths that survive the cutoff with valid a
     for d in np.where(cd)[0]:
         ad = adamp[d]
         kapcen[d] = post[d] * (1.0 - 1.128 * ad) if ad < 0.2 else \
                     post[d] * voigt_profile(0.0, ad, h0tab, h1tab, h2tab)
-    if center_valid[i]:
+    if center_valid[i]:                               # deposit center opacity at the line pixel
         for d in np.where(cd)[0]:
             metal_opacity[d, ci] += kapcen[d]
 
-    # wings: back-solve the peak (divide by H(a,0)), then walk
-    if not wing_active[i]:
+    # wings: back-solve the peak amplitude (divide by H(a,0)), then walk outward
+    if not wing_active[i]:                            # line's wings never reach the grid: done
         continue
-    wing_pairs = cd & (kapcen > 0.0)
+    wing_pairs = cd & (kapcen > 0.0)                  # depths with a real center to spread
     if not np.any(wing_pairs):
         continue
-    adamp_w = np.maximum(adamp, 1e-12)
+    adamp_w = np.maximum(adamp, 1e-12)                # floor a so H(a,0) is well-defined
     kappa0_wing = np.where(kapcen > 0.0, kapcen / voigt_h_at_zero(adamp_w, h0tab, h1tab, h2tab), 0.0)
-    ci_w = min(max(wi, 0), n_w - 1)
-    kapmin_ref = np.maximum(cont[:, ci_w] * CUTOFF, cont[:, ci_w] * KAPMIN_FLOOR)
+    ci_w = min(max(wi, 0), n_w - 1)                   # wing anchor pixel, clamped on-grid
+    kapmin_ref = np.maximum(cont[:, ci_w] * CUTOFF, cont[:, ci_w] * KAPMIN_FLOOR)   # wing cutoff
     for d in np.where(wing_pairs)[0]:
         process_wing_pair(metal_opacity[d], grid, wi, kappa0_wing[d], adamp_w[d],
                           doppler_width[d], wl_i, kapmin_ref[d], resolu, h0tab, h1tab, h2tab)
-
-# stimulated emission, applied once to the whole array
-freq_grid = C_LIGHT_NM / grid
-hkt = H_PLANCK / (K_BOLTZ * T)
-stim = 1.0 - np.exp(-freq_grid[None, :] * hkt[:, None])
-metal_opacity *= stim
 print(f"accumulated {kept} of {line_ok.sum()} metal lines (cutoff skipped {line_ok.sum()-kept})")''')
+
+md(r"""**Stimulated emission, applied once.** The center and wing recipes deliberately left out the stimulated-emission correction $1-e^{-h\nu/kT}$. The production code applies it a single time to the finished opacity array — so it appears here, after the loop, as one vectorized multiply over the whole `(depth, wavelength)` grid. We reuse this `stim` array for the helium opacity too.""")
+
+code(r'''# stimulated-emission factor 1 - e^{-h nu / kT}, applied once to the whole array
+freq_grid = C_LIGHT_NM / grid                            # frequency at every grid wavelength [Hz]
+hkt = H_PLANCK / (K_BOLTZ * T)                           # h / kT per depth
+stim = 1.0 - np.exp(-freq_grid[None, :] * hkt[:, None])  # (depth, wavelength)
+metal_opacity *= stim
+print(f"stimulated emission applied; metal opacity range "
+      f"{metal_opacity[metal_opacity>0].min():.2e} .. {metal_opacity.max():.2e}")''')
 
 # ════════════════════════════════════════════════════════════════════════════
 #  Helium
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## The helium lines
 
-Helium gets its own path. Physically the He I lines (here 501.7 and 504.9 nm) are still Voigt-broadened — the same $\kappa_0$, $a$, and center index recipe as the metals — but the production code accumulates them with a slightly different wing walk and, crucially, applies a **continuum-merge taper**. Near a series limit many lines crowd together and merge into the continuum; the code fades a line's wings to zero between two wavelengths, $w_{\rm con}$ (where the taper begins) and $w_{\rm tail}$, so the line does not double-count opacity already in the merged continuum. Those two limits derive from the continuum bookkeeping (the fort.19 records), not from the line catalog, so the catalog ships them directly as `he_wcon_2d` / `he_wtail_2d`.
+Helium gets its own path. Physically the He I lines (here 501.7 and 504.9 nm) are still Voigt-broadened — the same $\kappa_0$, $a$, and center index recipe as the metals — but the production code accumulates them with a slightly different wing walk and, crucially, applies a **continuum-merge taper**. Near a series limit many lines crowd together and merge into the continuum; the code fades a line's wings to zero between two wavelengths, $w_{\rm con}$ (where the taper begins) and $w_{\rm tail}$, so the line does not double-count opacity already in the merged continuum. Operationally the wing contribution is zero below $w_{\rm con}$, ramps linearly between $w_{\rm con}$ and $w_{\rm tail}$, and is untapered beyond $w_{\rm tail}$. Those two limits derive from the continuum bookkeeping — the SYNTHE auxiliary continuum/series-limit file, `fort.19` — not from the line catalog, so the catalog ships them directly as `he_wcon_2d` / `he_wtail_2d`.
 
-We build the helium $\kappa_0$, Doppler width, damping, and center index from scratch with the *same* recipe as the metals, then walk the wings with the taper applied.""")
+We build the helium $\kappa_0$, Doppler width, damping, and center index from scratch with the *same* recipe as the metals, then walk the wings with the taper applied. First, pick out the helium lines and load their taper limits and cutoff.""")
 
 code(r'''he_mask = np.isin(lt, [-3, -4, -6])             # helium lines
 he_idx = np.where(he_mask)[0]
 wcon_2d = cat["he_wcon_2d"]; wtail_2d = cat["he_wtail_2d"]    # taper limits (depth, he-line)
 he_ltc  = cat["he_ltc"].astype(np.int64)                     # per-line type (-4 = 3He branch)
 he_cut  = float(cat["he_cutoff"])                            # helium cutoff (== 1e-3)
-print(f"helium lines: {he_idx.size}  at {lam[he_idx]} nm   (taper limits + cutoff from fort.19)")
+print(f"helium lines: {he_idx.size}  at {lam[he_idx]} nm   (taper limits + cutoff from fort.19)")''')
 
-def voigt_hav(x, a, h0tab, h1tab, h2tab):
+md(r"""The helium walk uses its own scalar Voigt helper, `voigt_hav` — the same three Harris branches as `voigt_profile` above, just written for a positive offset $x = |v|$ (the helium walk never passes a negative argument). It is a small duplicate kept for clarity; the branch logic and constants are identical.""")
+
+code(r'''def voigt_hav(x, a, h0tab, h1tab, h2tab):
     """H(a,v) for the helium walk (same branches as voigt_profile, scalar fast form)."""
-    iv = min(int(x * 200.0 + 0.5), h0tab.size - 1)
-    if a < 0.2:
+    iv = min(int(x * 200.0 + 0.5), h0tab.size - 1)              # |v| -> table index
+    if a < 0.2:                                                 # near-core table lookup
         return 0.5642 * a / (x * x) if x > 10.0 else (h2tab[iv]*a + h1tab[iv])*a + h0tab[iv]
-    if a > 1.4 or (a + x) > 3.2:
+    if a > 1.4 or (a + x) > 3.2:                                # far-wing Lorentzian asymptote
         aa = a*a; vv = x*x; u = (aa+vv)*1.4142; val = a*0.79788/u
-        if a <= 100.0:
+        if a <= 100.0:                                          # higher-order correction
             aau = aa/u; vvu = vv/u; uu = u*u
             val = ((((aau-10.0*vvu)*aau*3.0 + 15.0*vvu*vvu) + 3.0*vv - aa)/uu + 1.0)*val
         return val
-    vv = x*x; h0 = h0tab[iv]; h1 = h1tab[iv]+h0*1.12838; h2 = h2tab[iv]+h1*1.12838-h0
+    vv = x*x; h0 = h0tab[iv]; h1 = h1tab[iv]+h0*1.12838; h2 = h2tab[iv]+h1*1.12838-h0   # mid branch
     h3 = (1.0-h2tab[iv])*0.37613 - h1*0.66667*vv + h2*1.12838
     h4 = (3.0*h3-h1)*0.37613 + h0*0.66667*vv*vv
     pa = (((h4*a+h3)*a+h2)*a+h1)*a+h0
     pb = ((-0.122727278*a+0.532770573)*a-0.96284325)*a+0.979895032
     return pa*pb''')
 
+md(r"""**The helium wing walk.** Unlike the metal kernel, this one walks over actual grid wavelengths (not Doppler-step offsets) so it can apply the taper, which is a function of wavelength. It steps red then blue from the center pixel, skips anything below $w_{\rm con}$, multiplies by the linear ramp between $w_{\rm con}$ and $w_{\rm tail}$, and stops a wing the moment the tapered value drops below the cutoff.""")
+
 code(r'''def accumulate_helium_line(row, continuum_row, grid, center_index, line_wavelength,
                            kappa_eff, doppler, adamp, cutoff, wcon_val, wtail_val, base_wave,
                            h0tab, h1tab, h2tab):
     """Helium wing walk with the continuum-merge taper (voigt_jit.accumulate_voigt_wings)."""
-    n = grid.size; clamped = max(0, min(center_index, n - 1))
-    has_wcon = wcon_val > 0.0; has_wtail = wtail_val > 0.0
+    n = grid.size; clamped = max(0, min(center_index, n - 1))    # center pixel, clamped on-grid
+    has_wcon = wcon_val > 0.0; has_wtail = wtail_val > 0.0        # are the taper limits active?
+    # walk red (toward longer wl) then blue (toward shorter wl) from the center
     for direction, rng in ((+1, range(clamped, n)), (-1, range(clamped - 1, -1, -1))):
-        if direction == +1 and line_wavelength > grid[n-1]:
+        if direction == +1 and line_wavelength > grid[n-1]:      # line is off the red edge
             continue
-        if direction == -1 and (clamped == 0 or line_wavelength < grid[0]):
+        if direction == -1 and (clamped == 0 or line_wavelength < grid[0]):   # off the blue edge
             continue
         for idx in rng:
             wave = grid[idx]
-            if has_wcon and wave <= wcon_val:           # below the merge point: skip
+            if has_wcon and wave <= wcon_val:           # below the merge point: skip this pixel
                 continue
-            x = abs(wave - line_wavelength) / doppler
+            x = abs(wave - line_wavelength) / doppler   # offset in Doppler units
             value = kappa_eff * voigt_hav(x, adamp, h0tab, h1tab, h2tab)
             if has_wtail and wave < wtail_val:          # linear taper into the merged continuum
                 denom = max(wtail_val - base_wave, 1e-12)
                 value *= (wave - base_wave) / denom
-            if value < continuum_row[idx] * cutoff:     # cutoff: stop this wing
+            if value < continuum_row[idx] * cutoff:     # below cutoff: stop this wing
                 break
             row[idx] += value
+print("helium wing kernel ready")''')
 
-he_opacity = np.zeros((n_depths, n_w), dtype=np.float64)
+md(r"""Now the helium loop. For each He line we build $\kappa_0$, the Doppler width, the damping $a$, and the center index with the *same* recipe as the metals (population per ion times FASTEX, two-stage cutoff), then walk the wings with the taper. The `-4` line type would scale the strength, width, and damping for the $^3$He isotope; it does not fire in this window but we keep the branch for fidelity. Stimulated emission reuses the `stim` array built for the metals.""")
+
+code(r'''he_opacity = np.zeros((n_depths, n_w), dtype=np.float64)
 for col, i in enumerate(he_idx):
-    wl_i = float(lam[i]); cgf_i = CGF_CONSTANT * gf_lin[i] / (C_LIGHT_NM / wl_i)
-    ei = int(Zc[i]) - 1; ii = int(ion[i]) - 1
-    pop = pop3[:, ii, ei]; dop = dop3[:, ii, ei]
-    boltz_i = fast_ex(Elow[i] * hckt)
-    ci = int(min(max(nearest_grid_indices(grid, np.array([idxwl[i]]))[0], 0), n_w - 1))
+    wl_i = float(lam[i]); cgf_i = CGF_CONSTANT * gf_lin[i] / (C_LIGHT_NM / wl_i)   # c_gf prefactor
+    ei = int(Zc[i]) - 1; ii = int(ion[i]) - 1        # 0-based element / ion indices
+    pop = pop3[:, ii, ei]; dop = dop3[:, ii, ei]     # population per ion, Doppler width (all depths)
+    boltz_i = fast_ex(Elow[i] * hckt)                # FASTEX Boltzmann factor
+    ci = int(min(max(nearest_grid_indices(grid, np.array([idxwl[i]]))[0], 0), n_w - 1))  # center pixel
     dop_safe = np.maximum(dop, 1e-40)
     valid = (pop > 0.0) & (dop > 0.0) & (rho > 0.0)
     xnfdop = np.where(valid, pop / (rho * dop_safe), 0.0)
-    k0pre = cgf_i * xnfdop; kmin = cont[:, ci] * he_cut
-    valid &= (k0pre >= kmin); k0 = k0pre * boltz_i; valid &= (k0 >= kmin)
-    gtot = grad[i] + gstark[i] * xne + gvdw[i] * txnxn
+    k0pre = cgf_i * xnfdop; kmin = cont[:, ci] * he_cut          # pre-Boltzmann amplitude + cutoff
+    valid &= (k0pre >= kmin); k0 = k0pre * boltz_i; valid &= (k0 >= kmin)   # two-stage cutoff
+    gtot = grad[i] + gstark[i] * xne + gvdw[i] * txnxn          # total damping rate
     adamp = gtot / dop_safe
     k0 = np.where(valid, k0, 0.0); dopw = np.where(valid, dop * wl_i, 0.0)
     adamp = np.where(valid, adamp, 0.0)
@@ -572,9 +617,9 @@ for col, i in enumerate(he_idx):
             keff, deff, ad = k0[d] / 1.155, dopw[d] * 1.155, adamp[d] / 1.155
         else:
             keff, deff, ad = k0[d], dopw[d], adamp[d]
-        ad = max(ad, 1e-12)
-        wcon_v = wcon_2d[d, col]; wtail_v = wtail_2d[d, col]
-        base = wcon_v if wcon_v > 0.0 else wl_i
+        ad = max(ad, 1e-12)                              # floor a for the table branches
+        wcon_v = wcon_2d[d, col]; wtail_v = wtail_2d[d, col]    # taper limits at this depth
+        base = wcon_v if wcon_v > 0.0 else wl_i          # taper origin
         accumulate_helium_line(he_opacity[d], cont[d], grid, ci, wl_i, keff, deff, ad,
                                he_cut, wcon_v, wtail_v, base, h0tab, h1tab, h2tab)
 he_opacity *= stim                                       # stimulated emission, same as metals
@@ -669,7 +714,7 @@ md(r"""The forest matches line for line: every transition sits at its vacuum wav
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## The missing piece: hydrogen
 
-We deliberately left the hydrogen lines out. They are not a small correction — in this window the wing of H$\beta$ (486 nm) reaches well into 500–510 nm and dominates the line opacity in the deep, hot layers, the smooth floor you would see under the metal forest if we plotted the full `diag['line_opacity']`. They are absent here for a physical reason: hydrogen is broadened by the **linear Stark effect**. Because the hydrogen energy levels are degenerate, an electric field (from the surrounding ions and electrons) shifts them **linearly** rather than quadratically, giving wings that fall off far more slowly than a Voigt profile and that depend on the field statistics of the plasma. That is a different engine entirely — the HPROF4 / HLINOP line-broadening machinery — and it earns its own lecture.
+We deliberately left the hydrogen lines out. They are not a small correction — in this window the wing of H$\beta$ (486 nm) reaches well into 500–510 nm and dominates the line opacity in the deep, hot layers, the smooth floor you would see under the metal forest if we plotted the full `diag['line_opacity']`. They are absent here for a physical reason: hydrogen is broadened by the **linear Stark effect**. Because the hydrogen energy levels are degenerate, an electric field (from the surrounding ions and electrons) shifts them **linearly** rather than quadratically, giving broad, non-Voigt wings whose shape is set by the plasma microfield distribution rather than by the Doppler-plus-Lorentz convolution used for the metal lines. That is a different engine entirely — the HPROF4 / HLINOP line-broadening machinery — and it earns its own lecture.
 
 So the full line opacity is the sum of the two pieces:
 
