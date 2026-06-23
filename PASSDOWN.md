@@ -49,6 +49,12 @@ predates THIS restructure — the working tree is now ahead of that pushed commi
   (10, density 17%), L5 (7). NEVER change code logic/constants/numbers when splitting/commenting —
   machine precision is locked; only restructure + annotate, then rebuild and confirm the benchmark
   is unchanged. Applies to all future lectures (incl. L10+).
+- **MARKDOWN EXPLAINS THE IMPLEMENTATION (user directive 2026-06-23).** When a code cell does
+  something non-trivial, the markdown right before it must explain HOW the code implements it —
+  the approach/algorithm and the key steps — not only the physics. The reader should know what the
+  code is about to do before reading it (e.g. "we interpolate onto the fixed grid with the Fortran
+  MAP1 routine: a parabola through three points, blended by curvature"), so prose+comments+code
+  form one explanation. Part of the revision pass.
 - No `\boxed{}` on equations. Inline math: never a space before a closing `$` (KaTeX breaks).
 - Byline affiliation: "Max Planck Institute for Astronomy & The Ohio State University".
 - Engines get their OWN dedicated lectures (JOSH, KAPP, hydrogen) — keep each digestible,
