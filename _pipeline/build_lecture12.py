@@ -406,10 +406,15 @@ code(r'''def accumulate_depth(buf, cont_row, wavelength, xnfdop_e, dop_e, xne_d,
     idx = np.nonzero(keep)[0]                                            # surviving lines only
     ci = ci0[idx]; clamped = np.clip(ci, 0, n_wl - 1)
     k0 = kappa0[idx]; ad = adamp[idx]; km = kapmin[idx]; dv = dop_val[idx]
-    # local resolving power from the grid spacing (forward, else backward, else default)
+    # local resolving power from the grid spacing (forward, else backward at the red edge).
+    # numpy evaluates BOTH np.where arms, so floor each divisor: the forward step is 0 at the
+    # last bin and the backward step is 0 at the first bin, but those zeros land only in the
+    # DISCARDED arm, so flooring them to 1.0 leaves every SELECTED value unchanged (no warning).
+    fwd_step = wavelength[np.minimum(clamped + 1, n_wl - 1)] / wavelength[clamped] - 1.0
+    bwd_step = wavelength[clamped] / wavelength[np.maximum(clamped - 1, 0)] - 1.0
     resolu = np.where(clamped < n_wl - 1,
-        1.0 / (wavelength[np.minimum(clamped + 1, n_wl - 1)] / wavelength[clamped] - 1.0),
-        1.0 / (wavelength[clamped] / wavelength[np.maximum(clamped - 1, 0)] - 1.0))
+        1.0 / np.where(fwd_step != 0.0, fwd_step, 1.0),
+        1.0 / np.where(bwd_step != 0.0, bwd_step, 1.0))
     n10dop, prof_n10, early = accumulate_core_and_near(buf, ci, k0, ad, km, resolu, dv)
     accumulate_far(buf, ci, km, n10dop, prof_n10, early)''')
 
