@@ -869,7 +869,7 @@ md(r"""## Further reading
 - **Mihalas, D. (1978). *Stellar Atmospheres*, 2nd ed., Freeman.** Chapter 7 on radiative equilibrium and temperature-correction procedures (Avrett–Krook, Unsöld–Lucy, and the $\Lambda$-iteration), and Chapter 3 on the Rosseland mean.
 - **Hubeny, I. & Mihalas, D. (2014). *Theory of Stellar Atmospheres*, Princeton.** Chapters 17–18 on the numerical construction of model atmospheres, radiative-equilibrium constraints, and convergence acceleration.
 - **Gray, D. F. (2005). *The Observation and Analysis of Stellar Photospheres*, 3rd ed., Cambridge University Press.** Chapter 9 on the Rosseland mean and the grey-to-non-grey temperature structure.
-- **Kurucz, R. L. (1970). *ATLAS: A Computer Program for Calculating Model Stellar Atmospheres*, SAO Special Report 309**, and **Castelli, F. & Kurucz, R. L. (2003), IAU Symp. 210.** The ATLAS temperature correction (`TCORR`), Rosseland-mean (`ROSS`), and `ROSSTAB`/`TTAUP` routines reproduced in this lecture.
+- **Kurucz, R. L. (1970). *ATLAS: A Computer Program for Calculating Model Stellar Atmospheres*, SAO Special Report 309**, and **Castelli, F. & Kurucz, R. L. (2003), *Modelling of Stellar Atmospheres*, IAU Symp. 210, poster A20 (arXiv:astro-ph/0405087).** The ATLAS temperature correction (`TCORR`), Rosseland-mean (`ROSS`), and `ROSSTAB`/`TTAUP` routines reproduced in this lecture.
 - **Kim, E. M. & Ting, Y.-S. (2026). [*pykurucz*](https://arxiv.org/abs/2603.11693).** The implementation our reference correction is computed with.""")
 
 nb = new_notebook(cells=cells)

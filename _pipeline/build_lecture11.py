@@ -923,7 +923,7 @@ md(r"""## Further reading
 - **Mihalas, D. (1978). *Stellar Atmospheres*, 2nd ed., Freeman.** Chapter 7 on convection in model atmospheres, the Schwarzschild criterion, and the coupling of convective flux into the temperature structure.
 - **Hubeny, I. & Mihalas, D. (2014). *Theory of Stellar Atmospheres*, Princeton.** Chapters 16–18 on convective energy transport, mixing-length formulations, and the construction and convergence of self-consistent model atmospheres.
 - **Kippenhahn, R., Weigert, A. & Weiss, A. (2012). *Stellar Structure and Evolution*, 2nd ed., Springer.** Chapters 6–7 on convection, the Schwarzschild and Ledoux criteria, and mixing-length theory from the stellar-interior side.
-- **Kurucz, R. L. (1970). *ATLAS: A Computer Program for Calculating Model Stellar Atmospheres*, SAO Special Report 309**, and **Castelli, F. & Kurucz, R. L. (2003), IAU Symp. 210.** The ATLAS convection (`CONVEC`), temperature-correction (`TCORR`), and convergence (`checkconv`) routines reproduced here.
+- **Kurucz, R. L. (1970). *ATLAS: A Computer Program for Calculating Model Stellar Atmospheres*, SAO Special Report 309**, and **Castelli, F. & Kurucz, R. L. (2003), *Modelling of Stellar Atmospheres*, IAU Symp. 210, poster A20 (arXiv:astro-ph/0405087).** The ATLAS convection (`CONVEC`), temperature-correction (`TCORR`), and convergence (`checkconv`) routines reproduced here.
 - **Kim, E. M. & Ting, Y.-S. (2026). [*pykurucz*](https://arxiv.org/abs/2603.11693).** The implementation our reference converged model is computed with.""")
 
 nb = new_notebook(cells=cells)

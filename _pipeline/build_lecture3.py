@@ -1204,7 +1204,7 @@ md(r"""## Further reading
 - **Kurucz, R. L. (1970). *SAO Special Report* 309 (ATLAS).** The original continuous-opacity routines — `HMINOP`, `HOP`, `HRAYOP`, `COULFF` — whose tables and evaluation order the engine half reproduces.
 - **Gavrila, M. (1967). *Phys. Rev.* 163, 147.** The Rayleigh-scattering polarisability factor $G(\nu)$ for atomic hydrogen, tabulated here as `HRAYOP_GAVRILA*`.
 - **Karzas, W. J. & Latter, R. (1961). *ApJ Suppl.* 6, 167.** The hydrogenic bound-free and free-free Gaunt factors behind the `xkarsas` lookup and the Coulomb free-free table.
-- **Wildt, R. (1939). *Negative Ions of Hydrogen and the Opacity of Stellar Atmospheres*, ApJ, 89, 295.** The paper that identified H$^-$ as the key opacity source.
+- **Wildt, R. (1939). *Negative Ions of Hydrogen and the Opacity of Stellar Atmospheres*, ApJ, 90, 611.** The paper that identified H$^-$ as the key opacity source.
 - **Gray, D. F. (2005). *The Observation and Analysis of Stellar Photospheres*, 3rd ed., Cambridge.** Chapter 8 on continuous opacity, with the H$^-$ and scattering terms worked through.
 - **Kim, E. M. & Ting, Y.-S. (2026). [*pykurucz*](https://arxiv.org/abs/2603.11693).** The implementation our reference continuum is computed with.""")
 
