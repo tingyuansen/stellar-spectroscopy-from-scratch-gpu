@@ -220,7 +220,10 @@ NEVER a re-derivation. What each lecture introduces (owns):
 - **L6** hydrogen **Stark broadening**; Holtsmark microfield; HPROF4 (sofbeta, 3-piece profile).
 - **L7** transfer equation; **formal solution**; E₂ kernel; Eddington–Barbier; the scattering approximation.
 - **L8** moment equations; Eddington closure; the **Λ operator (COEFJ)**; parabolic integ/MAP1; scattering iteration; CH flux.
-- **L9** the **exact hydrostatic integrator** (`_ttaup` predictor–corrector in log-pressure, κ≡1 cold start). ← its ONLY new content.
+- **L9** the **exact hydrostatic integrator** (`_ttaup` predictor–corrector in log-pressure, κ≡1 cold start). ← its ONLY new content. [schematic s8]
+- **L10** **radiative equilibrium / the temperature correction (TCORR)**: Rosseland mean + τ scale, the four flux/heating accumulators, the Avrett–Krook flux term + local-Λ + surface term + DRHOX hydrostatic re-integration. Reuses JOSH (L8) per frequency + KAPP (L3). [schematic s9]
+- **L11** **mixing-length convection** (Schwarzschild criterion, FD thermodynamics, NCONV=36) + the **convergence loop** to flux constancy → the converged model (params→atmosphere milestone). Reuses TCORR (L10). [schematic s10]
+- Schematics now s1–s10 (s8 hydrostatic, s9 temperature correction, s10 convection added 2026-06-23; all read for accuracy).
 - **L10** **radiative equilibrium**; the **Rosseland mean** (harmonic, dB/dT-weighted) + τ_Ross; per-freq H_ν via JOSH; the **temperature correction TCORR** = Avrett–Krook flux term + local-Λ + surface-boundary; DRHOX via ROSSTAB/TTAUP; ONE step, convection OFF.
 - **L11** **mixing-length convection** (CONVEC): adiabatic gradient ∇_ad, superadiabaticity Δ=∇−∇_ad (Schwarzschild), convective velocity + flux F_conv with optical-thickness efficiency τ_b²/(2+τ_b²); EOS derivatives from FINITE DIFFERENCES; the **convergence loop** (flux constancy, checkconv deep-layer max|ΔT/T|<1e-4); the end-to-end converged continuum-only model. Back-refs TCORR/JOSH/Rosseland (L8–10), don't re-derive.
 
