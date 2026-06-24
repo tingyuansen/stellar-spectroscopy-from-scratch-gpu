@@ -7,6 +7,15 @@ CONVECTION (the CONVEC kernel) to the deep layers, and (b) verify the FULL
 converged model from the grey start (Teff=5770, logg=4.44), benchmarked to
 machine precision against reference/converged_ref.npz.
 
+Radiation pressure is fully closed: both the depth-varying PRAD (the RADIAP moment
+(4pi/c) int kappa_nu H_nu d_nu) AND the surface K-integral scalar pradk0 = (4pi/c)
+int K_nu(0) d_nu are COMPUTED from this sweep's JOSH moments -- nothing radiation-
+pressure is read.  The surface second moment is K_nu(0) = CK . xs, the fixed CK
+weight vector (the K analog of CH for the surface flux; shipped read-only as
+reference/josh_ck.npz, pykurucz source atlas_py/data/josh_tables_atlas12.npz) dotted
+with the same JOSH source vector that yields J and H.  pradk0 reproduces pykurucz to
+~1e-9 (the JOSH float32 floor).
+
 Clean NumPy only: NO numba, NO scipy, NO pykurucz import.  We reuse the verified
 building blocks of the book:
   * the numerical helpers PARCOE / INTEG / DERIV / MAP1 (Lecture 8 / josh_math),
@@ -188,9 +197,26 @@ def _nz_signed(x, eps=1e-300):
 
 # ===========================================================================
 # 2. JOSH full depth-profile kernel (Lecture 8), float32 inner iteration.
-#    (Identical to verify_tcorr.py.)  Returns taunu, hnu, jmins, abtot, alpha.
+#    (Identical to verify_tcorr.py, plus the surface K-moment.)  Returns
+#    taunu, hnu, jmins, abtot, alpha, knu_surface.
+#
+#    The K-moment.  JOSH's variable-Eddington moment method carries three
+#    radiation-field moments on the fixed XTAU grid: the mean intensity J (first
+#    moment), the flux H, and the SECOND moment K_nu = int mu^2 I dmu / 2.  Just
+#    as the surface FLUX is read off the source vector xs with a fixed weight
+#    vector CH (H_nu(0) = CH . xs) and the deep moments come from the COEFJ/COEFH
+#    matrices, the SURFACE second moment is read off the SAME xs with a fixed
+#    weight vector CK:  K_nu(0) = CK . xs.  CK is the K-quadrature analog of CH;
+#    its weights sum to 1/6 (vs 1/4 for CH and 1/2 for CJ), the surface signature
+#    of the second moment, which collapses to the isotropic Eddington value
+#    K = J/3 in the optically-thick limit.  CK is a fixed DATA table extracted
+#    from ATLAS's JOSH (shipped read-only as reference/josh_ck.npz; pykurucz
+#    source atlas_py/data/josh_tables_atlas12.npz key 'ck_weights').  In the
+#    degenerate maxj==1 fallback (surface tau beyond the grid) JOSH uses the
+#    surface Eddington factor directly: K_nu(0) = J_nu(0)/3.
 # ===========================================================================
 CH_MAT = None  # COEFH (J->H operator), set in main() from the reference file.
+CK_W = None    # CK (surface K-moment weights), set in main() from reference/josh_ck.npz.
 
 
 def josh_profiles(acont, scont, aline, sline, sigmac, sigmal, rhox, bnu,
@@ -282,13 +308,17 @@ def josh_profiles(acont, scont, aline, sline, sigmac, sigmal, rhox, bnu,
             break
 
     if maxj == 1:
-        return taunu, hnu, jmins, abtot, alpha
+        # degenerate surface (tau beyond the grid): surface Eddington factor K = J/3
+        knu_surface = jnu[0] / 3.0
+        return taunu, hnu, jmins, abtot, alpha, float(knu_surface)
 
     xjs = (-xs + coefj.astype(np.float32) @ xs).astype(np.float64)
     xh = (CH_MAT @ xs).astype(np.float64)
     jmins[:maxj], _ = map1(xtau, xjs, taunu[:maxj])
     hnu[:maxj], _ = map1(xtau, xh, taunu[:maxj])
-    return taunu, hnu, jmins, abtot, alpha
+    # surface second moment off the SAME float32 source vector: K_nu(0) = CK . xs
+    knu_surface = float(np.dot(CK_W, xs))
+    return taunu, hnu, jmins, abtot, alpha, float(knu_surface)
 
 
 # ===========================================================================
@@ -735,9 +765,15 @@ def main() -> int:
     xtau = jt["xtau"].astype(np.float64)
     ch = jt["ch"].astype(np.float64)
     coefj = jt["coefj"].astype(np.float64)
+    # CK: the fixed surface K-moment weight vector (shipped read-only; pykurucz
+    # source atlas_py/data/josh_tables_atlas12.npz key 'ck_weights').  Cast to
+    # float32 so CK . xs matches ATLAS's REAL*4 KNU dot product bit-for-bit.
+    ckf = np.load(REF / "josh_ck.npz")
+    assert np.array_equal(ckf["xtau"].astype(np.float64), xtau), "josh_ck.npz grid must match josh_tables xtau"
 
-    global CH_MAT
+    global CH_MAT, CK_W
     CH_MAT = ref["josh_coefh"].astype(np.float64)
+    CK_W = ckf["ck"].astype(np.float32)
 
     # converged-model inputs (the fixed-point starting state)
     T = ref["T_conv"].astype(np.float64)
@@ -745,10 +781,9 @@ def main() -> int:
     p_in = ref["p_conv"].astype(np.float64)
     rho_in = ref["rho_conv"].astype(np.float64)
     ptotal = ref["ptotal_conv"].astype(np.float64)
-    # prad / pradk are now COMPUTED from the RADIAP moment below (not read).  The only
-    # radiation-pressure input still read is the scalar surface K-integral pradk0, a single
-    # constant (PRADK = PRAD + pradk0); the production prad_conv/pradk_conv serve only as checks.
-    pradk0 = float((ref["pradk_conv"].astype(np.float64) - ref["prad_conv"].astype(np.float64))[0])
+    # prad / pradk AND the surface K-integral pradk0 are now COMPUTED from the RADIAP +
+    # JOSH-K moments below (nothing radiation-pressure is read anymore).  The production
+    # prad_conv / pradk_conv serve only as cross-checks.
     freq = ref["freq_hz"].astype(np.float64)
     rco = ref["rco"].astype(np.float64)
     acont = ref["acont"].astype(np.float64)
@@ -768,6 +803,7 @@ def main() -> int:
     ross_acc = np.zeros(n)
     flxrad = np.zeros(n); rjmins = np.zeros(n); rdabh = np.zeros(n); rdiagj = np.zeros(n)
     accrad = np.zeros(n)   # RADIAP: int kappa_nu H_nu d_nu -> the radiation-pressure moment
+    pradk0_acc = 0.0       # RADIAP: int K_nu(0) d_nu  -> the surface K-moment scalar
     for inu in range(nf):
         f = float(freq[inu]); rcowt = float(rco[inu])
         ehvkt = np.exp(-f * hkt)
@@ -776,7 +812,7 @@ def main() -> int:
         bnu = 1.47439e-2 * (freq15 ** 3) * ehvkt / stim
         ac = acont[:, inu]; sc = sigmac[:, inu]; so = scont[:, inu]
 
-        taunu, hnu, jmins, abtot, alpha = josh_profiles(
+        taunu, hnu, jmins, abtot, alpha, knu_surface = josh_profiles(
             ac, so, z, bnu, sc, z, rhox, bnu, xtau, ch, coefj)
         if np.any(hnu < 0.0):
             hnu = np.maximum(hnu, 1e-99)
@@ -790,6 +826,8 @@ def main() -> int:
         flxrad += hnu * rcowt
         # RADIAP mode 2: kappa_nu H_nu -> the radiation-pressure-moment integrand
         accrad += abtot * hnu * rcowt
+        # RADIAP mode 2: K_nu(0) -> the surface K-moment, summed over frequency
+        pradk0_acc += knu_surface * rcowt
 
         term2 = 0.0
         for j in range(n):
@@ -816,17 +854,29 @@ def main() -> int:
     # ---- RADIAP mode 3: finalize the radiation pressure (COMPUTED, not read) ----
     #   (1) 4 pi / c -> radiative acceleration; (2) cap where H(tau) overshoots H;
     #   (3) integrate down the column mass -> P_rad(rhox); PRADK = PRAD + surface scalar.
-    accrad *= 12.5664 / 2.99792458e10                         # 4 pi / c (ATLAS constants)
-    over = (flxrad / max(flux, 1e-300)) > 1.0                 # surface layers above target
-    accrad[over] *= flux / np.maximum(flxrad[over], 1e-300)   # flux-limit safeguard
-    prad = integ(rhox, accrad, accrad[0] * rhox[0])          # the computed radiation pressure
+    conv = 12.5664 / 2.99792458e10                           # 4 pi / c (ATLAS constants)
+    accrad *= conv
+    ratio = flxrad / max(flux, 1e-300)                       # H(tau) / target H
+    over = ratio > 1.0                                       # surface layers above target
+    accrad[over] *= flux / np.maximum(flxrad[over], 1e-300)  # flux-limit safeguard
+    prad = integ(rhox, accrad, accrad[0] * rhox[0])         # the computed radiation pressure
+
+    # the surface K-integral scalar, COMPUTED (no longer read): pradk0 = (4 pi/c) int K_nu(0) d_nu,
+    # then ATLAS's single global flux-limiter dividing by errormax = max(H/target) when it exceeds 1.
+    errormax = float(np.max(ratio))
+    pradk0 = pradk0_acc * conv
+    if errormax > 1.0:
+        pradk0 /= errormax
     pradk = prad + pradk0                                     # PRADK = PRAD + surface K-integral
-    # cross-check the computed P_rad / P_radk against the production code's values
+    # cross-check the computed P_rad / P_radk / pradk0 against the production code's values
     _mpr = np.abs(ref["prad_conv"]) > 0
     _epr = np.abs(prad[_mpr] - ref["prad_conv"][_mpr]) / np.abs(ref["prad_conv"][_mpr])
     _epk = np.abs(pradk - ref["pradk_conv"]) / np.maximum(np.abs(ref["pradk_conv"]), 1e-300)
+    pradk0_ref = float((ref["pradk_conv"].astype(np.float64) - ref["prad_conv"].astype(np.float64))[0])
+    _e0 = abs(pradk0 - pradk0_ref) / max(abs(pradk0_ref), 1e-300)
     print(f"  computed P_rad  vs reference (RADIAP): max|rel| = {_epr.max():.2e}  median = {np.median(_epr):.2e}")
     print(f"  computed P_radk vs reference         : max|rel| = {_epk.max():.2e}  median = {np.median(_epk):.2e}")
+    print(f"  computed pradk0 = {pradk0:.10f}  vs reference {pradk0_ref:.10f}  rel = {_e0:.2e}  (JOSH float32 floor)")
 
     # ---- ROSSTAB table from this iteration's (T, P, kappa_Ross) ----
     rosstab = Rosstab()
@@ -887,6 +937,10 @@ def main() -> int:
     show("cnvflx (smoothed)", res["cnvflx"], "cnvflx_ref")
     show("T1 (total correction)", res["t1"], "t1_ref")
 
+    print("\n-- RADIAP surface K-moment (NEW: COMPUTED, no longer read) --")
+    print(f"  pradk0 (surface K-integral)  computed = {pradk0:.10f}  ref = {pradk0_ref:.10f}  "
+          f"rel = {_e0:.3e}")
+
     print("\n-- ONE from-scratch iteration from the converged model --")
     print("   (a) PRECISION BENCHMARK: vs pykurucz's SAME single step (engine fidelity):")
     rT = show("T after one step", T_out, "T_step")
@@ -899,6 +953,7 @@ def main() -> int:
     print("VERDICT")
     print("=" * 74)
     print(f"  FLXCNV (NEW: convection) : max|rel| = {rF:.3e}   <- MACHINE PRECISION")
+    print(f"  pradk0 (NEW: COMPUTED)   : rel      = {_e0:.3e}   <- JOSH float32 floor")
     print(f"  one-step T  (vs replay)  : max|rel| = {rT:.3e}   <- MACHINE PRECISION")
     print(f"  one-step RHOX (vs replay): max|rel| = {rX:.3e}   <- MACHINE PRECISION")
     print()
@@ -915,8 +970,8 @@ def main() -> int:
     print("  means deep-layer max|dT/T| < 1e-4 (NOT that one step is an exact no-op")
     print("  everywhere -- the top layers and RHOX still drift at the ~1e-3 level,")
     print("  which is why checkconv tests only the deep layers).")
-    # Engine fidelity: FLXCNV + one-step T & RHOX vs pykurucz's same step, all machine precision.
-    ok = (rF < 1e-6) and (rT < 1e-6) and (rX < 1e-6)
+    # Engine fidelity: FLXCNV + computed pradk0 + one-step T & RHOX vs pykurucz, all at the floor.
+    ok = (rF < 1e-6) and (rT < 1e-6) and (rX < 1e-6) and (_e0 < 1e-6)
     print()
     print("  PASS" if ok else "  FAIL")
     print("=" * 74)

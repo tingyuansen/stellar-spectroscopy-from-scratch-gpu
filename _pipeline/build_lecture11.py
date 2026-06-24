@@ -58,7 +58,7 @@ md(r"""## Setup and the reference
 
 We import only NumPy and Matplotlib. The benchmark target is `reference/converged_ref.npz`, produced once by the production code on the solar parameters ($T_{\rm eff}=5770$ K, $\log g=4.44$) in the clean configuration this book uses: **continuum opacity only** (no line blanketing, so no multi-gigabyte line lists), **convection on** (mixing length $1.25$), and **serial** execution so the result is bit-reproducible. The production code was run from the **grey start** of Lecture 9 all the way to convergence — stopped when the deep-layer temperature correction fell below $10^{-4}$, the proxy ATLAS uses for flux constancy — which took **28 iterations**.
 
-The file ships three things. First, the **converged model** itself ($T$, column mass `rhox`, pressure, electron density, Rosseland opacity, and the convective flux `flxcnv`). Second, the **convergence history** — $\max|\Delta T/T|$ per iteration — so we can plot a real model settling. Third, everything one from-scratch iteration *from the converged model* needs: the per-frequency **continuum opacity** (the Lecture-3 KAPP output, a given input) and the convective inputs (`ptotal`, `rho`, `abross`). The **radiation pressure** $P_{\rm rad}$ — which Lecture 10 read from the reference — is *not* in that input list: we compute it from scratch in the frequency sweep below (the `RADIAP` moment), and the stored `prad_conv`/`pradk_conv` are used only to *check* our result and to supply the one scalar surface-K constant.
+The file ships three things. First, the **converged model** itself ($T$, column mass `rhox`, pressure, electron density, Rosseland opacity, and the convective flux `flxcnv`). Second, the **convergence history** — $\max|\Delta T/T|$ per iteration — so we can plot a real model settling. Third, everything one from-scratch iteration *from the converged model* needs: the per-frequency **continuum opacity** (the Lecture-3 KAPP output, a given input) and the convective inputs (`ptotal`, `rho`, `abross`). The **radiation pressure** $P_{\rm rad}$ — which Lecture 10 read from the reference — is *not* in that input list, and neither is its surface companion $P_{\rm radk}$: we compute **both** from scratch in the frequency sweep below — the depth-varying `RADIAP` moment *and* its surface K-integral — and the stored `prad_conv`/`pradk_conv` are used only to *check* our result. The one new ingredient that buys us the surface piece is a tiny fixed quadrature table, `reference/josh_ck.npz`, the JOSH K-moment weights — shipped read-only exactly like the $\Lambda$- and H-operator tables, and described where we use it.
 
 The equation of state enters convection through four thermodynamic derivatives (next-to-next section), and ATLAS forms those by **finite-differencing** the EOS at $T,P\pm0.1\%$. Rather than ship the perturbed samples as a given, we **re-run the equation of state ourselves** at those four perturbed points — the Saha/Boltzmann ionization, the partition functions, and the electron-density charge balance of Lecture 2 — from a small companion file `reference/convec_gaps_inputs.npz`. That file carries **no answers**: only the $(T,P)$ state, the abundances, the previous-iteration $(n_e, n_{\rm atom}, q^2)$ seeds, and the tabulated atomic **data** the partition functions consume (energy levels, statistical weights, ionization tables) — exactly the atomic data Lecture 2 reuses. We compute the perturbed densities from scratch and verify them, bit-for-bit, against the converged model's own samples.""")
 
@@ -210,7 +210,7 @@ md(r"""## Constants and the converged model
 
 We use exactly the constants ATLAS uses. We then load the **converged model** as the starting point of our from-scratch iteration: temperature `T`, column mass `rhox`, gas pressure `p_in`, mass density `rho_in`, and the total pressure. The single number that sets the energy balance is the target Eddington flux $H = \sigma T_{\rm eff}^4/(4\pi)$; the **total** flux (radiative + convective) must equal this at every layer.
 
-One radiative quantity we deliberately do **not** read here is the **radiation pressure** $P_{\rm rad}$. In Lecture 10 we read it from the reference; here we close it — we will *compute* it from scratch during the frequency sweep below (the `RADIAP` moment $\frac{4\pi}{c}\int\kappa_\nu H_\nu\,d\nu$, integrated down the column), exactly as ATLAS does, so the convective $dP/dT$ term and the hydrostatic density correction both run on a $P_{\rm rad}$ we built ourselves. The one piece we still take as given is the scalar **surface K-integral** `pradk0` — the second moment $\frac{4\pi}{c}\int K_\nu(0)\,d\nu$ of the *emergent* radiation field at the very top boundary, a single constant added uniformly to $P_{\rm rad}$ to form ATLAS's `PRADK = PRAD + pradk0`. It is a *surface boundary* moment, not the volume radiation-pressure integral, and reproducing it would need JOSH's K-moment grid weights (not shipped with this book), so we read just that one number; everything depth-dependent is computed.
+The radiative quantity we deliberately do **not** read here is the **radiation pressure** $P_{\rm rad}$ — and this lecture closes it completely. In Lecture 10 we read it from the reference; here we *compute* it from scratch during the frequency sweep below (the `RADIAP` moment $\frac{4\pi}{c}\int\kappa_\nu H_\nu\,d\nu$, integrated down the column), exactly as ATLAS does, so the convective $dP/dT$ term and the hydrostatic density correction both run on a $P_{\rm rad}$ we built ourselves. ATLAS adds to it a scalar **surface K-integral** `pradk0` — the second moment $\frac{4\pi}{c}\int K_\nu(0)\,d\nu$ of the *emergent* radiation field at the very top boundary — to form `PRADK = PRAD + pradk0`, the quantity the convective $dP/dT$ term reads. Lecture 10 read that scalar from the reference; here we compute it too, from this same sweep's JOSH surface radiation field (the K-moment section below). Nothing about the radiation pressure is read anymore — only one small fixed quadrature table, the JOSH K-moment weights, is needed, shipped read-only like the $\Lambda$- and H-operators.
 
 A note on notation, to keep a factor of $4\pi$ straight. Throughout the code `flux` and `flxrad` are **Eddington fluxes** $H = F/4\pi$ (flux per steradian). The convection routine instead returns a **physical flux** $F_{\rm conv}$, so the temperature correction divides it by $4\pi$ before adding it to $H$, and the flux-constancy plots multiply $H$ by $4\pi$ to show the physical flux $F$.""")
 
@@ -226,14 +226,12 @@ rho_in = REF["rho_conv"].astype(np.float64)     # mass density [g/cm^3]
 ptotal = REF["ptotal_conv"].astype(np.float64)  # total pressure GRAV*RHOX + PZERO
 n = T.size
 
-# the scalar surface K-integral (the ONLY radiation-pressure input still read): PRADK = PRAD + pradk0.
-# It is the emergent-boundary K-moment, a single constant; the depth-dependent PRAD is computed below.
-pradk0 = float((REF["pradk_conv"].astype(np.float64) - REF["prad_conv"].astype(np.float64))[0])
+# nothing radiation-pressure is read: PRAD (depth-varying) AND pradk0 (the surface K-integral)
+# are both COMPUTED from the JOSH moments of the sweep below; prad_conv/pradk_conv only cross-check.
 
 hkt  = PLANCK / np.maximum(T * KBOLTZ, 1e-300)  # h/(kT) per layer (nu factored in later)
 flux = SIGMA / FOURPI * TEFF**4                 # target Eddington flux H = sigma Teff^4 / (4 pi)
-print(f"target Eddington flux  H = {flux:.4e} erg cm^-2 s^-1 sr^-1")
-print(f"surface K-integral pradk0 = {pradk0:.6f} dyn/cm^2 (the lone scalar radiation-pressure input)")''')
+print(f"target Eddington flux  H = {flux:.4e} erg cm^-2 s^-1 sr^-1")''')
 
 # ── JOSH and the frequency sweep ─────────────────────────────────────────────
 md(r"""## The per-frequency flux: JOSH and the Rosseland mean (Lecture 10)
@@ -244,6 +242,10 @@ code(r'''XTAU  = JT["xtau"].astype(np.float64)             # JOSH fixed optical-
 CH    = JT["ch"].astype(np.float64)
 COEFJ = JT["coefj"].astype(np.float64)            # Lambda operator on the fixed grid
 CH_MAT = REF["josh_coefh"].astype(np.float64)     # H-moment operator (shipped with the reference)
+# CK: the fixed surface K-moment weights (the K analog of the CH surface-flux weights), shipped
+# read-only as reference/josh_ck.npz.  Cast to float32 so CK . xs matches ATLAS's REAL*4 KNU dot.
+CKF = np.load(pathlib.Path("..") / "reference" / "josh_ck.npz")
+CK_W = CKF["ck"].astype(np.float32)               # K-moment quadrature weights on the same XTAU grid
 ITER_TOL = 1.0e-5
 
 def expi3(x):
@@ -326,8 +328,9 @@ The float32 sweep is the one genuinely irreducible loop here and is kept whole. 
 The signed floors and the float32 casts are load-bearing: they are exactly what sets the precision floor of the whole pipeline, so the order and the casts are preserved verbatim.""")
 
 code(r'''def josh_profiles(acont, scont, sigmac, rhox, bnu):
-    """JOSH full depth profiles for one frequency (Lecture 8/10).  Returns taunu, hnu, jmins, abtot, alpha.
-    Continuum only: aline = sigmal = 0; sline = bnu.  The inner Lambda sweep runs in float32 (REAL*4)."""
+    """JOSH full depth profiles for one frequency (Lecture 8/10).  Returns taunu, hnu, jmins, abtot, alpha, knu0.
+    Continuum only: aline = sigmal = 0; sline = bnu.  The inner Lambda sweep runs in float32 (REAL*4).
+    knu0 is the SURFACE second moment K_nu(0) = CK . xs (the K analog of CH . xs for the surface flux)."""
     nl = rhox.size; nxtau = XTAU.size; coefj_diag = np.diag(COEFJ).astype(np.float32)
     abtot, alpha, snubar, taunu = josh_optics(acont, scont, sigmac, rhox, bnu)   # per-frequency optics
     snu = np.zeros(nl); hnu = np.zeros(nl); jnu = np.zeros(nl); jmins = np.zeros(nl)
@@ -354,11 +357,13 @@ code(r'''def josh_profiles(acont, scont, sigmac, rhox, bnu):
     snu[maxj1-1:] = snubar[maxj1-1:]                      # deep layers seeded with the thermal source
     m0 = max(maxj-1, 1) - 1; nmj0 = maxj-1
     josh_deep_solve(snu, snubar, hnu, jnu, jmins, taunu, alpha, bnu, nl, nxtau, m0, nmj0, maxj1)
-    if maxj == 1: return taunu, hnu, jmins, abtot, alpha
+    if maxj == 1:                                            # degenerate surface: surface Eddington factor K = J/3
+        return taunu, hnu, jmins, abtot, alpha, jnu[0]/3.0
     xjs = (-xs + COEFJ.astype(np.float32) @ xs).astype(np.float64)     # (J-S) from the matrix solution
     xh  = (CH_MAT @ xs).astype(np.float64)                             # H from the matrix solution
     jmins[:maxj], _ = map1(XTAU, xjs, taunu[:maxj]); hnu[:maxj], _ = map1(XTAU, xh, taunu[:maxj])   # to physical grid
-    return taunu, hnu, jmins, abtot, alpha''')
+    knu0 = float(np.dot(CK_W, xs))                           # surface K-moment off the SAME source vector: K_nu(0) = CK . xs
+    return taunu, hnu, jmins, abtot, alpha, knu0''')
 
 md(r"""### The frequency sweep
 
@@ -391,6 +396,7 @@ nf = freq.size; z = np.zeros(n)
 ross_acc = np.zeros(n)                                   # Rosseland mean accumulator
 flxrad = np.zeros(n); rjmins = np.zeros(n); rdabh = np.zeros(n); rdiagj = np.zeros(n)  # TCORR integrals
 accrad = np.zeros(n)                                     # RADIAP radiation-pressure-moment integrand sum
+pradk0_acc = 0.0                                         # RADIAP surface K-moment: sum over nu of K_nu(0)
 
 for inu in range(nf):
     f = float(freq[inu]); rcowt = float(rco[inu])
@@ -399,8 +405,8 @@ for inu in range(nf):
     ehvkt = np.exp(-f*hkt); stim = np.maximum(1.0-ehvkt, 1e-300)   # stimulated-emission factor
     bnu = 1.47439e-2*((f/1e15)**3)*ehvkt/stim                       # Planck function B_nu
 
-    # JOSH depth profiles, then guard the flux against a negative excursion
-    taunu, hnu, jmins, abtot, alpha = josh_profiles(acont[:, inu], scont[:, inu], sigmac[:, inu], rhox, bnu)
+    # JOSH depth profiles (plus the surface K-moment knu0), then guard the flux against a negative excursion
+    taunu, hnu, jmins, abtot, alpha, knu0 = josh_profiles(acont[:, inu], scont[:, inu], sigmac[:, inu], rhox, bnu)
     if np.any(hnu < 0.0): hnu = np.maximum(hnu, 1e-99)
 
     # accumulate this frequency's contribution to the Rosseland mean, the four TCORR integrals, and RADIAP
@@ -411,6 +417,7 @@ for inu in range(nf):
     rjmins += abtot*jmins*rcowt                                    # net heating integral kappa (J - S)
     flxrad += hnu*rcowt                                            # radiative flux H(tau), summed over nu
     accrad += abtot*hnu*rcowt                                      # RADIAP: kappa_nu H_nu, the radiation-pressure moment
+    pradk0_acc += knu0*rcowt                                       # RADIAP: K_nu(0), the surface K-moment, summed over nu
     accumulate_rdiagj(rdiagj, taunu, bnu, hkt, T, stim, alpha, abtot, f, rcowt, n)
 
 print(f"swept {nf} continuum frequencies; flux at surface = {flxrad[0]:.4e}, deep = {flxrad[-1]:.4e}")''')
@@ -423,30 +430,45 @@ code(r'''abross = (4.0*SIGMA/3.14159) * T**3 / np.maximum(ross_acc, 1e-300)   # 
 tauros = integ(rhox, abross, abross[0]*rhox[0])                       # Rosseland optical depth
 print(f"kappa_Ross spans {abross.min():.3e} to {abross.max():.3e} cm^2/g; tau_Ross deep = {tauros[-1]:.1f}")''')
 
-# ── RADIAP finalize: the radiation pressure (computed, not read) ──────────────
-md(r"""## Closing the radiation-pressure moment
+# ── RADIAP finalize: the radiation pressure + surface K-moment (computed, not read) ──
+md(r"""## Closing the radiation-pressure moment, surface and all
 
-The sweep accumulated the `RADIAP` integrand $\int\kappa_\nu H_\nu\,d\nu$ in `accrad`. Two factors finish it, exactly as ATLAS's `RADIAP` does. First the constant $4\pi/c$ turns the integrated opacity-times-flux into the **radiative acceleration** $g_{\rm rad}$ (ATLAS writes $4\pi=12.5664$ and $c=2.99792458\times10^{10}$ cm s$^{-1}$ explicitly). Then the same flux-limit safeguard as Lecture 10: where the depth-resolved flux $H(\tau)$ runs above the target $H$ — which can happen in the thin surface layers — the acceleration is capped by $H/H(\tau)$, so the radiation never pushes harder than the target flux allows. Integrating that capped acceleration down the column mass gives the **radiation pressure** $P_{\rm rad}(\rho x)$.
+The sweep accumulated the `RADIAP` integrand $\int\kappa_\nu H_\nu\,d\nu$ in `accrad`. Two factors finish the **depth-varying** part, exactly as ATLAS's `RADIAP` does. First the constant $4\pi/c$ turns the integrated opacity-times-flux into the **radiative acceleration** $g_{\rm rad}$ (ATLAS writes $4\pi=12.5664$ and $c=2.99792458\times10^{10}$ cm s$^{-1}$ explicitly). Then the same flux-limit safeguard as Lecture 10: where the depth-resolved flux $H(\tau)$ runs above the target $H$ — which can happen in the thin surface layers — the acceleration is capped by $H/H(\tau)$, so the radiation never pushes harder than the target flux allows. Integrating that capped acceleration down the column mass gives the **radiation pressure** $P_{\rm rad}(\rho x)$.""")
 
-Adding the scalar surface K-integral `pradk0` gives ATLAS's `PRADK = PRAD + pradk0` — the quantity the convective $dP/dT$ term reads. Both $P_{\rm rad}$ and $P_{\rm radk}$ are now **computed** from the per-frequency flux of this very sweep, not read from the reference; the depth-varying radiation pressure is closed.""")
+md(r"""### The surface K-moment
+
+ATLAS forms `PRADK = PRAD + pradk0`, where `pradk0` is a single **surface boundary** scalar: the second moment of the *emergent* radiation field at the very top of the atmosphere, $\texttt{pradk0} = \frac{4\pi}{c}\int K_\nu(0)\,d\nu$. It is the K-moment companion of the flux $H$ — and, crucially, it is read off the *same* JOSH solution we already have.
+
+Recall what JOSH's variable-Eddington moment method carries on the fixed `XTAU` grid: the source vector $\texttt{xs}$ that solves the scattering problem, from which the **mean intensity** is $J-S = (-\texttt{xs}+\texttt{COEFJ}\cdot\texttt{xs})$ and the **flux** at the surface is $H_\nu(0)=\texttt{CH}\cdot\texttt{xs}$ — a fixed weight vector $\texttt{CH}$ dotted with the source. The **second moment** at the surface is obtained in exactly the same way, with its own fixed quadrature vector: $K_\nu(0)=\texttt{CK}\cdot\texttt{xs}$. The three weight vectors are siblings — $\texttt{CJ}$, $\texttt{CH}$, $\texttt{CK}$ — and their weights sum to $\tfrac12$, $\tfrac14$, $\tfrac16$ respectively: the surface signatures of the zeroth, first, and second angular moments. In the optically-thick limit $K\to J/3$, the isotropic Eddington value, and ATLAS uses precisely that, $K_\nu(0)=J_\nu(0)/3$, in the degenerate case where the surface optical depth runs off the bottom of the grid.
+
+So we need nothing new from the physics — only the fixed $\texttt{CK}$ table, shipped read-only as `reference/josh_ck.npz` (the JOSH K-moment weights, the K analog of the $\texttt{CH}$/$\texttt{COEFJ}$ tables Lecture 8 already ships). In the sweep above we computed $K_\nu(0)$ per frequency inside `josh_profiles` and accumulated $\sum_\nu K_\nu(0)\,\texttt{rcowt}$ into `pradk0_acc`. Two factors finish it: the same $4\pi/c$, and the global flux-limiter ATLAS applies — dividing by $\texttt{errormax}=\max_\tau H(\tau)/H$ when that maximum exceeds one (the surface-layer analog of the per-layer cap on $g_{\rm rad}$). Both $P_{\rm rad}$ **and** the surface scalar $\texttt{pradk0}$ are now built from this very sweep; nothing about the radiation pressure is read.""")
 
 code(r'''# (1) 4 pi / c: turn the integrated kappa_nu H_nu into the radiative acceleration g_rad
 c4pi = 12.5664 / 2.99792458e10                               # 4 pi / c  (ATLAS constants, explicit)
 accrad *= c4pi
 
 # (2) flux-limit safeguard: cap g_rad where the surface flux H(tau) overshoots the target H
-over = (flxrad / max(flux, 1e-300)) > 1.0                    # surface layers running above target
+ratio = flxrad / max(flux, 1e-300)                          # H(tau) / target H, per layer
+over = ratio > 1.0                                          # surface layers running above target
 accrad[over] *= flux / np.maximum(flxrad[over], 1e-300)      # hold g_rad to what the target flux delivers
 
 # (3) integrate the acceleration down the column mass -> P_rad(rhox), on the tauros grid
 prad  = integ(rhox, accrad, accrad[0]*rhox[0])               # the computed radiation pressure
+
+# (4) the surface K-integral pradk0 = (4 pi/c) sum_nu K_nu(0), with ATLAS's global flux-limiter:
+#     divide by errormax = max(H/target) when it exceeds 1.  COMPUTED here, no longer read.
+errormax = float(np.max(ratio))
+pradk0 = pradk0_acc * c4pi
+if errormax > 1.0: pradk0 /= errormax
 pradk = prad + pradk0                                        # PRADK = PRAD + the surface K-integral scalar
 
-# prad-vs-reference check: the computed RADIAP moment against the production code's PRAD/PRADK
+# prad / pradk / pradk0 vs reference: the computed RADIAP + K moments against the production code's
 def _rel(a, b):
     a = np.asarray(a, float); b = np.asarray(b, float)
     m = np.abs(b) > 0; e = np.zeros_like(b); e[m] = np.abs(a[m]-b[m])/np.abs(b[m]); return e.max(), np.median(e)
 ep = _rel(prad,  REF["prad_conv"]);  ek = _rel(pradk, REF["pradk_conv"])
+pradk0_ref = float((REF["pradk_conv"].astype(np.float64) - REF["prad_conv"].astype(np.float64))[0])
+print(f"computed pradk0 = {pradk0:.10f}  vs reference {pradk0_ref:.10f}  rel = {abs(pradk0-pradk0_ref)/abs(pradk0_ref):.2e}")
 print(f"computed P_rad  vs reference: max|rel| = {ep[0]:.2e}   median = {ep[1]:.2e}")
 print(f"computed P_radk vs reference: max|rel| = {ek[0]:.2e}   median = {ek[1]:.2e}")
 print(f"  (the ~1e-8 floor is the float32 JOSH H_nu the moment integrates)")''')
