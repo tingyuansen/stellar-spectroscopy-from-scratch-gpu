@@ -40,9 +40,9 @@ md(r"""# Lecture 12 — Molecular Equilibrium & Molecular Bands
 # ── introduction ──────────────────────────────────────────────────────────
 md(r"""## Introduction
 
-Everything so far has been built for a warm star. The Sun's photosphere sits near 5800 K, hot enough that the gas is atomic: hydrogen is neutral but the metals are partly ionised, and the spectrum (Lectures 4–6) is a forest of **atomic** lines on an H$^-$ continuum. Drop the temperature to 3500 K — a mid M dwarf, the most common kind of star in the Galaxy — and the chemistry changes. Atoms begin to **stick together** into molecules, and because a molecule has thousands of closely spaced rovibrational transitions, those transitions merge into broad **bands** that dominate the optical and near-infrared spectrum. The strongest in the red is **titanium oxide**, TiO, whose band heads carve deep steps into the continuum and are the defining signature of the M spectral class.
+Everything so far has been built for a warm star. The Sun's photosphere sits near 5800 K, warm enough that molecules stay subdominant: hydrogen is neutral but the metals are partly ionised, and the optical spectrum (Lectures 4–6) is a forest of **atomic** lines on an H$^-$ continuum. (A few molecules — CO, CH, CN, OH — are present even in the Sun and matter in places, but they do not shape the optical pseudo-continuum.) Drop the temperature to 3500 K — a mid M dwarf, the most common kind of star in the Galaxy — and the chemistry changes. Atoms begin to **stick together** into molecules, and because a molecule has thousands of closely spaced rovibronic transitions, those transitions merge into broad **bands** that dominate the optical and near-infrared spectrum. The strongest in the red is **titanium oxide**, TiO, whose band heads carve deep steps into the continuum and are the defining signature of the M spectral class.
 
-To synthesise such a spectrum we need two new pieces, and we already own the rest. The first is the **molecular abundance**: how much TiO is there at each depth? That is a chemical-equilibrium problem — the balance Ti + O $\rightleftharpoons$ TiO — and we will see it is governed by a law with exactly the structure of the **Saha equation** of Lecture 2, with the ionisation energy replaced by the molecule's **dissociation energy** $D_0$. The second is the **band opacity**: once we know the population, each molecular line is broadened and accumulated onto the wavelength grid by the very **same Voigt engine** we built for atomic lines in Lectures 4–6. Nothing about the line physics changes; only the source of the populations does.
+To synthesise such a spectrum we need two new pieces, and we already own the rest. The first is the **molecular abundance**: how much TiO is there at each depth? That is a chemical-equilibrium problem — the balance Ti + O $\rightleftharpoons$ TiO — and we will see it is governed by a law with exactly the structure of the **Saha equation** of Lecture 2, with the ionisation energy replaced by the molecule's **dissociation energy** $D_0$. The second is the **band opacity**: once we know the population, each molecular line is broadened and accumulated onto the wavelength grid by the very **same Voigt engine** we built for atomic lines in Lectures 4–6. The molecular physics that differs from an atom — electronic and vibrational level structure, Hönl–London rotational factors, isotopologues — is all already baked into each line's tabulated strength; given those line parameters and the populations, the **profile broadening and grid accumulation are identical** to the atomic case. Only the source of the populations changes.
 
 This lecture assembles those two pieces for a cool M dwarf (Teff = 3500 K, $\log g$ = 5.0, solar metallicity) over 705–718 nm, where a TiO band head falls. The molecular catalogue here is large — 1.17 million lines in that 13 nm window — and we reproduce the production band opacity and the emergent spectrum to machine precision against the reference.""")
 
@@ -61,11 +61,13 @@ $$
 K_d(T) = \frac{Z_A\,Z_B}{Z_{AB}}\left(\frac{2\pi m_{AB}^* kT}{h^2}\right)^{3/2} e^{-D_0/kT} ,
 $$
 
-where the $Z$ are partition functions and $m_{AB}^*$ is the reduced mass. The single fact that drives the chemistry is the **Boltzmann factor** $e^{-D_0/kT}$. At the Sun's 5800 K the thermal energy $kT \approx 0.5$ eV is comparable to a typical $D_0$ of a few eV, so $e^{-D_0/kT}$ is not tiny and dissociation wins — molecules are scarce. At an M dwarf's 3500 K, $kT \approx 0.3$ eV, the exponent is several times larger, and the balance tips hard toward the **bound** molecule. This is the whole story of why cool stars are molecular and hot stars are atomic, and it is the same exponential temperature sensitivity that makes the Saha ionisation balance so steep.
+where the $Z$ are partition functions and $m_{AB}^*$ is the reduced mass. Two pieces fight: the **translational phase-space factor** $(kT)^{3/2}$, which favours dissociation (free atoms have more states to occupy), and the **Boltzmann factor** $e^{-D_0/kT}$, which favours the bound molecule. As the gas warms, both push toward dissociation — the phase-space factor grows and the exponent $D_0/kT$ shrinks, so $e^{-D_0/kT}$ is less suppressed — and the dissociation constant $K_d$ becomes large, leaving molecules scarce. (At the Sun's 5800 K, $D_0/kT$ is still many times unity for a few-eV bond, so the molecule is not "easy" to make; dissociation wins on the combination of a large phase-space factor and a low gas pressure.) As the gas cools to an M dwarf's 3500 K, $D_0/kT$ grows several-fold, the exponential turns sharply against dissociation, and the balance tips hard toward the **bound** molecule. This exponential sensitivity is the dominant intuition for why cool stars are molecular — the same steepness that makes the Saha ionisation balance so abrupt — though the full abundance also depends on gas pressure, the available element abundances, the partition functions, and competition among molecules (see below).
 
-It is often more convenient to track the inverse — the **formation** constant $K_f(T) \equiv n_{AB}/(n_A n_B) = 1/K_d(T)$, which carries the binding factor as $e^{+D_0/kT}$, so it is **large in cool gas** (much molecule formed) and small in hot gas. The production code tabulates this formation form, and that is the quantity we evaluate below.""")
+It is often more convenient to track the inverse — the **formation** constant $K_f(T) \equiv n_{AB}/(n_A n_B) = 1/K_d(T)$, which carries the binding factor as $e^{+D_0/kT}$, so it is **large in cool gas** (much molecule formed) and small in hot gas. The production code tabulates this formation form, and that is the quantity we evaluate below.
 
-md(r"""![In hot gas the atoms (Ti, O) stay free; as the gas cools the formation balance Ti + O ⇌ TiO tips toward the bound molecule, governed by a Saha-like equilibrium set by temperature and the dissociation energy D0. The spectral consequence is on the right: a few isolated atomic lines, versus the millions of molecular rovibrational lines that blend into a band with a sharp bandhead.](resources/figures/s11_molecules.png)""")
+Throughout this section, $\log K$ in the equations denotes the **natural** logarithm (matching the Fortran `ALOG` and the NumPy `np.log` we use); the curves we plot are converted to $\log_{10}$. We flag this because astrophysics usually reads $\log$ as base 10.""")
+
+md(r"""![In hot gas the atoms (Ti, O) stay free; as the gas cools the formation balance Ti + O ⇌ TiO tips toward the bound molecule, governed by a chemical (mass-action) equilibrium analogous to Saha, set by temperature and the dissociation energy D0. The spectral consequence is on the right: a few isolated atomic lines, versus the millions of molecular rovibronic lines that blend into a band with a sharp bandhead.](resources/figures/s11_molecules.png)""")
 
 md(r"""The production code does not store $K_f(T)$ as a closed form. Instead `molecules.dat` gives, for each molecule, the dissociation energy $D_0$ and a short **temperature polynomial** that packages the partition-function ratio and the $(kT)^{3/2}$ phase-space factor into one fit. The Fortran NMOLEC routine evaluates, for a molecule built from $n_{\rm comp}$ atoms with net charge `ion`,
 
@@ -73,7 +75,7 @@ $$
 \log K_f(T) = \frac{D_0}{kT} - E_1 + E_2 T - E_3 T^2 + E_4 T^3 - E_5 T^4 + E_6 T^5 \;-\; \tfrac32\,(n_{\rm comp} - 2\,{\rm ion} - 1)\,\log T ,
 $$
 
-with $kT$ in electron-volts (the Fortran constant $kT = 8.6171\times10^{-5}\,T$, *not* the CODATA value — we keep the code's constant so the numbers match). The first term is the binding Boltzmann factor $D_0/kT$ (positive, so $K_f$ grows as the gas cools); the polynomial $E_1..E_6$ is the partition-function fit; the last term is the $(kT)^{3/2}$ phase-space scaling per atom removed. We will evaluate this for TiO in a moment. The coupled set of these balances over all molecules and all elements — conserving each element's total nuclei and the charge — is solved by a Newton iteration (the routine NMOLEC) at the moment the atmosphere is converted; we take its result for the populations and focus this lecture on what those populations *do* to the spectrum.""")
+with $kT$ in electron-volts (the Fortran constant $kT = 8.6171\times10^{-5}\,T$, *not* the CODATA value — we keep the code's constant so the numbers match). The first term is the binding Boltzmann factor $D_0/kT$ (positive, so $K_f$ grows as the gas cools); the polynomial $E_1..E_6$ is the partition-function fit; the last term is the $(kT)^{3/2}$ phase-space scaling. For a neutral diatomic the coefficient $n_{\rm comp}-2\,{\rm ion}-1$ reduces to 1, recovering the familiar $-\tfrac32\log T$ formation factor; the `ion` term is Kurucz's bookkeeping for charged molecular equilibria, where free electrons enter the balance. We will evaluate this for TiO in a moment. The coupled set of these balances over all molecules and all elements — conserving each element's total nuclei and the charge — is solved by a Newton iteration (the routine NMOLEC) at the moment the atmosphere is converted. **We take its result for the populations as given in this lecture** and focus on what those populations *do* to the spectrum — the bands. Building that coupled solve from scratch, and the molecular *continuous* opacity it also enables, is the subject of the next lecture (Lecture 13); here we earn the bands, and there we earn the populations that feed them.""")
 
 # ── setup + load ───────────────────────────────────────────────────────────
 md(r"""## Setting up: the cool M-dwarf model and the molecular data
@@ -96,8 +98,9 @@ T   = atm["temperature"].astype(float)              # K, per depth (80 layers)
 rho = atm["mass_density"].astype(float)             # g/cm^3
 xne = atm["electron_density"].astype(float)         # cm^-3
 
-# hckt = hc/kT in 1/cm, the Boltzmann exponent factor; vturb = microturbulence per depth
+# hckt = hc/kT [cm], the Boltzmann exponent factor (so elo_cm * hckt is dimensionless)
 hckt = atm["hckt"].astype(float)
+# vturb: microturbulence per depth
 vturb = atm["turbulent_velocity"].astype(float)     # cm/s
 
 print(f"M dwarf: Teff={float(atm['teff']):.0f} K, logg={float(atm['glog']):.1f}, "
@@ -106,7 +109,7 @@ print(f"M dwarf: Teff={float(atm['teff']):.0f} K, logg={float(atm['glog']):.1f},
 # ── molecules.dat ──────────────────────────────────────────────────────────
 md(r"""## Reading `molecules.dat`: TiO's dissociation data
 
-The dissociation table `molecules.dat` is a flat text file: each molecule is a line whose first field is a **code** that encodes the constituent atoms, followed by the dissociation energy and the equilibrium-constant polynomial. The code packs each element's atomic number into a base-100 digit pair — TiO is titanium ($Z=22$) plus oxygen ($Z=8$), so its code is $22\times100 + 8 = 2208$, written as `822.00` in the file's two-decimal convention (the file lists the lighter element in the high digits; here oxygen 08 then titanium 22 reads as `0822`). We parse the file just far enough to find TiO and read its seven coefficients.""")
+The dissociation table `molecules.dat` is a flat text file: each molecule is a line whose first field is a **code** that encodes the constituent atoms, followed by the dissociation energy and the equilibrium-constant polynomial. The code packs each element's atomic number into a base-100 digit pair, lighter element first. TiO is oxygen ($Z=8$) followed by titanium ($Z=22$), so its code is $8\times100 + 22 = 822$, written as `822.00` in the file's two-decimal convention. We parse the file just far enough to find TiO and read its seven coefficients.""")
 
 code(r'''def read_molecules_dat(path):
     """Parse molecules.dat into {code: (D0, [E1..E6])}: the dissociation table.
@@ -164,7 +167,7 @@ lnKf = log_K_tio(temps, D0_tio, E_tio)                  # natural log of the for
 print(f"log10 Kf at 3500 K = {lnKf[np.argmin(np.abs(temps-3500))]/np.log(10):.2f}")
 print(f"log10 Kf at 5800 K = {lnKf[np.argmin(np.abs(temps-5800))]/np.log(10):.2f}")''')
 
-md(r"""The formation constant $K_f(T) = n_{\rm TiO}/(n_{\rm Ti}n_{\rm O})$ measures how strongly the molecule is favoured: large $K_f$ means TiO forms readily, small $K_f$ means it stays dissociated. Plotting it against temperature shows the steep exponential that decides the chemistry — and marks where the Sun and the M dwarf sit on it.""")
+md(r"""The formation constant $K_f(T) = n_{\rm TiO}/(n_{\rm Ti}n_{\rm O})$ measures how strongly the molecule is favoured: large $K_f$ means TiO forms readily, small $K_f$ means it stays dissociated. It is a *dimensional* quantity (a volume, cm$^3$, in the Kurucz cgs convention), so its absolute magnitude reflects that convention; the actual TiO density $n_{\rm TiO}$ still scales with how much Ti and O are available and with the gas pressure. Plotting $K_f$ against temperature shows the steep exponential that decides the chemistry — and marks where the Sun and the M dwarf sit on it.""")
 
 code(r'''fig, ax = plt.subplots()
 # log10 of the formation constant vs temperature
@@ -176,34 +179,37 @@ for t0, name, col in [(3500, "M dwarf (3500 K)", "C3"), (5800, "Sun (5800 K)", "
     ax.plot(t0, k0, "o", color=col, ms=8); ax.annotate(name, (t0, k0),
         textcoords="offset points", xytext=(8, -14), color=col, fontsize=10)
 
-ax.set_xlabel("temperature  [K]"); ax.set_ylabel(r"$\log_{10} K_f(T)$  (formation)")
+ax.set_xlabel("temperature  [K]")
+# formation constant K_f = n(TiO) / [n(Ti) n(O)], a volume in cm^3 (Kurucz cgs convention)
+ax.set_ylabel(r"$\log_{10}\,[\,K_f(T)\,/\,{\rm cm^3}\,]$  (formation: $n_{\rm TiO}/n_{\rm Ti}n_{\rm O}$)")
 ax.set_title("TiO formation balance: cool gas keeps the molecule together")
 fig.tight_layout(); plt.show()''')
 
-md(r"""Between the M dwarf and the Sun the formation constant drops by several orders of magnitude: at 3500 K TiO forms readily, while at 5800 K it is overwhelmingly torn apart. This single curve is why TiO bands are absent from the solar spectrum and dominate an M dwarf's. The actual TiO number density also depends on how much titanium and oxygen are available and on competition with other oxides, which is what the full coupled NMOLEC solve accounts for — but the temperature dependence is set by this Boltzmann curve.""")
+md(r"""Between the M dwarf and the Sun the formation constant drops by several orders of magnitude: at 3500 K TiO forms readily, while at 5800 K it is overwhelmingly torn apart. This single curve is why TiO bands are absent from the solar spectrum and dominate an M dwarf's. The actual TiO number density also depends on how much titanium and oxygen are available and on competition with other molecules — above all **carbon monoxide**, whose enormous 11.1 eV bond locks up nearly all the carbon and oxygen it can reach. TiO can form only because the standard M-dwarf C/O ratio is below one, leaving free oxygen after CO is satisfied, which makes the TiO abundance acutely sensitive to that ratio. The full coupled NMOLEC solve accounts for all of this — but the temperature dependence is set by the Boltzmann curve above.""")
 
 # ── populations: XNFPMOL ────────────────────────────────────────────────────
 md(r"""## The molecular population in the model
 
-The coupled equilibrium solve has already been run for this atmosphere, so the TiO number density sits in the model's `population_per_ion` array. That array is indexed `[depth, ion_stage, element]`; the molecular populations are stored in **ion slot 5** (a slot the code reserves for molecules), keyed by the molecule's element index. For TiO the production code uses the internal species index `NELION = 366`, which maps to element index $366/6 - 1 = 60$. We read that slot directly — this is the quantity the Fortran calls **XNFPMOL**, the molecular partial number density per unit volume.""")
+The coupled equilibrium solve has already been run for this atmosphere, so the TiO number density sits in the model's `population_per_ion` array. That array is indexed `[depth, ion_stage, element]`; the molecular populations are stored in **ion slot 5** (a slot the code reserves for molecules), keyed by the molecule's element index. For TiO the production code uses the internal species index `NELION = 366`, which maps to element index $366/6 - 1 = 60$. These indices (`NELION = 366`, slot 5, element 60) are Kurucz internal storage labels — array bookkeeping, not physical quantum numbers. We read that slot directly: it holds the quantity the Fortran calls **XNFPMOL**, the TiO number density per unit volume (cm$^{-3}$).""")
 
 code(r'''NELION_TIO = 366                                    # production species index for TiO
 elem_tio = NELION_TIO // 6 - 1                      # -> element index 60 in population_per_ion
 
 # population_per_ion is indexed [depth, ion_stage, element]; ion slot 5 holds the molecules
 pop = atm["population_per_ion"].astype(float)
-xnfpmol_tio = pop[:, 5, elem_tio]                   # XNFPMOL(TiO), the molecular partial density
+xnfpmol_tio = pop[:, 5, elem_tio]                   # n(TiO) number density [cm^-3] (Fortran XNFPMOL)
 
-print(f"XNFPMOL(TiO) over {xnfpmol_tio.size} depths: "
-      f"{xnfpmol_tio.min():.3e} .. {xnfpmol_tio.max():.3e}  (cm^-3-equivalent)")''')
+print(f"n(TiO) over {xnfpmol_tio.size} depths: "
+      f"{xnfpmol_tio.min():.3e} .. {xnfpmol_tio.max():.3e}  cm^-3")''')
 
-md(r"""The TiO population rises steeply with depth as the gas cools and densifies — the same Boltzmann sensitivity, now read off the converged model rather than computed from scratch. Plotting it against temperature along the atmosphere confirms the trend: cooler layers hold more TiO.""")
+md(r"""The TiO number density reflects two competing trends along the atmosphere: deeper layers are denser (more Ti and O per unit volume, favouring formation) but also hotter (favouring dissociation). The converged model captures both, and the result is the characteristic **molecular layer** — TiO peaks at intermediate depth, where temperature is low enough and density high enough together. Note the distinction the plot makes concrete: the *molecular fraction* is largest in the cool outer layers, but the *partial number density* plotted here also carries the density stratification, so its peak sits deeper. We plot it against temperature along the atmosphere to see the trend.""")
 
 code(r'''fig, ax = plt.subplots()
 order = np.argsort(T)                                # sort by temperature for a clean curve
 ax.semilogy(T[order], np.maximum(xnfpmol_tio[order], 1e-30), "o-", ms=3, color="C2")
-ax.set_xlabel("layer temperature  [K]"); ax.set_ylabel("XNFPMOL(TiO)  [cm$^{-3}$ equiv.]")
-ax.set_title("TiO partial density along the M-dwarf atmosphere")
+ax.set_xlabel("layer temperature  [K]")
+ax.set_ylabel(r"$n_{\rm TiO}$  (TiO number density)  [cm$^{-3}$]")
+ax.set_title("TiO number density along the M-dwarf atmosphere")
 fig.tight_layout(); plt.show()''')
 
 # ── molecular Doppler width ─────────────────────────────────────────────────
@@ -215,7 +221,7 @@ $$
 \frac{\Delta\lambda_D}{\lambda} = \sqrt{\frac{2kT}{m\,c^2} + \left(\frac{v_{\rm turb}}{c}\right)^2} ,
 $$
 
-with $m$ the molecular mass. The synthesis recomputes this width at synthesis time (the atmosphere stores a placeholder), so we recompute it too, with TiO's mass of 64 amu.""")
+with $m$ the molecular mass. Because TiO is heavy — 64 amu — its thermal speed in a 3500 K gas is only about 0.95 km/s, so unlike hydrogen or a light atom, the stellar microturbulence (typically 1–2 km/s) rivals or even dominates the thermal term for molecular lines. The synthesis recomputes this width at synthesis time (the atmosphere stores a placeholder), so we recompute it too, with TiO's mass of 64 amu.""")
 
 code(r'''KB  = 1.380649e-16          # erg/K
 AMU = 1.66053906660e-24    # g
@@ -227,7 +233,8 @@ def molecular_dopple(temp, vt, mass_amu):
     return np.sqrt(thermal ** 2 + (vt / C_CMS) ** 2)               # add microturbulence
 
 # evaluate the width per depth for TiO, using its molecular mass (not an atomic one)
-MASS_TIO = 64.0                                     # TiO mass in amu (Ti 48 + O 16)
+# SYNTHE species mass, the dominant-isotope TiO mass (Ti 48 + O 16); real Ti is a mix of isotopes
+MASS_TIO = 64.0                                     # amu
 dopple_tio = molecular_dopple(T, vturb, MASS_TIO)   # fractional Doppler width per depth
 print(f"DOPPLE(TiO) = {dopple_tio.min():.3e} .. {dopple_tio.max():.3e}  (fractional)")''')
 
@@ -240,7 +247,7 @@ print(f"XNFDOP(TiO) = {xnfdop_tio[xnfdop_tio>0].min():.3e} .. {xnfdop_tio.max():
 # ── the molecular line list ─────────────────────────────────────────────────
 md(r"""## The molecular line list
 
-The molecular catalogue for this window combines the **TiO Schwenke** line list (a quantum-mechanical computation of TiO's rovibrational transitions) with several ASCII lists for other molecules (CN, OH, MgH, and more). Each line carries the same descriptors as an atomic line in Lecture 5: a grid-position index `nbuff` (from which we reconstruct the wavelength), a combined strength `cgf` (the $gf$-value already folded with the isotopic abundance and the molecular constants), a lower-level energy `elo_cm` in cm$^{-1}$ for the Boltzmann factor, the broadening constants, and a species index `nelion` that tells us which molecule — and hence which population and Doppler width — to use. There are over a million of them in this 13 nm window.""")
+The molecular catalogue for this window combines the **TiO Schwenke** line list (a quantum-mechanical computation of TiO's rovibronic transitions — electronic bands split into dense vibrational and rotational branches) with several ASCII lists for other molecules (CN, OH, MgH, and more). Each line carries the same descriptors as an atomic line in Lecture 5: a grid-position index `nbuff` (from which we reconstruct the wavelength), a combined strength `cgf` (the $gf$-value already folded with the isotopic abundance and the molecular constants), a lower-level energy `elo_cm` in cm$^{-1}$ for the Boltzmann factor, the broadening constants, and a species index `nelion` that tells us which molecule — and hence which population and Doppler width — to use. There are over a million of them in this 13 nm window.""")
 
 code(r'''ml = np.load(REF / "mol_lines_tio.npz")              # the windowed molecular line arrays
 
@@ -316,7 +323,7 @@ $$
 a = \frac{\gamma_{\rm rad} + \gamma_{\rm Stark}\,n_e + \gamma_{\rm vdW}\,\texttt{TXNXN}}{\Delta\lambda_D/\lambda} .
 $$
 
-The Boltzmann factor $e^{-E_{\rm lo}\,hc/kT}$ populates the lower level (here `hckt` $=hc/kT$, so the exponent is $E_{\rm lo}\cdot\texttt{hckt}$). The damping sums radiative, Stark (scaling with electron density $n_e$), and van der Waals broadening (scaling with the neutral-collision factor `TXNXN`). The first helper builds these per-line arrays and applies the production code's opacity **gate**: a line is kept only if its central opacity reaches a fraction `CUTOFF` of the local continuum — the floor `KAPMIN` that stops us from tracing the wings of negligibly weak lines.""")
+The Boltzmann factor $e^{-E_{\rm lo}\,hc/kT}$ populates the lower level (here `hckt` $=hc/kT$ has units of cm, so with $E_{\rm lo}$ in cm$^{-1}$ the exponent $E_{\rm lo}\cdot\texttt{hckt}$ is dimensionless). The damping sums radiative, Stark (scaling with electron density $n_e$), and van der Waals broadening (scaling with the neutral-collision factor `TXNXN`). The $\gamma$ fields are stored in the production-code normalization, so no extra $4\pi\,\Delta\nu_D$ factor appears when we divide by the fractional Doppler width here. The first helper builds these per-line arrays and applies the production code's opacity **gate**: a line is kept only if its central opacity reaches a fraction `CUTOFF` of the local continuum — the floor `KAPMIN` that stops us from tracing the wings of negligibly weak lines.""")
 
 code(r'''CUTOFF = 1e-3                                        # KAPMIN = CUTOFF * continuum (SYNTHE floor)
 
@@ -334,6 +341,8 @@ def line_strength_and_gate(cont_row, ci, xnfdop, dop_val, xne_d, tx_d, hckt_d):
 
 # ── band opacity kernel: center + wings ─────────────────────────────────────
 md(r"""## Band opacity: accumulating the center and near wings
+
+The accumulation has a simple skeleton, worth holding in mind before the dense vectorised code: **gate** out the weak lines, **deposit** each surviving line's center and core, then **walk** the Lorentz tail outward, stopping a line once it falls below the floor or runs off the grid. The next two cells implement the deposit-and-walk; the gate is already done.
 
 With the surviving lines, we add their opacity to the wavelength grid. The **line center** gets $\kappa_0\,H(a,0)$ (a small-damping shortcut $1-1.128a$ for $a<0.2$, else the full Voigt). The **near wings** are then walked symmetrically outward step by step out to $n_{10\rm dop}$ — ten Doppler widths — or until a step falls below `KAPMIN`. As in the production kernel, the profile is evaluated two ways depending on the damping: for weakly damped lines ($a<0.2$, the vast majority) the displacement indexes the Harris table directly as $H_0 + a\,H_1$ along $\texttt{tabi}=0.5+n\cdot(200/dr)$; for stronger damping it is the full Voigt at $v = n/dr$, with $dr = (\Delta\lambda_D/\lambda)\,R$ the Doppler width measured in grid steps. We add $\kappa_0 H$ to the bins at center $\pm n$, vectorised over all lines with `np.add.at` — the same wing accumulation as Lecture 5. The helper returns the profile value at the last near-wing step, which seeds the far wing.""")
 
@@ -368,7 +377,7 @@ code(r'''def accumulate_core_and_near(buf, ci, kappa0, adamp, kapmin, resolu, do
         prof_n10 = np.where(active & (ns == n10dop), pval, prof_n10)     # seed value at step n10dop
     return n10dop, prof_n10, early''')
 
-md(r"""Beyond ten Doppler widths the Voigt profile is pure Lorentz wing, falling as $1/n^2$. So the **far wing** does not need the tabulated profile at all: it extends the last near-wing value by $\kappa = (\text{seed})\,n_{10}^2/n^2$, stepping outward until it drops below `KAPMIN`. The crucial subtlety — and the bug that cost us a 1% error before we matched the production code — is the **stopping rule**: the production kernel breaks a line's far wing the first time *neither* the red nor the blue bin is on the grid. For a line whose center lies off the window (say, 300 bins past the red edge), every far-wing step up to that offset has both ends off-grid, so the line stops immediately and contributes nothing in the far wing; it must not "re-enter" the grid at a later step. We replicate that hard break exactly.""")
+md(r"""Beyond ten Doppler widths the Voigt profile is well into its Lorentz asymptote, falling as $1/n^2$, so the production kernel treats the **far wing** with that analytic tail rather than the tabulated profile: it extends the last near-wing value by $\kappa = (\text{seed})\,n_{10}^2/n^2$, stepping outward until it drops below `KAPMIN`. The crucial subtlety — and the bug that cost us a 1% error before we matched the production code — is the **stopping rule**: the production kernel breaks a line's far wing the first time *neither* the red nor the blue bin is on the grid. For a line whose center lies off the window (say, 300 bins past the red edge), every far-wing step up to that offset has both ends off-grid, so the line stops immediately and contributes nothing in the far wing; it must not "re-enter" the grid at a later step. We replicate that hard break exactly.""")
 
 code(r'''def accumulate_far(buf, ci, kapmin, n10dop, prof_n10, early):
     """Add the Lorentz far wing (pval = seed * n10^2 / n^2) with the production stop rule."""
@@ -418,7 +427,7 @@ code(r'''def accumulate_depth(buf, cont_row, wavelength, xnfdop_e, dop_e, xne_d,
     n10dop, prof_n10, early = accumulate_core_and_near(buf, ci, k0, ad, km, resolu, dv)
     accumulate_far(buf, ci, km, n10dop, prof_n10, early)''')
 
-md(r"""The molecular opacity is built for **every depth**, and over the next three cells we (1) prepare the inputs, (2) loop over depths, and (3) finish with stimulated emission. This first cell prepares the inputs: it loads the synthesis diagnostics (wavelength grid and continuum), and — because the synthesis overwrites the atmosphere's placeholder Doppler width — recomputes the molecular Doppler width per element into slot 5, looping over a small table that keys each molecular species index to its mass in amu. The per-depth population and width assembly, the driver call, and the **stimulated-emission** factor $1-e^{-h\nu/kT}$ (the same correction applied to every opacity) follow in the cells after.""")
+md(r"""The molecular opacity is built for **every depth**, and over the next three cells we (1) prepare the inputs, (2) loop over depths, and (3) finish with stimulated emission. This first cell prepares the inputs: it loads the synthesis diagnostics (wavelength grid and continuum), and — because the synthesis overwrites the atmosphere's placeholder Doppler width — recomputes the molecular Doppler width per element into slot 5, looping over a small table that keys each molecular species index to its mass in amu. The per-depth population and width assembly, the driver call, and the **stimulated-emission** factor $1-e^{-h\nu/kT}$ (the same correction applied to every line-absorption opacity) follow in the cells after.""")
 
 code(r'''NELION_MASS = {240: 2.0, 246: 13.0, 258: 17.0, 264: 24.0, 270: 26.0, 324: 43.0,
                342: 41.0, 366: 64.0, 372: 67.0, 432: 52.0, 492: 24.0}   # species -> mass (amu)
@@ -447,11 +456,12 @@ for di in range(n_depths):
     dop_e = dop_arr[di, 5, :]; pop_e = pop[di, 5, :]                      # per-element width and pop
     with np.errstate(divide="ignore", invalid="ignore"):
         xnfdop_e = np.where((dop_e > 0) & (pop_e > 0), pop_e / (rho[di] * dop_e), 0.0)
+    # the vdW factor tx is set to 0.0 here; it is supplied below, for completeness
     accumulate_depth(mol_op[di], cont[di], wavelength, xnfdop_e, dop_e,
-                     xne[di], 0.0, hckt[di])     # tx (vdW factor) supplied below for completeness
+                     xne[di], 0.0, hckt[di])
 print("band opacity accumulated; applying stimulated emission next")''')
 
-md(r"""One per-depth quantity we deferred is the **van der Waals collision factor** `TXNXN`, which scales the vdW damping. It is built from the neutral hydrogen and helium populations with a mild temperature scaling, $\texttt{TXNXN} = (n_{\rm H} + 0.42\,n_{\rm He} + 0.85\,n_{\rm H_2})\,(T/10^4)^{0.3}$ — the standard Unsöld combination. We recompute the opacity including it, then apply stimulated emission to finish the band opacity.""")
+md(r"""One per-depth quantity we deferred is the **van der Waals collision factor** `TXNXN`, which scales the vdW damping. It is built from the neutral hydrogen and helium populations with a mild temperature scaling, $\texttt{TXNXN} = (n_{\rm H} + 0.42\,n_{\rm He} + 0.85\,n_{\rm H_2})\,(T/10^4)^{0.3}$ — the Kurucz/SYNTHE Unsöld-style neutral-collision factor. We recompute the opacity including it, then apply stimulated emission to finish the band opacity.""")
 
 code(r'''txnxn = (atm["xnf_h"] + 0.42 * atm["xnf_he1"] + 0.85 * atm["xnf_h2"]) * (T / 1e4) ** 0.3
 mol_op = np.zeros((n_depths, n_wl))                                       # recompute with vdW factor
@@ -462,7 +472,7 @@ for di in range(n_depths):
         xnfdop_e = np.where((dop_e > 0) & (pop_e > 0), pop_e / (rho[di] * dop_e), 0.0)
     accumulate_depth(mol_op[di], cont[di], wavelength, xnfdop_e, dop_e, xne[di], txnxn[di], hckt[di])
 
-# stimulated emission 1 - exp(-h nu / kT), the same factor applied to every opacity
+# stimulated emission 1 - exp(-h nu / kT), the same factor applied to every line-absorption opacity
 freq = C_NM / wavelength; hkt = H_PLANCK / (KB * np.maximum(T, 1.0))
 mol_op *= 1.0 - np.exp(-freq[None, :] * hkt[:, None])
 print(f"molecular opacity: max {mol_op.max():.4e}  over {mol_op.shape}")''')
@@ -470,7 +480,7 @@ print(f"molecular opacity: max {mol_op.max():.4e}  over {mol_op.shape}")''')
 # ── band opacity benchmark ──────────────────────────────────────────────────
 md(r"""## Band opacity to machine precision
 
-The reference isolates the pure molecular component as the difference of two production runs — one with molecules, one without — so it carries exactly the molecular opacity (stimulated emission included) and nothing else. We compare our accumulated opacity to it. The relative error is taken on the genuinely non-zero reference points.""")
+The reference isolates the molecular component as the difference of two production runs — one with molecules, one without — so it carries exactly the molecular line opacity (stimulated emission included) and nothing else. In this window TiO dominates, but the difference also includes the other molecules in the list (CN, OH, MgH, …), so it is the full molecular component rather than TiO alone. We compare our accumulated opacity to it. The relative error is taken on the genuinely non-zero reference points.""")
 
 code(r'''da = np.load(REF / "diag_atomic.npz")                                    # molecules-OFF run
 mol_ref = (dt["line_opacity"] - da["line_opacity"]).astype(float)        # pure molecular component
@@ -487,14 +497,15 @@ md(r"""**Machine precision.** The band opacity matches the production kernel to 
 # ── plot the band opacity ───────────────────────────────────────────────────
 md(r"""## Looking at the band: the TiO band head
 
-Before the spectrum, look at the opacity itself at a representative photospheric depth. The TiO band head is the abrupt rise where a vibrational band's rotational lines pile up — a near-vertical wall of opacity. Plotting our molecular opacity against the reference across the window shows the band structure and confirms the two are indistinguishable.""")
+Before the spectrum, look at the opacity itself at a representative photospheric depth. The TiO band head is the abrupt rise where a band's rotational lines pile up — because the rotational constant changes between the upper and lower electronic states, the line spacing within a branch shrinks and then reverses (a Fortrat parabola), heaping many lines at nearly one wavelength and forming a near-vertical wall of opacity. Plotting our molecular opacity against the reference across the window shows the band structure and confirms the two are indistinguishable.""")
 
 code(r'''di_show = int(np.argmin(np.abs(T - 3500.0)))                            # a near-photosphere layer
 fig, ax = plt.subplots()
 ax.plot(wavelength, mol_ref[di_show], color="0.6", lw=1.4, label="reference")
 ax.plot(wavelength, mol_op[di_show], color="C3", lw=0.6, label="from scratch")
 ax.set_yscale("log"); ax.set_xlabel("wavelength  [nm]")
-ax.set_ylabel("molecular opacity"); ax.set_title(f"TiO band opacity at T = {T[di_show]:.0f} K")
+ax.set_ylabel(r"molecular line opacity  [cm$^2$/g]")
+ax.set_title(f"TiO band opacity at T = {T[di_show]:.0f} K")
 ax.legend(loc="lower left"); fig.tight_layout(); plt.show()''')
 
 md(r"""The opacity is a dense thicket of TiO rotational lines, rising toward the band head near the red end of the window — and our reproduction lies exactly on the reference. With the molecular opacity in hand and verified, the rest of the spectrum synthesis is the machinery we already built.""")
@@ -649,7 +660,7 @@ print(f"reference line_scattering is exactly zero: {np.all(dt['line_scattering']
 # ── full spectrum ───────────────────────────────────────────────────────────
 md(r"""## The TiO bandhead spectrum, to machine precision
 
-Now the full window. The **line absorption** is the production diagnostic's `line_opacity`, which already includes our molecular opacity (the reference run had molecules on); the **continuum** flux uses zero line opacity. Both the continuum and line source functions are the **inline Planck** `B_nu` just verified — no source is read as a transfer input. We solve both fluxes at every wavelength and take the ratio for the normalised spectrum, then compare to the reference computed by the production pipeline.""")
+Now the full window. The **line absorption** is the production diagnostic's `line_opacity`, whose molecular component we just reproduced independently to machine precision (the reference run had molecules on, so this total already contains it; equivalently one could substitute our `mol_op` plus the molecules-off opacity). The **continuum** flux uses zero line opacity. Both the continuum and line source functions are the **inline Planck** `B_nu` just verified — no source is read as a transfer input. We solve both fluxes at every wavelength and take the ratio for the normalised spectrum, then compare to the reference computed by the production pipeline.""")
 
 code(r'''acont = dt["continuum_absorption"].astype(float); sigmac = dt["continuum_scattering"].astype(float)
 sigmal = dt["line_scattering"].astype(float)
@@ -674,20 +685,20 @@ code(r'''fig, (ax, axr) = plt.subplots(2, 1, figsize=(11, 5.4), sharex=True,
 ax.plot(wavelength, reference, color="0.6", lw=1.4, label="reference (production)")
 ax.plot(wavelength, spectrum, color="C3", lw=0.6, label="from scratch (this lecture)")
 ax.set_ylabel("normalised flux"); ax.set_ylim(0, 1.05); ax.legend(loc="lower left")
-ax.set_title("Cool M dwarf, 705-718 nm: the TiO band head, matched to the bit")
+ax.set_title("Cool M dwarf, 705-718 nm: the TiO band system, matched to the bit")
 axr.semilogy(wavelength, np.maximum(rel, 1e-16), color="C0", lw=0.5)    # residual on a log scale
 axr.set_xlabel("wavelength  [nm]"); axr.set_ylabel("|rel diff|"); axr.set_ylim(1e-15, 1e-6)
 fig.tight_layout(); plt.show()''')
 
-md(r"""The spectrum is no longer a near-flat continuum dusted with narrow atomic lines, as the Sun's was in Lectures 7–8. It is carved by a broad **TiO band**: hundreds of rotational lines blend into a depression that plunges toward the band head, where the normalised flux drops to about an eighth of the continuum. This is the visual signature of the M spectral class, and we have built it from the dissociation balance and the same Voigt engine as everything before.""")
+md(r"""The spectrum is no longer a near-flat continuum dusted with narrow atomic lines, as the Sun's was in Lectures 7–8. It is carved by a broad **TiO band**: many thousands of overlapping rotational-branch lines blend into a depression that plunges toward the band head, where the normalised flux drops to about an eighth of the continuum. This is the visual signature of the M spectral class, and we have built it from the dissociation balance and the same Voigt engine as everything before.""")
 
 # ── why M dwarfs differ ─────────────────────────────────────────────────────
 md(r"""## Why an M dwarf's spectrum looks nothing like the Sun's
 
 It is worth stating plainly what changed, because nothing in the line physics did. The atomic lines are still there; they are simply buried. Three things conspire in a cool atmosphere:
 
-- **Molecules form.** The dissociation Boltzmann factor $e^{-D_0/kT}$ swings from negligible at 5800 K to dominant at 3500 K, so species like TiO, VO, and the hydrides reach abundances that matter.
-- **Bands, not lines.** A molecule has thousands of rovibrational transitions packed into a narrow wavelength range; their overlapping wings merge into continuous **bands** with sharp heads, depressing whole stretches of spectrum rather than carving isolated lines.
+- **Molecules form.** The formation Boltzmann factor $e^{+D_0/kT}$ grows rapidly as $T$ falls (equivalently, the dissociation constant is exponentially suppressed at low $T$), so as the gas cools from 5800 K to 3500 K species like TiO, VO, and the hydrides reach abundances that matter.
+- **Bands, not lines.** A molecule has thousands of rovibronic transitions packed into a narrow wavelength range; their overlapping wings merge into continuous **bands** with sharp heads, depressing whole stretches of spectrum rather than carving isolated lines.
 - **The pseudo-continuum drops.** Because the band opacity is everywhere, the "continuum" an observer would draw through an M-dwarf spectrum is itself shaped by molecules — there is no truly line-free window in the optical.
 
 The same code that synthesised the Sun synthesises the M dwarf; only the populations feeding the line accumulation changed, and those came from the molecular dissociation equilibrium. That is the lesson: a cool star's exotic-looking spectrum is the warm-star machinery plus one extra equilibrium.""")
@@ -695,7 +706,7 @@ The same code that synthesised the Sun synthesises the M dwarf; only the populat
 # ── synthesis ───────────────────────────────────────────────────────────────
 md(r"""## Synthesis
 
-Adding molecules to the synthesis took exactly two new ideas on top of the warm-star pipeline. The first was **dissociation equilibrium** — chemical balance written as a Saha-like law, the dissociation energy $D_0$ in a Boltzmann factor times a temperature polynomial for the formation constant $\log K_f(T)$, solved as a coupled system to give the molecular populations. We read TiO's $D_0$ and polynomial straight from `molecules.dat`, saw the steep formation curve that keeps the molecule whole in cool gas, and took the converged populations from the model.
+Adding molecules to the synthesis took exactly two new ideas on top of the warm-star pipeline. The first was **dissociation equilibrium** — chemical balance written as a Saha-like law, the dissociation energy $D_0$ in a Boltzmann factor times a temperature polynomial for the formation constant $\log K_f(T)$. We read TiO's $D_0$ and polynomial straight from `molecules.dat`, saw the steep formation curve that keeps the molecule whole in cool gas, and — to keep the focus on the bands — took the converged populations as given from the model rather than re-solving the coupled system here (Lecture 13 earns them from scratch).
 
 The second was **nothing new at all**: the molecular populations enter the line opacity through the same XNFDOP combination, are broadened by the same Voigt profile, and are accumulated by the same wing kernel as the atomic lines of Lectures 4–6 — then carried to the surface by the same JOSH solver of Lecture 8. Over 1.17 million TiO lines, the band opacity reproduced the production kernel to a float64 accumulation floor, and the emergent bandhead spectrum matched the reference to the single-precision JOSH floor. The defining feature of an M dwarf — its TiO bands — is the Sun's pipeline plus one dissociation balance.
 
@@ -704,7 +715,7 @@ The second was **nothing new at all**: the molecular populations enter the line 
 # ── summary ──────────────────────────────────────────────────────────────────
 md(r"""## Summary
 
-- Cool stars are **molecular** because the dissociation Boltzmann factor $e^{-D_0/kT}$ tips the balance A + B $\rightleftharpoons$ AB toward the bound molecule when $kT$ is small; warm stars are atomic for the same reason inverted.
+- Cool stars are **molecular** because the formation Boltzmann factor $e^{+D_0/kT}$ grows steeply as $kT$ shrinks, tipping the balance A + B $\rightleftharpoons$ AB toward the bound molecule; warm stars are atomic for the same reason inverted (and the full abundance also depends on pressure, element conservation, and competition among molecules).
 - Chemical equilibrium is **Saha for molecules**: $n_A n_B / n_{AB} = K_d(T)$, and the production code tabulates the inverse formation form $\log K_f(T) = D_0/kT - E_1 + (\text{polynomial in } T) - \tfrac32(n_{\rm comp}-2\,{\rm ion}-1)\log T$ from `molecules.dat`. For TiO, $D_0 \approx 6.9$ eV.
 - The opacity driver is **XNFDOP** $= n_{\rm mol}/(\rho\,\Delta\lambda_D/\lambda)$, with the molecular **Doppler width** built from the species mass plus microturbulence.
 - Molecular line opacity uses the **same Voigt engine** as atomic lines (Lectures 4–6): center $+$ near wings (tabulated $H(a,v)$) $+$ Lorentz far wing ($1/n^2$), with the `KAPMIN` cutoff — only the populations differ.
@@ -717,7 +728,7 @@ md(r"""## Practice exercises
 
 **2. The band head.** Find the deepest point of the TiO spectrum and the wavelength of the band head (the abrupt rise in opacity). Plot the molecular opacity at three depths spanning the photosphere and show how the band head sharpens as the gas cools. Why is the head a near-vertical wall rather than a gradual slope?
 
-**3. The Doppler width matters.** Recompute XNFDOP(TiO) using an atomic Doppler width (mass 48 for Ti alone) instead of the molecular mass 64, and quantify the change in the central band opacity. Explain why the molecular mass is the right one, and how much the spectrum shifts.
+**3. The Doppler width matters.** Recompute XNFDOP(TiO) using an atomic Doppler width (mass 48 for Ti alone) instead of the molecular mass 64, and quantify the change in the central band opacity. Explain why the molecular mass is the right one, and by how much the band depths and widths change (the line centres do not move — only the profile widths and peak heights do).
 
 **4. Turning molecules off.** The reference ships a molecules-off run (`diag_atomic.npz`). Solve the spectrum from that line opacity and overlay it on the molecules-on spectrum. By how much does the pseudo-continuum rise, and which atomic lines become visible once the TiO band is removed?
 

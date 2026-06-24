@@ -9,8 +9,8 @@ into the cells as a walk-through of how the book's components chain end to end. 
 stars across the HR diagram it COMPUTES the entire opacity from scratch from the
 equation-of-state populations plus the line data, carries it to the surface with the
 book's own JOSH transfer, and reproduces pykurucz's own end-to-end output on the SAME
-atmosphere to the single-precision float floor (Sun 9.75e-9, giant 2.15e-8, M dwarf
-1.06e-8, hot dwarf 1.28e-7 in the saturated Hbeta core).  The RT source function B_nu
+atmosphere to the single-precision float floor (max|rel|: Sun 8.2e-9, giant 2.1e-8,
+M dwarf 1.1e-8, hot dwarf 1.3e-7 in the saturated Hbeta core).  The RT source function B_nu
 is computed inline (Note A); the Sun operator accumulates its radiation pressure
 prad = SUM kappa_nu H_nu dnu from the JOSH H moments inline (Note B).  Only genuine
 input data (atmosphere structure + EOS populations + line catalog) and the pykurucz
@@ -130,7 +130,7 @@ REF = pathlib.Path("..") / "reference"
 STARS = [
     ("hot",    "hot dwarf", 9000, 4.0,  "484-488 nm", "Balmer H-beta linear-Stark wing"),
     ("sun",    "Sun",       5777, 4.44, "500-505 nm", "neutral + ionised metal-line forest"),
-    ("giant",  "giant",     4500, 2.0,  "516-519 nm", "Mg b triplet, low-gravity pressure broadening"),
+    ("giant",  "giant",     4500, 2.0,  "516-519 nm", "Mg b triplet, gravity-sensitive damping wings"),
     ("mdwarf", "M dwarf",   3500, 5.0,  "705-718 nm", "TiO band head (molecular bands)"),
 ]
 
@@ -2683,7 +2683,9 @@ def from_scratch_opacity(d, override_pop=None):
 
     # ---- continuum (always): KAPP at the edges, interpolated onto the window ----
     acont, sigmac = continuum_on_grid(d, IFOP)
-    if comp.get("mol_continuum"):                    # gated OFF for all 4 windows (negligible)
+
+    # the molecular continuum is gated OFF for all four windows (negligible there)
+    if comp.get("mol_continuum"):
         acont = acont + molecular_continuum(d)
 
     # the cutoff reference the line engines use is the FROM-SCRATCH continuum
@@ -2697,8 +2699,10 @@ def from_scratch_opacity(d, override_pop=None):
         temperature=d["temperature"], hckt=d["hckt"],
         turbulent_velocity=d["turbulent_velocity"],
         xnf_h=d["xnf_h"], xnf_he1=d["xnf_he1"], xnf_h2=d["xnf_h2"], xnfph=d["xnfph"])
-    cat = _hyd_he_static(d)                           # per-star catalog + shared HPROF4 tables
-    L4 = {k: KT[k] for k in ("h0tab", "h1tab", "h2tab")}   # the Voigt Harris tables
+
+    # per-star catalog + the shared HPROF4 tables, and the Voigt Harris tables
+    cat = _hyd_he_static(d)
+    L4 = {k: KT[k] for k in ("h0tab", "h1tab", "h2tab")}
 
     # ---- the line opacity, component by component, gated by the window's measured set ----
     aline = np.zeros((n_layers, wl.size), dtype=np.float64)
@@ -2747,15 +2751,19 @@ code(r'''def planck_source(d):
 
 def synthesise(d, override_pop=None):
     """The full chain: from-scratch opacity + inline Planck source -> JOSH -> normalised spectrum."""
-    rhox = d["atm_depth"].astype(float)                 # column-mass depth scale
+    # atm_depth is the column-mass (RHOX) depth scale the transfer integrates over
+    rhox = d["atm_depth"].astype(float)
     n_depths, n_wl = rhox.size, d["wavelength"].size
 
     # COMPUTE the opacity from the populations + line data (no opacity read)
     acont, sigmac, aline = from_scratch_opacity(d, override_pop)
 
-    # the LTE source function, computed inline from the temperature (Note A)
-    bnu = planck_source(d)                              # serves as both continuum + line source
-    sigmal = d["line_scattering"].astype(float)         # line scattering (0 here; LTE transfer state)
+    # the LTE source function, computed inline (Note A); in LTE the one Planck
+    # array serves as BOTH the continuum source and the line source
+    bnu = planck_source(d)
+
+    # line scattering is 0 here (the LTE transfer state)
+    sigmal = d["line_scattering"].astype(float)
     zero = np.zeros(n_depths)
 
     # full spectrum: all (from-scratch) opacity; continuum: zero line opacity
@@ -2770,13 +2778,16 @@ md(r"""## A check on the opacity itself
 
 Before the spectrum, a check on the opacity *itself*. The reference also ships the production opacity (continuum + line) for each window — *as the comparison target only*. We compute the opacity from scratch and compare, to confirm the assembly reproduces the production code's own opacity arrays element by element, the same floors the individual lectures reported (continuum $\sim10^{-15}$ in the photosphere, atomic lines $\sim10^{-15}$, molecular bands $\sim10^{-11}$).""")
 
-code(r'''# COMPUTE the opacity from scratch for the Sun, then compare to the production target
+code(r'''# COMPUTE the opacity from scratch for the Sun (computed, not read)
 d = data["sun"]
-acont, sigmac, aline = from_scratch_opacity(d)                   # computed, not read
+acont, sigmac, aline = from_scratch_opacity(d)
 
-cont_ref = d["continuum_absorption"]                            # comparison target only
+# the production opacity, loaded as the comparison target only
+cont_ref = d["continuum_absorption"]
 line_ref = d["line_opacity"]
-T = d["atm_temperature"]; cool = T < 8000.0                     # the line-forming photosphere
+
+# restrict the continuum check to the line-forming photosphere
+T = d["atm_temperature"]; cool = T < 8000.0
 
 rc = np.abs(acont[cool] - cont_ref[cool]) / np.maximum(np.abs(cont_ref[cool]), 1e-300)
 big = line_ref > 1e-8
@@ -2790,14 +2801,18 @@ md(r"""The from-scratch opacity *is* the production opacity, to the per-engine f
 # ── run all four ──────────────────────────────────────────────────────────────────
 md(r"""## Running the four stars
 
-Now we run the assembled synthesiser on all four stars — **computing each star's opacity from scratch** and carrying it to the surface — and compare each normalised spectrum to the production reference (`flux_total / flux_continuum` from the full pipeline), *on the same atmosphere the book built for that star*. The relative error is taken point-by-point across the window. This is the moment of truth for the assembled pipeline: the same engines, the same solver, four very different stars, opacity built from scratch on every one.""")
+Now we run the assembled synthesiser on all four stars — **computing each star's opacity from scratch** and carrying it to the surface — and compare each normalised spectrum to the production reference (`flux_total / flux_continuum` from the full pipeline), *on the same atmosphere the book built for that star*. The relative error is taken point-by-point across the window. This is the end-to-end test of the assembled pipeline: the same engines, the same solver, four very different stars, opacity built from scratch on every one.""")
 
 code(r'''def benchmark(slug):
     """Synthesise one star (opacity from scratch) and return the spectrum + rel-error stats."""
     d = data[slug]
-    mine = synthesise(d)                                          # opacity computed, then JOSH
-    ref = d["flux_total"] / d["flux_continuum"]                   # production reference (target)
-    rel = np.abs(mine / ref - 1.0)                                # point-by-point rel error
+
+    # opacity computed from scratch, then carried to the surface by JOSH
+    mine = synthesise(d)
+
+    # the production reference (the comparison target), then the point-by-point rel error
+    ref = d["flux_total"] / d["flux_continuum"]
+    rel = np.abs(mine / ref - 1.0)
     return d["wavelength"], mine, ref, rel
 
 # run all four stars (computing every opacity from scratch)
@@ -2809,18 +2824,19 @@ print("-" * 86)
 for slug, label, teff, logg, window, _ in STARS:
     wl, mine, ref, rel = results[slug]
     src = "from-scratch" if bool(data[slug]["atm_converged_from_scratch"]) else "emulator"
-    jmax = int(np.argmax(rel))                                    # the worst-pixel location
+    # locate the worst pixel so its wavelength can be printed
+    jmax = int(np.argmax(rel))
     print(f"{label:<11}{window:<12}{src:<13}{np.median(rel):>10.2e}{np.percentile(rel,99):>11.2e}"
           f"{rel.max():>11.2e}  {wl[jmax]:.3f} nm")''')
 
-md(r"""**Machine precision, on every star, with the opacity computed from scratch.** The Sun, giant, and M dwarf reproduce the production reference to a **median of $10^{-9}$ or better**, a **99th percentile of $\sim10^{-8}$**, and a **maximum near $10^{-8}$** — the single-precision JOSH-iteration floor of Lecture 8, the same arithmetic the production code uses. The hot dwarf sits a little higher, at a maximum of $\sim1.3\times10^{-7}$, for a reason worth stating precisely: its from-scratch *line* opacity is bit-exact ($\sim10^{-16}$) and its *continuum* matches to $\sim3\times10^{-6}$ in the photosphere, but the continuum's deep, very hot layers ($T>12000$ K, below the line-forming region) carry a known $\sim2\times10^{-5}$ residual (the He I free-free term documented in Lecture 3), and that gets amplified in the deep, saturated **H$\beta$ line core** where the flux drops to a third of the continuum — the worst pixel sits at the line centre near 486.2 nm, where our flux and the reference still agree to six figures. Note also that its **99th percentile** is an order of magnitude below its maximum: the excess is localised to the single saturated core, not spread across the window. Feed the reference continuum instead and the hot dwarf drops to $1.7\times10^{-8}$, the same floor as the rest; the excess is the from-scratch continuum's deep-hot-layer residual, not a line-opacity error.
+md(r"""**Machine precision, on every star, with the opacity computed from scratch.** The Sun, giant, and M dwarf reproduce the production reference to a **median of $10^{-9}$ or better**, a **99th percentile of $\sim10^{-8}$**, and a **maximum near $10^{-8}$** — the single-precision JOSH-iteration floor of Lecture 8, the same arithmetic the production code uses. The hot dwarf sits a little higher, at a maximum of $\sim1.3\times10^{-7}$, for a reason worth stating precisely: its from-scratch *line* opacity is bit-exact ($\sim10^{-16}$) and its *continuum* matches to $\sim3\times10^{-6}$ in the photosphere, but the continuum's deep, very hot layers ($T>12000$ K, below the line-forming region) carry a known $\sim2\times10^{-5}$ residual (the He I free-free term documented in Lecture 3). Because that residual lives in the continuum, it raises the whole window — the hot dwarf's median already sits at $\sim5\times10^{-8}$ — rather than spiking at one pixel; the deep, saturated **H$\beta$ line core**, where the flux drops to about a sixth of the continuum, sees the residual amplified most, so the single worst pixel sits at the line centre near 486.2 nm, where our flux and the reference still agree to six figures. The effect is a uniform $\sim10^{-7}$ elevation across the 4-nm window, with the core just at its top — not a window-wide *drift*, since every pixel agrees with the production code to six figures or better. Feed the reference continuum instead and the hot dwarf drops to $\sim10^{-8}$, the same floor as the rest; the excess is the from-scratch continuum's deep-hot-layer residual, not a line-opacity error.
 
 The opacity that shapes each spectrum was *built here* — the hot dwarf's Stark-broadened Balmer wing, the Sun's metal forest, the giant's pressure-narrowed Mg b lines, the M dwarf's TiO band — from the populations and line data, not read from a file. The per-component opacity floors ($10^{-15}$ for the continuum photosphere and atomic lines, $10^{-11}$ for the molecular bands) are far below the JOSH float floor, so the end-to-end spectrum lands where the transfer's arithmetic — and, for the hottest deep cores, the documented continuum residual — puts it. The assembled pipeline is the production pipeline.""")
 
 # ── the gallery ───────────────────────────────────────────────────────────────────
 md(r"""## The four-star gallery
 
-Now the payoff: the four spectra side by side. Each panel overlays our from-scratch spectrum (thin coloured line) on the production reference (thick grey). The overlays are indistinguishable. Read across the gallery and you read across the HR diagram.""")
+Now the four spectra side by side. Each panel overlays our from-scratch spectrum (thin coloured line) on the production reference (thick grey); at this scale the two are indistinguishable. Read across the gallery and you read across the HR diagram.""")
 
 code(r'''fig, axes = plt.subplots(4, 1, figsize=(11, 13))   # one panel per star
 colours = ["C3", "C1", "C2", "C0"]                  # hot, Sun, giant, M dwarf
@@ -2849,9 +2865,9 @@ md(r"""Four spectra, one pipeline. Reading top to bottom:
 The same solver produced all four. The differences are entirely in the upstream physics — which absorbers exist (atoms vs molecules), how they are broadened (thermal vs Stark vs pressure), and how the atmosphere is structured (hot vs cool, high vs low gravity).""")
 
 # ── residuals ─────────────────────────────────────────────────────────────────────
-md(r"""## The residuals: all at the float floor
+md(r"""## The residuals: at the float floor, bar one documented continuum term
 
-To make the agreement quantitative, here are the four residual curves on one log axis. The Sun, giant, and M dwarf sit between $10^{-13}$ and $10^{-8}$ across their whole windows — the single-precision JOSH floor, with no systematic departure. The hot dwarf rides just above, peaking at $\sim10^{-7}$ in the H$\beta$ core, the documented continuum deep-hot-layer residual amplified by the saturated line (and bit-exact in its line opacity everywhere else). There is no regime where the assembled pipeline drifts from the production code beyond the arithmetic floor and that one documented, line-core-localised continuum term.""")
+To make the agreement quantitative, here are the four residual curves on one log axis. The Sun, giant, and M dwarf sit between $10^{-13}$ and $10^{-8}$ across their whole windows — the single-precision JOSH floor, with no systematic departure. The hot dwarf rides uniformly just above, at $\sim10^{-7}$ across its whole window — the documented continuum deep-hot-layer residual, which lives in the continuum and so elevates every pixel together rather than spiking at one (it peaks in the saturated H$\beta$ core, where the residual is amplified most, and its line opacity is bit-exact everywhere). There is no regime where the assembled pipeline drifts from the production code beyond the arithmetic floor and that one documented continuum term.""")
 
 code(r'''fig, ax = plt.subplots(figsize=(9, 4.5))
 
@@ -2862,13 +2878,13 @@ for (slug, label, *_), col in zip(STARS, colours):
     # clip to 1e-16 so machine-exact points stay on the log axis
     ax.semilogy(xn, np.maximum(rel, 1e-16), color=col, lw=0.6, label=label)
 
-# the documented single-precision floor
-ax.axhline(1e-8, color="0.5", ls="--", lw=1.0, label="JOSH float32 floor (~1e-8)")
+# the nominal single-precision JOSH precision scale (the bulk of points lie below it)
+ax.axhline(1e-8, color="0.5", ls="--", lw=1.0, label=r"JOSH float32 precision scale (~$10^{-8}$)")
 ax.set_xlabel("position across each window  (normalised)"); ax.set_ylabel("|relative error|")
 ax.set_ylim(1e-15, 1e-6); ax.set_title("Capstone residuals: from-scratch opacity + JOSH vs production")
 ax.legend(loc="upper right", fontsize=9, ncol=2); fig.tight_layout(); plt.show()''')
 
-md(r"""The dominant residual is a number we have met in every radiative-transfer benchmark of the book: the JOSH scattering iteration runs in single precision (as the production code does), and after dozens of Gauss–Seidel sweeps the last few bits drift. It is not a physics error — it is the arithmetic the production code itself uses, reproduced faithfully. The bulk of points are far below $10^{-8}$; the worst (outside the hot dwarf's H$\beta$ core) are at it. This is what "machine precision" means for a single-precision iterative solver, and it is the floor we documented in Lectures 8, 10, 11, 12, and 13.""")
+md(r"""For three of the four stars the dominant residual is a number we have met in every radiative-transfer benchmark of the book: the JOSH scattering iteration runs in single precision (as the production code does), and after dozens of Gauss–Seidel sweeps the last few bits drift. It is not a physics error — it is the arithmetic the production code itself uses, reproduced faithfully. For the Sun, the giant, and the M dwarf the bulk of points sit far below $10^{-8}$, with the worst at it. The hot dwarf is the one exception: its whole window rides at $\sim10^{-7}$, lifted uniformly by the deep-hot-layer continuum residual described above rather than by the scattering iteration. This is what "machine precision" means for a single-precision iterative solver, and it is the floor we documented in Lectures 8, 10, 11, 12, and 13.""")
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  PART IX — THE ATMOSPHERE OPERATOR (Lectures 10-11): one TCORR step, from scratch.
@@ -3527,7 +3543,7 @@ md(r"""One step already pulls the deep layers down toward the converged profile 
 # ── the in-notebook precision table ─────────────────────────────────────────────
 md(r"""## The end-to-end precision table
 
-One table collects every claim of this lecture with its measured floor, and marks honestly which stages were **computed from scratch here** and which were **given** (verified elsewhere). This is the lecture's benchmark, and the book's: the from-scratch chain, with its one named wall. The spectrum row reports the **max, the 99th percentile, and the line-core / worst-pixel** for each star, not just the median — so the hot dwarf's localised H$\beta$-core excess is visible as exactly that, a single core, not a window-wide drift.""")
+One table collects every claim of this lecture with its measured floor, and marks honestly which stages were **computed from scratch here** and which were **given** (verified elsewhere). This is the lecture's benchmark, and the book's: the from-scratch chain, with its one named wall. The spectrum row reports the **median, the 99th percentile, and the max / worst-pixel** for each star — so the hot dwarf's window-wide $\sim10^{-7}$ elevation (the continuum residual lifting every pixel, peaking at the H$\beta$ core) is visible as exactly that: a uniform offset bounded by the worst pixel, with every point still agreeing with the production code to six figures.""")
 
 code(r'''# assemble the end-to-end precision summary
 print("=" * 84)
@@ -3562,17 +3578,19 @@ print("          from scratch). EOS populations are the verified Lecture-2 state
 print("  TARGET (read only to compare): the production opacity + emergent spectrum")
 print("=" * 84)''')
 
-md(r"""The table is the book's final score. The **entire opacity** — continuum, atomic lines, hydrogen Stark wings, helium wings, molecular bands — is computed from scratch for every star from the equation-of-state populations and the line data, and the transfer carries it to the surface with its source function (the LTE Planck $B_\nu$) computed inline; both match the production code to the float floor. The temperature-correction operator is run from scratch for the Sun, with its radiation pressure accumulated inline, and matches the production code's step to one part in $10^9$. Only the atmosphere *structure* is given for three stars — and the tamper check below is the proof that the opacity is genuinely *computed*: perturb a single population and the spectrum moves by a part in $10^2$, five orders of magnitude above the floor.""")
+md(r"""The table is the book's final score. The **entire opacity** — continuum, atomic lines, hydrogen Stark wings, helium wings, molecular bands — is computed from scratch for every star from the equation-of-state populations and the line data, and the transfer carries it to the surface with its source function (the LTE Planck $B_\nu$) computed inline; both match the production code to the float floor. The temperature-correction operator is run from scratch for the Sun, with its radiation pressure accumulated inline, and matches the production code's step to one part in $10^9$. Only the atmosphere *structure* is given for three stars — and the tamper check below is the proof that the opacity is genuinely *computed*: perturb a single population and the spectrum moves by a few parts in $10^3$, five orders of magnitude above the floor.""")
 
 # ── tamper check ────────────────────────────────────────────────────────────────
 md(r"""## The tamper check (negative control)
 
-A from-scratch claim deserves a negative control. If the opacity were secretly read from the reference, perturbing an *input* population would not move the spectrum. So we bump the Sun's Fe I population by 1% and re-synthesise: if the opacity is genuinely computed from that population, the spectrum must move far above the float floor — and it does, by a part in $10^2$, five orders of magnitude above the $10^{-8}$ floor.""")
+A from-scratch claim deserves a negative control. If the opacity were secretly read from the reference, perturbing an *input* population would not move the spectrum. So we bump the Sun's Fe I population by 1% and re-synthesise: if the opacity is genuinely computed from that population, the spectrum must move far above the float floor — and it does, by a few parts in $10^3$, five orders of magnitude above the $10^{-8}$ floor.""")
 
 code(r'''# tamper check: perturb ONE from-scratch input (Fe I population) -> the spectrum must move
 d = data["sun"]
 base = synthesise(d)
-pop = d["population_per_ion"].copy(); pop[:, 0, 25] *= 1.01        # bump Fe I (Z=26, neutral) by 1%
+
+# bump the neutral-iron population (Fe I, Z=26, stage 0) by 1%, then re-synthesise
+pop = d["population_per_ion"].copy(); pop[:, 0, 25] *= 1.01
 moved = synthesise(d, override_pop=pop)
 shift = float(np.max(np.abs(moved / base - 1.0)))
 print("TAMPER CHECK (negative control): perturb the Fe I population by 1%")
@@ -3612,7 +3630,7 @@ md(r"""## Synthesis
 
 This lecture closed the loop. The coverage table named, for every stage of a stellar spectrum synthesiser, the lecture that built it and the production component it reproduces — and every row carried a machine-precision benchmark, so the whole production code is accounted for. We then **assembled those stages in this notebook** — the transfer, the equation of state, the continuum, the atomic and hydrogen and helium lines, the molecular bands, and the atmosphere operator, each in its own cell, importing nothing but NumPy — and ran the pipeline end to end across the HR diagram, **computing the entire opacity from scratch** on every star.
 
-We **ran the Sun's atmosphere operator from scratch** — the classical grey-to-converged ATLAS step, with its radiation pressure accumulated inline from the JOSH flux moments — and reproduced the production single step to one part in $10^9$. We saw, empirically, that the hot dwarf, giant, and M dwarf do *not* converge from a grey start, each failing in a physically sensible way, and warm-started those *structures* from the production emulator, documenting which and why. On every atmosphere we then **built the opacity from scratch** — the continuum (KAPP), the metal forest (ASYNTH), the hydrogen Stark wings (HPROF4), the helium wings, and the TiO bands — from the equation-of-state populations and the line data, and carried it to the surface with the book's own JOSH transfer and an inline LTE Planck source, matching the full production code to the single-precision float floor, $\sim10^{-8}$ at worst and machine-exact in the bulk. A tamper check confirmed the opacity genuinely depends on the populations: perturbing one species by 1% moves the spectrum by five orders of magnitude above the floor.
+We **ran the Sun's atmosphere operator from scratch** — the classical grey-to-converged ATLAS step, with its radiation pressure accumulated inline from the JOSH flux moments — and reproduced the production single step to one part in $10^9$. We saw, empirically, that the hot dwarf, giant, and M dwarf do *not* converge from a grey start, each failing in a physically sensible way, and warm-started those *structures* from the production emulator, documenting which and why. On every atmosphere we then **built the opacity from scratch** — the continuum (KAPP), the metal forest (ASYNTH), the hydrogen Stark wings (HPROF4), the helium wings, and the TiO bands — from the equation-of-state populations and the line data, and carried it to the surface with the book's own JOSH transfer and an inline LTE Planck source, matching the full production code to the single-precision float floor — $\sim10^{-8}$ and machine-exact in the bulk for the Sun, giant, and M dwarf, and a uniform $\sim10^{-7}$ for the hot dwarf, whose deep-hot-layer continuum residual lifts its whole window. A tamper check confirmed the opacity genuinely depends on the populations: perturbing one species by 1% moves the spectrum by five orders of magnitude above the floor.
 
 The gallery showed the physics each star exercises — and each feature was *computed* here, not read: the Stark-broadened Balmer wing of the hot dwarf, the metal forest of the Sun, the pressure-narrowed Mg b lines of the low-gravity giant, the TiO band of the M dwarf. One set of engines, four stars, four kinds of spectrum — the differences entirely upstream, in which absorbers exist and how they are broadened and how the atmosphere is structured. And we drew the honest map: the opacity and transfer computed from scratch on every star, the atmosphere structure from scratch where it converges (the Sun) and warm-started where it does not, with the one named wall — the convergence loop's population Jacobian — where a fully self-driving atmosphere stops; the 1D plane-parallel geometry; and above all the LTE assumption that underlies every population and begins to break down in the cores of strong lines and the thin outer layers of hot and luminous stars.
 
@@ -3625,7 +3643,7 @@ md(r"""## Summary
 - This capstone is **self-contained**: it imports only NumPy, Matplotlib, and `pathlib`, and **inlines the whole engine** — the JOSH transfer, the KAPP continuum, the ASYNTH metal kernel, the HPROF4 hydrogen-Stark engine, the helium wings, the TiO bands, and the temperature-correction operator — as a step-by-step walk-through, each engine's output feeding the next.
 - The **Sun's atmosphere is from scratch**: the classical grey-to-converged ATLAS loop converges in 27 iterations from a cold start, and the book's own temperature-correction operator — run here, with its radiation pressure $\texttt{prad}=\sum_\nu\kappa_\nu H_\nu\,d\nu$ accumulated inline — reproduces the production single step to $\sim10^{-9}$ (T) and the table floor (RHOX).
 - The grey start does **not** converge for the **hot dwarf** (surface electron-density divergence), the **giant** (molecular-EOS assertion), or the **M dwarf** (no convergence in 50 iterations) — exactly the extremes a production emulator exists to warm-start. Those three use the emulator atmosphere, documented.
-- Run on **four stars across the HR diagram**, the synthesiser **computes each star's entire opacity from scratch** — continuum (L3), atomic lines (L5), hydrogen Stark wings (L6), helium wings, TiO bands (L12) — from the equation-of-state populations and the line data, computes the **LTE Planck source $B_\nu$ inline**, carries it to the surface with the book's JOSH transfer, and reproduces every production spectrum to a **median $\lesssim10^{-9}$**, a **99th percentile $\sim10^{-8}$**, and a **maximum $\sim10^{-8}$** (the hot dwarf $1.3\times10^{-7}$ in its single saturated H$\beta$ core) — on the Sun's from-scratch atmosphere and the warm-started ones alike. A **tamper check** (perturb a population by 1%, the spectrum moves $\sim10^{-2}$) proves the opacity is genuinely computed, not bypassed.
+- Run on **four stars across the HR diagram**, the synthesiser **computes each star's entire opacity from scratch** — continuum (L3), atomic lines (L5), hydrogen Stark wings (L6), helium wings, TiO bands (L12) — from the equation-of-state populations and the line data, computes the **LTE Planck source $B_\nu$ inline**, carries it to the surface with the book's JOSH transfer, and reproduces every production spectrum to a **median $\lesssim10^{-9}$**, a **99th percentile $\sim10^{-8}$**, and a **maximum $\sim10^{-8}$** (the hot dwarf rides uniformly at $\sim1.3\times10^{-7}$ across its window, lifted by the deep-hot-layer continuum residual and peaking at the saturated H$\beta$ core) — on the Sun's from-scratch atmosphere and the warm-started ones alike. A **tamper check** (perturb a population by 1%, the spectrum moves $\sim10^{-3}$) proves the opacity is genuinely computed, not bypassed.
 - Each star **exercises different physics**: the hot dwarf the Balmer linear-Stark wing (L6), the Sun the metal-line forest (L4–5), the giant the pressure-narrowed Mg b triplet (gravity in the line shapes), the M dwarf the TiO molecular bands (L12–13).
 - The **simplifications** are honest and bounded: the opacity and transfer are computed from scratch on every star; only the atmosphere *structure* is given for three stars (from scratch for the Sun), with **one named wall** — the convergence loop's population *Jacobian* (not the opacity) was never lifted into pure NumPy; the geometry is 1D plane-parallel; and the populations are **LTE**, which breaks down in the cores of strong lines and the thin outer layers of hot and luminous stars — the **NLTE** frontier beyond this book.""")
 
