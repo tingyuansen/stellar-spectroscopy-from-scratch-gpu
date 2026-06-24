@@ -8,7 +8,7 @@ real optical-depth scale, compute the per-frequency flux with JOSH (Lecture 8) o
 the continuum opacity (Lecture 3, shipped as a given), assemble the Avrett-Krook flux
 correction + local-Lambda surface term + surface-boundary term, re-integrate
 hydrostatic equilibrium for the density correction, and take one converging step --
-benchmarked to machine precision against reference/tcorr_ref.npz.
+benchmarked to the pipeline's ~1e-9 roundoff floor against reference/tcorr_ref.npz.
 
 Self-contained: imports only numpy / matplotlib / pathlib.  No pykurucz import.
 """
@@ -41,7 +41,7 @@ md(r"""# Lecture 10 — Radiative Equilibrium & the Temperature Correction
 - Build the **Rosseland mean opacity** $\kappa_{\rm Ross}$ — a *harmonic*, $\partial B_\nu/\partial T$-weighted average over frequency — and the real **Rosseland optical-depth scale** $\tau_{\rm Ross}$ that replaces the grey-start placeholder.
 - Compute the per-frequency Eddington flux $H_\nu$ and the moment $(J_\nu-S_\nu)$ with the **JOSH** solver from Lecture 8, and accumulate the four depth integrals the correction needs.
 - Assemble the ATLAS temperature correction $T_1 = \Delta T_{\rm flux} + \Delta T_\Lambda + \Delta T_{\rm surf}$ from its three physically distinct pieces — the **Avrett–Krook** flux-constancy term, the **local-$\Lambda$** surface term, and the **surface-boundary** term — and explain what each one fixes.
-- Re-integrate hydrostatic equilibrium for the density correction $\Delta\rho x$, take **one converging step**, and reproduce the production code's corrected temperature *and* corrected column mass to **machine precision** — with the radiation pressure $P_{\rm rad}$ now *computed* from the per-frequency flux (the `RADIAP` moment), not read.""")
+- Re-integrate hydrostatic equilibrium for the density correction $\Delta\rho x$, take **one converging step**, and reproduce the production code's corrected temperature *and* corrected column mass to the pipeline's **$\sim10^{-9}$ roundoff floor** — with the radiation pressure $P_{\rm rad}$ now *computed* from the per-frequency flux (the `RADIAP` moment), not read.""")
 
 # ── introduction ───────────────────────────────────────────────────────────
 md(r"""## Introduction: the half of the atmosphere we still owe
@@ -50,9 +50,9 @@ Lecture 9 built the **hydrostatic** half of a model atmosphere: from $T_{\rm eff
 
 A note on notation before we start, because one symbol recurs everywhere below. Following ATLAS, `RHOX` (written $\rho x$ in formulas) denotes the **column mass** $m$ in g cm$^{-2}$ — the integrated mass of gas above a layer — *not* the local mass density $\rho$. So the "density correction" $\Delta\rho x$ we build at the end is really a *column-mass* correction; read $\rho x$ as a single bookkeeping variable, the natural depth coordinate for a hydrostatic atmosphere.
 
-The missing constraint is **radiative equilibrium**. In the photosphere of a star like the Sun, essentially all the energy flows outward as radiation, and none is created or destroyed locally: nuclear burning is far below, and (with convection switched off, as we keep it here for a clean first reproduction) there is no other channel. Energy conservation then demands that the **radiative flux be the same at every depth** — whatever flux crosses one layer must cross the next. Equivalently, the frequency-integrated flux must equal $\sigma T_{\rm eff}^4$ everywhere, and its divergence must vanish.
+The missing constraint is **radiative equilibrium**. In the convection-off model we keep here for a clean first reproduction — a good approximation in the visible photospheric layers of a star like the Sun, though not throughout the solar envelope — essentially all the transported energy flows outward as radiation, and none is created or destroyed locally: nuclear burning is far below, and with convection switched off there is no other channel. Energy conservation then demands that, in this plane-parallel setup, the **radiative flux be the same at every depth** — whatever flux crosses one layer must cross the next. Equivalently, the physical frequency-integrated flux must equal $\sigma T_{\rm eff}^4$ everywhere (so the Eddington flux $H$ must equal $\sigma T_{\rm eff}^4/4\pi$), and its divergence must vanish.
 
-A true grey atmosphere *does* hold constant flux — but only for its own idealized grey opacity. The moment we evaluate the grey starting model's flux with the **actual frequency-dependent continuum opacity**, it no longer satisfies radiative equilibrium. We will *measure* that flux layer by layer and watch it drift with depth — proof that the grey-start temperature is wrong for the real opacity. ATLAS fixes it with a **temperature correction**: at each depth it computes how far the flux is off, works out which way and by how much the temperature must move to push the flux back toward constancy, and applies that shift. Iterating the correction (recomputing opacities and fluxes on the new temperature, correcting again) drives the model to radiative equilibrium. This lecture builds **one step** of that correction engine — Kurucz's `TCORR`, sketched below — and benchmarks it to the bit. It reuses two engines we have already built from scratch: the **JOSH** moment solver (Lecture 8) for the per-frequency flux, and the **continuum opacity** (Lecture 3), which we take as a given input so we can spend our effort on the genuinely new physics: the Rosseland mean and the correction itself.
+A true grey atmosphere *does* hold constant flux — but only for its own idealized grey opacity. The moment we evaluate the grey starting model's flux with the **actual frequency-dependent continuum opacity**, it no longer satisfies radiative equilibrium. We will *measure* that flux layer by layer and watch it drift with depth — proof that the grey-start temperature is wrong for the real opacity. ATLAS fixes it with a **temperature correction**: at each depth it computes how far the flux is off, works out which way and by how much the temperature must move to push the flux back toward constancy, and applies that shift. Iterating the correction (recomputing opacities and fluxes on the new temperature, correcting again) drives the model to radiative equilibrium. This lecture builds **one step** of that correction engine — Kurucz's `TCORR`, sketched below — and benchmarks it to the pipeline's $\sim10^{-9}$ roundoff floor. It reuses two engines we have already built from scratch: the **JOSH** moment solver (Lecture 8) for the per-frequency flux, and the **continuum opacity** (Lecture 3), which we take as a given input so we can spend our effort on the genuinely new physics: the Rosseland mean and the correction itself.
 
 ![The temperature-correction loop: measure the depth-dependent flux, build the Rosseland scale, assemble the three-term correction $T_1$, restore hydrostatic balance, and remap — one ATLAS `TCORR` iteration toward radiative equilibrium.](resources/figures/s9_tcorr.png)""")
 
@@ -66,7 +66,7 @@ We import only NumPy and Matplotlib. The benchmark target is `reference/tcorr_re
 - the **JOSH tables** (`josh_coefh`) plus the shared `josh_tables.npz` from Lecture 8;
 - the reference **accumulators and corrected model** we check against.
 
-We mute the float32 continuum arrays' size by storing them as `float32` (JOSH casts its iterate to float32 internally anyway, so nothing is lost).""")
+We store the continuum arrays as `float32` (JOSH casts its iterate to float32 internally anyway, so nothing is lost relative to the reference calculation used here).""")
 
 code(r'''import pathlib
 import numpy as np
@@ -87,7 +87,7 @@ print(f"  continuum grid: {REF['freq_hz'].size} frequencies x {REF['T_in'].size}
 # ── physical constants ──────────────────────────────────────────────────────
 md(r"""### Constants and the depth grid
 
-We use exactly the constants ATLAS uses (the last digits matter for a bit-level match): the Stefan–Boltzmann constant $\sigma$, Planck's $h$, Boltzmann's $k$, and the speed of light expressed in nm/s so that frequency follows from wavelength as $\nu = c/\lambda$. The grey starting model has $N=80$ layers. We pull out the starting temperature `T`, column mass `rhox`, and gas pressure `p_in`, and form the combination $h\nu/(kT)$ at every layer — call it `hkt` — which appears throughout the Planck-function and opacity bookkeeping.
+We use exactly the constants ATLAS uses (the last digits matter for a bit-level match): the Stefan–Boltzmann constant $\sigma$, Planck's $h$, and Boltzmann's $k$. The grey starting model has $N=80$ layers. We pull out the starting temperature `T`, column mass `rhox`, and gas pressure `p_in`, and form the combination $h/(kT)$ at every layer — call it `hkt` — which becomes the dimensionless $h\nu/(kT)$ only once it is multiplied by a frequency $\nu$ inside the sweep, and which appears throughout the Planck-function and opacity bookkeeping.
 
 One number sets the whole game: the **target flux**. The Eddington flux that must emerge from a star of effective temperature $T_{\rm eff}$ is $H = \sigma T_{\rm eff}^4/(4\pi)$. (ATLAS works with the Eddington flux $H$, the first moment of the intensity; the physical surface flux is $\mathcal F = 4\pi H = \sigma T_{\rm eff}^4$, the familiar Stefan–Boltzmann law.) Radiative equilibrium is the statement that the depth-dependent flux $H(\tau)$ equals this constant $H$ at every layer.""")
 
@@ -120,7 +120,7 @@ This lecture juggles many similarly named arrays. For reference, here are the on
 | `freq`, `rco` | $N_\nu$ | Hz, Hz | frequency grid and its quadrature weights $d\nu$ |
 | `abtot`, `alpha` | $N$ | cm$^2$ g$^{-1}$, — | per-frequency total extinction $\kappa_\nu$ and scattering fraction |
 | `abross`, `tauros` | $N$ | cm$^2$ g$^{-1}$, — | Rosseland mean opacity and optical depth |
-| `flxrad`, `rjmins`, `rdabh`, `rdiagj` | $N$ | (ATLAS conventions) | the four frequency-integrated correction accumulators |
+| `flxrad`, `rjmins`, `rdabh`, `rdiagj` | $N$ | ATLAS conventions ($H$-like; opacity-weighted $J-S$; gradient-weighted flux; temperature-response denominator) | the four frequency-integrated correction accumulators |
 | `t1`, `tnew` | $N$ | K | the temperature correction $T_1$ and the corrected temperature |
 
 Keep this handy; the meaning of each is spelled out again where it is first built.""")
@@ -255,7 +255,7 @@ md(r"""## JOSH, for the full depth profile (Lecture 8)
 
 Lecture 8 used JOSH to produce one number per wavelength — the emergent surface flux. The temperature correction needs **more**: at every depth and every frequency it needs the Eddington flux $H_\nu(\tau)$ and the moment $(J_\nu - S_\nu)(\tau)$, the difference between the mean intensity and the source function. So here we run the same JOSH algorithm but read out the *depth profiles*, not just the surface value.
 
-The mechanics are exactly Lecture 8's. Rather than one long block, we break JOSH into four named helpers — one per stage — and a thin `josh_profiles` driver that calls them in order. The four stages are: **(a)** form the per-frequency optics (total extinction $\kappa_\nu$, scattering fraction $\alpha_\nu$, thermal-plus-scattering source $\bar S_\nu$, monochromatic optical depth $\tau_\nu$); **(b)** map the source onto JOSH's fixed 51-point $\tau$-grid and run the **float32** $\Lambda$-iteration that solves the scattering problem there — the one place the whole pipeline drops to single precision (Lecture 8 explains why; it is the reason our final benchmark carries a float32 floor); **(c)** solve the thin outer layers directly on the physical grid (JOSH's "label-401" branch, which for this solar continuum always applies near the surface); **(d)** read the deep-layer moments off the grid solution and map them back. The driver returns $\tau_\nu$, $H_\nu$, $(J_\nu - S_\nu)$, $\kappa_\nu$, and $\alpha_\nu$ at every layer — the five profiles the correction consumes.
+The mechanics are exactly Lecture 8's. Rather than one long block, we break JOSH into four named helpers — one per stage — and a thin `josh_profiles` driver that calls them in order. The four stages are: **(a)** form the per-frequency optics (total extinction $\kappa_\nu$, scattering fraction $\alpha_\nu$, non-scattering emissivity source $\bar S_\nu$, monochromatic optical depth $\tau_\nu$); **(b)** map the source onto JOSH's fixed 51-point $\tau$-grid and run the **float32** $\Lambda$-iteration that solves the scattering problem there — the one place the whole pipeline drops to single precision (Lecture 8 explains why; it is the reason our final benchmark carries a float32 floor); **(c)** solve the thin outer layers directly on the physical grid (JOSH's "label-401" branch, which for this solar continuum always applies near the surface); **(d)** read the deep-layer moments off the grid solution and map them back. The driver returns $\tau_\nu$, $H_\nu$, $(J_\nu - S_\nu)$, $\kappa_\nu$, and $\alpha_\nu$ at every layer — the five profiles the correction consumes.
 
 First the JOSH tables and the two convergence constants, used by every stage below.""")
 
@@ -270,7 +270,7 @@ ITER_TOL = 1.0e-5                                # relative tolerance for both i
 
 md(r"""### (a) Per-frequency optics
 
-The first stage turns this frequency's continuum opacity and source into the four quantities JOSH works with: the total extinction $\kappa_\nu$ (`abtot`, absorption + scattering, floored away from zero), the scattering fraction $\alpha_\nu=\sigma_\nu/\kappa_\nu$ (`alpha`), the thermal-plus-scattering source $\bar S_\nu$ (`snubar`, the absorption-weighted source — note that with no line absorption the denominator is just `acont`), and the monochromatic optical depth $\tau_\nu=\int\kappa_\nu\,d(\rho x)$ (`taunu`).""")
+The first stage turns this frequency's continuum opacity and source into the four quantities JOSH works with: the total extinction $\kappa_\nu$ (`abtot`, absorption + scattering, floored away from zero), the scattering fraction $\alpha_\nu=\sigma_\nu/\kappa_\nu$ (`alpha`), the non-scattering emissivity source $\bar S_\nu$ (`snubar`, the thermal source used in the source-function split $S_\nu=(1-\alpha)\bar S_\nu+\alpha J_\nu$, with scattering added separately through the $\alpha J_\nu$ term — note that with no line absorption the denominator is just `acont`), and the monochromatic optical depth $\tau_\nu=\int\kappa_\nu\,d(\rho x)$ (`taunu`).""")
 
 code(r'''def josh_optics(acont, scont, sigmac, rhox, bnu):
     """Stage (a): per-frequency optics. Returns kappa_nu, alpha_nu, Sbar_nu, tau_nu."""
@@ -429,23 +429,35 @@ nf = freq.size''')
 
 md(r"""We accumulate **six** depth profiles as we sweep frequency. The Rosseland accumulator (`ross_acc`) becomes the optical-depth scale; four of the rest (`flxrad`, `rjmins`, `rdabh`, `rdiagj`) feed the temperature correction; and the last, `accrad`, is the **radiation-pressure moment** ATLAS calls `RADIAP`. We allocate them all as zeros and add each frequency's weighted contribution inside the loop.
 
-**The radiation-pressure moment.** Photons carry momentum, so the radiation field exerts a pressure on the gas, and that pressure has to be subtracted from the total pressure before the hydrostatic integrator can solve for the *gas* pressure (the pressure that sets the equation of state). The momentum the radiation deposits per unit column mass is the **radiative acceleration** — the frequency integral of the opacity times the flux,
+**The radiation-pressure moment.** Photons carry momentum, so the radiation field exerts a pressure on the gas. The hydrostatic integrator solves for the *total* pressure; the radiation-pressure contribution, measured relative to the surface boundary value, is then removed to recover the *gas* pressure (the pressure that sets the equation of state). The momentum the radiation transfers per unit mass per unit time is the **radiative acceleration** — the frequency integral of the opacity times the flux,
 $$
 g_{\rm rad}(\rho x) \;=\; \frac{4\pi}{c}\int_0^\infty \kappa_\nu\, H_\nu \, d\nu ,
 $$
-(the same $\kappa_\nu H_\nu$ moment that the Rosseland integrand and the flux integral are built from — read the dimensions: $\kappa_\nu$ [cm$^2$ g$^{-1}$] times $H_\nu$ [erg cm$^{-2}$ s$^{-1}$ Hz$^{-1}$ sr$^{-1}$] times $4\pi/c$ gives an acceleration per gram). Integrating that acceleration down the column mass gives the **radiation pressure** itself,
+(reusing the same per-frequency opacity $\kappa_\nu$ and flux $H_\nu$ profiles that JOSH already supplies for the Rosseland and flux integrals — read the dimensions: $\kappa_\nu$ [cm$^2$ g$^{-1}$] times $H_\nu$ [erg cm$^{-2}$ s$^{-1}$ Hz$^{-1}$ sr$^{-1}$] times $4\pi/c$ gives an acceleration per gram). Integrating that acceleration down the column mass gives the **radiation pressure** itself,
 $$
 P_{\rm rad}(\rho x) \;=\; \int_0^{\rho x} g_{\rm rad}\, d(\rho x') ,
 $$
 the depth profile the density correction needs. So we accumulate the *integrand* $\kappa_\nu H_\nu$ frequency by frequency into `accrad` here (one extra line in the loop, reusing the $\kappa_\nu$ and $H_\nu$ JOSH already gives us), and finish the two factors — the $4\pi/c$ and the column-mass integral — right after the sweep, exactly as ATLAS's `RADIAP` does. This closes the last radiative moment: the radiation pressure is now *computed* from the per-frequency flux, not read from a table.""")
 
 code(r'''# six accumulators, all functions of depth:
-ross_acc = np.zeros(n)   # Rosseland integral: int (1/kappa) dB/dT d_nu  (becomes the denominator)
-flxrad   = np.zeros(n)   # int H_nu d_nu        -> the radiative flux at each depth
-rjmins   = np.zeros(n)   # int kappa (J-S) d_nu -> the net radiative heating
-rdabh    = np.zeros(n)   # int (d kappa/d rhox)/kappa * H_nu d_nu  (opacity-gradient term)
-rdiagj   = np.zeros(n)   # diagonal of the Lambda operator (how T responds to its own change)
-accrad   = np.zeros(n)   # int kappa_nu H_nu d_nu -> the RADIAP radiation-pressure-moment integrand
+
+# Rosseland integral int (1/kappa) dB/dT d_nu  (becomes the denominator)
+ross_acc = np.zeros(n)
+
+# int H_nu d_nu -> the radiative flux at each depth
+flxrad   = np.zeros(n)
+
+# int kappa (J-S) d_nu -> the net radiative heating
+rjmins   = np.zeros(n)
+
+# int (d kappa/d rhox)/kappa * H_nu d_nu  (opacity-gradient term)
+rdabh    = np.zeros(n)
+
+# diagonal of the Lambda operator (how T responds to its own change)
+rdiagj   = np.zeros(n)
+
+# int kappa_nu H_nu d_nu -> the RADIAP radiation-pressure-moment integrand
+accrad   = np.zeros(n)
 
 print(f"sweeping {nf} continuum frequencies x {n} layers ... (this is the bulk of the work)")''')
 
@@ -456,9 +468,9 @@ Before we run the loop, here is what each correction integral is for — the phy
 - **`flxrad` $=\int H_\nu\,d\nu$** is simply the **total radiative flux** at each depth. Radiative equilibrium says this should equal the constant target $H$; the whole correction exists to make it so.
 - **`rjmins` $=\int \kappa_\nu (J_\nu - S_\nu)\,d\nu$** is the ATLAS heating residual, **proportional to the net radiative heating rate** (constant angular factors like $4\pi$ are absorbed into the code's flux convention, so do not read its absolute value as erg s$^{-1}$ cm$^{-3}$). Where the gas absorbs more than it emits ($J_\nu>S_\nu$, mean intensity exceeds source), it is being heated; the integral measures that imbalance and is the surface diagnostic for the local correction.
 - **`rdabh`** carries the **opacity gradient** $\frac{d\kappa_\nu/d(\rho x)}{\kappa_\nu}$ weighted by the flux: it tells the flux-correction term how the optical-depth scale itself shifts when the structure moves.
-- **`rdiagj`** is the **diagonal of the $\Lambda$ operator** — how strongly the radiation field at a layer responds to a change in that same layer's source function. It is built from the third exponential integral $E_3$ of the local optical-depth step, and it is the denominator of the local-$\Lambda$ correction below (it converts a flux error into the temperature change that would cancel it).
+- **`rdiagj`** is built from the **diagonal of the $\Lambda$ operator** — it measures how strongly the *net heating rate* $\kappa_\nu(J_\nu - S_\nu)$ at a layer responds to a change in that same layer's temperature (so it carries the diagonal of $\Lambda - I$, not of $\Lambda$ alone). It is built from the third exponential integral $E_3$ of the local optical-depth step, and it is the denominator of the local-$\Lambda$ correction below — which divides the *heating residual* `rjmins`, not the flux error, by this response to find the temperature change that would cancel the local heating.
 
-We need one special function, $E_3$. The exponential integral $E_3(\tau)=\int_1^\infty t^{-3}e^{-\tau t}\,dt$ measures how much of a layer's emission escapes through an overlying slab of optical thickness $\tau$. ATLAS evaluates it with the same rational-polynomial approximation Kurucz used; we reproduce it (with the $E_3 = (e^{-x}-x E_2)$ recurrence applied twice from $E_1$).""")
+We need one special function, $E_3$. The exponential integral $E_3(\tau)=\int_1^\infty t^{-3}e^{-\tau t}\,dt$ is the angular attenuation kernel that appears when averaging a layer's self-coupling through an optical-depth step in plane-parallel geometry. ATLAS evaluates it with the same rational-polynomial approximation Kurucz used; we reproduce it (with the $E_3 = (e^{-x}-x E_2)$ recurrence applied twice from $E_1$).""")
 
 code(r'''def expi3(x):
     """Third exponential integral E_3(x) via Kurucz's rational approximation (Fortran EXPI(3,x))."""
@@ -519,21 +531,31 @@ md(r"""### The sweep
 Now the loop. For each frequency we build $B_\nu$ and $\partial B_\nu/\partial T$ (the latter being $\partial B_\nu/\partial T = B_\nu\,[h\nu/(kT)]\,/\,[T(1-e^{-h\nu/kT})]$ — note the explicit extra $1/T$, which the code carries), call JOSH, and add this frequency's contribution into the five accumulators with the quadrature weight `rco`. The Rosseland accumulator gets $\frac{1}{\kappa_\nu}\frac{\partial B_\nu}{\partial T}$; the flux gets $H_\nu$; the heating gets $\kappa_\nu(J_\nu - S_\nu)$; the opacity-gradient term gets $\frac{1}{\kappa_\nu}\frac{d\kappa_\nu}{d(\rho x)}H_\nu$; and `rdiagj` gets the $E_3$-based $\Lambda$-diagonal, accumulated by the `accumulate_rdiagj` helper just defined. This is the heavy lift of the lecture; on 30000 frequencies it takes a couple of minutes.""")
 
 code(r'''for inu in range(nf):
-    f = float(freq[inu]); w = float(rco[inu])                        # this frequency and its quadrature weight d_nu
-    ehvkt = np.exp(-f*hkt); stim = np.maximum(1.0 - ehvkt, 1e-300)   # e^{-hv/kT} and the stimulated-emission factor
-    bnu = 1.47439e-2 * ((f/1e15)**3) * ehvkt / stim                   # Planck function B_nu(T) (ATLAS constant)
-    ac = acont[:, inu]; sc = sigmac[:, inu]; so = scont[:, inu]       # this frequency's continuum opacity/source
+    # this frequency and its quadrature weight d_nu
+    f = float(freq[inu]); w = float(rco[inu])
 
-    taunu, hnu, jmins, abtot, alpha = josh_profiles(ac, so, sc, rhox, bnu)   # JOSH depth profiles
-    if np.any(hnu < 0.0): hnu = np.maximum(hnu, 1e-99)                # ATLAS safety clamp on the flux
+    # e^{-hv/kT} and the stimulated-emission factor
+    ehvkt = np.exp(-f*hkt); stim = np.maximum(1.0 - ehvkt, 1e-300)
+
+    # Planck function B_nu(T) (ATLAS constant)
+    bnu = 1.47439e-2 * ((f/1e15)**3) * ehvkt / stim
+
+    # this frequency's continuum opacity/source
+    ac = acont[:, inu]; sc = sigmac[:, inu]; so = scont[:, inu]
+
+    # JOSH depth profiles, with the ATLAS safety clamp on the flux
+    taunu, hnu, jmins, abtot, alpha = josh_profiles(ac, so, sc, rhox, bnu)
+    if np.any(hnu < 0.0): hnu = np.maximum(hnu, 1e-99)
 
     # dB_nu/dT, with the explicit 1/T factor (= B_nu * hv/kT / [T (1-e^{-hv/kT})])
     dbdt = bnu * f * hkt / np.maximum(T*stim, 1e-300)
-    ross_acc += dbdt / np.maximum(abtot, 1e-300) * w                 # Rosseland integrand: (1/kappa) dB/dT
+
+    # add this frequency's weighted contribution into the five integral accumulators
+    ross_acc += dbdt / np.maximum(abtot, 1e-300) * w                       # (1/kappa) dB/dT
     rdabh    += deriv(rhox, abtot) / np.maximum(abtot, 1e-300) * hnu * w   # (dkappa/d rhox)/kappa * H_nu
-    rjmins   += abtot * jmins * w                                    # kappa (J-S): net heating
-    flxrad   += hnu * w                                              # H_nu: the radiative flux
-    accrad   += abtot * hnu * w                                      # kappa_nu H_nu: the RADIAP radiation-pressure moment
+    rjmins   += abtot * jmins * w                                          # kappa (J-S): net heating
+    flxrad   += hnu * w                                                    # H_nu: the radiative flux
+    accrad   += abtot * hnu * w                                            # kappa_nu H_nu: RADIAP moment
 
     # the Lambda diagonal: running E_3-based contribution, layer by layer (in place)
     accumulate_rdiagj(rdiagj, taunu, bnu, hkt, T, stim, abtot, alpha, f, w, n)
@@ -565,27 +587,33 @@ rel("rdiagj (Lambda diag)", rdiagj, "rdiagj_ref")''')
 # ── RADIAP finalize: the radiation pressure ──────────────────────────────────
 md(r"""## Finishing the radiation-pressure moment
 
-With the $\kappa_\nu H_\nu$ integrand accumulated in `accrad`, two factors close the **`RADIAP`** moment. First the constant $4\pi/c$ turns the integrated $\int\kappa_\nu H_\nu\,d\nu$ into the radiative acceleration $g_{\rm rad}$ (ATLAS writes $4\pi=12.5664$ and $c=2.99792458\times10^{10}$ cm s$^{-1}$ explicitly, so the last digits match). Then a small physical safeguard: in the surface layers the depth-resolved flux $H(\tau)$ that JOSH returns can momentarily exceed the target $H$ — an artifact of the not-yet-converged temperature — and an over-target flux would push an unphysically large acceleration. So where the accumulated flux exceeds the target, ATLAS **caps** the acceleration by the same factor $H/H(\tau)$, holding the radiative push to at most what the target flux can deliver. Finally the capped acceleration is integrated down the column mass (`integ` against `rhox`, seeded at the top) to give the radiation-pressure profile $P_{\rm rad}(\rho x)$.
+With the $\kappa_\nu H_\nu$ integrand accumulated in `accrad`, two factors close the **`RADIAP`** moment. First the constant $4\pi/c$ turns the integrated $\int\kappa_\nu H_\nu\,d\nu$ into the radiative acceleration $g_{\rm rad}$ (ATLAS writes $4\pi=12.5664$ and $c=2.99792458\times10^{10}$ cm s$^{-1}$ explicitly, so the last digits match). Then a small numerical safeguard: in the surface layers the depth-resolved flux $H(\tau)$ that JOSH returns can momentarily exceed the target $H$ — an artifact of the not-yet-converged temperature — and letting that non-equilibrium flux overshoot would drive an overly large hydrostatic correction. So where the accumulated flux exceeds the target, ATLAS **caps** the acceleration by the same factor $H/H(\tau)$, holding the radiative push to at most what the target flux can deliver. Finally the capped acceleration is integrated down the column mass (`integ` against `rhox`, seeded at the top) to give the radiation-pressure profile $P_{\rm rad}(\rho x)$.
 
 This is the depth profile the hydrostatic density correction below subtracts to recover the gas pressure. It used to be read straight from the reference; here it is **computed** from the per-frequency flux we just swept — the last radiative moment to be closed.""")
 
 code(r'''# (1) the 4 pi / c factor: integrand int kappa_nu H_nu d_nu  ->  radiative acceleration g_rad
-conv = 12.5664 / 2.99792458e10                                # 4 pi / c  (ATLAS constants, explicit)
+conv = 12.5664 / 2.99792458e10     # 4 pi / c
 accrad *= conv
 
 # (2) flux-limit safeguard: cap the acceleration where H(tau) overshoots the target H
-ratio = flxrad / max(flux, 1e-300)                           # depth-resolved flux relative to target
-over  = ratio > 1.0                                          # surface layers where the flux runs hot
-accrad[over] *= flux / np.maximum(flxrad[over], 1e-300)      # hold g_rad to what the target flux delivers
 
-# (3) integrate the acceleration down the column mass -> the radiation pressure P_rad(rhox)
+# depth-resolved flux relative to target; surface layers where the flux runs hot
+ratio = flxrad / max(flux, 1e-300)
+over  = ratio > 1.0
+
+# hold g_rad to what the target flux delivers
+accrad[over] *= flux / np.maximum(flxrad[over], 1e-300)
+
+# (3) integrate the acceleration down the column mass -> the radiation pressure P_rad(rhox);
 #     this lives on the Rosseland tau grid -- exactly the grid the density correction consumes
 prad = integ(rhox, accrad, accrad[0]*rhox[0])
 
 # prad-vs-reference check.  The reference PRAD ships on the STANDARD tau grid (the production
-# code remaps it there for output), so we remap our tauros-grid prad the same way and compare:
-taustd_chk = 10.0**(-6.875 + np.arange(n)*0.125)             # the standard optical-depth grid
-prad_std, _ = map1(tauros, prad, taustd_chk)                 # our P_rad mapped onto the reference grid
+# code remaps it there for output), so we remap our tauros-grid prad the same way and compare.
+
+# the standard optical-depth grid, then our P_rad mapped onto the reference grid
+taustd_chk = 10.0**(-6.875 + np.arange(n)*0.125)
+prad_std, _ = map1(tauros, prad, taustd_chk)
 rel("prad (radiation pressure)", prad_std, "prad_ref")
 print(f"radiation pressure: surface P_rad = {prad[0]:.3e}   deep P_rad = {prad[-1]:.3e} dyn/cm^2")''')
 
@@ -600,7 +628,7 @@ fig, ax = plt.subplots(1, 2, figsize=(11, 4.1))
 ax[0].axhline(0.0, color="0.6", ls=":", lw=1.0)
 ax[0].plot(np.log10(tauros), flxerr, color="C3", lw=1.7)
 ax[0].set_xlabel(r"$\log_{10}\tau_{\rm Ross}$"); ax[0].set_ylabel(r"flux error  $(H(\tau)-H)/H$  [%]")
-ax[0].set_title("Grey atmosphere: flux is NOT constant")
+ax[0].set_title("Non-grey flux for the grey starting model")
 
 ax[1].plot(np.log10(tauros), flxrad/flux, color="C0", lw=1.7, label=r"$H(\tau)/H$")
 ax[1].axhline(1.0, color="0.6", ls=":", lw=1.0, label="radiative equilibrium")
@@ -623,21 +651,24 @@ $$
 
 **(2) The local-$\Lambda$ term $\Delta T_\Lambda$** handles the thin **surface** layers, where the Avrett–Krook scheme weakens (there is too little material above to define a meaningful $\Delta\tau$). Here ATLAS uses the local **net heating** `rjmins` directly: the temperature change needed to cancel the heating is the heating divided by how strongly the radiation responds to a change in that same layer — and that response is exactly the $\Lambda$-diagonal `rdiagj`. So $\Delta T_\Lambda \approx -(\text{net heating})/\text{rdiagj}$ (the $\kappa_{\rm Ross}$ that the code divides out to form `flxdrv` is multiplied back in `dtlamb`, so it cancels and the physical scaling is simply heating over diagonal response), applied only where the layer is thin ($\tau<1$) and convection is absent. It is smoothed over its five shallower neighbours (to avoid layer-to-layer ringing) and clamped to $\pm T_{\rm eff}/25$.
 
-**(3) The surface-boundary term $\Delta T_{\rm surf}$** fixes the very top layer's emergent flux. The surface flux should be the target $H$; the deviation $(H - H_{\rm surface})/H$ scaled by a quarter of the surface temperature gives a uniform shift, which is then adjusted so it does not double-count what the other two terms already did between $\tau=0.1$ and $\tau=2$, and clamped to $\pm T_{\rm eff}/25$.
+**(3) The surface-boundary term $\Delta T_{\rm surf}$** fixes the very top layer's emergent flux. The surface flux should be the target $H$; the deviation $(H - H_{\rm surface})/H$, scaled by a quarter of the surface temperature as a linearized $F\propto T^4$ estimate (not a literal blackbody surface law), gives a uniform shift, which is then adjusted so it does not double-count what the other two terms already did between $\tau=0.1$ and $\tau=2$, and clamped to $\pm T_{\rm eff}/25$.
 
 The code below assembles all three. Since we run convection off and this is iteration 1, the convective-flux arrays are zero and the acceleration/damping (which compares against the previous iteration's correction) is skipped — keeping the logic clean for this first reproduction.""")
 
-code(r'''dtdrhx = deriv(rhox, T)                         # dT/d(rhox), needed to convert dtau -> dT
-dabros = deriv(rhox, abross)                    # d kappa_Ross / d(rhox)
+code(r'''dtdrhx = deriv(rhox, T)        # dT/d(rhox), to convert dtau -> dT
+dabros = deriv(rhox, abross)   # d kappa_Ross / d(rhox)
 
 # --- (1) Avrett-Krook flux term -------------------------------------------------
+
 # rdabh_eff = (true flux-weighted opacity gradient) - (Rosseland mean's own gradient)
 rdabh_eff = rdabh - flxrad * dabros/np.maximum(abross, 1e-300)
 
 # floor the divisor: one division, no overflow in a discarded np.where branch
 flxrad_safe = np.where(np.abs(flxrad) >= 1e-300, flxrad, 1e-300)
-codrhx = rdabh_eff / flxrad_safe                # gradient integrand for the weighting g
-codrhx[0] = 0.0; codrhx[1] = 0.0                # boundary layers carry no gradient weighting
+
+# gradient integrand for the weighting g; boundary layers carry no gradient weighting
+codrhx = rdabh_eff / flxrad_safe
+codrhx[0] = 0.0; codrhx[1] = 0.0
 
 # Avrett-Krook weighting g(rhox) = exp(int codrhx d rhox), and the g-weighted flux defect
 g = np.exp(integ(rhox, codrhx, 0.0))
@@ -652,42 +683,54 @@ dtflux = -dtau * dtdrhx / np.maximum(abross, 1e-300)
 dtflux = np.nan_to_num(dtflux)
 print(f"(1) Avrett-Krook flux term: dtflux[40] = {dtflux[40]:+.2f} K  (deep, optically thick)")''')
 
-md(r"""**Term (2), the local-$\Lambda$ surface term.** We loop over layers, dividing the net heating by the $\Lambda$-diagonal at each one to get the temperature change that cancels the local heating residual. We keep it only in the optically thin surface ($\tau_{\rm Ross}<1$); below that the Avrett–Krook term owns the structure, so we zero $\Delta T_\Lambda$ there and halve it over the five shallower neighbours to suppress layer-to-layer ringing. Each value is clamped to $\pm T_{\rm eff}/25$.""")
+md(r"""**Term (2), the local-$\Lambda$ surface term.** We loop over layers, dividing the net heating by the $\Lambda$-diagonal at each one to get the temperature change that cancels the local heating residual. We keep it only in the optically thin surface ($\tau_{\rm Ross}<1$); below that the Avrett–Krook term owns the structure, so we zero $\Delta T_\Lambda$ there and multiply the corrections of the five shallower layers by $0.5$ at each depth step. Because that halving sits inside the forward loop, a layer's correction is suppressed by a factor of $0.5^5\approx0.03$ by the time the loop advances past the five layers below it — heavily damping layer-to-layer ringing. Each value is clamped to $\pm T_{\rm eff}/25$.""")
 
 code(r'''# --- (2) local-Lambda surface term ----------------------------------------------
-teff25 = TEFF/25.0                                            # the per-term clamp magnitude
+teff25 = TEFF/25.0     # +/- Teff/25 clamp magnitude
 
 # net-heating diagnostic (% units; the abross divided out here multiplies back in below)
 flxdrv = rjmins / np.maximum(abross, 1e-300) / flux * 100.0
 dtlamb = np.zeros(n)
 for j in range(n):
-    denom = rdiagj[j] if abs(rdiagj[j]) > 1e-300 else np.sign(rdiagj[j])*1e-300   # guard /0
+    # guard /0 on the Lambda-diagonal denominator
+    denom = rdiagj[j] if abs(rdiagj[j]) > 1e-300 else np.sign(rdiagj[j])*1e-300
 
     # net heating / Lambda-diagonal (abross multiplies back in here)
     dtlamb[j] = -flxdrv[j] * flux/100.0 / denom * abross[j]
-    if not (tauros[j] < 1.0):                                  # apply only in the thin surface (tau < 1)
+
+    # apply only in the thin surface (tau < 1); deeper, zero it and smooth the 5 shallower neighbours
+    if not (tauros[j] < 1.0):
         dtlamb[j] = 0.0
-        for k in range(1, 6):                                 # smooth over 5 shallower neighbours
+        for k in range(1, 6):
             if j-k >= 0: dtlamb[j-k] *= 0.5
-    dtlamb[j] = float(np.clip(dtlamb[j], -teff25, teff25))    # clamp to +/- Teff/25
+
+    # clamp to +/- Teff/25
+    dtlamb[j] = float(np.clip(dtlamb[j], -teff25, teff25))
 dtlamb = np.nan_to_num(dtlamb)
 print(f"(2) local-Lambda surface term: dtlamb[0] = {dtlamb[0]:+.1f} K  (thin surface only)")''')
 
 md(r"""**Term (3), the surface-boundary term.** The very top layer's emergent flux should equal the target $H$; the scaled deviation $(H - H_{\rm surface})/H\times\tfrac14 T[0]$ gives a uniform offset `dtsur`. We then subtract the part of the offset that the other two terms have *already* applied between $\tau_{\rm Ross}=0.1$ and $2$ (read off by integrating $\Delta T_{\rm flux}+\Delta T_\Lambda$ and averaging across that range), so the surface term does not double-count — and clamp. Summing the three gives the total correction $T_1$.""")
 
 code(r'''# --- (3) surface-boundary term --------------------------------------------------
+
 # scaled deviation of the surface flux from the target
 dtsur = float(np.clip((flux - flxrad[0])/flux * 0.25 * T[0], -teff25, teff25))
 
-# how much the other two terms already moved tau in [0.1, 2] -- the part to not double-count
-tinteg = integ(tauros, dtflux + dtlamb, 0.0)    # cumulative of the other two terms vs tau
+# how much the other two terms already moved tau in [0.1, 2] -- the part to not double-count;
+# tinteg is the cumulative of the other two terms vs tau
+tinteg = integ(tauros, dtflux + dtlamb, 0.0)
 tav = (map1_scalar(tauros, tinteg, 2.0) - map1_scalar(tauros, tinteg, 0.1)) / 2.0
-if dtsur*tav <= 0.0: tav = 0.0                  # only remove overlap of the same sign
-if abs(tav) > abs(dtsur): tav = dtsur           # never over-subtract
-dtsurf = np.full(n, dtsur - tav)                # uniform surface offset, double-count removed
+
+# only remove overlap of the same sign, and never over-subtract
+if dtsur*tav <= 0.0: tav = 0.0
+if abs(tav) > abs(dtsur): tav = dtsur
+
+# uniform surface offset, double-count removed
+dtsurf = np.full(n, dtsur - tav)
 dtsurf = np.nan_to_num(dtsurf)
 
-t1 = dtflux + dtlamb + dtsurf                   # the total temperature correction T1
+# the total temperature correction T1
+t1 = dtflux + dtlamb + dtsurf
 print(f"(3) surface-boundary term: dtsur = {dtsur:+.1f} K")
 print(f"total T1: surface={t1[0]:+.1f} K   deep={t1[-1]:+.1f} K")''')
 
@@ -696,7 +739,9 @@ md(r"""### Applying the correction (with the monotonicity guard)
 The new temperature is $T + T_1$, with one guard: in this 1D LTE photospheric ATLAS model the temperature is expected to increase inward (chromospheres, irradiated atmospheres, and other non-standard cases can invert it, but none arise here), so ATLAS enforces monotonicity from the bottom up, forcing each layer to be at least 1 K cooler than the one below it. We apply that clamp and benchmark the corrected temperature against the reference correction terms.""")
 
 code(r'''tnew = np.maximum(T + t1, 1.0)
-for i in range(1, n):                            # monotonicity: each layer >= 1 K below its deeper neighbour
+
+# monotonicity: each layer at least 1 K below its deeper neighbour
+for i in range(1, n):
     j = n-1-i
     tnew[j] = min(tnew[j], tnew[j+1] - 1.0)
 
@@ -708,7 +753,7 @@ rel("T1 (total)",            t1,     "t1_ref")''')
 # ── DRHOX ────────────────────────────────────────────────────────────────────
 md(r"""## Re-integrating hydrostatic equilibrium: the density correction
 
-Moving the temperature changes the pressure, and pressure balance must be restored. ATLAS recomputes the hydrostatic structure for the corrected temperature and reads off the fractional change in total pressure as the density correction $\Delta\rho x$. Concretely it runs the Lecture-9 `TTAUP` integrator **twice** — once on the old temperature $T$ and once on $T+T_1$ — on the standard optical-depth grid, takes the fractional pressure difference $(P_{T+T_1} - P_T)/P_T$, and maps it back to apply $\rho x \to \rho x\,(1+\text{that fraction})$.
+Moving the temperature changes the pressure, and pressure balance must be restored. ATLAS recomputes the hydrostatic structure for the corrected temperature and reads off the fractional change in total pressure as the density correction $\Delta\rho x$. (Despite the historical name, this is a column-mass-grid correction, not a correction to the local density $\rho$.) Concretely it runs the Lecture-9 `TTAUP` integrator **twice** — once on the old temperature $T$ and once on $T+T_1$ — on the standard optical-depth grid, takes the fractional pressure difference $(P_{T+T_1} - P_T)/P_T$, and maps it back to apply $\rho x \to \rho x\,(1+\text{that fraction})$.
 
 The one new ingredient since Lecture 9 is the **opacity** the integrator uses. On the cold start, `TTAUP` had an empty table and used $\kappa\equiv1$. Now, having just computed $\kappa_{\rm Ross}$ at every layer, ATLAS builds a small **`ROSSTAB`** lookup table from this iteration's $(T, P, \kappa_{\rm Ross})$ triples, and `TTAUP` interpolates that table for the opacity at each step. So the pressure re-integration uses the *real* Rosseland opacity, not the placeholder. We reproduce `ROSSTAB` (a normalised log-space nearest-neighbour-per-quadrant interpolation) and the `TTAUP` integrator below.
 
@@ -761,7 +806,7 @@ code(r'''class Rosstab:
         r = sum(self.k[idx[q]]*w[q] for q in range(4)) / max(sum(w), 1e-300)
         return 10.0**r''')
 
-md(r"""With that opacity table in hand, `ttaup` re-integrates hydrostatic equilibrium down the optical-depth grid, solving $dP/d\tau = g/\kappa$. Because the opacity itself depends on the pressure it is solving for ($\kappa = \kappa(T, P)$ via `ROSSTAB`), each layer runs an inner predictor–corrector loop — a low-order start at the top, a multistep formula deeper — that iterates the log-pressure until it converges, exactly as the Lecture-9 integrator did but reading the real Rosseland opacity instead of $\kappa\equiv1$.
+md(r"""With that opacity table in hand, `ttaup` re-integrates hydrostatic equilibrium down the optical-depth grid, solving $dP_{\rm tot}/d\tau_{\rm Ross} = g/\kappa_{\rm Ross}$ for the *total* pressure and then recovering $P_{\rm gas}$ by applying the radiation-pressure offset. Because the opacity itself depends on the pressure it is solving for ($\kappa = \kappa(T, P)$ via `ROSSTAB`), each layer runs an inner predictor–corrector loop — a low-order start at the top, a multistep formula deeper — that iterates the log-pressure until it converges, exactly as the Lecture-9 integrator did but reading the real Rosseland opacity instead of $\kappa\equiv1$.
 
 Both the predictor and the corrector switch between three forms by depth: a boundary form at the top layer ($j=0$), a low-order start for the first few layers ($j\le3$), and a high-order multistep formula deeper. Each is a fixed scalar expression of the rolling log-pressure history $(p_1, p_3, p_4)$ and its derivative history $(q_1, q_2, q_3)$, so we lift the two switches into small pure helpers `ttaup_predict` and `ttaup_correct` — same expressions, same operation order, called at exactly the same points — leaving the actual predictor–corrector *iteration* (the genuinely sequential while-loop) whole.""")
 
@@ -808,11 +853,16 @@ code(r'''def ttaup(t, tau, prad, grav, rosstab):
 
 md(r"""With the integrator in hand we run the density correction. We build the `ROSSTAB` table from this iteration's $(T, P, \kappa_{\rm Ross})$, lay down the standard optical-depth grid, remap **our computed** radiation pressure `prad` (the `RADIAP` moment from the sweep above — no longer read from the reference) onto it, then run `ttaup` **twice** — on the old temperature $T$ and on the corrected $T+T_1$ — and read off the fractional pressure change. Mapping that fraction back onto $\tau_{\rm Ross}$ gives $\Delta\rho x = \text{frac}\times\rho x$, and the corrected column mass $\rho x_{\rm new}=\rho x+\Delta\rho x$.""")
 
-code(r'''# build ROSSTAB from this iteration's (T, P, kappa_Ross), then run TTAUP on T and on T+T1
+code(r'''# build ROSSTAB from this iteration's (T, P, kappa_Ross)
 rt = Rosstab(T, p_in, abross)
-taustd = 10.0**(-6.875 + np.arange(n)*0.125)        # the standard optical-depth grid
+
+# the standard optical-depth grid
+taustd = 10.0**(-6.875 + np.arange(n)*0.125)
+
 # prad is the COMPUTED RADIAP moment (above), on the tauros grid; remap it once onto taustd
 prdnew, _ = map1(tauros, prad, taustd)
+
+# run TTAUP on the old T and on the corrected T+T1, then take the fractional pressure change
 ptot_old = ttaup(map1(tauros, T,      taustd)[0], taustd, prdnew, GRAV, rt)
 ptot_new = ttaup(map1(tauros, T + t1, taustd)[0], taustd, prdnew, GRAV, rt)
 frac, _ = map1(taustd, (ptot_new - ptot_old)/np.maximum(ptot_old, 1e-300), tauros)
@@ -827,8 +877,9 @@ md(r"""## Closing the iteration: the standard-grid remap
 
 There is one last step that closes an ATLAS iteration. The correction was computed on *this* iteration's Rosseland optical-depth scale $\tau_{\rm Ross}$, but the next iteration must start from the **standard** grid `taustd` (the same $\log\tau$ from $-6.875$ in $0.125$-dex steps that every iteration uses). So ATLAS remaps every state variable from $\tau_{\rm Ross}$ onto `taustd` with `map1`. We do that for the corrected temperature and column mass — and the result is the corrected atmosphere the production code hands to its next iteration. This is exactly the output `T_out`, `rhox_out` in the reference.""")
 
-code(r'''T_out,    _ = map1(tauros, tnew,     taustd)    # corrected T,    remapped to the standard grid
-rhox_out, _ = map1(tauros, rhox_new, taustd)    # corrected RHOX, remapped to the standard grid
+code(r'''# corrected T and RHOX, remapped from tau_Ross onto the standard grid
+T_out,    _ = map1(tauros, tnew,     taustd)
+rhox_out, _ = map1(tauros, rhox_new, taustd)
 
 print("FINAL corrected model vs reference (one full ATLAS iteration):")
 rT = rel("corrected T",    T_out,    "T_out")
@@ -837,33 +888,39 @@ rX = rel("corrected RHOX", rhox_out, "rhox_out")''')
 # ── benchmark verdict ────────────────────────────────────────────────────────
 md(r"""## The benchmark
 
-Both corrected quantities reproduce the production code at the **accumulated float64 roundoff level** for this pipeline — $\sim10^{-9}$ relative, i.e. bit-for-bit agreement with the reference path within rounding (not the much smaller double-precision $\epsilon$ itself, but the roundoff accumulated through the whole chain). The corrected temperature *and* the corrected column mass both land there. The column mass reaches that level precisely **because** the radiation pressure it depends on is now computed from the same per-frequency flux as everything else — the `RADIAP` moment — and threaded into the hydrostatic integrator on the right tau grid, with no extra remap of a pre-stored profile to nudge the gas-pressure offset.
+Both corrected quantities reproduce the reference path to $\sim10^{-9}$ relative accuracy — the **accumulated float64 roundoff level** of this pipeline (not the much smaller double-precision $\epsilon$ itself, and not exact binary identity, but the roundoff accumulated through the whole chain). The corrected temperature *and* the corrected column mass both land there. The column mass reaches that level precisely **because** the radiation pressure it depends on is now computed from the same per-frequency flux as everything else — the `RADIAP` moment — and threaded into the hydrostatic integrator on the right tau grid, with no extra remap of a pre-stored profile to nudge the gas-pressure offset.
 
-Where, then, does the one single-precision step in the whole pipeline (the **float32** $\Lambda$-iteration inside JOSH, Lecture 8) leave its mark? In the *frequency-integrated accumulators* themselves: its last-bit jitter in $\kappa_\nu$ shows up as a $\sim10^{-6}$–$10^{-7}$ floor on `rjmins`, `flxrad`, and `rdabh` printed above, which propagates into the temperature correction $T_1$ at the $\sim10^{-7}$ level. That jitter is sub-dominant in the final corrected $T$ and $\rho x$ (both $\sim10^{-9}$), it is far below the $10^{-4}$ convergence threshold, and it washes out over the iteration sequence. The radiation pressure, the temperature, and the column mass — the quantities radiative equilibrium is actually solving for — are reproduced to the bit.""")
+Where, then, does the one single-precision step in the whole pipeline (the **float32** $\Lambda$-iteration inside JOSH, Lecture 8) leave its mark? In the *frequency-integrated accumulators* themselves: the single precision affects the solved source and moment profiles, so its last-bit jitter in $H_\nu$ and $(J_\nu-S_\nu)$ shows up as a $\sim10^{-6}$–$10^{-7}$ floor on `rjmins`, `flxrad`, and `rdabh` printed above, which propagates into the temperature correction $T_1$ at the $\sim10^{-7}$ level. That jitter is sub-dominant in the final corrected $T$ and $\rho x$ (both $\sim10^{-9}$), it is far below the $10^{-4}$ convergence threshold, and it washes out over the iteration sequence. The radiation pressure, the temperature, and the column mass — the quantities radiative equilibrium is actually solving for — are reproduced to this $\sim10^{-9}$ roundoff floor.""")
 
 code(r'''print("="*64)
 print("LECTURE 10 BENCHMARK")
 print("="*64)
-print(f"  corrected T    : max|rel| = {rT:.2e}   <- MACHINE PRECISION")
-print(f"  corrected RHOX : max|rel| = {rX:.2e}   <- MACHINE PRECISION (computed P_rad)")
+print(f"  corrected T    : max|rel| = {rT:.2e}   <- pipeline roundoff floor (~1e-9)")
+print(f"  corrected RHOX : max|rel| = {rX:.2e}   <- pipeline roundoff floor (computed P_rad)")
 ok = (rT < 1e-7) and (rX < 1e-7)
 print("  PASS" if ok else "  FAIL")
 print("="*64)''')
 
 md(r"""### Seeing the correction
 
-Finally, a picture of what we just did. The left panel overlays the grey starting temperature and the corrected temperature across the photosphere — the correction is a smooth shift of tens to a few hundred kelvin, pulling the temperature toward the run that conserves flux. The right panel shows the correction $T_1$ itself versus depth, the sum of the three terms we assembled: the surface term setting the top, the local-$\Lambda$ term shaping the thin upper layers, and the Avrett–Krook term doing the bulk work in the deep, optically thick interior.""")
+Finally, a picture of what we just did, with both panels on the **same** $\tau_{\rm Ross}$ axis so they line up depth for depth. The left panel overlays the grey starting temperature $T$ and the corrected temperature $T_{\rm new}=T+T_1$ across the photosphere — the correction is a smooth shift of tens to a few hundred kelvin, pulling the temperature toward the run that conserves flux. The right panel shows that same correction $T_1$ versus depth, the sum of the three terms we assembled: the surface term setting the top, the local-$\Lambda$ term shaping the thin upper layers, and the Avrett–Krook term doing the bulk work in the deep, optically thick interior. By plotting $T_{\rm new}$ and $T_1$ on one shared axis, the vertical gap between the two left-panel curves *is* the right-panel curve at every depth — the figure is self-consistent by construction.
 
-code(r'''fig, ax = plt.subplots(1, 2, figsize=(11, 4.1))
-ax[0].plot(np.log10(taustd), T,     color="0.55", lw=1.6, label="grey start")
-ax[0].plot(np.log10(taustd), T_out, color="C0",  lw=1.8, label="after one correction")
-ax[0].set_xlabel(r"$\log_{10}\tau_{\rm std}$"); ax[0].set_ylabel("temperature [K]")
+One small caveat to read in the surface layers: the curve drawn is the monotonicity-guarded $T_{\rm new}$ (the temperature that actually goes forward to the next iteration), so where the flat grey-start top would make $T+T_1$ constant, the guard imposes a gentle $1$ K per layer staircase. That few-kelvin deviation from a pure $T+T_1$ is the guard at work, not an inconsistency.""")
+
+code(r'''# corrected temperature on the SAME tau_Ross grid as the correction (so the
+# left-panel gap equals the right-panel curve, depth for depth)
+tnew_plot = tnew
+
+fig, ax = plt.subplots(1, 2, figsize=(11, 4.1))
+ax[0].plot(np.log10(tauros), T,         color="0.55", lw=1.6, label="grey start  $T$")
+ax[0].plot(np.log10(tauros), tnew_plot, color="C0",   lw=1.8, label=r"corrected  $T_{\rm new}=T+T_1$")
+ax[0].set_xlabel(r"$\log_{10}\tau_{\rm Ross}$"); ax[0].set_ylabel("temperature [K]")
 ax[0].set_title("The temperature correction"); ax[0].legend(loc="upper left")
 
 ax[1].axhline(0.0, color="0.6", ls=":", lw=1.0)
 ax[1].plot(np.log10(tauros), t1, color="C3", lw=1.7)
-ax[1].set_xlabel(r"$\log_{10}\tau_{\rm Ross}$"); ax[1].set_ylabel(r"$T_1$  [K]")
-ax[1].set_title(r"Correction $T_1 = \Delta T_{\rm flux}+\Delta T_\Lambda+\Delta T_{\rm surf}$")
+ax[1].set_xlabel(r"$\log_{10}\tau_{\rm Ross}$"); ax[1].set_ylabel(r"$\Delta T = T_1$  [K]")
+ax[1].set_title(r"Correction $\Delta T = \Delta T_{\rm flux}+\Delta T_\Lambda+\Delta T_{\rm surf}$")
 fig.tight_layout(); plt.show()
 print(f"correction range: {t1.min():+.0f} K (surface) to {t1.max():+.0f} K (deep)")''')
 
@@ -874,14 +931,14 @@ We built **one** correction step. A real ATLAS model **iterates** it: recompute 
 
 Two physical ingredients we deliberately left out enter next. **Convection**: below the photosphere of a cool star, part of the energy is carried by rising and falling gas rather than radiation, and the correction must account for the convective flux (the zeroed `flxcnv` arrays in our code are where it plugs in). **Line blanketing**: the real opacity includes millions of spectral lines, which trap radiation and reshape the temperature structure — switching them on means the frequency sweep carries line opacity (Lectures 4–6) alongside the continuum, but the correction machinery is unchanged.
 
-A practical note on starting points. We seeded the iteration with the deterministic **grey start** of Lecture 9, which is why this book stays reproducible with only NumPy. Production pipelines often warm-start instead from a neural-network *emulator* that predicts a near-converged structure directly from $(T_{\rm eff}, \log g, [\mathrm{M/H}])$, cutting the iteration count — but that emulator is an *optional* accelerator, not part of the physics. The grey start always works; it is the deterministic seed the whole correction loop is built on.
+A practical note on starting points. We seeded the iteration with the deterministic **grey start** of Lecture 9, which is why this book stays reproducible with only NumPy. Production pipelines often warm-start instead from a neural-network *emulator* that predicts a near-converged structure directly from $(T_{\rm eff}, \log g, [\mathrm{M/H}])$, cutting the iteration count — but that emulator is an *optional* accelerator, not part of the physics. For the class of 1D LTE ATLAS models considered here the grey start is a robust deterministic seed; it is what the whole correction loop is built on.
 
-With this lecture the loop the course has traced is complete in principle: **parameters $\to$ hydrostatic structure (Lecture 9) $\to$ radiative-equilibrium correction (this lecture) $\to$, iterated, a self-consistent atmosphere $\to$ the spectrum (Lectures 1–8)**. A star's few numbers become its full structure and its emergent spectrum, from first principles and to the bit.""")
+With this lecture the loop the course has traced is complete in principle: **parameters $\to$ hydrostatic structure (Lecture 9) $\to$ radiative-equilibrium correction (this lecture) $\to$, iterated, a self-consistent atmosphere $\to$ the spectrum (Lectures 1–8)**. A star's few numbers become its full structure and its emergent spectrum, from the standard 1D LTE model-atmosphere assumptions and to the pipeline's roundoff floor.""")
 
 # ── synthesis ────────────────────────────────────────────────────────────────
 md(r"""## Synthesis
 
-The grey starting atmosphere from Lecture 9 is hydrostatically balanced but **not** in radiative equilibrium: its radiative flux is not constant with depth, because the grey temperature law ignores the wavelength dependence of the opacity. We measured that flux defect directly — tens of percent at the surface, drifting with depth — and then built ATLAS's `TCORR` engine to remove it. The machinery is: compute the **Rosseland mean** $\kappa_{\rm Ross}$ (a harmonic, flux-weighted frequency average) and the real optical-depth scale $\tau_{\rm Ross}$; sweep the continuum frequencies, running **JOSH** (Lecture 8) at each to get the per-frequency flux $H_\nu$ and moment $J_\nu-S_\nu$, and accumulate four depth integrals; assemble the correction $T_1 = \Delta T_{\rm flux} + \Delta T_\Lambda + \Delta T_{\rm surf}$ from the Avrett–Krook flux term (deep layers), the local-$\Lambda$ term (thin surface), and the surface-boundary term (emergent flux); accumulate the radiation-pressure moment $P_{\rm rad} = \frac{4\pi}{c}\int\!\!\int\kappa_\nu H_\nu\,d\nu\,d(\rho x)$ (`RADIAP`) from the very same per-frequency flux; re-integrate hydrostatic equilibrium with the real Rosseland opacity and that computed $P_{\rm rad}$ for the density correction $\Delta\rho x$; and remap onto the standard grid to close the iteration. The corrected temperature *and* the corrected column mass both match the production code to machine precision.""")
+The grey starting atmosphere from Lecture 9 is hydrostatically balanced but **not** in radiative equilibrium: its radiative flux is not constant with depth, because the grey temperature law ignores the wavelength dependence of the opacity. We measured that flux defect directly — tens of percent at the surface, drifting with depth — and then built ATLAS's `TCORR` engine to remove it. The machinery is: compute the **Rosseland mean** $\kappa_{\rm Ross}$ (a harmonic, $\partial B_\nu/\partial T$-weighted frequency average motivated by the diffusion-limit flux) and the real optical-depth scale $\tau_{\rm Ross}$; sweep the continuum frequencies, running **JOSH** (Lecture 8) at each to get the per-frequency flux $H_\nu$ and moment $J_\nu-S_\nu$, and accumulate four depth integrals; assemble the correction $T_1 = \Delta T_{\rm flux} + \Delta T_\Lambda + \Delta T_{\rm surf}$ from the Avrett–Krook flux term (deep layers), the local-$\Lambda$ term (thin surface), and the surface-boundary term (emergent flux); accumulate the radiation-pressure moment $P_{\rm rad} = \frac{4\pi}{c}\int\!\!\int\kappa_\nu H_\nu\,d\nu\,d(\rho x)$ (`RADIAP`) from the very same per-frequency flux; re-integrate hydrostatic equilibrium with the real Rosseland opacity and that computed $P_{\rm rad}$ for the density correction $\Delta\rho x$; and remap onto the standard grid to close the iteration. The corrected temperature *and* the corrected column mass both match the production code to the pipeline's $\sim10^{-9}$ roundoff floor.""")
 
 md(r"""## Summary
 
@@ -890,11 +947,11 @@ md(r"""## Summary
 - **JOSH** (Lecture 8) supplies the per-frequency depth profiles $H_\nu(\tau)$ and $(J_\nu-S_\nu)(\tau)$; four frequency integrals (`flxrad`, `rjmins`, `rdabh`, `rdiagj`) feed the correction, and a fifth — $\int\kappa_\nu H_\nu\,d\nu$ — is the **`RADIAP` radiation-pressure moment** that, integrated down the column, gives $P_{\rm rad}$. The float32 $\Lambda$-iteration inside JOSH leaves a $\sim10^{-6}$–$10^{-7}$ floor on those frequency integrals.
 - The correction is **three terms**: the **Avrett–Krook** flux term enforces flux constancy in the deep layers (via a clamped optical-depth shift); the **local-$\Lambda$** term corrects the thin surface using the net heating divided by the $\Lambda$-diagonal; the **surface-boundary** term fixes the emergent flux. A **monotonicity** clamp keeps $T$ increasing with depth.
 - The **density correction** $\Delta\rho x$ comes from re-running the Lecture-9 hydrostatic integrator on $T$ and $T+T_1$ — now using the **real** Rosseland opacity via a `ROSSTAB` table and the **computed** radiation pressure $P_{\rm rad}$ (subtracted to recover the gas pressure) — and taking the fractional pressure change. A final **`map1` remap** onto the standard grid closes the iteration.
-- One step reproduces the production code's corrected **temperature and column mass both to machine precision** ($\sim10^{-9}$); iterating it drives a real model to radiative equilibrium.""")
+- One step reproduces the production code's corrected **temperature and column mass to the pipeline's $\sim10^{-9}$ roundoff floor**; iterating it drives a real model to radiative equilibrium.""")
 
 md(r"""## Practice exercises
 
-**1. Why harmonic, not arithmetic.** Replace the Rosseland accumulator's $1/\kappa_\nu$ weighting with a straight $\kappa_\nu$ weighting (an arithmetic mean) and recompute $\kappa_{\rm Ross}$ and $\tau_{\rm Ross}$. How does the optical-depth scale change, especially deep in the atmosphere? Explain physically why the *transparent* windows must dominate the flux in the diffusion limit, and why an arithmetic mean (dominated by the opaque lines) gets the deep structure badly wrong.
+**1. Why harmonic, not arithmetic.** Replace the Rosseland accumulator's $1/\kappa_\nu$ weighting with a straight $\kappa_\nu$ weighting (an arithmetic mean) and recompute $\kappa_{\rm Ross}$ and $\tau_{\rm Ross}$. How does the optical-depth scale change, especially deep in the atmosphere? Explain physically why the *transparent* windows must dominate the flux in the diffusion limit, and why an arithmetic mean (dominated by the opaque frequency regions — lines in the full problem, continuum opacity peaks in this simplified run) gets the deep structure badly wrong.
 
 **2. Each term's territory.** Plot $\Delta T_{\rm flux}$, $\Delta T_\Lambda$, and $\Delta T_{\rm surf}$ separately versus $\log\tau_{\rm Ross}$. Confirm that the local-$\Lambda$ term lives only at $\tau<1$, the surface term is a near-uniform offset, and the Avrett–Krook term carries the deep layers. At roughly what optical depth does the dominant term hand off from local-$\Lambda$ to Avrett–Krook?
 
@@ -904,7 +961,7 @@ md(r"""## Practice exercises
 
 **5. Where the float32 floor lives.** The corrected temperature and column mass both match to $\sim10^{-9}$, yet the frequency-integrated accumulators (`rjmins`, `flxrad`, `rdabh`) printed during the sweep sit at $\sim10^{-6}$–$10^{-7}$. That floor is the **float32** $\Lambda$-iteration inside `josh_profiles` — the one single-precision step in the pipeline — jittering $\kappa_\nu$ and $H_\nu$ at the last bit. Confirm it by re-running JOSH's inner sweep in float64 (cast `xs` and the operands to `np.float64`) and watching those accumulators drop toward $\sim10^{-12}$. Then explain the apparent paradox: why do the *final* corrected $T$ and $\rho x$ land at $\sim10^{-9}$ — better than the accumulators they are built from? (Hint: the correction is a smooth, near-linear functional of those integrals, and the same float32 jitter sits in both our path and the reference path, so much of it cancels in the relative comparison.)
 
-**6. The radiation-pressure moment.** The notebook computes $P_{\rm rad}$ from the `RADIAP` integrand $\int\kappa_\nu H_\nu\,d\nu$ and prints it against the reference to machine precision. Remove the flux-limit safeguard (the `accrad[over] *= flux/flxrad[over]` cap) and recompute $P_{\rm rad}$. Which layers change, and why are they exactly the surface layers where the un-converged flux $H(\tau)$ overshoots the target $H$? Explain physically why an over-target flux would otherwise push an unphysically large radiative acceleration into the hydrostatic balance.""")
+**6. The radiation-pressure moment.** The notebook computes $P_{\rm rad}$ from the `RADIAP` integrand $\int\kappa_\nu H_\nu\,d\nu$ and prints it against the reference to the pipeline's $\sim10^{-9}$ roundoff floor. Remove the flux-limit safeguard (the `accrad[over] *= flux/flxrad[over]` cap) and recompute $P_{\rm rad}$. Which layers change, and why are they exactly the surface layers where the un-converged flux $H(\tau)$ overshoots the target $H$? Explain physically why an over-target flux would otherwise push an unphysically large radiative acceleration into the hydrostatic balance.""")
 
 md(r"""## Further reading
 
