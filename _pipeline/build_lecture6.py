@@ -35,7 +35,7 @@ md(r"""# Lecture 6 — Hydrogen Lines: Stark Broadening
 
 **Learning objectives.** By the end of this lecture you will be able to:
 
-- Say why **hydrogen lines are broadened differently** from every other line in the list — the degeneracy of its levels makes it sensitive to the **linear Stark effect**, which produces wings far broader than the Doppler-plus-Lorentz Voigt profile of metals and helium.
+- Say why **hydrogen lines are routed to a dedicated profile engine** in this pipeline, separate from the Voigt kernel that treats the metal and helium lines in this window — the degeneracy of hydrogen's levels makes it sensitive to the **linear Stark effect**, which produces wings far broader than a Doppler-plus-Lorentz Voigt profile.
 - Write down the **Holtsmark electric microfield**: the normal field strength $F_0 = 1.25\times10^{-9}\,n_e^{2/3}$ and the dimensionless detuning $\beta = \Delta\nu/F_0\cdot \mathrm{d}\beta$ that the whole profile is a function of.
 - Assemble the **HPROF4 profile** as a sum of three pieces — a Doppler **core** over the fine-structure components, a **Lorentzian** (resonance + radiative + van der Waals), and the **linear-Stark wing** (a quasi-static Holtsmark term plus an electron-impact term) — selected by which half-width dominates.
 - Walk the profile **outward from line centre** with the same continuum-cutoff and continuum-merge taper the production code uses, forming $\kappa_0 = \mathrm{cgf}\cdot n/\rho/v_D \cdot e^{-\chi/kT}$ at each depth.
@@ -46,11 +46,11 @@ md(r"""# Lecture 6 — Hydrogen Lines: Stark Broadening
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## Introduction
 
-The line-list lecture treated every line the same way: a **Voigt profile**, the convolution of a Gaussian Doppler core with a Lorentzian wing. The Gaussian comes from thermal and turbulent motion; the Lorentzian from the finite lifetime of the upper level — radiative damping, plus pressure broadening by collisions (the Stark and van der Waals terms). That recipe reproduces the metal lines and the helium lines to the bit, because for those atoms the energy levels shift **quadratically** with an applied electric field. A passing charged particle perturbs the level by an amount proportional to the *square* of its field, which falls off fast, so the line stays narrow and the Voigt picture holds.
+The line-list lecture treated every line the same way: a **Voigt profile**, the convolution of a Gaussian Doppler core with a Lorentzian wing. The Gaussian comes from thermal and turbulent motion; the Lorentzian represents the finite coherence lifetime of the transition — radiative decay of its upper and lower levels, plus collisional broadening and dephasing (the quadratic-Stark and van der Waals terms). That recipe reproduces the metal lines and the helium lines in this window to the bit. Physically, those non-hydrogenic atoms lack hydrogen's exact $n,\ell$ degeneracy, so their levels respond to an electric field only at **second order**: the perturbation goes as the *square* of a passing charge's field and falls off as $1/r^4$. Because that interaction is so short-ranged, collisions are brief and isolated — the **impact approximation** holds, and it yields a Lorentzian wing. The line stays narrow and the Voigt picture works.
 
-Hydrogen is the exception, and it is the exception that matters most. Its energy levels are **degenerate**: states of the same principal quantum number $n$ but different angular momentum $\ell$ have (almost) the same energy. A degenerate level responds to an electric field at **first order** — the **linear Stark effect** — so the level splits *linearly* with the field rather than quadratically. The splitting is therefore far larger, and the line wings extend enormously. A hydrogen Balmer line in a stellar photosphere is broadened not by the lifetime of its upper level but by the **electric microfield**: the fluctuating field of all the surrounding ions and electrons.
+Hydrogen is the exception, and it is the exception that matters most. Its energy levels are **degenerate**: states of the same principal quantum number $n$ but different angular momentum $\ell$ have (almost) the same energy. A degenerate level responds to an electric field at **first order** — the **linear Stark effect** — so the level splits *linearly* with the field rather than quadratically. The interaction is now long-ranged ($1/r^2$): the atom feels the slowly-varying combined field of *many* surrounding ions at once, the **quasi-static** limit, rather than a sequence of isolated impacts. The splitting is therefore far larger, and the line wings extend enormously. The broad wings of a hydrogen Balmer line in a stellar photosphere are dominated not by a single lifetime damping width but by the **electric microfield** of the surrounding plasma. (The hydrogenic He II ion shares the same degeneracy and the same linear-Stark sensitivity; it simply does not contribute in this window.)
 
-That changes both the physics and the bookkeeping. The microfield is not a single number — it is a *distribution* of field strengths, the **Holtsmark distribution**, and the line profile is the average of the linearly-split line over that distribution. The production code handles this with a dedicated engine, `HPROF4` (the HLINOP family of routines), separate from the Voigt kernel that does everything else. This lecture rebuilds it.
+That changes both the physics and the bookkeeping. The microfield is not a single number — it is a *distribution* of field strengths. The slow, quasi-static part is associated mainly with the **ionic microfield**, approximately Holtsmark distributed, and the line profile is the average of the linearly-split line over that distribution; the fast electrons enter separately, through an impact-broadening term added below. The production code handles all of this with a dedicated engine, `HPROF4` (the HLINOP family of routines), separate from the Voigt kernel that does everything else. This lecture rebuilds it.
 
 The concrete payoff for our 500–510 nm window: the H$\beta$ line sits at 486 nm, outside the window — but its **linear-Stark wing is so broad that it reaches across 500–510 nm**, depositing a smooth opacity floor that climbs to $\sim 5.7\times10^4$ in the deepest, hottest layers. The metal-and-helium line list contains nothing there. Without the hydrogen engine, the deep-layer line opacity in this window would be missing its largest contributor.""")
 
@@ -67,7 +67,7 @@ $$
 
 the Holtsmark asymptotic form, set by the *field distribution* rather than a single damping rate. The far-tail exponent $-5/2$ is in fact *steeper* than the Lorentzian's $-2$; the reason a hydrogen wing is so much larger than a metal-line wing is not the exponent but the *scale*. The linear-Stark splitting is enormous compared with a lifetime width, so over the tens of nanometres of detuning that matter for a stellar spectrum the Balmer wing sits vastly higher than any Voigt profile built from metal-line damping parameters, and it carries that strength through the transition region where the simple power law has not yet set in. A Voigt profile cannot represent this — its functional form is wrong. So hydrogen gets its own profile function, built around the microfield rather than around a damping parameter.
 
-Everything else about how a line enters the opacity is unchanged: a line centre, a line-strength prefactor $\kappa_0$, a profile $\phi$ normalised to unit area, and a walk outward from the centre accumulating $\kappa_0\,\phi$ until it drops below a fraction of the continuum. Only the profile $\phi$ is replaced. We start from the data, then build the profile, then do the walk.""")
+Everything else about how a line enters the opacity is unchanged: a line centre, a line-strength prefactor $\kappa_0$, a profile $\phi$ in the code's normalisation convention (combined with $\kappa_0$ so that $\kappa_0\,\phi$ carries the desired opacity units), and a walk outward from the centre accumulating $\kappa_0\,\phi$ until it drops below a fraction of the continuum. Only the profile $\phi$ is replaced. We start from the data, then build the profile, then do the walk.""")
 
 md(r"""![A hydrogen atom sits in the fluctuating electric microfield of its charged neighbours (the Holtsmark distribution); the linear Stark effect splits its degenerate levels, and because that splitting is so large the Balmer line develops broad wings far wider than the Voigt profile of any metal line.](resources/figures/s5b_stark.png)""")
 
@@ -92,11 +92,19 @@ A   = np.load(REF / "atmosphere.npz", allow_pickle=True)
 D   = np.load(REF / "diag.npz")
 
 # pull out only what the hydrogen engine needs
-wl   = D["wavelength"]                                           # nm, 500-510 nm synthesis grid
-cont = D["continuum_absorption"] + D["continuum_scattering"]     # total continuum (depth, wl), cm^2/g
-T    = A["temperature"]                                          # K, surface -> deep
+
+# 500-510 nm synthesis grid
+wl   = D["wavelength"]                       # nm
+
+# total continuum (depth, wl)
+cont = D["continuum_absorption"] + D["continuum_scattering"]   # cm^2/g
+
+# surface -> deep
+T    = A["temperature"]                      # K
 n_depths = T.size
-gt_ahline = C["gt_ahline"]                                       # ground-truth hydrogen-line opacity (depth, wl)
+
+# ground-truth hydrogen-line opacity (depth, wl)
+gt_ahline = C["gt_ahline"]                   # cm^2/g
 
 print(f"loaded: window {wl[0]:.1f}-{wl[-1]:.1f} nm, {wl.size} points x {n_depths} layers")''')
 
@@ -121,7 +129,7 @@ $$
 F_0 = 1.25\times10^{-9}\; n_e^{2/3}
 $$
 
-(in the cgs-Gaussian units the code uses, with $n_e$ in cm$^{-3}$). The code writes $n_e^{2/3}$ as $(n_e^{1/6})^4$ to reuse the sixth root elsewhere; the value is the same. $F_0$ is the **characteristic (normal) scale** of the microfield distribution — not literally the mean field, which for a Holtsmark distribution is a more subtle quantity — and it sets the **scale of the Stark splitting**.
+(in the cgs-Gaussian units the code uses, with $n_e$ in cm$^{-3}$). The "magic" prefactor is not arbitrary: $1.25\times10^{-9}$ is the standard Holtsmark normal-field coefficient $2.603\,e$ evaluated in cgs, with $e = 4.803\times10^{-10}$ esu. The code writes $n_e^{2/3}$ as $(n_e^{1/6})^4$ to reuse the sixth root elsewhere; the value is the same. $F_0$ is the **characteristic (normal) scale** of the microfield distribution — not literally the mean field, which for a Holtsmark distribution is a more subtle quantity — and it sets the **scale of the Stark splitting**. It is built from $n_e$, used as the single density scale through charge neutrality; the quasi-static distribution is dominated by the ions, while the fast electrons enter separately through the impact term added later.
 
 Because the linear Stark splitting is proportional to the field, the natural variable for the profile is the **detuning measured in units of $F_0$**. For a transition $n\to m$ with line-centre frequency $\nu_{nm}$ and a Stark constant $K_{nm}$ (tabulated, `xknmtb`), define
 
@@ -131,30 +139,45 @@ $$
 \beta = \frac{|\nu - \nu_{nm}|}{F_0}\,\mathrm{d}\beta .
 $$
 
-Despite the notation inherited from the code, $\mathrm{d}\beta$ is a finite conversion factor, not an infinitesimal differential. $\beta$ is the **dimensionless detuning**: a frequency offset expressed in units of the typical Stark splitting. The entire Stark profile is a function of $\beta$ and a weak pressure parameter $p$. Build $F_0$ and $\mathrm{d}\beta$ for H$\beta$, and see how big $\beta$ gets across our window.""")
+The form of $\mathrm{d}\beta$ is not arbitrary either. $K_{nm}$ is the Stark splitting coefficient in *wavelength* per unit field, $\Delta\lambda = K_{nm}\,F$, so the dimensionless detuning is naturally $\beta = \Delta\lambda/(K_{nm}F_0)$. Converting wavelength to frequency through $\Delta\lambda \approx (c/\nu_{nm}^2)\,\Delta\nu$ turns this into $\beta = \frac{c}{\nu_{nm}^2 K_{nm}}\,\frac{\Delta\nu}{F_0}$, which is exactly the code's expression with $\mathrm{d}\beta = c/(\nu_{nm}^2 K_{nm})$. Despite the notation inherited from the code, $\mathrm{d}\beta$ is a finite conversion factor, not an infinitesimal differential. $\beta$ is the **dimensionless detuning**: a frequency offset expressed in units of the typical Stark splitting. The entire Stark profile is a function of $\beta$ and a weak pressure parameter $p$. Build $F_0$ and $\mathrm{d}\beta$ for H$\beta$, and see how big $\beta$ gets across our window.""")
 
-code(r'''RYDH       = 3.2880515e15          # Hz, Rydberg frequency
+code(r'''RYDH       = 3.2880515e15          # Hz
 C_LIGHT_AA = 2.99792458e18         # AA/s
-xne        = np.maximum(A["electron_density"], 1e-40)   # electron density per depth, floored
 
-# normal Holtsmark field strength F0 = 1.25e-9 * ne^(2/3), per depth
-xne16 = xne ** (1.0/6.0)           # sixth root, reused below
-fo    = xne16**4 * 1.25e-9         # == 1.25e-9 * ne^(2/3)
+# electron density per depth, floored away from zero
+xne        = np.maximum(A["electron_density"], 1e-40)   # cm^-3
+
+# normal Holtsmark field strength, per depth: F0 = 1.25e-9 * ne^(2/3)
+# sixth root of ne, reused below
+xne16 = xne ** (1.0/6.0)
+# (xne16)^4 == ne^(2/3)
+fo    = xne16**4 * 1.25e-9
 
 # H-beta line constants: n=2 -> m=4
 n, m   = 2, 4
-gnm    = (m*m - n*n) / (m*m * n*n)            # 1/n^2 - 1/m^2
-freqnm = RYDH * gnm                            # line-centre frequency (Hz)
-xknm   = C["htab_xknmtb"][n-1, (m-n)-1]        # tabulated Stark constant K_nm
+
+# 1/n^2 - 1/m^2
+gnm    = (m*m - n*n) / (m*m * n*n)
+
+# line-centre frequency
+freqnm = RYDH * gnm                            # Hz
+
+# tabulated Stark constant K_nm
+xknm   = C["htab_xknmtb"][n-1, (m-n)-1]
+
 # the beta scale factor: a finite conversion factor, not a differential
 dbeta  = C_LIGHT_AA / (freqnm * freqnm * xknm)
 
 # how big is beta at 505 nm, deep vs photosphere?
-freq_505 = C_LIGHT_AA / 5050.0                 # 505 nm in Angstrom
+freq_505 = C_LIGHT_AA / 5050.0                 # 505 nm, in AA
+
 for di, lab in [(int(np.argmin(np.abs(T-6400))), "photosphere ~6400K"), (n_depths-1, "deepest ~30000K")]:
+
     # detuning at 505 nm expressed in units of the typical Stark splitting
     beta = abs(freq_505 - freqnm) / fo[di] * dbeta
+
     print(f"{lab:22s}: ne={xne[di]:.2e}  F0={fo[di]:.3e}  beta(505nm)={beta:7.2f}")
+
 print(f"\\nH-beta centre = {C_LIGHT_AA/freqnm/10:.3f} nm,  dbeta = {dbeta:.4e}")''')
 
 md(r"""Two things to read off. First, $F_0$ swings over five orders of magnitude from the cool surface to the hot deep layers, because it scales as $n_e^{2/3}$ and $n_e$ does the same — the Stark broadening is a strong function of depth. Second, at 505 nm (some 19 nm from the H$\beta$ centre) $\beta$ is of order unity to a few: we are in the **transition region** of the profile, where the quasi-static Holtsmark term and the electron-impact term both matter. That is exactly the regime the tables are built to handle, and it is why the wing is smooth and substantial there rather than a negligible Lorentzian skirt.""")
@@ -168,9 +191,11 @@ Before the profile, three short functions the engine calls. `_fast_ex` is a guar
 
 code(r'''def _fast_ex(x):
     """Guarded exp(-x): the Gaussian-core tail is set to zero past x = 80."""
-    # past x = 80 the exponential underflows to ~0; short-circuit it to avoid math.exp overflow guards
+    # past x = 80, exp(-x) is negligible for this profile; the production code truncates it here
     return 0.0 if x > 80.0 else math.exp(-x)
+
 print("_fast_ex ready")''')
+
 
 md(r"""Next, $E_1(x)$, evaluated in three pieces: a small-$x$ logarithmic expansion, a mid-range polynomial fit, and a large-$x$ rational form carrying the $e^{-x}$ decay. The branch points ($0.01$, $1$, $30$) and coefficients are the production code's, copied verbatim — reproducing them exactly is what matches the reference at the bit level.""")
 
@@ -184,27 +209,38 @@ code(r'''def _vcse1f(x):
         return (-math.log(x) - 0.57721566
                 + x*(0.99999193 + x*(-0.24991055 + x*(0.05519968
                 + x*(-0.00976004 + x*0.00107857)))))
-    if x > 30.0:                                    # far tail: E_1 has underflowed to ~0
+    if x > 30.0:                                    # far tail: E_1 is negligible, truncated by the production code
         return 0.0
     num = x*(x + 2.334733) + 0.25062                # large x: rational approximation x*num/den ...
     den = (x*(x + 3.330657) + 1.681534) * x
     return num/den * math.exp(-x)                   # ... times the exp(-x) decay of E_1
 print("_vcse1f ready")''')
 
-md(r"""Last, the hydrogen oscillator strength $f_{n\to m}$ from the Menzel–Pekeris asymptotic formula. It feeds the resonance (self-broadening) width, which depends on the line's own oscillator strength.""")
+md(r"""Last, the hydrogen oscillator strength $f_{n\to m}$ from the Menzel–Pekeris asymptotic formula. It feeds the resonance (self-broadening) width — but note *which* oscillator strengths that width uses. Resonance broadening of the $n\to m$ line is not set by the $n\to m$ oscillator strength; it is set by the permitted transitions connecting the line's lower and upper levels **to the ground state**. That is why the code below evaluates $f_{1\to m}$ and $f_{1\to n}$ (i.e. `_hf_nm(1, m)` and `_hf_nm(1, n)`), not $f_{n\to m}$, when it builds the resonance width.""")
 
 code(r'''def _hf_nm(n, m):
     """Hydrogen absorption oscillator strength f_{n->m} (Menzel-Pekeris asymptotic form)."""
-    if m <= n:                                      # no absorption for m <= n
+
+    # no absorption for m <= n
+    if m <= n:
         return 0.0
+
     xn, xm = float(n), float(m)
+
     # Gaunt-factor and correction terms in the Menzel-Pekeris expansion
     ginf = 0.2027 / xn**0.71;  gca = 0.124 / xn
     fkn  = xn * 1.9603;        wtc = 0.45 - 2.4/xn**3 * (xn - 1.0)
-    xmn  = xm - xn                                  # n -> m spacing
-    fk   = fkn * (xm / (xmn*(xm + xn)))**3          # leading Kramers strength
+
+    # n -> m spacing
+    xmn  = xm - xn
+
+    # leading Kramers strength
+    fk   = fkn * (xm / (xmn*(xm + xn)))**3
+
+    # weight blending the asymptotic corrections
     xmn12 = xmn**1.2
-    wt   = (xmn12 - 1.0) / (xmn12 + wtc)            # weight blending the asymptotic corrections
+    wt   = (xmn12 - 1.0) / (xmn12 + wtc)
+
     return fk * (1.0 - wt*ginf - (0.222 + gca/xm)*(1.0 - wt))
 
 print("oscillator strength ready:", f"f(2->4) = {_hf_nm(2,4):.4f}")''')
@@ -212,7 +248,7 @@ print("oscillator strength ready:", f"f(2->4) = {_hf_nm(2,4):.4f}")''')
 # ── sofbeta ─────────────────────────────────────────────────────────────────
 md(r"""## The quasi-static Stark profile $S(\beta)$: `sofbeta`
 
-The heart of the linear-Stark physics is the **quasi-static profile** $S(\beta)$ — the line shape produced by averaging the linearly-split line over the Holtsmark field distribution, with electron-collision corrections folded in. It is the function `sofbeta`. The implementation interpolates the tabulated Holtsmark corrections in two dimensions: it brackets the pressure parameter $p$ in the grid `htab_pp` (an integer-part index times $5$, giving two adjacent columns and a linear weight), brackets the detuning $\beta$ in `htab_beta` with `np.searchsorted`, and combines them **bilinearly** — interpolate in $p$ at each $\beta$ node, then in $\beta$ — to read a correction factor out of `htab_propbm` (or the simpler `htab_c`/`htab_d` tables in the wing). That correction multiplies an analytic Holtsmark form. The structure is three regimes in $\beta$:
+The heart of the linear-Stark physics is the **quasi-static profile** $S(\beta)$ — the line shape produced by averaging the linearly-split line over the (quasi-static, ionic) Holtsmark field distribution. It is the function `sofbeta`, which supplies the statistical Stark profile with its tabulated corrections; the explicit electron-impact contribution is *not* in here — it is added separately in the full HPROF4 profile below. The implementation interpolates the tabulated Holtsmark corrections in two dimensions: it brackets the pressure parameter $p$ in the grid `htab_pp` (an integer-part index times $5$, giving two adjacent columns and a linear weight), brackets the detuning $\beta$ in `htab_beta` with `np.searchsorted`, and combines them **bilinearly** — interpolate in $p$ at each $\beta$ node, then in $\beta$ — to read a correction factor out of `htab_propbm` (or the simpler `htab_c`/`htab_d` tables in the wing). That correction multiplies an analytic Holtsmark form. The structure is three regimes in $\beta$:
 
 - **$\beta \le 25.12$** (near to moderate detuning): blend two analytic forms — a near-centre term $\propto 1/(83 + \dots)$ and the asymptotic term — with a tabulated correction factor `corr` interpolated bilinearly in $(p,\beta)$ from `propbm`.
 - **$25.12 < \beta \le 500$** (the wing): the asymptotic Holtsmark form $\tfrac{1}{\beta^{2}}\big(\tfrac{1.5}{\sqrt\beta} + \tfrac{27}{\beta^{2}}\big)$ times a correction $1 + d/(c + \beta^{3/2})$ from the `c`, `d` tables.
@@ -273,10 +309,26 @@ md(r"""## The HPROF4 profile: three pieces, selected by the dominant width
 Now the profile function itself. For a transition $n\to m$ at a wavelength offset $\Delta\lambda$ from line centre, the engine computes three line-broadening half-widths and builds three corresponding profile pieces:
 
 1. **Doppler core** — a sum of Gaussians over the **fine-structure components** of the transition (each Balmer line is several closely spaced sub-lines; `fine_offsets`/`fine_weights` carry their frequency offsets and relative strengths). The Gaussian width is the Doppler width $\Delta\nu_D = \nu_{nm}\,(v_D/c)$.
-2. **Lorentzian** — from the lifetime widths: **resonance** (self-broadening, neutral H colliding with neutral H, from the oscillator strength `resont` scaled by the neutral-hydrogen population), **radiative** (`radamp`, from the `htab_asum` radiative-damping table), and **van der Waals** (`vdw`, scaled by the neutral-He and H$_2$ perturber densities). These add to a Lorentzian half-width $\gamma_{\rm Lor}$.
+2. **Lorentzian** — from the non-Stark Lorentzian widths: **resonance** (self-broadening, a collisional interaction between neutral H atoms, from `resont` scaled by the neutral-hydrogen population), **radiative** (`radamp`, the genuine lifetime-damping term, from the `htab_asum` radiative-damping table), and **van der Waals** (`vdw`, collisional broadening by neutral He and H$_2$ perturbers). These add to a Lorentzian half-width $\gamma_{\rm Lor}$.
 3. **Linear-Stark wing** — the quasi-static term `sofbeta` $\times$ a Holtsmark normalisation, plus an **electron-impact** term, a Lorentzian $\gamma/[\pi(\gamma^2+\beta^2)]$ whose width $\gamma$ comes from the impact theory (the `c1d/c2d` coefficients, the `vcse1f` exponential integrals, the `gcon` corrections). This is the broad piece.
 
-The engine compares the **Doppler, Lorentz, and Stark half-widths** and uses whichever dominates: in the core ($|\Delta\nu|$ within the largest half-width) it returns the single dominant piece; in the wing it returns the **sum** of all three. The next cell is the full profile; we annotate each block.""")
+The selection rule is the practical heart of the engine, and it is a **production-code prescription** rather than a universal line-shape theorem. The engine compares the **Doppler, Lorentz, and Stark half-widths** and uses whichever dominates: *near line centre*, within the largest of the three half-widths, it returns only that single dominant piece (the others are negligible there); *outside* that width, in the wing, it returns the **sum** of all three. For a hot deep layer the Stark half-width is the largest, so the broad linear-Stark term carries the wing; for a cool layer the Doppler core dominates.
+
+Two clusters of code variables recur in the profile below; this table fixes their meaning before they appear.
+
+| code name | physical meaning | where used |
+|---|---|---|
+| `fo` | Holtsmark normal field $F_0$ [statvolt cm$^{-1}$] | sets $\beta$ and the Stark half-width |
+| `dopph` | Doppler width $v_D/c$ [dimensionless] | the Gaussian core |
+| `hwlor`, `hwres`, `hwvdw`, `hwrad` | total / resonance / van der Waals / radiative Lorentzian half-widths | the Lorentz piece + width comparison |
+| `hwstk` | Stark half-width ($\propto F_0$) | width comparison |
+| `c1d`, `c2d` | impact-width coefficients (carry $T$, $n_e$) [per depth] | electron-impact $\gamma$ |
+| `y1s`, `y1b` | low- / high-density impact factors | blend the impact width with $n_e$ |
+| `gcon1`, `gcon2` | small high-density impact corrections | near-core correction to $\gamma$ |
+| `xnfph_0` | ground-state neutral-H population [cm$^{-3}$] | scales the resonance width |
+| `pp` ($p$) | Debye pressure parameter | Stark-table index |
+
+The next cell is the full profile; we annotate each block.""")
 
 code(r'''def hydrogen_line_profile(n, m, delta_lambda_nm, hyd, tabs, foff, fwt, n_fine):
     """HPROF4 profile phi(Delta-lambda) for transition n->m, normalised so kappa0*phi is opacity."""
@@ -386,7 +438,7 @@ code(r'''def _profile_pieces(n, m, freq, freqnm, del_freq, dop, hwlor, hwres, hw
     return max(core + lorentz + stark_core, 0.0)                   # wing: sum all three pieces
 print("profile pieces ready")''')
 
-md(r"""A few parameters earn a word. The factor `1.77245` is $\sqrt\pi$, which converts the Gaussian/Lorentzian normalisation between the code's convention and unit area; `dop` $= \nu_{nm}\,(v_D/c)$ is the Doppler width in frequency, so dividing the Stark term by `fo` and multiplying by `dbeta`$\cdot$`dop` puts all three pieces on the same per-frequency footing. The `c1d`, `c2d` coefficients (built per depth, below) carry the temperature and electron-density dependence of the impact width; `gcon1`, `gcon2` are small impact-theory corrections that switch off the simple analytic $\gamma$ at high $y_1$. The blend `fns` interpolates between the pure quasi-static Holtsmark profile (far wing) and the impact-broadened profile (nearer the core), which is the physical content of the Stark line shape.""")
+md(r"""A few parameters earn a word. The factor `1.77245` is $\sqrt\pi$, which converts the Gaussian/Lorentzian normalisation between the code's convention and unit area; `dop` $= \nu_{nm}\,(v_D/c)$ is the Doppler width in frequency, so dividing the Stark term by `fo` and multiplying by `dbeta`$\cdot$`dop` puts all three pieces on the same per-frequency footing. The `c1d`, `c2d` coefficients (built per depth, below) carry the temperature and electron-density dependence of the impact width. The `gcon1`, `gcon2` terms are small impact-theory corrections applied to the exponential-integral form of $\gamma$ near the core; their denominators carry $y_1^3$ factors, so the *corrections themselves* switch off (their multipliers go to $1$) at high detuning $y_1$, recovering the uncorrected $\gamma$. The blend `fns` is an empirical HPROF4 factor coupling the quasi-static and impact regimes; it modulates the quasi-static term while the impact Lorentzian is added on top, and should not be read as a clean two-component physical interpolation.""")
 
 # ════════════════════════════════════════════════════════════════════════════
 #  THE PER-DEPTH STATE
@@ -396,7 +448,7 @@ md(r"""## The per-depth hydrogen state
 Every coefficient the profile needs is a function of the local temperature, electron density, and perturber densities. The production code computes this **per-depth state** once per layer and hands it to the profile. We reproduce it exactly. The pieces:
 
 - $F_0 = 1.25\times10^{-9}\,n_e^{2/3}$ — the Holtsmark field (above).
-- $p = 0.08989\,n_e^{1/6}/\sqrt{T}$ — the **pressure parameter** that indexes the Stark tables: a Debye-screening parameter, roughly the mean inter-particle spacing divided by the Debye length (it grows as $n_e^{1/6}T^{-1/2}$, the inverse of the Debye-length-to-spacing ratio).
+- $p = 0.08989\,n_e^{1/6}/\sqrt{T}$ — the **pressure parameter** that indexes the Stark tables: a Debye-screening parameter, roughly the mean inter-particle spacing divided by the Debye length (it grows as $n_e^{1/6}T^{-1/2}$, the ratio of the spacing to the Debye length).
 - $c_{1d} = F_0\cdot 78940/T$ and $c_{2d} = F_0^2/(5.96\times10^{-23}\,n_e)$ — the impact-width coefficients, carrying the $T$ and $n_e$ dependence of the electron-collision broadening.
 - $y_{1s} = (T/10^4)^{0.3}/n_e^{1/6}$ and $y_{1b} = 2/(1 + 0.012\,T^{-1}\sqrt{n_e/T})$ — temperature/density factors that blend the impact width with electron density.
 - $\gamma_{\rm con,1}, \gamma_{\rm con,2}$ — the small high-density corrections.
@@ -410,27 +462,49 @@ vturb_cms = A["turbulent_velocity"]
 
 def hydrogen_state(di):
     """All per-depth coefficients the HPROF4 profile needs, for layer di."""
-    temp = max(float(T[di]), 1.0); ne_d = float(xne[di]); x16 = ne_d**(1.0/6.0)   # sixth root of ne
+
+    # sixth root of ne, reused throughout
+    temp = max(float(T[di]), 1.0); ne_d = float(xne[di]); x16 = ne_d**(1.0/6.0)
 
     # the Holtsmark field and the pressure parameter that indexes the Stark tables
-    fo_d  = x16**4 * 1.25e-9                                  # Holtsmark field
-    pp    = x16 * 0.08989 / math.sqrt(temp)                   # pressure parameter (table index)
+
+    # Holtsmark field, (x16)^4 == ne^(2/3)
+    fo_d  = x16**4 * 1.25e-9
+
+    # pressure parameter (Stark-table index)
+    pp    = x16 * 0.08989 / math.sqrt(temp)
 
     # the impact-width factors and coefficients (T and ne dependence of electron-collision broadening)
-    y1b   = 2.0/(1.0 + 0.012/temp*math.sqrt(ne_d/temp))       # high-density blend factor
-    t43   = (temp/1.0e4)**0.3                                 # weak T scaling, reused below
-    y1s   = t43 / x16                                         # low-density impact factor
-    c1d   = fo_d * 78940.0 / temp                             # impact-width T-coefficient
-    c2d   = fo_d**2 / 5.96e-23 / ne_d                         # impact-width ne-coefficient
+
+    # high-density blend factor
+    y1b   = 2.0/(1.0 + 0.012/temp*math.sqrt(ne_d/temp))
+
+    # weak T scaling, reused below
+    t43   = (temp/1.0e4)**0.3
+
+    # low-density impact factor
+    y1s   = t43 / x16
+
+    # impact-width T-coefficient
+    c1d   = fo_d * 78940.0 / temp
+
+    # impact-width ne-coefficient
+    c2d   = fo_d**2 / 5.96e-23 / ne_d
 
     # the small high-density corrections
-    gcon1 = 0.2 + 0.09*math.sqrt(max(temp/1e4, 1e-12))/(1.0 + ne_d/1.0e13)   # high-density correction 1
-    gcon2 = 0.2/(1.0 + ne_d/1.0e15)                                          # high-density correction 2
+    gcon1 = 0.2 + 0.09*math.sqrt(max(temp/1e4, 1e-12))/(1.0 + ne_d/1.0e13)
+    gcon2 = 0.2/(1.0 + ne_d/1.0e15)
 
     # Doppler width of hydrogen: thermal + turbulence, in units of c (built as in Lectures 4-5)
-    vth   = math.sqrt(2.0*KBOLTZ*temp/(MASS_H*AMU)) / C_CMS   # thermal velocity / c
-    vtb   = (float(vturb_cms[di])/1e5) / C_KMS                # turbulent velocity / c
-    dopph = math.sqrt(vth*vth + vtb*vtb)                      # combined Doppler width / c
+
+    # thermal velocity / c
+    vth   = math.sqrt(2.0*KBOLTZ*temp/(MASS_H*AMU)) / C_CMS
+
+    # turbulent velocity / c
+    vtb   = (float(vturb_cms[di])/1e5) / C_KMS
+
+    # combined Doppler width / c
+    dopph = math.sqrt(vth*vth + vtb*vtb)
 
     return dict(t3nhe=t43*float(xnf_he1[di]), t3nh2=t43*float(xnf_h2[di]),
                 fo=fo_d, dopph=dopph, c1d=c1d, c2d=c2d, y1s=y1s, y1b=y1b,
@@ -456,26 +530,36 @@ md(r"""Each Balmer line is really several closely spaced fine-structure sub-line
 
 code(r'''# fine-structure components keyed by (n_lower, n_upper)
 fkeys = C["fine_keys"]; foff_a = C["fine_offsets"]; fwt_a = C["fine_weights"]; fn_a = C["fine_n"]
+
+# value is (offsets, weights, count) per transition
 fine_map = {(int(fkeys[j,0]), int(fkeys[j,1])): (foff_a[j], fwt_a[j], int(fn_a[j]))
-            for j in range(fkeys.shape[0])}   # (offsets, weights, count) per transition
+            for j in range(fkeys.shape[0])}
+
 print("fine-structure keys:", list(fine_map))''')
 
 md(r"""Look at the profile in isolation to see the qualitative point of the lecture: the linear-Stark wing is broad. Evaluate H$\beta$'s profile across a wide span of detuning at a deep layer; the prose below contrasts its slow decay with that of a Lorentzian (the explicit Lorentzian overlay is left to the exercises).""")
 
 code(r'''di = n_depths - 1; hyd = hydrogen_state(di)
 off, wt_f, nf = fine_map[(2, 4)]
-dl = np.linspace(-30.0, 30.0, 601)                              # +/- 30 nm around H-beta
+
+# +/- 30 nm around H-beta
+dl = np.linspace(-30.0, 30.0, 601)
 phi = np.array([hydrogen_line_profile(2, 4, d, hyd, tabs, off, wt_f, nf) for d in dl])
 
 fig, ax = plt.subplots()
 ax.semilogy(486.27 + dl, np.maximum(phi, 1e-12), color="C3", lw=1.3, label="HPROF4 (linear Stark)")
 ax.axvspan(500, 510, color="C0", alpha=0.12, label="our 500-510 nm window")
 ax.axvline(486.27, color="0.5", ls=":", lw=1); ax.set_ylim(1e-5, None)
-ax.set_xlabel("wavelength [nm]"); ax.set_ylabel(r"profile $\phi$  [arb.]")
+ax.set_xlabel("wavelength [nm]")
+
+# arbitrary (relative) profile units
+ax.set_ylabel(r"profile $\phi$  [relative]")
 ax.set_title(f"H-beta Stark profile, deep layer (T = {T[di]:.0f} K) — the wing reaches 500-510 nm")
 ax.legend(fontsize=9); fig.tight_layout(); plt.show()''')
 
-md(r"""The profile centred at 486 nm has a core, but its **wing stays high** — high enough that at 500–510 nm, nearly 20 nm away, it is still well above the floor. The wing follows the Holtsmark form (asymptotically $\beta^{-5/2}$), but the point is the *scale*: the linear-Stark width is so large that a Lorentzian built from H$\beta$'s lifetime widths would have collapsed far below this curve long before 500 nm. This persistent wing is the physical reason hydrogen contributes a smooth opacity floor across our window.""")
+md(r"""The profile centred at 486 nm has a core, but its **wing stays high** — high enough that at 500–510 nm, nearly 20 nm away, it is still well above the floor. The wing follows the Holtsmark form (asymptotically $\beta^{-5/2}$), but the point is the *scale*: the linear-Stark width is so large that a Lorentzian built from H$\beta$'s non-Stark damping widths would have collapsed far below this curve long before 500 nm. This persistent wing is the physical reason hydrogen contributes a smooth opacity floor across our window.
+
+(The narrow central dip is physical, not a glitch: H$\beta$ has no unshifted central Stark component, so the averaged profile is depressed exactly at line centre.)""")
 
 # ════════════════════════════════════════════════════════════════════════════
 #  THE OUTWARD WALK
@@ -492,10 +576,15 @@ with $gf$ the oscillator strength times statistical weight, $\nu$ the line-centr
 
 The walk starts at the line-centre grid index and steps outward in both directions, adding $\kappa_0\,\phi$ at each point, and **stops** when the contribution drops below the cutoff fraction ($10^{-3}$) of the continuum. The new piece is the **continuum-merge taper**: near the series limit the high Balmer lines crowd together (their spacing vanishes at large upper level $n$) and merge into the continuum, so the engine defines a merge wavelength `wcon` (inside which the line is folded into the continuum and skipped) and a taper wavelength `wtail` (over which the profile is linearly ramped down). For the well-separated low Balmer lines this taper is inactive, but we carry it so the code reads as the full engine. A few constants and small helpers first.""")
 
-code(r'''CGF_CONSTANT = 0.026538 / 1.77245      # the cgf prefactor constant (1/sqrt(pi) folded in)
+code(r'''# the cgf prefactor constant (1/sqrt(pi) folded in)
+CGF_CONSTANT = 0.026538 / 1.77245
+
 C_LIGHT_NM   = 2.99792458e17            # nm/s
 H_PLANCK = 6.62607015e-27; K_BOLTZ = 1.380649e-16
-CUTOFF = 1e-3                           # stop the wing when below 1e-3 * continuum
+
+# stop the wing when below 1e-3 * continuum
+CUTOFF = 1e-3
+
 print("kappa0 prefactor constants ready")''')
 
 md(r"""The Boltzmann factor must be evaluated with the *production code's* tabulated $e^{-x}$ (FASTEX), not NumPy's, because the tiny rounding difference would show up at the bit level in the benchmark. FASTEX splits $x$ into an integer and a thousandths part and multiplies two precomputed tables.""")
@@ -523,9 +612,15 @@ md(r"""One more helper: the synthesis grid is logarithmic, so the line-centre gr
 
 code(r'''def center_index(grid, value):
     """Log-grid centre index: IXWL = int(log(wl)/ratiolg + 0.5), offset to the grid origin."""
-    ratiolg = np.log(grid[1]/grid[0])                          # log spacing of the grid
-    ix0 = int(np.log(grid[0])/ratiolg + 0.5)                   # index of the grid origin
+
+    # log spacing of the grid
+    ratiolg = np.log(grid[1]/grid[0])
+
+    # index of the grid origin
+    ix0 = int(np.log(grid[0])/ratiolg + 0.5)
+
     return int(np.log(value)/ratiolg + 0.5) - ix0
+
 print("center_index ready")''')
 
 # ── EHYD + merge limits ──────────────────────────────────────────────────────
@@ -548,21 +643,33 @@ print("level energies ready")''')
 md(r"""The per-depth merge frequency comes from the **Inglis–Teller** relation: at electron density $n_e$ the Balmer lines blur into the continuum above a principal quantum number $n_{\rm merge} \approx 1600\,n_e^{-2/15}$. Convert that level to a wavenumber per depth, then `merge_limits` turns it (and the line's own continuum edge) into the merge wavelength `wcon` and taper boundary `wtail`.""")
 
 code(r'''# Inglis-Teller merge level -> merge wavenumber per depth
-inglis  = 1600.0 / np.power(xne, 2.0/15.0)                     # principal quantum number where lines merge
+
+# principal quantum number where lines merge
+inglis  = 1600.0 / np.power(xne, 2.0/15.0)
 nmerge  = np.maximum(inglis - 1.5, 1.0)
-emerge_h = _RYD_CM / np.maximum(nmerge*nmerge, 1e-12)          # energy of that level (cm^-1)
+
+# energy of that level
+emerge_h = _RYD_CM / np.maximum(nmerge*nmerge, 1e-12)          # cm^-1
 
 def merge_limits(nl, nu, di, conth_val, wshift):
     """Per-depth continuum-merge wavelength wcon and taper boundary wtail (nm)."""
+
+    # merge wavelength from the Inglis-Teller level
     denom = conth_val - emerge_h[di]
-    wmerge = 1.0e7/denom if denom > 0.0 else (wshift + wshift)  # merge wavelength from Inglis-Teller level
+    wmerge = 1.0e7/denom if denom > 0.0 else (wshift + wshift)
     wcon = max(wshift, wmerge)
-    inner = 1.0e7/wcon - 500.0 if wcon > 0.0 else -1.0          # taper spans 500 cm^-1 inward of wcon
+
+    # taper spans 500 cm^-1 inward of wcon
+    inner = 1.0e7/wcon - 500.0 if wcon > 0.0 else -1.0
     wtail = 1.0e7/inner if inner > 0.0 else wcon + wcon
-    wcon  = min(wshift + wshift, wcon)                          # clamp both to sane bounds
+
+    # clamp both to sane bounds
+    wcon  = min(wshift + wshift, wcon)
     if wtail < 0.0: wtail = wcon + wcon
     wtail = min(wcon + wcon, wtail)
+
     return wcon, wtail
+
 print("merge limits ready")''')
 
 # ── the accumulation walk ────────────────────────────────────────────────────
@@ -710,34 +817,50 @@ md(r"""**Machine precision.** The from-scratch HPROF4 engine reproduces the refe
 # ── overlay across the window ─────────────────────────────────────────────────
 md(r"""## The H$\beta$ Stark wing across the window, and with depth
 
-Two views of what we built. First, the hydrogen-line opacity across 500–510 nm at three depths: a cool surface layer, a photospheric layer, and the deepest layer. The opacity is a **smooth floor** — no line cores, because the line centres are outside the window — climbing steeply with depth as $n_e$ (and therefore $F_0$ and the Stark width) increases. Second, the residual against the reference, at the floating-point floor across the whole window.""")
+Two views of what we built. First, the hydrogen-line opacity across 500–510 nm at three depths, chosen so all three carry measurable H-line opacity: a warm layer ($\sim 8000$ K), a hot layer ($\sim 12000$ K), and the deepest, hottest layer ($\sim 30000$ K). The opacity is a **smooth floor** — no line cores, because the line centres are outside the window — and it climbs by **orders of magnitude** between these layers. That steep climb is the physics, not a plotting artefact: the wing strength is the product of the $n=2$ lower-level population (Boltzmann excitation), the neutral-hydrogen fraction (Saha ionisation), and the Stark width itself (which grows with $F_0 \propto n_e^{2/3}$). All three rise with depth, so the deep-layer floor stands four to six orders of magnitude above the warm-layer one. Cooler than this — through the photosphere and the cool surface — the wing never clears the $10^{-3}$ continuum cutoff anywhere in the window, so the engine deposits nothing and the hydrogen-line opacity there is exactly zero. Second, the residual against the reference, at the floating-point floor across the whole window.""")
 
-code(r'''depths = [int(np.argmin(np.abs(T-4500))), int(np.argmin(np.abs(T-6400))), n_depths-1]
+code(r'''# three depths chosen so each carries measurable H-line opacity (~8000/12000/30000 K)
+depths = [int(np.argmin(np.abs(T - tt))) for tt in (8000.0, 12000.0, 30000.0)]
+
 fig, (ax, axr) = plt.subplots(2, 1, figsize=(11, 5.6), sharex=True,
                               gridspec_kw={"height_ratios": [3, 1]})
+
+# grey reference under each from-scratch curve (one shared legend entry)
+ax.plot(wl, gt_ahline[depths[0]], color="0.6", lw=2.4, label="reference (pykurucz)")
 for d, c in zip(depths, ["C0", "C2", "C3"]):
     ax.plot(wl, gt_ahline[d], color="0.6", lw=2.4)
-    ax.plot(wl, ahline[d], color=c, lw=0.9, label=f"T = {T[d]:.0f} K")
-ax.set_yscale("log"); ax.set_ylabel(r"$\kappa_{\rm H\,line}$  [cm$^2$/g]")
-ax.set_title("H-beta linear-Stark wing across 500-510 nm (grey = reference) — a smooth opacity floor")
-ax.legend(loc="center right", title="from scratch", fontsize=9)
+    ax.plot(wl, ahline[d], color=c, lw=0.9, label=f"from scratch, T = {T[d]:.0f} K")
+
+ax.set_yscale("log")
+# cm^2/g
+ax.set_ylabel(r"$\kappa_{\rm H\,line}$  [cm$^2$/g]")
+ax.set_title("H-beta linear-Stark wing across 500-510 nm — a smooth floor rising orders of magnitude with depth")
+ax.legend(loc="center right", fontsize=9)
+
+# bottom panel: |from-scratch - reference| / reference at the deepest layer
 rel_w = np.abs(ahline[n_depths-1] - gt_ahline[n_depths-1]) / np.maximum(gt_ahline[n_depths-1], 1e-300)
 axr.semilogy(wl, np.maximum(rel_w, 1e-18), color="C3", lw=0.6)
-axr.set_xlabel("wavelength [nm]"); axr.set_ylabel("|rel diff|"); axr.set_ylim(1e-17, 1e-9)
-fig.tight_layout(); plt.show()
-print(f"deep-layer floor at 500 nm: {ahline[-1, 0]:.3e} cm^2/g  "
-      f"(reference {gt_ahline[-1, 0]:.3e})")''')
+axr.set_xlabel("wavelength [nm]")
+axr.set_ylabel(r"$|\Delta\kappa|/\kappa_{\rm ref}$")
+axr.set_ylim(1e-17, 1e-9)
 
-md(r"""The reproduced curves lie exactly on the reference (grey) at every depth; the residual panel is at the floating-point floor across the window. The deep-layer floor reaches $\sim 5.7\times10^4$ cm$^2$/g at the blue edge and falls smoothly toward the red — the H$\beta$ wing thinning as we move away from its 486 nm centre. This is the opacity the metal-and-helium line list does not contain, supplied by the one engine in the pipeline that does not use a Voigt profile.""")
+fig.tight_layout(); plt.show()
+
+print(f"deep-layer floor at 500 nm: {ahline[-1, 0]:.3e} cm^2/g  "
+      f"(reference {gt_ahline[-1, 0]:.3e})")
+for d in depths:
+    print(f"  T = {T[d]:6.0f} K:  max kappa_Hline = {ahline[d].max():.3e} cm^2/g")''')
+
+md(r"""The reproduced curves lie exactly on the reference (grey) at every depth, and they are clearly **distinct**: the $\sim 8000$ K floor sits near $10^{-2}$ cm$^2$/g, the $\sim 12000$ K floor near $10^{2}$, and the $\sim 30000$ K floor reaches $\sim 5.7\times10^4$ cm$^2$/g at the blue edge before falling smoothly toward the red as the H$\beta$ wing thins away from its 486 nm centre. That spread is the temperature dependence of the lower-level population and the ionisation balance, written into the opacity. The residual panel stays at the floating-point floor across the window. This is the opacity the metal-and-helium line list does not contain, supplied by the one engine in the pipeline that does not use a Voigt profile.""")
 
 # ════════════════════════════════════════════════════════════════════════════
 #  CLOSING ARC
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## Synthesis
 
-The line-list lecture broadened every line with a Voigt profile, and that was right for metals and helium, whose levels shift quadratically with an electric field. Hydrogen is degenerate, so its levels shift **linearly**, and its lines are broadened by the **electric microfield** of the surrounding plasma rather than by the lifetime of a level. This lecture built the dedicated engine for that physics. The Holtsmark normal field $F_0 = 1.25\times10^{-9}\,n_e^{2/3}$ set the scale; the dimensionless detuning $\beta = \Delta\nu/F_0\cdot\mathrm{d}\beta$ became the variable the whole profile depends on; and the profile itself was a sum of three pieces — a Doppler core over fine-structure components, a Lorentzian from the lifetime widths, and the broad linear-Stark wing from the quasi-static Holtsmark profile `sofbeta` plus an electron-impact term — selected by which half-width dominates. Folded into the same $\kappa_0$ and the same outward walk the rest of the pipeline uses, it reproduces the reference hydrogen-line opacity to machine precision.
+The line-list lecture broadened every line with a Voigt profile, and that was right for metals and helium, whose levels shift quadratically with an electric field. Hydrogen is degenerate, so its levels shift **linearly**, and its lines are broadened by the **electric microfield** of the surrounding plasma rather than by a single lifetime damping width. This lecture built the dedicated engine for that physics. The Holtsmark normal field $F_0 = 1.25\times10^{-9}\,n_e^{2/3}$ set the scale; the dimensionless detuning $\beta = \Delta\nu/F_0\cdot\mathrm{d}\beta$ became the variable the whole profile depends on; and the profile itself was a sum of three pieces — a Doppler core over fine-structure components, a Lorentzian from the non-Stark widths, and the broad linear-Stark wing from the quasi-static Holtsmark profile `sofbeta` plus an electron-impact term — selected by which half-width dominates. Folded into the same $\kappa_0$ and the same outward walk the rest of the pipeline uses, it reproduces the reference hydrogen-line opacity to machine precision.
 
-The concrete result for our window is the H$\beta$ Stark wing: a line centred 19 nm away whose $\beta^{-5/2}$ tail is broad enough to deposit a smooth opacity floor across 500–510 nm, climbing to $\sim 5.7\times10^4$ cm$^2$/g in the deepest layers. With the metal/helium Voigt kernel (line-list lecture) and this hydrogen Stark engine, the line opacity in the window is complete and exact, and the synthesis pipeline has every absorber it needs.""")
+The concrete result for our window is the dominant **H$\beta$ Stark wing**: a line centred 19 nm away whose $\beta^{-5/2}$ tail is broad enough to deposit a smooth opacity floor across 500–510 nm, climbing to $\sim 5.7\times10^4$ cm$^2$/g in the deepest layers. The driver also accumulates the more distant H$\gamma$ and H$\delta$ wings, but their contribution here is small. With the metal/helium Voigt kernel (line-list lecture) and this hydrogen Stark engine, the line opacity in this window is complete for the reference synthesis under the Kurucz/pykurucz assumptions, and the pipeline has every line absorber it needs there.""")
 
 md(r"""## Summary
 
@@ -750,9 +873,9 @@ md(r"""## Summary
 
 md(r"""## Practice exercises
 
-**1. The field scaling.** Plot the Holtsmark field $F_0 = 1.25\times10^{-9}\,n_e^{2/3}$ against depth, and overlay the deep-layer hydrogen opacity at 500 nm. Confirm that the opacity tracks $F_0$ (and so $n_e^{2/3}$), and explain why the Stark wing is negligible at the cool surface but dominant in the deep layers.
+**1. The field scaling.** Plot the Holtsmark field $F_0 = 1.25\times10^{-9}\,n_e^{2/3}$ against depth, and overlay the hydrogen opacity at 500 nm. Confirm that the opacity correlates strongly with increasing $F_0$ (and so with $n_e$), while noting that the scaling is *not* a clean power of $F_0$: the lower-level population, the ionisation balance, the stimulated-emission factor, and the $\beta$-dependent profile all change with depth as well. Explain why the Stark wing is negligible at the cool surface but dominant in the deep layers.
 
-**2. The power-law wing.** Evaluate `sofbeta` over a wide range of $\beta$ (say $1$ to $10^4$) at a fixed $p$ and fit the slope of $\log S$ versus $\log\beta$ in the far wing. Recover the Holtsmark exponent $-5/2$, and compare to the $-2$ slope of a Lorentzian — this is why hydrogen reaches so far.
+**2. The power-law wing.** Evaluate `sofbeta` over a wide range of $\beta$ (say $1$ to $10^4$) at a fixed $p$ and fit the slope of $\log S$ versus $\log\beta$ in the far wing. Recover the Holtsmark exponent $-5/2$. Note that this is *steeper* than a Lorentzian's $-2$: hydrogen reaches so far not because of a shallower exponent but because the linear-Stark scale $F_0$ is enormous, lifting the whole wing far above any lifetime-broadened Lorentzian.
 
 **3. Which piece dominates where.** Inside `hydrogen_line_profile`, print the three half-widths (Doppler, Lorentz, Stark) and the flag `nwid` for H$\beta$ at a photospheric and a deep layer, sampled at line centre and at 505 nm. Verify that the Stark width dominates the deep-layer wing and the Doppler width the cool-layer core.
 
