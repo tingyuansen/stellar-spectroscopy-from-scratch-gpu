@@ -744,9 +744,11 @@ def main() -> int:
     rhox = ref["rhox_conv"].astype(np.float64)
     p_in = ref["p_conv"].astype(np.float64)
     rho_in = ref["rho_conv"].astype(np.float64)
-    prad = ref["prad_conv"].astype(np.float64)
-    pradk = ref["pradk_conv"].astype(np.float64)
     ptotal = ref["ptotal_conv"].astype(np.float64)
+    # prad / pradk are now COMPUTED from the RADIAP moment below (not read).  The only
+    # radiation-pressure input still read is the scalar surface K-integral pradk0, a single
+    # constant (PRADK = PRAD + pradk0); the production prad_conv/pradk_conv serve only as checks.
+    pradk0 = float((ref["pradk_conv"].astype(np.float64) - ref["prad_conv"].astype(np.float64))[0])
     freq = ref["freq_hz"].astype(np.float64)
     rco = ref["rco"].astype(np.float64)
     acont = ref["acont"].astype(np.float64)
@@ -762,9 +764,10 @@ def main() -> int:
     flux = SIGMA / FOURPI * teff ** 4
     z = np.zeros(n)
 
-    # ---- frequency loop: ROSS + TCORR accumulators ----
+    # ---- frequency loop: ROSS + TCORR + RADIAP accumulators ----
     ross_acc = np.zeros(n)
     flxrad = np.zeros(n); rjmins = np.zeros(n); rdabh = np.zeros(n); rdiagj = np.zeros(n)
+    accrad = np.zeros(n)   # RADIAP: int kappa_nu H_nu d_nu -> the radiation-pressure moment
     for inu in range(nf):
         f = float(freq[inu]); rcowt = float(rco[inu])
         ehvkt = np.exp(-f * hkt)
@@ -785,6 +788,8 @@ def main() -> int:
         rdabh += dabtot / np.maximum(abtot, 1e-300) * hnu * rcowt
         rjmins += abtot * jmins * rcowt
         flxrad += hnu * rcowt
+        # RADIAP mode 2: kappa_nu H_nu -> the radiation-pressure-moment integrand
+        accrad += abtot * hnu * rcowt
 
         term2 = 0.0
         for j in range(n):
@@ -807,6 +812,21 @@ def main() -> int:
 
     # ---- ROSS mode 3 -> kappa_Ross, tau_Ross ----
     abross, tauros = ross_finalize(ross_acc, T, rhox)
+
+    # ---- RADIAP mode 3: finalize the radiation pressure (COMPUTED, not read) ----
+    #   (1) 4 pi / c -> radiative acceleration; (2) cap where H(tau) overshoots H;
+    #   (3) integrate down the column mass -> P_rad(rhox); PRADK = PRAD + surface scalar.
+    accrad *= 12.5664 / 2.99792458e10                         # 4 pi / c (ATLAS constants)
+    over = (flxrad / max(flux, 1e-300)) > 1.0                 # surface layers above target
+    accrad[over] *= flux / np.maximum(flxrad[over], 1e-300)   # flux-limit safeguard
+    prad = integ(rhox, accrad, accrad[0] * rhox[0])          # the computed radiation pressure
+    pradk = prad + pradk0                                     # PRADK = PRAD + surface K-integral
+    # cross-check the computed P_rad / P_radk against the production code's values
+    _mpr = np.abs(ref["prad_conv"]) > 0
+    _epr = np.abs(prad[_mpr] - ref["prad_conv"][_mpr]) / np.abs(ref["prad_conv"][_mpr])
+    _epk = np.abs(pradk - ref["pradk_conv"]) / np.maximum(np.abs(ref["pradk_conv"]), 1e-300)
+    print(f"  computed P_rad  vs reference (RADIAP): max|rel| = {_epr.max():.2e}  median = {np.median(_epr):.2e}")
+    print(f"  computed P_radk vs reference         : max|rel| = {_epk.max():.2e}  median = {np.median(_epk):.2e}")
 
     # ---- ROSSTAB table from this iteration's (T, P, kappa_Ross) ----
     rosstab = Rosstab()

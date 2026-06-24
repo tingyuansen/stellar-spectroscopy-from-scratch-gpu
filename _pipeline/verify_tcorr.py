@@ -605,6 +605,7 @@ def main() -> int:
     # accumulators
     ross_acc = np.zeros(n)
     flxrad = np.zeros(n); rjmins = np.zeros(n); rdabh = np.zeros(n); rdiagj = np.zeros(n)
+    accrad = np.zeros(n)   # RADIAP: int kappa_nu H_nu d_nu -> the radiation-pressure moment
 
     for inu in range(nf):
         f = float(freq[inu]); rcowt = float(rco[inu])
@@ -628,6 +629,8 @@ def main() -> int:
         rdabh += dabtot / np.maximum(abtot, 1e-300) * hnu * rcowt
         rjmins += abtot * jmins * rcowt
         flxrad += hnu * rcowt
+        # RADIAP mode 2: kappa_nu H_nu -> the radiation-pressure-moment integrand
+        accrad += abtot * hnu * rcowt
 
         term2 = 0.0
         for j in range(n):
@@ -651,15 +654,31 @@ def main() -> int:
     # ROSS mode 3 -> kappa_Ross, tau_Ross
     abross, tauros = ross_finalize(ross_acc, T, rhox)
 
+    # RADIAP mode 3: finalize the radiation pressure (COMPUTED, not read from the reference).
+    #   (1) 4 pi / c turns int kappa_nu H_nu d_nu into the radiative acceleration g_rad;
+    #   (2) cap g_rad where the surface flux H(tau) overshoots the target H;
+    #   (3) integrate g_rad down the column mass -> P_rad(rhox), on the TAUROS grid.
+    accrad *= 12.5664 / 2.99792458e10                         # 4 pi / c (ATLAS constants)
+    over = (flxrad / max(flux, 1e-300)) > 1.0                 # surface layers running above target
+    accrad[over] *= flux / np.maximum(flxrad[over], 1e-300)   # flux-limit safeguard
+    prad = integ(rhox, accrad, accrad[0] * rhox[0])          # the computed radiation pressure
+
     # Build the ROSSTAB opacity table from this iteration's (T, P, kappa_Ross)
     # BEFORE the temperature correction (driver: rosstab_ingest, then tcorr mode 3).
     rosstab = Rosstab()
     rosstab.ingest(T, p_in, abross)
 
-    # TCORR mode 3 -> corrected T, RHOX (on the original TAUROS grid)
-    prad = ref["prad_ref"].astype(np.float64)
+    # TCORR mode 3 -> corrected T, RHOX (on the original TAUROS grid).  prad is now the
+    # COMPUTED RADIAP moment above; tcorr_mode3 remaps it once onto TAUSTD, as the driver does.
     res = tcorr_mode3(T, rhox, tauros, abross, flxrad, rjmins, rdabh, rdiagj,
                       flux, teff, prad, grav, rosstab)
+    # cross-check the computed P_rad against the production code's PRAD (remapped to its grid)
+    taustd_chk = 10.0 ** (-6.875 + np.arange(n) * 0.125)
+    prad_std, _ = map1(tauros, prad, taustd_chk)
+    pr = ref["prad_ref"].astype(np.float64)
+    mpr = np.abs(pr) > 0
+    epr = np.abs(prad_std[mpr] - pr[mpr]) / np.abs(pr[mpr])
+    print(f"  computed P_rad vs reference (RADIAP): max|rel| = {epr.max():.2e}  median = {np.median(epr):.2e}")
 
     # Close the iteration: remap (T+t1, RHOX+DRHOX) onto TAUSTD (driver lines 1651-1674)
     taustd = 10.0 ** (-6.875 + np.arange(n) * 0.125)
@@ -699,20 +718,18 @@ def main() -> int:
     print("VERDICT")
     print("=" * 72)
     print(f"  corrected T   : max|rel| = {rT:.3e}   <- MACHINE PRECISION")
-    print(f"  corrected RHOX: max|rel| = {rX:.3e}   <- float32-JOSH floor")
+    print(f"  corrected RHOX: max|rel| = {rX:.3e}   <- MACHINE PRECISION (computed P_rad)")
     print()
-    print("  The temperature correction T1 and the corrected T reach machine")
-    print("  precision (~1e-9..1e-8): the only float32 step is the JOSH inner")
-    print("  Lambda-iteration, whose ULP shows up at ~1e-7 in flxrad/rjmins and")
-    print("  averages out in T1.  The corrected RHOX sits at ~1e-5: its DRHOX")
-    print("  re-integrates hydrostatic equilibrium using a ROSSTAB opacity table")
-    print("  built from kappa_Ross; ROSSTAB's nearest-neighbour-per-quadrant")
-    print("  lookup can switch which sample it picks when kappa_Ross moves by the")
-    print("  float32-JOSH ULP, producing a small DISCRETE jump.  This is the same")
-    print("  1e-5 floor pykurucz's own tcorr_step shows; it is below the 1e-4")
-    print("  convergence threshold and vanishes over the iteration sequence.")
-    # T at machine precision (<1e-7); RHOX at the documented float32->ROSSTAB floor (<1e-4).
-    ok = (rT < 1e-7) and (rX < 1e-4)
+    print("  The temperature correction T1, the corrected T, AND the corrected RHOX")
+    print("  all reach machine precision (~1e-9): the only float32 step is the JOSH")
+    print("  inner Lambda-iteration, whose ULP shows up at ~1e-7 in flxrad/rjmins and")
+    print("  averages out in T1.  RHOX lands at ~1e-9 because its DRHOX hydrostatic")
+    print("  re-integration now consumes the COMPUTED RADIAP radiation pressure on the")
+    print("  tauros grid (remapped once onto TAUSTD, exactly as the driver does) --")
+    print("  closing the radiation-pressure moment removes the spurious gas-pressure")
+    print("  offset a doubly-remapped stored P_rad used to introduce.")
+    # T and RHOX both at machine precision (<1e-7) once P_rad is computed, not read.
+    ok = (rT < 1e-7) and (rX < 1e-7)
     print()
     print("  PASS" if ok else "  FAIL")
     print("=" * 72)
