@@ -110,16 +110,20 @@ plt.rcParams.update({"figure.figsize": (7.2, 4.3), "figure.dpi": 120, "savefig.f
 
 REF = pathlib.Path("..") / "reference"
 
-# the cool M-dwarf atmosphere state the chemistry needs, per depth (80 layers)
+# The cool M-dwarf atmosphere state the chemistry needs, per depth (80 layers).
+# This is the T_eff = 3500 K, log g = 5.0 model from Lecture 12.
 inp = np.load(REF / "nmolec_inputs.npz")
 T            = inp["temperature"].astype(float)        # K
 gas_pressure = inp["gas_pressure"].astype(float)       # dyn/cm^2
-xne0         = inp["electron_density"].astype(float)   # cm^-3, only a seed for the iteration
+xne0         = inp["electron_density"].astype(float)   # cm^-3 (seed only)
 xabund       = inp["xabund"].astype(float)             # number fraction by atomic number
 
-# atomic-ion formation constants from the Saha routine (an INPUT: atomic physics, Lectures 2-3)
+# Atomic-ion formation constants from the Saha routine.
+# These are an INPUT to the molecular solver: atomic-ionisation physics (Lectures 2-3).
 equilj_ion = inp["equilj_ion"].astype(float)           # (n_layers, nummol)
-poly_mask  = inp["poly_mask"].astype(bool)             # True = a molecule we recompute from scratch
+
+# True where a molecule's K_f(T) we recompute from scratch below.
+poly_mask  = inp["poly_mask"].astype(bool)
 
 n_layers = T.size
 print(f"M dwarf: {n_layers} depths, T = {T.min():.0f}..{T.max():.0f} K")
@@ -148,26 +152,28 @@ def readmol(path):
     kcomps holds 0-based EQUATION indices; an inverse electron maps to the sentinel
     index nequa (signals 'divide by n_e' in a molecule's mass-action product).
     """
-    code_mol = np.zeros(MAXMOL)
-    equil = np.zeros((7, MAXMOL))          # D0 then E1..E6 per molecule
-    locj = np.zeros(MAXMOL + 1, dtype=np.int32)   # locj[j]..locj[j+1] = molecule j's components
-    kcomps = np.zeros(MAXLOC, dtype=np.int32)     # element id per component (rewritten to eq index)
-    idequa = np.zeros(MAXEQ, dtype=np.int32)      # element id conserved by each equation
-    ifequa = np.zeros(102, dtype=np.int32)        # element id -> equation number
+    code_mol = np.zeros(MAXMOL)                    # packed atom code per molecule
+    equil = np.zeros((7, MAXMOL))                  # D0 then E1..E6 per molecule
+    locj = np.zeros(MAXMOL + 1, dtype=np.int32)    # molecule j's components: locj[j]..locj[j+1]
+    kcomps = np.zeros(MAXLOC, dtype=np.int32)      # element id per component (-> eq index later)
+    idequa = np.zeros(MAXEQ, dtype=np.int32)       # element id conserved by each equation
+    ifequa = np.zeros(102, dtype=np.int32)         # element id -> equation number
 
-    # base-100 place values for decoding the atom code
+    # Base-100 place values for decoding the atom code.
     xcode = np.array([1e14, 1e12, 1e10, 1e8, 1e6, 1e4, 1e2, 1e0])
 
     kloc = 0
     locj[0] = 0
     nummol = 0
-    # fixed-width columns: F18.2 code, then 6E11.4 coefficients
+
+    # Fixed-width columns: F18.2 code, then 6E11.4 coefficients.
     cols = [(18, 25), (25, 36), (36, 47), (47, 58), (58, 69), (69, 80), (80, 91)]
 
     for raw in path.read_text().splitlines():
         line = raw.rstrip("\n\r")
         stripped = line.strip()
-        # skip blanks and comment lines
+
+        # Skip blanks and comment lines.
         if not stripped or stripped[:1] in ("C", "c", "#"):
             continue
         c_str = line[0:min(18, len(line))].strip()
@@ -177,7 +183,8 @@ def readmol(path):
             c = float(c_str)                       # the packed atom code
         except ValueError:
             continue
-        # read the seven coefficients from their fixed columns (blanks -> 0)
+
+        # Read the seven coefficients from their fixed columns (blanks -> 0).
         ee = [0.0] * 7
         for i, (a, b) in enumerate(cols):
             if len(line) >= b:
@@ -187,13 +194,14 @@ def readmol(path):
         if abs(c) < 1e-12:
             continue
 
-        # find the highest occupied base-100 place
+        # Find the highest occupied base-100 place.
         ii = 0
         for i in range(8):
             if c >= xcode[i]:
                 ii = i
                 break
-        # peel out each element id base-100; a zero digit means an electron (id 100)
+
+        # Peel out each element id base-100; a zero digit means an electron (id 100).
         x = c
         for i in range(ii, 8):
             id_elem = int(x / xcode[i])
@@ -203,7 +211,9 @@ def readmol(path):
             ifequa[id_elem] = 1
             kcomps[kloc] = id_elem
             kloc += 1
-        # the trailing fractional digits are the net charge: each + adds an inverse electron (101)
+
+        # The trailing fractional digits are the net charge.
+        # Each unit of + charge adds an inverse electron (id 101): a "divide by n_e".
         ion = int(x * 100.0 + 0.5)
         if ion >= 1:
             ifequa[100] = 1
@@ -220,7 +230,8 @@ def readmol(path):
 
     nloc = kloc
 
-    # assign equation numbers: equation 0 is the total-particle slot (never an element)
+    # Assign equation numbers. Equation 0 is the total-particle slot (never an element);
+    # then one equation per element that appears anywhere in the table.
     iequa = 1
     for i in range(1, 101):
         if ifequa[i] == 1:
@@ -228,9 +239,9 @@ def readmol(path):
             ifequa[i] = iequa
             idequa[iequa - 1] = i
     nequa = iequa
-    ifequa[101] = nequa + 1                 # inverse electron -> sentinel equation index
+    ifequa[101] = nequa + 1                         # inverse electron -> sentinel eq index
 
-    # rewrite each component from an element id to a 0-based equation index
+    # Rewrite each component from an element id to a 0-based equation index.
     for k in range(nloc):
         kcomps[k] = ifequa[kcomps[k]] - 1
 
@@ -250,7 +261,8 @@ labels = []
 for k in range(nequa):
     eid = int(idequa[k])
     if k == 0:
-        labels.append("total")               # equation 0 = total-particle conservation
+        # equation 0 = total-particle conservation
+        labels.append("total")
     else:
         labels.append(SYM.get(eid, f"Z={eid}"))
 
@@ -279,29 +291,34 @@ def compute_equilj_polynomial(j, T, tkev, tlog):
     """
     eqj = np.zeros(nummol)
     for jmol in range(nummol):
-        # equil[0]==0 marks an atomic-ion molecule: supplied as input, not computed here
+        # equil[0]==0 marks an atomic-ion molecule: supplied as input, not computed here.
         if equil[0, jmol] == 0.0:
             continue
+
         ncomp = locj[jmol + 1] - locj[jmol]
         code_int = int(code_mol[jmol])
-        ion = int((code_mol[jmol] - code_int) * 100.0 + 0.5)   # net charge from trailing digits
-        # no molecules survive above 10000 K
+        ion = int((code_mol[jmol] - code_int) * 100.0 + 0.5)   # net charge
+
+        # No molecules survive above 10000 K.
         if T[j] > 10000.0:
             continue
+
+        # The H-/H2-dissociation entry (code 101) uses its own hard-coded polynomial.
         if abs(code_mol[jmol] - 101.0) < 1e-9:
-            # the H-/H2-dissociation entry uses its own hard-coded polynomial
             ea = (4.478 / tkev[j] - 46.4584
                   + (1.63660e-3 + (-4.93992e-7 + (1.11822e-10 + (-1.49567e-14
                      + (1.06206e-18 - 3.08720e-23 * T[j]) * T[j]) * T[j]) * T[j])
                      * T[j]) * T[j] - 1.5 * tlog[j])
             eqj[jmol] = np.exp(ea)
             continue
-        # binding term + Horner polynomial (partition-function fit)
+
+        # Binding Boltzmann factor + Horner polynomial (the partition-function fit).
         poly = (equil[0, jmol] / tkev[j] - equil[1, jmol]
                 + (equil[2, jmol] + (-equil[3, jmol] + (equil[4, jmol]
                    + (-equil[5, jmol] + equil[6, jmol] * T[j]) * T[j]) * T[j])
                    * T[j]) * T[j])
-        # phase-space (kT)^{3/2} term, one factor per atom removed
+
+        # Phase-space (kT)^{3/2} term, one factor per atom removed.
         tlog_term = -1.5 * float(ncomp - ion - ion - 1) * tlog[j]
         eqj[jmol] = np.exp(poly + tlog_term)
     return eqj''')
@@ -311,7 +328,7 @@ md(r"""Before using these constants, we **prove** our from-scratch evaluation re
 code(r'''tkev_all = KBOLTZ_EV * T
 tlog_all = np.log(T)
 
-# compare our recomputed polynomial K_f(T) against the shipped production values
+# Compare our recomputed polynomial K_f(T) against the shipped production values.
 worst_poly = 0.0
 for j in range(n_layers):
     # our from-scratch formation constants at this depth
@@ -347,20 +364,21 @@ code(r'''def setup_conservation(xn, xntot, xab, electron_idx):
     deq = np.zeros(neqneq)
     nequa1 = nequa + 1
 
-    # equation 0: total-particle conservation, sum(neutral densities) - n_tot
+    # Equation 0: total-particle conservation, sum(neutral densities) - n_tot.
     eq[0] = -xntot
     kk = 0
     xn0 = xn[0]
     for k in range(1, nequa):
         eq[0] = eq[0] + xn[k]
         deq[k * nequa] = 1.0                 # d(eq0)/d(xn[k]) = 1
-        # element k: neutral density minus its abundance share of the total heavy density
+
+        # Element k: neutral density minus its abundance share of the total heavy density.
         eq[k] = xn[k] - xab[k] * xn0
         kk += nequa1
         deq[kk] = 1.0                         # d(eq_k)/d(xn[k]) = 1
         deq[k] = -xab[k]                      # d(eq_k)/d(xn[0]) = -X_k
 
-    # charge equation: starts at -n_e, molecules supply the positive/negative ion terms
+    # Charge equation: starts at -n_e; molecules supply the ion terms (Stage B).
     if electron_idx is not None and idequa[electron_idx] >= 100:
         eq[electron_idx] = -xn[electron_idx]
         deq[nequa * nequa - 1] = -1.0
@@ -385,17 +403,22 @@ code(r'''def accumulate_molecules(xn, equilj, eq, deq):
     and the negative-ion charge correction.
     """
     eq_comp = np.zeros(nequa)                 # Kahan compensation per residual
+
     for jmol in range(nummol):
         ncomp = int(locj[jmol + 1] - locj[jmol])
-        if ncomp <= 1:                        # a bare atom/ion contributes no molecule term
+
+        # A bare atom/ion (one component) contributes no molecule term.
+        if ncomp <= 1:
             continue
+
         locj1 = int(locj[jmol])
         locj2 = int(locj[jmol + 1] - 1)
         ev = equilj[jmol]
         if not np.isfinite(ev):
             continue
 
-        # TERM = K_f * product of component densities (inverse electron divides by n_e)
+        # TERM = K_f * product of component densities.
+        # An inverse-electron component (sentinel index >= nequa) divides by n_e instead.
         term = ev
         for lock in range(locj1, locj2 + 1):
             k_raw = int(kcomps[lock])
@@ -404,13 +427,15 @@ code(r'''def accumulate_molecules(xn, equilj, eq, deq):
             else:
                 term = term * xn[k_raw]
 
-        # add TERM to the total-particle residual (Kahan)
+        # Add TERM to the total-particle residual (Kahan-compensated).
         y = term - eq_comp[0]
         t = eq[0] + y
         eq_comp[0] = (t - eq[0]) - y
         eq[0] = t
 
-        # add TERM to each component element's residual, and its Jacobian partials
+        # Add TERM to each component element's residual, and its Jacobian partials.
+        # This is the coupling: one molecule deposits into the total and every
+        # element it contains, all at once.
         for lock in range(locj1, locj2 + 1):
             k_raw = int(kcomps[lock])
             k_idx = nequa - 1 if k_raw == nequa else k_raw
@@ -420,12 +445,14 @@ code(r'''def accumulate_molecules(xn, equilj, eq, deq):
             d = (-term / xn_val) if k_raw == nequa else (term / xn_val)
             if not np.isfinite(d):
                 continue
-            # eq[k_idx] += term (Kahan)
+
+            # eq[k_idx] += term (Kahan-compensated)
             y_k = term - eq_comp[k_idx]
             t_k = eq[k_idx] + y_k
             eq_comp[k_idx] = (t_k - eq[k_idx]) - y_k
             eq[k_idx] = t_k
 
+            # Jacobian partials d(n_mol)/d(n_m) = n_mol / n_m for every component pair.
             nequak = nequa * k_idx
             deq[nequak] = deq[nequak] + d
             for locm in range(locj1, locj2 + 1):
@@ -434,7 +461,9 @@ code(r'''def accumulate_molecules(xn, equilj, eq, deq):
                 mk = m_idx + nequak
                 deq[mk] = deq[mk] + d
 
-        # negative-ion charge correction (last component is a REAL electron, e.g. H-)
+        # Negative-ion charge correction: when the last component is a REAL electron
+        # (e.g. H-), the ion removes a free electron AND carries negative charge, so
+        # the electron-equation contribution is doubled.
         last_raw = int(kcomps[locj2])
         if last_raw == nequa - 1 and idequa[nequa - 1] == 100:
             for lock in range(locj1, locj2 + 1):
@@ -484,9 +513,10 @@ code(r'''def solvit(a2d, n, b):
     b_work[1:] = np.asarray(b, dtype=np.float64)
     ipivot = np.zeros(n + 1, dtype=np.int32)
 
-    # one elimination step per unknown
+    # One elimination step per unknown.
     for _ in range(1, n + 1):
-        # 1. complete-pivot search: largest |entry| over all un-pivoted rows AND columns
+
+        # 1. Complete-pivot search: largest |entry| over all un-pivoted rows AND columns.
         amax = 0.0
         irow = 1
         icolum = 1
@@ -509,7 +539,7 @@ code(r'''def solvit(a2d, n, b):
         # mark this column as pivoted
         ipivot[icolum] += 1
 
-        # 2. swap the pivot row into place (and the matching right-hand-side entry)
+        # 2. Swap the pivot row into place (and the matching right-hand-side entry).
         if irow != icolum:
             irl = irow - n
             icl = icolum - n
@@ -523,7 +553,7 @@ code(r'''def solvit(a2d, n, b):
             # and swap their right-hand-side values
             b_work[irow], b_work[icolum] = b_work[icolum], b_work[irow]
 
-        # 3. normalise the pivot row and its right-hand side by the pivot value
+        # 3. Normalise the pivot row and its right-hand side by the pivot value.
         pivot_idx = icolum * n + icolum - n
         pivot = a_work[pivot_idx]
         a_work[pivot_idx] = 1.0
@@ -533,7 +563,8 @@ code(r'''def solvit(a2d, n, b):
             a_work[icl] = a_work[icl] / pivot
         b_work[icolum] = b_work[icolum] / pivot
 
-        # 4. eliminate the pivot column from every other row (plain float64 multiply-subtract)
+        # 4. Eliminate the pivot column from every other row.
+        # This is the plain float64 multiply-subtract whose ordering sets the round-off floor.
         l1ic = icolum * n - n
         for l1 in range(1, n + 1):
             l1ic += 1
@@ -555,7 +586,7 @@ code(r'''def solvit(a2d, n, b):
             # apply the same elimination to the right-hand side
             b_work[l1] = b_work[l1] - b_work[icolum] * t
 
-    # the transformed right-hand side is now the solution vector
+    # The transformed right-hand side is now the solution vector.
     return b_work[1:]''')
 
 # ── Newton damping helpers ──────────────────────────────────────────────────
@@ -612,7 +643,7 @@ code(r'''def nmolec_solve():
     tlog = np.log(T)
     electron_idx = nequa - 1 if idequa[nequa - 1] == 100 else None
 
-    # abundance per equation variable (electron equation carries none)
+    # Abundance per equation variable (the electron equation carries none).
     xab = np.zeros(MAXEQ)
     for k in range(1, nequa):
         eid = idequa[k]
@@ -629,9 +660,11 @@ code(r'''def nmolec_solve():
     xne_prev = 0.0
 
     for j in range(n_layers):
-        xntot = gas_pressure[j] / tk[j]         # total particle density from the ideal gas law
+        xntot = gas_pressure[j] / tk[j]         # total particle density (ideal gas law)
 
-        # 1. seed this depth
+        # 1. Seed this depth.
+        # Top layer: a crude split of the total particle density.
+        # Deeper layers: scale the converged layer above by the pressure ratio (warm start).
         if j == 0:
             xn[0] = xntot / 2.0
             base_x = xn[0] / 10.0
@@ -641,28 +674,28 @@ code(r'''def nmolec_solve():
                 xn[electron_idx] = base_x
             xne_prev = base_x
         else:
-            ratio = gas_pressure[j] / gas_pressure[j - 1]   # warm-start from the layer above
+            ratio = gas_pressure[j] / gas_pressure[j - 1]
             for k in range(nequa):
                 xn[k] = xnz_prev[k] * ratio
             xne_prev = xne_prev * ratio
         xnz_prev[:nequa] = xn[:nequa]
 
-        # 2. formation constants at this depth (polynomial from scratch, ion from input)
+        # 2. Formation constants at this depth (polynomial from scratch, ion from input).
         equilj = compute_equilj_polynomial(j, T, tkev, tlog)
         ion_mask = (equil[0, :nummol] == 0.0)
         equilj[ion_mask] = equilj_ion[j, :nummol][ion_mask]
 
-        # 3. Newton loop
+        # 3. Newton loop: assemble the system, solve J . delta = eq, apply the damped update.
         eqold = np.zeros(nequa)
         for _iteration in range(200):
             eq, deq = setup_conservation(xn, xntot, xab, electron_idx)
             accumulate_molecules(xn, equilj, eq, deq)
 
-            # solve J . delta = eq
+            # solve J . delta = eq for the Newton correction delta (overwrites eq)
             deq_2d = deq[:nequa * nequa].reshape(nequa, nequa, order="F").copy()
             eq = solvit(deq_2d, nequa, eq.copy())
 
-            # damped update
+            # damped update, one unknown at a time
             iferr = 0
             scale = 100.0
             for k in range(nequa):
@@ -683,7 +716,7 @@ code(r'''def nmolec_solve():
             if iferr == 0:                               # all relative corrections < 1e-3
                 break
 
-        # 4. store and form the molecular densities
+        # 4. Store the converged atoms, then form each molecular density from them.
         xnatom[j] = xn[0]
         for k in range(nequa):
             xnz[j, k] = xn[k]
@@ -691,6 +724,8 @@ code(r'''def nmolec_solve():
         if idequa[nequa - 1] == 100:
             electron[j] = xn[nequa - 1]
             xne_prev = electron[j]
+
+        # n_mol = K_f * product of converged component densities
         for jmol in range(nummol):
             val = equilj[jmol]
             for lock in range(int(locj[jmol]), int(locj[jmol + 1])):
@@ -747,7 +782,7 @@ print(f"\nNMOLEC max relative error = {worst:.3e}  < 1e-9  ->",
 
 md(r"""The match is $\sim10^{-13}$ — a **float64 non-associativity floor**, not a physics error. The molecular formation constants $K_f(T)$ are bit-exact (we checked: max rel $0.0$). The residual comes entirely from the order of floating-point additions: pykurucz's production solver uses JIT-compiled kernels whose Kahan-compensated residual sums and Jacobian summations execute in a slightly different instruction order than our pure-NumPy loops, and those last-ULP differences compound over up to 200 Newton iterations across 80 depths. Float64 addition is not associative, so two mathematically identical sums that add their terms in different orders disagree at the $10^{-16}$ level per operation; accumulated, that is the $\sim10^{-13}$ we see. The physics — the coupled equilibrium itself — is reproduced exactly.""")
 
-md(r"""To make the chemistry concrete, here is where the major carriers of oxygen and hydrogen sit through the M dwarf's atmosphere. Oxygen is split between free O, CO (which locks up carbon), and OH/H$_2$O; hydrogen is overwhelmingly H$_2$ in the cool upper layers. The competition for oxygen is exactly the coupling that forced us to solve all the balances together.""")
+md(r"""To make the chemistry concrete, here is where the major carriers of oxygen and hydrogen sit through the M dwarf's atmosphere. The $x$-axis is the **local temperature along the model**, not an effective temperature: the cool $T_{\rm eff}=3500$ K dwarf has a stratified photosphere that runs from $\sim2500$ K at the optically thin surface to $\sim5250$ K in the deep, dense layers, with gas pressure rising steeply inward. That is why the absolute number densities mostly *increase* with temperature — we are moving deeper into a denser gas, not heating a fixed parcel — until thermal dissociation finally wins and the most fragile molecule, TiO, turns over and falls. Oxygen is split between free O, CO (which locks up carbon), and OH; hydrogen is overwhelmingly H$_2$ in the cool upper layers. The competition for oxygen is exactly the coupling that forced us to solve all the balances together.""")
 
 code(r'''# pick out a few key molecules by their codes
 def mol_index(target):
@@ -758,25 +793,33 @@ idx_CO = mol_index(608.0)
 idx_OH = mol_index(108.0)
 idx_TiO = mol_index(822.0)
 
-# free-O equation index, to show O carriers as a fraction of total oxygen
+# free-O equation index, to show O carriers against total oxygen
 o_eq = int(np.where(idequa[:nequa] == 8)[0][0])
 n_O_free = xnz[:, o_eq]
 
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10.5, 4.2))
 
-# left: the major molecular carriers vs temperature, with free O for comparison
+# left panel: the major molecular carriers vs the local model temperature,
+# with free O for comparison (x-axis is depth-ordered local T, pressure rises inward)
 ax1.semilogy(T, xnmol[:, idx_H2], label="H$_2$")
 ax1.semilogy(T, xnmol[:, idx_CO], label="CO")
 ax1.semilogy(T, xnmol[:, idx_OH], label="OH")
 ax1.semilogy(T, xnmol[:, idx_TiO], label="TiO")
 ax1.semilogy(T, n_O_free, "k:", label="free O")
-ax1.set_xlabel("temperature [K]"); ax1.set_ylabel("number density [cm$^{-3}$]")
-ax1.set_title("Molecular carriers through the M dwarf"); ax1.legend(fontsize=9)
+ax1.set_xlabel("local model temperature [K]")
+ax1.set_ylabel("number density [cm$^{-3}$]")
+ax1.set_title("Molecular carriers through the $T_{\\rm eff}=3500$ K dwarf")
+ax1.legend(fontsize=9)
 
-# right: the self-consistently computed electron density (coupled through negative ions)
+# right panel: the self-consistently computed electron density.
+# n_e is set by the full ionisation balance (metal donors dominate in the cool
+# layers); the coupled solve ties it to the chemistry through the negative ions.
 ax2.semilogy(T, electron, label="computed $n_e$")
-ax2.set_xlabel("temperature [K]"); ax2.set_ylabel("electron density [cm$^{-3}$]")
-ax2.set_title("Electron density (coupled via negative ions)"); ax2.legend(fontsize=9)
+ax2.set_xlabel("local model temperature [K]")
+ax2.set_ylabel("electron density [cm$^{-3}$]")
+ax2.set_title("Electron density (ionisation balance + negative ions)")
+ax2.legend(fontsize=9)
+
 fig.tight_layout(); plt.show()''')
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -806,16 +849,23 @@ KBOLTZ_EV_F = 8.6171e-5         # eV/K, the Fortran TKEV constant (8.6171D-5)
 LN10 = 2.30258509299405
 
 mc = np.load(REF / "mol_continuum_inputs.npz")
-temp_c = mc["temperature"].astype(float)        # K, per depth
+
+# Atmosphere state, per depth (same cool T_eff = 3500 K dwarf as Part 1).
+temp_c = mc["temperature"].astype(float)        # K
 rho_c  = mc["mass_density"].astype(float)       # g/cm^3
 xnfph1 = mc["xnfph1"].astype(float)             # H ground-state population
-bhyd1  = mc["bhyd1"].astype(float)              # H ground departure coefficient (=1 in LTE)
+bhyd1  = mc["bhyd1"].astype(float)              # H ground departure coeff (=1 in LTE)
 xnfhe1 = mc["xnfhe1"].astype(float)             # He I number density
-xnfpch = mc["xnfpch"].astype(float)             # CH mode-1 population N_CH/U_CH (from Part 1)
-xnfpoh = mc["xnfpoh"].astype(float)             # OH mode-1 population N_OH/U_OH (from Part 1)
-wl_nm  = mc["wavelength_nm"].astype(float)
-freq   = mc["frequency_hz"].astype(float)
 
+# CH and OH mode-1 populations N/U (from the coupled solver of Part 1).
+xnfpch = mc["xnfpch"].astype(float)
+xnfpoh = mc["xnfpoh"].astype(float)
+
+# Wavelength grid: 300-5000 nm spans the blue CH/OH region and the near-IR H2-CIA region.
+wl_nm  = mc["wavelength_nm"].astype(float)      # nm
+freq   = mc["frequency_hz"].astype(float)       # Hz
+
+# Coefficient tables.
 CH_PARTITION = mc["CH_PARTITION"]               # CH partition fn, 200 K grid from 1000 K
 OH_PARTITION = mc["OH_PARTITION"]
 CH_CROSSSECT = mc["CH_CROSSSECT"]               # log10(xsect*U), energy x temperature
@@ -826,7 +876,7 @@ H2HE = mc["H2_COLL_H2HE"]                        # log10 Borysow H2-He coeff [cm
 nlc = temp_c.size
 nfreq = freq.size
 
-# common derived quantities
+# Stimulated-emission factor 1 - exp(-h.nu/kT) that multiplies every LTE opacity.
 tkev_c = KBOLTZ_EV_F * temp_c
 tlog_c = np.log(temp_c)
 stim = 1.0 - np.exp(-H_PLANCK * freq[None, :] / (K_BOLTZ * temp_c[:, None]))   # (depth, freq)
@@ -845,26 +895,34 @@ code(r'''def chop_xsect_times_U(freq_scalar):
     wn = freq_scalar / C_LIGHT_CM
     ev = wn / 8065.479                              # wavenumber -> eV
     n = int(ev * 10)
-    if n < 20 or n >= 105:                           # outside the CH band [2.0, 10.5] eV
+
+    # Active only inside the CH band [2.0, 10.5] eV.
+    if n < 20 or n >= 105:
         return out
     en = n * 0.1
     idx = n - 2                                      # table starts at 0.2 eV
     if idx < 0 or idx >= 104:
         return out
-    # interpolate the cross-section in energy at each of the 15 temperature nodes
+
+    # Interpolate log10(xsect.U) in energy at each of the 15 temperature nodes.
     cross = CH_CROSSSECT[idx] + (CH_CROSSSECT[idx + 1] - CH_CROSSSECT[idx]) * (ev - en) / 0.1
+
     for j in range(nlc):
         tj = temp_c[j]
         if tj >= 9000.0:
             continue
-        # partition function: linear in T, 200 K bins from 1000 K
+
+        # Partition function: linear in T, 200 K bins from 1000 K.
         it_p = max(0, min(int((tj - 1000.0) / 200.0), 39))
         tn_p = it_p * 200.0 + 1000.0
         part = CH_PARTITION[it_p] + (CH_PARTITION[it_p + 1] - CH_PARTITION[it_p]) * (tj - tn_p) / 200.0
-        # cross-section: linear in T, 500 K bins from 2000 K
+
+        # Cross-section: linear in T, 500 K bins from 2000 K.
         it_c = max(0, min(int((tj - 2000.0) / 500.0), 13))
         tn_c = it_c * 500.0 + 2000.0
         log_x = cross[it_c] + (cross[it_c + 1] - cross[it_c]) * (tj - tn_c) / 500.0
+
+        # 10^x = exp(x.ln10), times the partition function.
         out[j] = np.exp(log_x * LN10) * part
     return out''')
 
@@ -878,24 +936,34 @@ code(r'''def ohop_xsect_times_U(freq_scalar):
     out = np.zeros(nlc)
     wn = freq_scalar / C_LIGHT_CM
     ev = wn / 8065.479
-    n = int(ev * 10) - 20                            # table energy index, shifted by 2.0 eV
-    if n <= 0 or n >= 130:                           # outside the OH band [2.1, 15.0] eV
+    n = int(ev * 10) - 20                            # energy index, shifted by 2.0 eV
+
+    # Active only inside the OH band [2.1, 15.0] eV.
+    if n <= 0 or n >= 130:
         return out
     en = n * 0.1 + 2.0
     idx = n - 1
     if idx < 0 or idx >= 129:
         return out
+
+    # Interpolate log10(xsect.U) in energy (then in T below), exactly as in CHOP.
     cross = OH_CROSSSECT[idx] + (OH_CROSSSECT[idx + 1] - OH_CROSSSECT[idx]) * (ev - en) / 0.1
+
     for j in range(nlc):
         tj = temp_c[j]
         if tj >= 9000.0:
             continue
+
+        # Partition function: linear in T, 200 K bins from 1000 K.
         it_p = max(0, min(int((tj - 1000.0) / 200.0), 39))
         tn_p = it_p * 200.0 + 1000.0
         part = OH_PARTITION[it_p] + (OH_PARTITION[it_p + 1] - OH_PARTITION[it_p]) * (tj - tn_p) / 200.0
+
+        # Cross-section: linear in T, 500 K bins from 2000 K.
         it_c = max(0, min(int((tj - 2000.0) / 500.0), 13))
         tn_c = it_c * 500.0 + 2000.0
         log_x = cross[it_c] + (cross[it_c + 1] - cross[it_c]) * (tj - tn_c) / 500.0
+
         out[j] = np.exp(log_x * LN10) * part
     return out''')
 
@@ -939,23 +1007,30 @@ code(r'''def h2cia_opacity(freq_scalar, stim_col):
     """H2-CIA opacity per layer (cm^2/g) at one frequency (port of H2COLLOP)."""
     out = np.zeros(nlc)
     wn = freq_scalar / C_LIGHT_CM
-    if wn > 20000.0:                                # CIA only below 20000 cm^-1
+
+    # CIA is active only below 20000 cm^-1 (wavelengths longer than ~500 nm).
+    if wn > 20000.0:
         return out
-    # interpolate the tables in wavenumber first, at each of the 7 temperature nodes
+
+    # Bilinear interpolation, part 1: in wavenumber, at each of the 7 temperature nodes.
     nu = min(79, int(wn / 250.0))
     delnu = (wn - 250.0 * nu) / 250.0
     idx1 = min(nu, 80)
     idx2 = min(nu + 1, 80)
     h2h2_nu = H2H2[idx1] * delnu + H2H2[idx2] * (1.0 - delnu)
     h2he_nu = H2HE[idx1] * delnu + H2HE[idx2] * (1.0 - delnu)
+
     for j in range(nlc):
         tj = temp_c[j]
-        # then interpolate in temperature, 1000 K bins (clamped index 1..6)
+
+        # Bilinear interpolation, part 2: in temperature, 1000 K bins (clamped index 1..6).
         it = max(1, min(6, int(tj / 1000.0)))
         delt = max(0.0, min(1.0, (tj - 1000.0 * it) / 1000.0))
         xh2h2 = h2h2_nu[it - 1] * delt + h2h2_nu[it] * (1.0 - delt)
         xh2he = h2he_nu[it - 1] * delt + h2he_nu[it] * (1.0 - delt)
-        # density-squared: H2 partner + He partner, each times n_H2 / rho, times stim. emission
+
+        # Density-squared two-body opacity: one factor n_H2 for the absorber, one for the
+        # partner (H2 or He), times n_H2/rho and the stimulated-emission factor.
         out[j] = (10.0 ** xh2he * xnfhe1[j] + 10.0 ** xh2h2 * XNH2[j]) * XNH2[j] / rho_c[j] * stim_col[j]
     return out''')
 
@@ -1019,7 +1094,7 @@ md(r"""The molecular continuum is reproduced **bit-for-bit** (max rel exactly $0
 # ── dominance demonstration ─────────────────────────────────────────────────
 md(r"""### H$_2$-CIA is the cool-star near-infrared continuum
 
-Now the physical payoff. At a representative cool photospheric layer ($T \approx 3000$ K, the M-dwarf regime where H$_2$ forms), we print the three species at four wavelengths spanning blue to near-infrared. CH and OH carry the blue continuum; from about 1 $\mu$m outward H$_2$-CIA is essentially **100%** of the molecular continuum — exactly the wavelength range where an M dwarf's flux peaks. This is why an M dwarf is dark in the blue (steep Planck function plus CH/OH absorption) and smooth in the infrared (broad, structureless H$_2$-CIA rather than discrete edges).""")
+Now the physical payoff. At a representative cool photospheric layer ($T \approx 3000$ K, the M-dwarf regime where H$_2$ forms), we print the three species at four wavelengths spanning blue to near-infrared. CH and OH carry the blue continuum; from about 1 $\mu$m outward they have switched off entirely and H$_2$-CIA is the **whole** molecular continuum — exactly the wavelength range where an M dwarf's flux peaks. This is why an M dwarf is dark in the blue (steep Planck function plus CH/OH absorption) and smooth in the infrared: the broad, slowly varying H$_2$-CIA bands replace the discrete bound-free edges that shape a warmer star's continuum.""")
 
 code(r'''jcool = int(np.argmin(np.abs(temp_c - 3000.0)))     # a cool photospheric layer
 print(f"H2-CIA dominance at T = {temp_c[jcool]:.0f} K:")
@@ -1032,19 +1107,27 @@ for target in (450.0, 1000.0, 1500.0, 2200.0):
     print(f"  {wl_nm[i]:6.0f} nm : CHOP={chop[jcool,i]:.3e} OHOP={ohop[jcool,i]:.3e} "
           f"H2CIA={h2cia[jcool,i]:.3e}  ->  H2-CIA = {frac:5.1f}% of mol continuum")''')
 
-md(r"""Finally, the molecular continuum across the whole grid at the deepest (warmest) layer, on a log axis. CH and OH appear as bumps in the blue/ultraviolet; H$_2$-CIA is the broad, smooth source that rises through the near-infrared and dominates the total beyond about 1 $\mu$m.""")
+md(r"""Finally, the molecular continuum across the whole grid at the deepest layer of the cool-dwarf model, on a log axis. This layer sits at $T\approx5250$ K — *not* an effective temperature (the model is the $T_{\rm eff}=3500$ K M dwarf), but the warmest, densest base of its photosphere, where the gas density is high enough to make the density-squared H$_2$-CIA largest. CH and OH appear as bumps in the blue and near-ultraviolet, where their photodissociation cross-sections live; H$_2$-CIA switches on at its $20000$ cm$^{-1}$ ($\approx500$ nm) threshold and rises as the broad, smooth source that dominates the total through the near-infrared, peaking around $2.5$ $\mu$m. The wavelength dependence is the genuine Borysow band structure, not noise — it is reproduced bit-for-bit below.""")
 
-code(r'''jdeep = nlc - 1                                  # deepest (warmest) layer
+code(r'''# deepest layer of the cool-dwarf model: warmest, densest base of the photosphere
+# (T ~ 5250 K is a LOCAL layer temperature, not the T_eff = 3500 K of the M dwarf)
+jdeep = nlc - 1
 fig, ax = plt.subplots(figsize=(8.0, 4.6))
+
 # the three species and their sum across the full wavelength grid
 ax.plot(wl_nm, chop[jdeep], label="CH (CHOP)")
 ax.plot(wl_nm, ohop[jdeep], label="OH (OHOP)")
 ax.plot(wl_nm, h2cia[jdeep], label="H$_2$-CIA (Borysow)")
 ax.plot(wl_nm, mol_total[jdeep], "k--", lw=0.9, label="molecular total")
+
 ax.set_yscale("log")
-ax.set_xlabel("wavelength [nm]"); ax.set_ylabel("molecular continuum opacity [cm$^2$/g]")
-ax.set_title(f"Cool-dwarf molecular continuum, T = {temp_c[jdeep]:.0f} K (from scratch)")
+ax.set_xlabel("wavelength [nm]")
+ax.set_ylabel("molecular continuum opacity [cm$^2$/g]")
+# title names the LOCAL layer temperature, not an effective temperature
+ax.set_title(f"Molecular continuum, $T_{{\\rm eff}}=3500$ K dwarf, "
+             f"deep layer T = {temp_c[jdeep]:.0f} K")
 ax.set_ylim(1e-12, None); ax.legend()
+
 fig.tight_layout(); plt.show()''')
 
 # ══════════════════════════════════════════════════════════════════════════
