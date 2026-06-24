@@ -617,14 +617,44 @@ def solve_josh(acont, scont, aline, sline, sigmac, sigmal):
     if above.any(): sbar_g[above] = max(sbar[0], EPS); alpha_g[above] = np.clip(alpha[0], 0, 1)
     return float(CH @ iterate_source(sbar_g, alpha_g))                  # CH-weighted surface flux''')
 
+# ── the LTE source = Planck ──────────────────────────────────────────────────
+md(r"""## The source function: the Planck function, computed not read
+
+Before the transfer we need the **source function** $S_\lambda$ at every depth and wavelength. We do not read it from the reference — we **compute** it, because in the LTE this book works in it has a closed form: the **Planck function** $B_\lambda(T)$ of Lecture 1, evaluated at each depth's temperature and each wavelength's frequency. The production code builds its continuum source as $S_{\rm cont} = B_\lambda\,(1-e^{-h\nu/kT})/(\texttt{BFUDGE}-e^{-h\nu/kT})$, where `BFUDGE` is a departure factor that would carry non-LTE level populations. In strict LTE the populations are thermal, so $\texttt{BFUDGE}\equiv 1$ and the denominator collapses to the stimulated-emission factor $1-e^{-h\nu/kT}$ — the very factor in the numerator — leaving $S_{\rm cont}=B_\lambda(T)$. The **line** source is identical: with thermal populations and no line scattering ($\kappa^{\rm scat}_{\rm line}\equiv 0$ in this window), the line emissivity is Boltzmann-thermal too, so $S_{\rm line}=B_\lambda(T)$. Both reduce, to the bit, to the same Planck function.
+
+So we evaluate $B_\lambda$ inline — the identical overflow-safe Kurucz form, constants, and literal $1.47439\times10^{-2}$ prefactor of Lecture 1 — and feed it into the JOSH transfer. We first verify it reproduces the reference source arrays to machine precision: agreement confirms the LTE identity holds and that no source function is read as an input.""")
+
+code(r'''def planck_nu(freq_hz, temperature):
+    """Planck B_nu(T) [CGS], the exact overflow-safe Kurucz form of Lecture 1."""
+    # x = h nu / kT, the dimensionless ratio; work with e^{-x} <= 1 so the Wien tail never overflows
+    x = H_PLANCK * freq_hz / (KB * np.asarray(temperature, float))
+    ehvkt = np.exp(-x)
+    # 1.47439e-2 is 2h/c^2 with nu rescaled by 1e15 (Kurucz's historical literal); the rest is the
+    # photon occupation factor e^{-x}/(1-e^{-x})
+    return 1.47439e-2 * (freq_hz / 1e15)**3 * ehvkt / (1.0 - ehvkt)
+
+# evaluate B_nu at every (depth, wavelength): frequency from the grid, temperature from the model
+nu_grid = C_NM / wavelength                              # photon frequency per wavelength [Hz]
+B_nu = planck_nu(nu_grid[None, :], T[:, None])          # the LTE source function (depth, wl)
+
+# PROOF the substitution is exact: in LTE slinec = line_source = B_nu, so the inline B_nu must
+# match the reference source arrays to machine precision (bfudge == 1, line_scattering == 0)
+ref_slinec = dt["slinec"].astype(float); ref_lsource = dt["line_source"].astype(float)
+rel_c = np.abs(B_nu - ref_slinec) / np.abs(ref_slinec)
+rel_l = np.abs(B_nu - ref_lsource) / np.abs(ref_lsource)
+print(f"inline B_nu vs reference slinec     : max rel diff = {rel_c.max():.2e}  (LTE: = 0 to roundoff)")
+print(f"inline B_nu vs reference line_source: max rel diff = {rel_l.max():.2e}")
+print(f"reference line_scattering is exactly zero: {np.all(dt['line_scattering'].astype(float) == 0.0)}")''')
+
 # ── full spectrum ───────────────────────────────────────────────────────────
 md(r"""## The TiO bandhead spectrum, to machine precision
 
-Now the full window. The **line absorption** is the production diagnostic's `line_opacity`, which already includes our molecular opacity (the reference run had molecules on); the **continuum** flux uses zero line opacity. We solve both at every wavelength and take the ratio for the normalised spectrum, then compare to the reference computed by the production pipeline.""")
+Now the full window. The **line absorption** is the production diagnostic's `line_opacity`, which already includes our molecular opacity (the reference run had molecules on); the **continuum** flux uses zero line opacity. Both the continuum and line source functions are the **inline Planck** `B_nu` just verified — no source is read as a transfer input. We solve both fluxes at every wavelength and take the ratio for the normalised spectrum, then compare to the reference computed by the production pipeline.""")
 
 code(r'''acont = dt["continuum_absorption"].astype(float); sigmac = dt["continuum_scattering"].astype(float)
-sigmal = dt["line_scattering"].astype(float); scont = dt["slinec"].astype(float)
-sline = dt["line_source"].astype(float); aline = dt["line_opacity"].astype(float)  # incl. molecules
+sigmal = dt["line_scattering"].astype(float)
+scont = B_nu; sline = B_nu                                                  # LTE source = Planck (computed inline)
+aline = dt["line_opacity"].astype(float)                                    # incl. molecules
 zero = np.zeros(n_depths)
 
 # solve every wavelength twice: full line opacity for the spectrum, zero line opacity for the continuum

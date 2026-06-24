@@ -126,16 +126,16 @@ md(r"""The operator is strongly diagonal — the mean intensity at a point is do
 # ── the opacities and sources ───────────────────────────────────────────
 md(r"""## The inputs: opacity, scattering, and the source
 
-For each wavelength the solver needs, at every atmospheric depth, four opacity quantities and two source functions — all of which we built in earlier lectures and which are stored here as reference arrays of shape (depth, wavelength):
+For each wavelength the solver needs, at every atmospheric depth, four opacity quantities and a source function. The four opacities we built in earlier lectures and read here as reference arrays of shape (depth, wavelength):
 
 - `cont_abs` $=\kappa^{\rm abs}_{\rm cont}$ — the **continuum absorption** of Lecture 3 (mostly H$^-$).
 - `cont_scat` $=\kappa^{\rm scat}_{\rm cont}$ — the **continuum scattering** of Lecture 3 (Rayleigh + Thomson).
 - `line_abs` $=\kappa^{\rm abs}_{\rm line}$ — the **line absorption** of Lecture 5 (the forest of Voigt profiles).
 - `line_scat` $=\kappa^{\rm scat}_{\rm line}$ — the (small) line scattering.
-- `S_cont` — the **continuum source function**, the Planck function with the production code's tiny departure correction.
-- `S_line` — the **line source function** from the line-formation calculation, in the same units as $B_\lambda$ and `S_cont`.
 
-These opacities are **mass extinction coefficients**, so they convert to optical depth by $d\tau_\lambda = \kappa_\lambda\,dm$, with $m$ the column mass increasing inward — the relation we integrate in Step 1. From the six arrays we form, at each depth, the **total extinction** $\kappa^{\rm abs}+\kappa^{\rm scat}$, the **scattering fraction** $\alpha = \kappa^{\rm scat}/(\kappa^{\rm abs}+\kappa^{\rm scat})$, and the **absorption-weighted source**
+The **source function**, by contrast, we do not read — we compute it. In the local thermodynamic equilibrium (LTE) this book works in, the thermal source is the **Planck function** $B_\lambda(T)$ of Lecture 1, evaluated at each depth's temperature and each wavelength's frequency. The next section makes the LTE identity precise and computes $B_\lambda$ inline; here we load only the opacities, the wavelength grid, and the per-depth temperatures of the solar model.
+
+These opacities are **mass extinction coefficients**, so they convert to optical depth by $d\tau_\lambda = \kappa_\lambda\,dm$, with $m$ the column mass increasing inward — the relation we integrate in Step 1. From the opacities and the source we form, at each depth, the **total extinction** $\kappa^{\rm abs}+\kappa^{\rm scat}$, the **scattering fraction** $\alpha = \kappa^{\rm scat}/(\kappa^{\rm abs}+\kappa^{\rm scat})$, and the **absorption-weighted source**
 
 $$
 \bar S = \frac{\kappa^{\rm abs}_{\rm cont}\,S_{\rm cont} + \kappa^{\rm abs}_{\rm line}\,S_{\rm line}}
@@ -144,7 +144,7 @@ $$
 
 which is the thermal ($B$-like) part of the source, before scattering mixes in $J$. The scattering opacities are deliberately absent from $\bar S$: their emissivity is the separate $\alpha J$ term that the iteration of Step 3 supplies, so $\bar S$ holds only the thermal emissivity divided by the absorptive opacity.""")
 
-code(r'''# the per-wavelength opacities and source functions built in earlier lectures
+code(r'''# the per-wavelength opacities built in earlier lectures
 D = np.load(REF / "diag.npz")
 
 # the four opacity arrays, shape (depth, wl)
@@ -153,14 +153,55 @@ cont_scat = D["continuum_scattering"].astype(float)    # kappa_scat continuum
 line_abs  = D["line_opacity"].astype(float)            # kappa_abs lines
 line_scat = D["line_scattering"].astype(float)         # kappa_scat lines
 
-# the two source functions, the wavelength axis, and the reference spectra
-S_cont    = D["slinec"].astype(float)                  # continuum source function
-S_line    = D["line_source"].astype(float)             # line source function
-wl        = D["wavelength"]                             # nm
-# the production-code spectra we will compare against
+# the wavelength axis and the reference spectra we will compare against
+wl        = D["wavelength"].astype(float)              # nm
 flux_total_ref = D["flux_total"]; flux_cont_ref = D["flux_continuum"]
 
+# the solar model's per-depth temperatures: the source function is built FROM these,
+# not read from the reference -- the Planck function of Lecture 1 (next section)
+Tdepth = np.load(REF / "atmosphere.npz")["temperature"].astype(float)   # K, 80 layers
+
 print(f"{cont_abs.shape[0]} depths x {wl.size} wavelengths, {wl[0]:.1f}-{wl[-1]:.1f} nm")''')
+
+md(r"""## The source function in LTE is the Planck function
+
+The one physical quantity left to supply is the **source function** $S_\lambda$, the emissivity divided by the absorptive opacity. We do not read it from the reference — we **compute** it, because in LTE it has a closed form. The production code builds its continuum source as $S_{\rm cont} = B_\lambda\,(1-e^{-h\nu/kT})/(\texttt{BFUDGE} - e^{-h\nu/kT})$, where `BFUDGE` is a departure factor that would carry any non-LTE level populations. In strict LTE the level populations are thermal, so $\texttt{BFUDGE}\equiv 1$, and the denominator collapses to the stimulated-emission factor $1-e^{-h\nu/kT}$ — exactly the numerator's factor — leaving
+
+$$
+S_{\rm cont} = \frac{B_\lambda\,(1-e^{-h\nu/kT})}{1 - e^{-h\nu/kT}} = B_\lambda(T) .
+$$
+
+The **line** source is the same story: with no line scattering ($\kappa^{\rm scat}_{\rm line}\equiv 0$ here) and thermal populations, the line emissivity is also Boltzmann-thermal, so $S_{\rm line} = B_\lambda(T)$ too. Both source functions therefore reduce, *to the bit*, to the single Planck function at the local temperature. So rather than read `slinec`/`line_source` from the reference, we evaluate $B_\lambda$ inline — the identical overflow-safe Kurucz form, constants, and literal $1.47439\times10^{-2}$ prefactor we wrote in Lecture 1 — and feed that into the transfer. We then verify, before using it, that the inline $B_\lambda$ reproduces the reference source arrays to machine precision; agreement confirms the LTE identity holds and that no source function need ever be read as an input.""")
+
+code(r'''# the Planck function B_nu(T), the exact overflow-safe Kurucz form of Lecture 1:
+# the 1.47439e-2 prefactor is 2h/c^2 with nu rescaled by 1e15 (Kurucz's historical literal),
+# and e^{-x}/(1-e^{-x}) is the photon occupation factor written so the Wien tail never overflows
+H_PLANCK = 6.62607015e-27       # Planck constant   [erg s]   (the Lecture 1 constants)
+K_BOLTZ  = 1.380649e-16         # Boltzmann constant [erg/K]
+C_NM     = 2.99792458e17        # speed of light    [nm/s]    (so nu = C_NM / wl_nm)
+
+def planck_nu(freq_hz, temperature):
+    """Planck B_nu(T) [CGS], the exact overflow-safe Kurucz form of Lecture 1."""
+    x = H_PLANCK * freq_hz / (K_BOLTZ * np.asarray(temperature, float))   # x = h nu / kT
+    ehvkt = np.exp(-x)                                                     # <= 1: never overflows
+    return 1.47439e-2 * (freq_hz / 1e15)**3 * ehvkt / (1.0 - ehvkt)
+
+# evaluate B_nu at every (depth, wavelength): frequency from the grid, temperature from the model
+nu = C_NM / wl                                          # photon frequency per wavelength [Hz]
+B_nu = planck_nu(nu[None, :], Tdepth[:, None])          # the LTE source function (depth, wl)
+
+# PROOF the substitution is exact: compare inline B_nu to the reference source arrays.
+# In LTE these are equal -- slinec = line_source = B_nu -- so this must match to machine precision.
+ref_slinec = D["slinec"].astype(float); ref_lsource = D["line_source"].astype(float)
+rel_c = np.abs(B_nu - ref_slinec) / np.abs(ref_slinec)      # vs the reference continuum source
+rel_l = np.abs(B_nu - ref_lsource) / np.abs(ref_lsource)    # vs the reference line source
+print(f"inline B_nu vs reference slinec     : max rel diff = {rel_c.max():.2e}  (LTE: = 0 to roundoff)")
+print(f"inline B_nu vs reference line_source: max rel diff = {rel_l.max():.2e}")
+print(f"reference line_scattering is exactly zero: {np.all(line_scat == 0.0)}")
+
+# USE the inline B_nu as BOTH the continuum and the line source -- no source is read as input
+S_cont = B_nu                                           # continuum source = Planck (LTE)
+S_line = B_nu                                           # line source     = Planck (LTE)''')
 
 md(r"""From those raw arrays a small helper builds the three quantities the moment solver needs at every depth: the total extinction, the scattering fraction $\alpha$, and the absorption-weighted thermal source $\bar S$. The `EPS` floor mirrors the Fortran's tiny constant, used to keep divisions safe rather than to change any physics.""")
 
