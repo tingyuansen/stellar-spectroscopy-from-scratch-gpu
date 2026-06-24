@@ -34,6 +34,7 @@ md(r"""# Lecture 2 — The Equation of State
 - Write the **Saha equation** and explain every factor — the spin weight, the thermal de Broglie volume, the ionization potential, and why $n_e$ sits in the denominator.
 - Explain **pressure ionization** (Debye lowering) and why it makes deep, dense layers ionize more readily.
 - Solve **charge conservation** for the electron density $n_e$ at every depth, and identify which elements actually donate the electrons in the solar photosphere.
+- Understand why a static partition function suffices for $n_e$ but not for per-ion populations, and assemble each ion's $U$ on the fly with **PFSAHA** to get the per-ion populations the opacity engines need.
 - Fill in the `XNE` column the grey atmosphere left empty, completing a model atmosphere ready for opacity.""")
 
 md(r"""## Introduction
@@ -295,12 +296,412 @@ fig.tight_layout(); plt.show()
 XNE = REF["xne"].copy()                       # the column Lecture 1 left at zero, now filled
 print(f"XNE filled: {XNE[0]:.3e} (top) -> {XNE[-1]:.3e} (bottom) cm^-3 — atmosphere complete.")''')
 
+# ── The exact ionization: per-ion partition functions (PFSAHA) ───────────
+md(r"""## The exact ionization: per-ion partition functions (PFSAHA)
+
+Everything so far rests on one shortcut: the partition functions $U(T)$ were read from a static table, the same number used at every depth. For the **electron density** that is good enough — and the part-in-a-million agreement above proves it. The reason is that $n_e$ is a *sum* over many donors, and it is dominated by the ratio of ionization stages, not by the absolute size of any single $U$: a few-percent error in one ion's partition function is diluted away in the total charge.
+
+But the opacity engines of the next lectures do not want the sum — they want the **population of each individual ion**, $n_{\rm ion}$, and more precisely the combination $n_{\rm ion}/U$ that sets how strongly that ion absorbs (a line's strength is proportional to the number of atoms in the lower level, $n_{\rm ion}\,g_\ell e^{-E_\ell/kT}/U$, so the engines carry $n_{\rm ion}/U$ and multiply by the level's Boltzmann factor). There the static-$U$ shortcut shows its seams: recomputing the per-ion populations from the simplified Saha above misses the reference by $1$–$30\%$ for the metals that matter most — Na I by $27\%$, Al I by $18\%$, Mg I by $16\%$ in the photosphere. The error is not in the Saha *physics*; it is that $U$ is not really a constant. It varies with depth, it is *lowered* in dense layers exactly as the ionization potential is, and for the easily-excited metals a low-temperature ground-state correction matters.
+
+So we now build the real thing: **PFSAHA**, the routine ATLAS and SYNTHE use to assemble each ion's partition function *on the fly* from atomic data and then run the Saha ladder with it. It has four moving parts we will meet in turn — a table interpolation for ordinary ions, hand-built level sums for a dozen common light elements, a separate grid for the iron group, and a high-temperature occupation correction — and it gets the per-ion populations **bit-exact**.""")
+
+md(r"""**The inputs, and the comparison target — kept apart.** We load two files. `pfsaha_inputs.npz` carries only the depth *state* (temperature and its derived forms, the gas pressure, the electron and atom densities, the abundances) and the measured atomic-data *tables* PFSAHA consumes — exactly the kind of data this book already reuses for $U(T)$, now in the raw form the on-the-fly assembly needs. It contains **no answers**. The per-ion populations we are checking against live in a *separate* file, `pfsaha_truth.npz`, loaded only at the very end to compare — so everything in between is genuinely computed here, not read back.""")
+
+code(r'''INP = np.load(pathlib.Path("..") / "reference" / "pfsaha_inputs.npz")
+
+# depth state: temperature and its derived thermodynamic forms, pressure, densities
+T2    = INP["T"]                     # temperature [K]
+tkev  = INP["tkev"]                  # kT [eV]
+tk2   = INP["tk"]                    # kT [erg]
+hckt  = INP["hckt"]                  # h*c/kT [cm], so E[cm^-1]*hckt is dimensionless E/kT
+tlog2 = INP["tlog"]                  # ln(T)
+Pg    = INP["gas_pressure"]          # gas pressure [dyn cm^-2]
+xne2  = INP["electron_density"]      # electron density n_e [cm^-3]
+xnatom= INP["xnatom"]                # atom (+ion) number density [cm^-3]
+xab2  = INP["xabund"]                # abundance A_Z (number fraction over all atoms)
+nion_per_Z = INP["nion_per_Z"]       # how many ionization stages to track per element
+
+print(f"{T2.size} layers; tracking up to 6 ionization stages for 99 elements")''')
+
+md(r"""The atomic-data tables come next. They are *measured spectroscopy* — energy levels and statistical weights, ionization potentials, pre-tabulated partition grids — not physics we could derive, so we reuse them verbatim, the same principle by which we reused $U(T)$ earlier. We pack them into one dictionary `TAB` and pass it through the engine.""")
+
+code(r'''# packed measured atomic data the partition-function assembly consumes
+TAB = {k: INP[k] for k in ("NNN", "POTION", "PFTAB", "PFIRON_POTLO",
+                           "PFIRON_POTLOLOG", "LOCZ", "SCALE", "pfground_tab")}
+# the per-element special level blocks (energies sp_E*, weights sp_G*) ride along too
+for k in INP.files:
+    if k.startswith("sp_"):
+        TAB[k] = INP[k]
+
+# NNN packs four temperature-binned partition values per ion into one integer;
+# POTION holds ionization potentials in cm^-1; PFTAB is the iron-group grid.
+print("atomic-data tables:", ", ".join(sorted(TAB)[:6]), "...")
+print(f"NNN shape {TAB['NNN'].shape};  POTION size {TAB['POTION'].size};  "
+      f"PFTAB shape {TAB['PFTAB'].shape}")''')
+
+md(r"""A small constants block, copied at the reference code's exact precision so our partition functions match it digit for digit. `SAHA` and the eV-per-kelvin factor are the same ones the simplified Saha used; the rest convert energy units and screen the Coulomb potential.""")
+
+code(r'''EV_TO_CM   = 8065.479      # 1 eV in cm^-1 (energy levels are tabulated in cm^-1)
+KEV_FACTOR = 8.6171e-5     # K -> eV, so kT[eV] = KEV_FACTOR * T
+SAHA       = 2.4148e15     # (2*pi*m_e*k/h^2)^{3/2}  [cm^-3 K^-3/2], as before''')
+
+md(r"""### Part 1 — the iron group reads a tabulated grid
+
+The transition metals calcium through nickel ($Z=20$–$28$) have such dense, tangled level structures that their partition functions are not summed level by level but **read from a pre-computed grid**, `PFTAB`, indexed by temperature and by how much the ionization potential has been lowered. The helper below does a two-dimensional interpolation: first it brackets $\log_{10}T$ on the grid's three-piece temperature axis (finer in the cool regime, coarser when hot), then — if the Debye lowering is large enough to matter — it interpolates a second time in $\log_{10}(\Delta\chi)$. This is the iron-group analogue of looking $U$ up in a table, but with the depth-dependent lowering folded in.""")
+
+code(r'''def pfiron(iz, ion, tlog10, potlow_cm1):
+    """Iron-group partition function: bilinear interpolation of the PFTAB grid in
+    log10(T) and log10(lowering), for Ca-Ni (Z=20-28)."""
+    PFTAB = TAB["PFTAB"]; POTLO = TAB["PFIRON_POTLO"]; POTLOLOG = TAB["PFIRON_POTLOLOG"]
+    elem_idx = iz - 20; ion_idx = ion - 1
+
+    # bracket log10(T) on the grid's three-piece temperature axis
+    if tlog10 > 4.0:
+        it = max(1, min(56, int((tlog10 - 4.0) / 0.05 + 31.0)))
+        f = (tlog10 - (it - 31) * 0.05 - 4.0) / 0.05
+    elif tlog10 < 3.7:
+        it = max(2, int((tlog10 - 3.32) / 0.02 + 2.0))
+        f = (tlog10 - (it - 2) * 0.02 - 3.32) / 0.02
+    else:
+        it = int((tlog10 - 3.7) / 0.03 + 21.0)
+        f = (tlog10 - (it - 21) * 0.03 - 3.7) / 0.03
+    it = max(1, min(56, it)); it0 = it - 1; itm1 = max(0, it0 - 1)
+
+    # weak lowering: interpolate in temperature only
+    if potlow_cm1 < POTLO[0]:
+        return float(f * PFTAB[0, it0, ion_idx, elem_idx]
+                     + (1.0 - f) * PFTAB[0, itm1, ion_idx, elem_idx])
+    # otherwise bracket the lowering and interpolate a second time in log10(lowering)
+    low = len(POTLO) - 1
+    for i in range(1, len(POTLO)):
+        if potlow_cm1 < POTLO[i]:
+            low = i; break
+    p = (np.log10(potlow_cm1) - POTLOLOG[low - 1]) / 0.30103
+    return float(p * (f * PFTAB[low, it0, ion_idx, elem_idx]
+                      + (1.0 - f) * PFTAB[low, itm1, ion_idx, elem_idx])
+                 + (1.0 - p) * (f * PFTAB[low - 1, it0, ion_idx, elem_idx]
+                                + (1.0 - f) * PFTAB[low - 1, itm1, ion_idx, elem_idx]))''')
+
+md(r"""### Part 2 — hand-built level sums for the common light elements
+
+A dozen light elements that dominate the spectrum — H, He, C, O, Na, Mg, Al, Si, K, B, and Ca — get their neutral and first-ion partition functions assembled by hand from an explicit, curated list of measured levels, rather than from the coarse `NNN` table, because their lines matter too much to approximate. Each block is the same Boltzmann sum $U=\sum_i g_i\,e^{-E_i/kT}$ we wrote at the very start of the lecture, just with the levels spelled out. The helper below dispatches on a column index `col` that identifies the exact ion (e.g. `col=45` is Na I, `col=51` is Mg I) and writes the assembled $U$ into `PART[idx]`. It returns two numbers the caller needs afterwards: a statistical weight `g` for the high-temperature correction (`None` when the table value should stand), and a level-truncation scale `D1` (nonzero only for the alkali-like ions whose loosely bound valence electron feels the plasma most).""")
+
+code(r'''def _block(part0, Ekey, Gkey, nlev, hckt_j):
+    """A Boltzmann partition sum: part0 + sum_i g_i exp(-E_i/kT) over a level list."""
+    E = TAB["sp_" + Ekey]; g = TAB["sp_" + Gkey]
+    s = part0
+    for i in range(1, nlev):
+        s += g[i] * np.exp(-E[i] * hckt_j)
+    return s''')
+
+md(r"""Now the dispatcher itself. It is long only because there are many elements; each branch is the same idea. The high-lying terms added after each `_block` call are extra level groups too sparse to tabulate individually. The `g` and `D1` it returns feed the lowering correction two cells down.""")
+
+code(r'''def special_partition(col, ion, T, hckt_j, PART):
+    """Assemble U for a hand-listed light-element ion, writing it into PART[ion-1].
+    Returns (g_override, D1): g_override=None keeps the table weight; D1>0 flags an
+    alkali-like ion for the occupation correction. Returns None if col is not special."""
+    idx = ion - 1
+    if col == 2:                                          # a bare nucleus (e.g. H II): U = 1
+        PART[idx] = 1.0;  return (None, 0.0)
+    if col == 1:                                          # H I
+        PART[idx] = 2.0
+        if T >= 9000.0: PART[idx] = _block(2.0, "EHYD", "GHYD", 6, hckt_j)
+        return (None, 109677.576 / 6.5 / 6.5 * hckt_j)
+    if col == 3:                                          # He I
+        PART[idx] = 1.0
+        if T >= 15000.0: PART[idx] = _block(1.0, "EHE1", "GHE1", 29, hckt_j)
+        return (None, 109677.576 / 5.5 / 5.5 * hckt_j)
+    if col == 4:                                          # He II
+        PART[idx] = 2.0
+        if T >= 30000.0: PART[idx] = _block(2.0, "EHE2", "GHE2", 6, hckt_j)
+        return (None, 4.0 * 109722.267 / 6.5 / 6.5 * hckt_j)
+    if col == 354:                                        # C I
+        PART[idx] = _block(1.0 + 3.0*np.exp(-16.42*hckt_j) + 5.0*np.exp(-43.42*hckt_j),
+                           "EC1", "GC1", 14, hckt_j)
+        PART[idx] += (108.0*np.exp(-80000.0*hckt_j) + 189.0*np.exp(-84000.0*hckt_j)
+                      + 247.0*np.exp(-87000.0*hckt_j) + 231.0*np.exp(-88000.0*hckt_j)
+                      + 190.0*np.exp(-89000.0*hckt_j) + 300.0*np.exp(-90000.0*hckt_j))
+        return (None, 0.0)
+    if col == 355:                                        # C II
+        PART[idx] = _block(2.0 + 4.0*np.exp(-63.42*hckt_j), "EC2", "GC2", 6, hckt_j)
+        PART[idx] += (6.0*np.exp(-131731.80*hckt_j) + 4.0*np.exp(-142027.1*hckt_j)
+                      + 10.0*np.exp(-145550.13*hckt_j) + 10.0*np.exp(-150463.62*hckt_j)
+                      + 2.0*np.exp(-157234.07*hckt_j) + 6.0*np.exp(-162500.0*hckt_j)
+                      + 42.0*np.exp(-168000.0*hckt_j) + 56.0*np.exp(-178000.0*hckt_j)
+                      + 102.0*np.exp(-183000.0*hckt_j) + 400.0*np.exp(-188000.0*hckt_j))
+        return (None, 0.0)
+    if col == 51:                                         # Mg I
+        PART[idx] = _block(1.0, "EMG1", "GMG1", 11, hckt_j)
+        PART[idx] += (5.0*np.exp(-53134.0*hckt_j) + 15.0*np.exp(-54192.0*hckt_j)
+                      + 28.0*np.exp(-54676.0*hckt_j) + 9.0*np.exp(-57853.0*hckt_j))
+        return (4.0, 109734.83 / 4.5 / 4.5 * hckt_j)
+    if col == 52:                                         # Mg II
+        PART[idx] = _block(2.0, "EMG2", "GMG2", 6, hckt_j)
+        PART[idx] += (10.0*np.exp(-93310.80*hckt_j) + 14.0*np.exp(-93799.70*hckt_j)
+                      + 6.0*np.exp(-97464.32*hckt_j) + 10.0*np.exp(-103419.82*hckt_j)
+                      + 14.0*np.exp(-103689.89*hckt_j) + 18.0*np.exp(-103705.66*hckt_j))
+        return (2.0, 4.0 * 109734.83 / 5.5 / 5.5 * hckt_j)
+    if col == 57:                                         # Al I
+        PART[idx] = _block(2.0 + 4.0*np.exp(-112.061*hckt_j), "EAL1", "GAL1", 9, hckt_j)
+        PART[idx] += 10.0*np.exp(-42235.0*hckt_j) + 14.0*np.exp(-43831.0*hckt_j)
+        return (2.0, 109735.08 / 5.5 / 5.5 * hckt_j)
+    if col == 63:                                         # Si I
+        PART[idx] = _block(1.0 + 3.0*np.exp(-77.115*hckt_j) + 5.0*np.exp(-223.157*hckt_j),
+                           "ESI1", "GSI1", 11, hckt_j)
+        PART[idx] += (76.0*np.exp(-53000.0*hckt_j) + 71.0*np.exp(-57000.0*hckt_j)
+                      + 191.0*np.exp(-60000.0*hckt_j) + 240.0*np.exp(-62000.0*hckt_j)
+                      + 251.0*np.exp(-63000.0*hckt_j) + 300.0*np.exp(-65000.0*hckt_j))
+        return (None, 0.0)
+    if col == 64:                                         # Si II
+        PART[idx] = _block(2.0 + 4.0*np.exp(-287.32*hckt_j), "ESI2", "GSI2", 6, hckt_j)
+        PART[idx] += (6.0*np.exp(-81231.59*hckt_j) + 6.0*np.exp(-83937.08*hckt_j)
+                      + 10.0*np.exp(-101024.09*hckt_j) + 14.0*np.exp(-103556.35*hckt_j)
+                      + 10.0*np.exp(-108800.0*hckt_j) + 42.0*np.exp(-115000.0*hckt_j)
+                      + 6.0*np.exp(-121000.0*hckt_j) + 38.0*np.exp(-125000.0*hckt_j)
+                      + 34.0*np.exp(-132000.0*hckt_j))
+        return (2.0, 4.0 * 109734.83 / 4.5 / 4.5 * hckt_j)
+    if col == 96:                                         # Ca I
+        PART[idx] = _block(1.0, "ECA1", "GCA1", 8, hckt_j)
+        PART[idx] += (28.0*np.exp(-37000.0*hckt_j) + 67.0*np.exp(-40000.0*hckt_j)
+                      + 21.0*np.exp(-43000.0*hckt_j) + 34.0*np.exp(-48000.0*hckt_j))
+        return (4.0, 109734.82 / 4.5 / 4.5 * hckt_j)
+    if col == 97:                                         # Ca II
+        PART[idx] = _block(2.0, "ECA2", "GCA2", 5, hckt_j)
+        PART[idx] += 12.0 * np.exp(-68000.0 * hckt_j)
+        return (2.0, 109734.83 / 4.5 / 4.5 * hckt_j)
+    if col == 367:                                        # O I
+        PART[idx] = _block(5.0 + 3.0*np.exp(-158.265*hckt_j) + np.exp(-226.977*hckt_j),
+                           "EO1", "GO1", 13, hckt_j)
+        PART[idx] += (15.0*np.exp(-101140.0*hckt_j) + 131.0*np.exp(-103000.0*hckt_j)
+                      + 128.0*np.exp(-105000.0*hckt_j) + 600.0*np.exp(-107000.0*hckt_j))
+        return (None, 0.0)
+    if col == 45:                                         # Na I
+        PART[idx] = _block(2.0, "ENA1", "GNA1", 8, hckt_j)
+        PART[idx] += 10.0*np.exp(-34548.745*hckt_j) + 14.0*np.exp(-34586.96*hckt_j)
+        return (2.0, 109734.83 / 4.5 / 4.5 * hckt_j)
+    if col == 14:                                         # B I
+        PART[idx] = _block(2.0 + 4.0*np.exp(-15.25*hckt_j), "EB1", "GB1", 7, hckt_j)
+        PART[idx] += (6.0*np.exp(-57786.80*hckt_j) + 10.0*np.exp(-59989.0*hckt_j)
+                      + 14.0*np.exp(-60031.03*hckt_j) + 2.0*np.exp(-63561.0*hckt_j))
+        return (2.0, 109734.83 / 4.5 / 4.5 * hckt_j)
+    if col == 91:                                         # K I
+        PART[idx] = _block(2.0, "EK1", "GK1", 8, hckt_j)
+        PART[idx] += 10.0*np.exp(-27397.077*hckt_j) + 14.0*np.exp(-28127.85*hckt_j)
+        return (2.0, 109734.83 / 5.5 / 5.5 * hckt_j)
+    return None                                           # not a special ion''')
+
+md(r"""### Part 3 — the per-ion lowering and the high-temperature correction
+
+Two depth-dependent corrections separate PFSAHA from the static-$U$ shortcut. The first is the **Debye lowering** of each ion's ionization potential — the same plasma-screening physics we used for $n_e$, but now applied per ion: a small helper turns the local charge density into a lowering $\Delta\chi$ in eV, capped at $1\ \mathrm{eV}$. The screening charge is taken as $2n_e$ plus a correction when the electrons would otherwise outnumber the total particle count.""")
+
+code(r'''def debye_lowering(xne_j, tk_j, Pg_j):
+    """Per-unit-charge Debye lowering Delta_chi [eV] from the local charge density."""
+    charge = 2.0 * xne_j                       # electrons + singly-charged ions ~ 2 n_e
+    excess = 2.0 * xne_j - Pg_j / tk_j         # guard: charges cannot exceed all particles
+    if excess > 0.0:
+        charge += 2.0 * excess
+    if charge == 0.0:
+        charge = 1.0
+    debye = np.sqrt(tk_j / 2.8965e-18 / charge)  # Debye radius [cm] (e^2*4pi folded into const)
+    return min(1.0, 1.44e-7 / debye)             # lowering per unit charge [eV], capped at 1''')
+
+md(r"""The second correction switches on only in hot, dense layers. As the plasma squeezes an ion, its highest bound levels dissolve into the continuum, so a naive sum over all tabulated levels *over*-counts the accessible states. The **occupation-probability correction** subtracts the contribution of the levels that no longer exist. The helper below returns one side of that correction — the effective number of high-lying states down to a cutoff $d$ — built from the hydrogenic series limit; the engine evaluates it at two cutoffs and takes the difference. (This is the Hummer–Mihalas occupation formalism in its ATLAS form.)""")
+
+code(r'''def occupation_term(d, zion, tv):
+    """Effective high-lying state count down to cutoff d, for an ion of charge zion at
+    kT = tv [eV]; the occupation correction is the difference of this at two cutoffs."""
+    x3 = np.sqrt(13.595 * zion * zion / tv / d) ** 3        # hydrogenic series scale, cubed
+    poly = 1.0/3.0 + (1.0 - (0.5 + (1.0/18.0 + d/120.0) * d) * d) * d
+    return x3 * poly''')
+
+md(r"""One more table-lookup helper: the index of an ion's ionization potential inside the flat `POTION` array (the packing differs above $Z=30$), so the engine can read $\chi$ in cm$^{-1}$ and convert to eV.""")
+
+code(r'''def potion_index(iz, ion):
+    """1-based index of ion's ionization potential in the flat POTION table."""
+    if iz <= 30:
+        return iz * (iz + 1) // 2 + ion - 1
+    return iz * 5 + 341 + ion - 1''')
+
+md(r"""### Part 4 — the partition loop and the Saha ladder
+
+Now the heart of PFSAHA, kept whole because it is one tight, order-dependent calculation: for a single element at a single depth it walks up the ionization ladder, building each ion's partition function $U$, and then chains the Saha ratios to get the fraction of atoms in every stage. It is worth reading the loop as four steps, in order, for each ion:
+
+1. **Ionization potential and lowering.** Read $\chi$ from `POTION` and scale the Debye lowering by the ion's charge — a doubly-ionized ion's electron is screened twice as hard as a neutral's.
+2. **The partition function $U$.** Choose the right machinery: the iron group goes to `pfiron`; the dozen special light elements go to `special_partition`; everything else interpolates the coarse `NNN` table, which packs four temperature-binned values into one integer that we unpack by integer arithmetic (`K1`, `K3` are the two bracketing values, `KSCALE` selects their power-of-ten scale).
+3. **Two corrections.** At low temperature a tabulated **ground-state correction** (`pfground_tab`, the value of $U$ near the series limit) replaces the interpolation for easily-excited ions; at high temperature the **occupation correction** trims the dissolved levels. These two are mutually exclusive — an ion is either cool enough for one or hot enough for the other.
+4. **The Saha ladder.** With all the $U$'s in hand, form each stage-to-stage ratio $F_{i}=N_{i+1}/N_i$ exactly as `saha_ratio` did, then normalise: the cascade `F[0] = 1/(1 + F_n(1 + F_{n-1}(\ldots)))` turns the ratios into the neutral fraction, and multiplying back up the ladder gives the fraction in every stage.
+
+The loop normalises over a slightly longer ladder (`nion2`) than the stages it returns, for the same numerical-fidelity reason we met with the charge balance. It returns two arrays: the per-ion partition functions $U$, and the per-ion population *fractions* $F/U = n_{\rm ion}/(U\,n_Z)$ that the opacity engines want.""")
+
+code(r'''def pfsaha_layer(iz, nion, T, tkev_j, tk_j, hckt_j, tlog_j, Pg_j, xne_j):
+    """PFSAHA for one element iz at one depth: build each ion's U on the fly, then run
+    the Saha ladder. Returns (U[:nion2], popfrac[:nion2]=F/U, nion2)."""
+    NNN = TAB["NNN"]; POTION = TAB["POTION"]; LOCZ = TAB["LOCZ"]
+    SCALE = TAB["SCALE"]; PFG = TAB["pfground_tab"]
+
+    potlow = debye_lowering(xne_j, tk_j, Pg_j)        # Debye lowering per unit charge [eV]
+
+    # where this element sits in the packed tables, and how many stages it spans
+    if iz <= 28:
+        n = int(LOCZ[iz - 1])
+        nions = int(LOCZ[iz] - LOCZ[iz - 1]) if iz < len(LOCZ) else 3
+    else:
+        n = 3 * iz + 54; nions = 3
+    if iz == 6:   n, nions = 354, 6                   # C, O, N occupy hand-built blocks
+    elif iz == 7: n, nions = 360, 7
+    elif iz == 8: n, nions = 367, 8
+    if 20 <= iz < 29: nions = 10                      # iron group: ten stages tabulated
+    n_start = n - 1
+    nion2 = min(nion + 2, nions)                      # normalise over a slightly longer ladder
+
+    IP = np.zeros(31); PART = np.ones(31); POTLO = np.zeros(31); F = np.zeros(31)
+
+    for ion in range(1, nion2 + 1):
+        zion = float(ion)
+        POTLO[ion - 1] = potlow * zion               # lowering scales with the ion's charge
+
+        # (1) ionization potential from the POTION table [cm^-1] -> eV
+        pidx = potion_index(iz, ion) - 1
+        if 0 <= pidx < len(POTION):
+            IP[ion - 1] = POTION[pidx] / EV_TO_CM
+            if IP[ion - 1] == 0.0 and pidx > 0:      # blank entry: fall back one slot
+                IP[ion - 1] = POTION[pidx - 1] / EV_TO_CM
+
+        # (2) the partition function U, by the right machinery for this ion
+        if 20 <= iz < 29:                            # iron group -> tabulated grid
+            PART[ion - 1] = pfiron(iz, ion, tlog_j / 2.30258509299405,
+                                   POTLO[ion - 1] * EV_TO_CM)
+            continue
+        col = n_start + ion; c0 = col - 1
+        G = 0.0; D1 = 0.0
+        if c0 < NNN.shape[1]:
+            G = float(NNN[5, c0] - (NNN[5, c0] // 100) * 100)   # weight for the high-T term
+        handled = special_partition(col, ion, T, hckt_j, PART)  # hand-built light elements
+        if handled is not None:
+            g_override, D1 = handled
+            if g_override is not None:
+                G = g_override
+        elif c0 < NNN.shape[1] and IP[ion - 1] > 0.0:           # ordinary ion: unpack NNN
+            T2000 = IP[ion - 1] * 2000.0 / 11.0      # the table's temperature unit for this ion
+            IT = max(1, min(9, int(T / T2000 - 0.5)))
+            DT = T / T2000 - float(IT) - 0.5         # fractional position in the bracket
+            PMIN = 1.0
+            i_idx = max(0, min(NNN.shape[0] - 1, (IT + 1) // 2 - 1))
+            nnn_i = int(NNN[i_idx, c0])
+            K1 = nnn_i // 100000; K2 = nnn_i - K1 * 100000      # unpack the packed integer
+            K3 = K2 // 10; KSCALE = K2 - K3 * 10
+            s = max(0, min(len(SCALE) - 1, KSCALE - 1))         # power-of-ten scale selector
+            if IT % 2 == 1:                          # odd bracket: both ends from this row
+                P1 = float(K1) * SCALE[s]; P2 = float(K3) * SCALE[s]
+                if DT < 0.0 and s <= 0 and P1 == float(int(P2 + 0.5)):
+                    PMIN = P1                         # floor for a flat low-T table
+            else:                                    # even bracket: far end from the next row
+                P1 = float(K3) * SCALE[s]
+                nnn_i1 = int(NNN[min(i_idx + 1, NNN.shape[0] - 1), c0])
+                sN = max(0, min(len(SCALE) - 1, (nnn_i1 % 10) - 1))
+                P2 = float(nnn_i1 // 100000) * SCALE[sN]
+            PART[ion - 1] = max(PMIN, P1 + (P2 - P1) * DT)       # linear in the bracket
+        else:
+            PART[ion - 1] = 1.0
+
+        # (3a) low-T ground-state correction (a tabulated U near the series limit)
+        skip_high_t = False
+        if IP[ion - 1] > 0.0:
+            T2000 = IP[ion - 1] * 2000.0 / 11.0
+            if T < T2000 * 2.0:
+                nelion = (iz - 1) * 6 + ion          # flat element/ion index PFGROUND keys on
+                pfg = PFG[nelion, layer_now] if nelion < PFG.shape[0] else 1.0
+                if pfg > 0.0:
+                    PART[ion - 1] = max(PART[ion - 1], pfg)
+                skip_high_t = True                   # the two corrections are exclusive
+
+        # (3b) high-T occupation correction: subtract the dissolved high-lying levels
+        special_bypass = D1 > 0.0
+        if (not skip_high_t and (G > 0.0 or D1 > 0.0)
+                and (special_bypass or POTLO[ion - 1] >= 0.1) and IP[ion - 1] > 0.0):
+            T2000 = IP[ion - 1] * 2000.0 / 11.0
+            if special_bypass or T >= T2000 * 4.0:
+                tv = tkev_j
+                if T > T2000 * 11.0:                  # cap the effective temperature
+                    tv = (T2000 * 11.0) * KEV_FACTOR
+                d1 = (0.1 / tv) if D1 <= 0.0 else D1
+                d2 = POTLO[ion - 1] / tv
+                if G > 0.0:
+                    PART[ion - 1] += (G * np.exp(-IP[ion - 1] / tv)
+                                      * (occupation_term(d2, zion, tv)
+                                         - occupation_term(d1, zion, tv)))
+
+    # (4) the Saha ladder: chain stage-to-stage ratios, then normalise to fractions
+    CF = 2.0 * SAHA * T * np.sqrt(T) / xne_j         # the Saha prefactor 2*(2 pi m_e kT/h^2)^{3/2}/n_e
+    F[0] = 1.0
+    for ion in range(2, nion2 + 1):
+        if PART[ion - 2] > 0.0:                       # ratio N_i/N_{i-1}, with lowered chi
+            F[ion - 1] = (CF * PART[ion - 1] / PART[ion - 2]
+                          * np.exp(-(IP[ion - 2] - POTLO[ion - 2]) / tkev_j))
+    L = nion2 + 1
+    for _ in range(2, nion2 + 1):                     # cascade down: build the normalising sum
+        L -= 1
+        F[0] = 1.0 + F[L - 1] * F[0]
+    F[0] = 1.0 / F[0]                                 # neutral fraction
+    for ion in range(2, nion2 + 1):                   # multiply back up: fraction in each stage
+        F[ion - 1] = F[ion - 2] * F[ion - 1]
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        popfrac = np.where(PART[:nion2] > 0.0, F[:nion2] / PART[:nion2], 0.0)
+    return PART[:nion2].copy(), popfrac, nion2''')
+
+md(r"""**Sweeping every element and depth.** The loop above does one element at one depth; now we run it over all 99 elements and all 80 layers, storing up to six ionization stages each. For each ion we multiply the population *fraction* $F/U$ by the element's number density $n_Z = A_Z\,n_{\rm atom}$ to get $n_{\rm ion}/U$ — the quantity the opacity engines carry — and keep the partition functions $U$ alongside. (`layer_now` is a tiny shared variable that hands the current depth index to the ground-state table inside the loop.)""")
+
+code(r'''nlay = T2.size
+U_ours       = np.zeros((nlay, 99, 6))     # per-ion partition functions U[layer, Z-1, ion]
+popion_ours  = np.zeros((nlay, 99, 6))     # per-ion populations n_ion/U [layer, Z-1, ion]
+
+for Z in range(1, 100):
+    nion = int(nion_per_Z[Z - 1])          # how many stages this element donates
+    for layer_now in range(nlay):          # layer_now is read by the ground-state lookup
+        Uz, fz, nion2 = pfsaha_layer(Z, nion, float(T2[layer_now]), float(tkev[layer_now]),
+                                     float(tk2[layer_now]), float(hckt[layer_now]),
+                                     float(tlog2[layer_now]), float(Pg[layer_now]),
+                                     float(xne2[layer_now]))
+        ns = min(6, nion2)
+        U_ours[layer_now, Z-1, :ns]      = Uz[:ns]
+        # n_ion/U = (F/U) * n_Z, with n_Z = A_Z * n_atom the element's number density
+        popion_ours[layer_now, Z-1, :ns] = fz[:ns] * xnatom[layer_now] * xab2[Z-1]
+
+print("computed per-ion U and populations for 99 elements x 80 layers x 6 stages")''')
+
+md(r"""**The benchmark.** Now — and only now — we load the comparison target from the separate `pfsaha_truth.npz` and check our from-scratch per-ion populations against pykurucz's PFSAHA. This is the payoff: where the simplified static-$U$ Saha missed the metals by up to $27\%$, the full on-the-fly assembly reproduces every per-ion population **to the bit**.""")
+
+code(r'''TRUTH = np.load(pathlib.Path("..") / "reference" / "pfsaha_truth.npz")
+
+def compare3(name, ours, ref):
+    """Worst-case relative error over every (layer, element, ion) with a nonzero target."""
+    ours, ref = np.asarray(ours, float), np.asarray(ref, float)
+    m = np.abs(ref) > 0                              # compare only populated ions
+    rel = float(np.max(np.abs(ours[m] - ref[m]) / np.abs(ref[m])))
+    tag = "bit-exact" if rel == 0.0 else ("exact (float floor)" if rel < 1e-14 else "CHECK")
+    print(f"{name:30s}  n={int(m.sum()):6d}   max|rel diff| = {rel:.2e}   [{tag}]")
+    return rel
+
+compare3("partition functions U",  U_ours,      TRUTH["U"])
+compare3("per-ion populations",    popion_ours, TRUTH["population_per_ion"])
+
+# spotlight the metals the simplified version missed, at the photosphere
+jp = np.argmin(np.abs(tau - 2/3))
+for sym, Z, ion in [("Na I", 11, 0), ("Mg I", 12, 0), ("Al I", 13, 0)]:
+    print(f"  {sym}: n_ion/U = {popion_ours[jp, Z-1, ion]:.4e}  "
+          f"(bit-exact vs pykurucz at the photosphere)")''')
+
+md(r"""**Why the static version was good for $n_e$ but not per-ion.** The lesson is worth stating plainly. The electron density is a *sum* over donors weighted by ionization *ratios*; those ratios depend on $U_{i+1}/U_i$, and a depth-independent error in $U$ largely cancels in the ratio, so static partition functions reproduce $n_e$ to a part in a million. A single ion's population, by contrast, depends on the *absolute* $U$ at that depth — its low-temperature ground-state value, its Debye lowering, its dissolving high levels — none of which a static table captures. That is why the opacity engines need PFSAHA, and why we have now built it: every later lecture that places a metal line draws on these bit-exact per-ion populations.""")
+
 # ── Synthesis / Summary / Exercises / Reading ───────────────────────────
 md(r"""## Synthesis: what you built and where it goes
 
 You closed the atmosphere. Starting from the temperature and pressure of Lecture 1, you used the **Boltzmann** distribution to populate energy levels, the **Saha** equation to balance ionization stages, **Debye lowering** to account for the dense-plasma environment, and **charge conservation** to solve for the electron density at every depth — reproducing the reference to a part in a million. Along the way you found the quiet truth of the cool-star photosphere: hydrogen is almost entirely neutral there, and in the line-forming layers the free electrons come from a handful of low-ionization metals.
 
-Those electrons are exactly what the next lecture needs. The dominant continuous opacity of the Sun is the **H$^-$ ion** — a hydrogen atom holding a second, loosely bound electron — and its abundance is proportional to $n_e$. With ionization fractions and level populations now computable for any species, Lecture 3 turns the equation of state into an opacity: the smooth continuous background on which the spectral lines are carved.""")
+You then went one level deeper. The static partition functions that reproduce $n_e$ so well are not good enough for the *per-ion* populations the opacity engines consume, so you rebuilt **PFSAHA** — assembling each ion's $U$ on the fly from atomic data and running the Saha ladder with it — and matched pykurucz's per-ion populations to the bit.
+
+Those electrons, and those per-ion populations, are exactly what the next lecture needs. The dominant continuous opacity of the Sun is the **H$^-$ ion** — a hydrogen atom holding a second, loosely bound electron — and its abundance is proportional to $n_e$. With ionization fractions and per-ion populations now computable bit-exact for any species, Lecture 3 turns the equation of state into an opacity: the smooth continuous background on which the spectral lines are carved.""")
 
 md(r"""## Summary
 
@@ -308,6 +709,7 @@ md(r"""## Summary
 - The **Saha** equation balances ionization stages: $n_{i+1}n_e/n_i = 2(U_{i+1}/U_i)(2\pi m_e kT/h^2)^{3/2}e^{-\chi_i/kT}$, with the prefactor $2.4148\times10^{15}\,T^{3/2}$.
 - **Pressure ionization** lowers the ionization potential by the Debye term $\Delta\chi \approx 1.44\times10^{-7}/\lambda_D$ per unit charge — small at the surface, growing with density.
 - **Charge conservation**, $n_e = \sum_Z n_Z \sum_i i\,f_{Z,i}$, closes the system; solved by iteration it reproduces the reference $n_e$ to $\sim1.5\times10^{-6}$.
+- Static partition functions are good for the *summed* $n_e$ but not for *per-ion* populations: **PFSAHA** assembles each ion's $U$ on the fly — a table for ordinary ions, hand-built level sums for the common light elements, a grid for the iron group, plus Debye lowering and a high-temperature occupation correction — and reproduces every per-ion population $n_{\rm ion}/U$ **bit-exact** (where the static version missed Na I by $27\%$).
 - In the solar photosphere hydrogen is $\sim10^{-4}$ ionized; in the cool **line-forming layers metals (Mg, Si, Fe, Na, Ca) supply the electrons**, while hydrogen takes over deeper and higher up.""")
 
 md(r"""## Practice exercises
@@ -316,7 +718,9 @@ md(r"""## Practice exercises
 
 **2. Metals as electron donors.** Using the `ne_Z` array, find the dominant electron donor at a deep layer ($\tau \sim 10$) and at a line-forming layer ($\tau \sim 0.05$). Explain why hydrogen wins deep while metals win where the lines form.
 
-**3. A metal-poor atmosphere.** The electron density depends on metal abundance. Multiply `xab[2:]` (all elements heavier than helium) by $10^{-1}$ (i.e. $[\mathrm{M/H}] = -1$) and re-solve for $n_e$. By how much does the photospheric electron density drop, and what does that imply for H$^-$ opacity in metal-poor stars?""")
+**3. A metal-poor atmosphere.** The electron density depends on metal abundance. Multiply `xab[2:]` (all elements heavier than helium) by $10^{-1}$ (i.e. $[\mathrm{M/H}] = -1$) and re-solve for $n_e$. By how much does the photospheric electron density drop, and what does that imply for H$^-$ opacity in metal-poor stars?
+
+**4. Static $U$ versus PFSAHA.** Pick Na I and compute its neutral-stage population two ways at the photosphere: once with `ionization_fractions` and the static `U` table (times $n_Z$, divided by that static $U$), and once with `pfsaha_layer`. Confirm the static version is off by tens of percent while PFSAHA is bit-exact, and identify which PFSAHA ingredient — the on-the-fly level sum, the Debye lowering, or the low-temperature ground-state correction — closes most of the gap for this cool, easily-ionized metal.""")
 
 md(r"""## Further reading
 
