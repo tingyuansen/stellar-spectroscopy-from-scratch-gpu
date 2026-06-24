@@ -143,7 +143,7 @@ def ask_gemini(images):
 
 
 if __name__ == "__main__":
-    ns = [int(a) for a in sys.argv[1:] if a.isdigit()] or list(range(1, 14))
+    ns = [int(a) for a in sys.argv[1:] if a.isdigit()] or list(range(1, 15))
     for n in ns:
         images, notes = collect_images(n)
         manifest = f"Lecture {n} — {len(images)} images sent\n" + "\n".join(notes)

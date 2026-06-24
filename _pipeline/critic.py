@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """Cross-check each lecture with two independent LLM critics — GPT-5.5 (via LiteLLM) and
-Gemini-3.5-flash (via google.genai) — for ACCURACY, ACCESSIBILITY, and PEDAGOGY.
+Gemini-3.1-pro (via google.genai) — for ACCURACY, ACCESSIBILITY, and PEDAGOGY.
 
 Writes one report per lecture+model to _pipeline/critic_reports/. It does NOT edit any
 lecture — a human (or a follow-up pass) reads the reports and applies prose-only fixes.
@@ -76,7 +76,7 @@ def ask_gemini(body):
     return g.models.generate_content(model=GEM_MODEL, contents=PROMPT.format(body=body)).text
 
 if __name__ == "__main__":
-    ns = [int(a) for a in sys.argv[1:] if a.isdigit()] or list(range(1, 10))
+    ns = [int(a) for a in sys.argv[1:] if a.isdigit()] or list(range(1, 15))
     for n in ns:
         body = lecture_text(n)
         for tag, fn in (("gpt55", ask_gpt), ("gemini", ask_gemini)):
