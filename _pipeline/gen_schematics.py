@@ -63,10 +63,11 @@ FIGS = {
  "s5_linelist.png":
    "Building total line opacity from a line list. Left: a small table 'LINE LIST' with columns 'wavelength, log gf, "
    "excitation, damping' and a few rows. An arrow 'sum each line's Voigt profile onto the grid'. Right: a plot with "
-   "y-axis 'line opacity' and x-axis 'wavelength', showing many narrow opacity SPIKES pointing UPWARD from a near-zero "
-   "baseline (opacity is LARGE at each line centre — upward peaks, NOT downward dips), of different heights, a 'forest' of "
-   "upward spikes. A dashed horizontal threshold line near the baseline (amber) labeled 'CUTOFF: skip lines below 1e-3 of "
-   "the continuum', with one faint short upward spike below it crossed out. Caption 'a million Voigt profiles, summed'." + S,
+   "y-axis 'line opacity / continuum' and x-axis 'wavelength', showing many narrow opacity SPIKES pointing UPWARD from a "
+   "near-zero baseline (opacity is LARGE at each line centre — upward peaks, NOT downward dips), of different heights, a "
+   "'forest' of upward spikes. A dashed horizontal threshold line near the baseline (amber) labeled 'CUTOFF = 1e-3 of "
+   "the continuum'. One faint short upward spike whose PEAK STAYS BELOW the dashed cutoff line is crossed out (it is "
+   "skipped because its peak falls below the threshold). Caption 'a million Voigt profiles, summed'." + S,
  "s5b_stark.png":
    "Stark broadening of hydrogen lines by the plasma microfield. CENTER: a single hydrogen atom (one proton '+' with "
    "one electron on a circular orbit) sitting among nearby charged particles — several small '+' ions and '-' electrons "
@@ -87,7 +88,8 @@ FIGS = {
    "dip aligned to the line sightline. Caption 'a line lets us see a higher, cooler layer (Eddington-Barbier)'." + S,
  "s7_josh.png":
    "A left-to-right flow of the JOSH moment radiative-transfer solver, five rounded boxes joined by arrows. "
-   "Box 1 'OPACITY per depth: absorption, scattering, source B'. Arrow to box 2 'OPTICAL DEPTH: integrate over column mass'. "
+   "Box 1 'PER DEPTH: opacity (absorption + scattering) and the Planck source B_nu' (B_nu is the SOURCE function, listed "
+   "alongside the opacity, NOT as an opacity). Arrow to box 2 'OPTICAL DEPTH: integrate over column mass'. "
    "Arrow to box 3 'MAP onto fixed grid: 51 Eddington depth points'. Arrow to box 4 'LAMBDA-ITERATION: S = (1-a) B + a J, "
    "scattering fraction a' with a small curved loop-back arrow above it labeled 'repeat until converged' (this box 4 is the "
    "single amber element, the heart of the method). Arrow to box 5 'SURFACE FLUX: weighted sum over depth'. "
