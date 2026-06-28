@@ -54,7 +54,7 @@ Every ported computation ships with a **comparison cell** against the numpy twin
 
 ## 6. References every port consumes
 - **The numpy twin** (the fp64 truth + parity target): `~/Stellar_Spectroscopy_From_Scratch/<lecture>`.
-- **The torch starting point** (READ-ONLY, BORROW it): kgpu `~/pykurucz_gpu` already has a validated torch/MPS implementation of most components — *our partial success*. **Start from it** — pedagogically reduce/clean kgpu's working torch into bite-size readable cells; do NOT regenerate the physics from scratch. The numpy twin is the parity oracle; kgpu's torch is the working basis.
+- **kgpu's torch = a READ-ONLY ALGORITHM reference, but the lecture is SELF-CONTAINED.** kgpu (`~/pykurucz_gpu`) has a validated torch/MPS implementation of most components — *our partial success*. READ it to learn the algorithm, then write the lecture's OWN self-contained torch (pedagogically reduced into bite-size cells). The lecture must **NEVER `import kgpu`** — it builds its own code, exactly as the numpy book builds its own numpy. **Relationship: kgpu = an ASSEMBLY of the GPU textbook's building blocks (textbook → kgpu), not the textbook importing kgpu.** So each lecture is an INDEPENDENTLY-SQUEEZABLE self-contained block whose optimizations port BACK to kgpu — that is precisely where kgpu's squeeze ideas come from. The numpy twin is the parity oracle; kgpu's torch is the algorithm reference, not an import.
 - **This bible** + the per-lecture port spec.
 - Never modify `~/Stellar_Spectroscopy_From_Scratch`, `~/pykurucz_gpu`, or `~/pykurucz`.
 
@@ -72,4 +72,14 @@ Multiple agents write this repo on **disjoint files**. Before every push: `git p
 Once a lecture reaches parity, run an **optimization-squeeze pass** with the external API, lecture by lecture — this is the book's analogue of the kgpu vectorization audit. Ask GPT-5.5 / Gemini, iteratively, "what is the next bottleneck, and how do we remove it?" and apply: eliminate any remaining loop, fuse adjacent kernels, precompute and reuse invariants, replace a torch dispatch storm with a Metal kernel, pick a better memory layout / contiguity.
 - **Every optimization is re-validated against the numpy twin (the §1 parity gate) AND timed** (record the before/after wall-clock or dispatch count). Adopt only those that hold parity.
 - **Document each in the lecture** — the "why this is faster" is core pedagogy for a GPU book.
-- Keep squeezing until the lecture is fully MPS-vectorized with **no un-justified loop left** and the hot path is at its kernel optimum. The external API drives the rewrites; Claude reviews each accepted change against parity + timing.
+- Keep squeezing until the lecture is fully MPS-vectorized with **no un-justified loop left** and the hot path is at its kernel optimum. The external API drives the rewrites; Claude reviews each accepted change against parity + timing. (NOTE: the squeeze is a SEPARATE, Claude-reviewed pass after the port reaches parity — NOT inline — because the API's squeeze judgment is unreliable: it once regressed a vectorized kernel to a scalar host-loop just to pass parity. Ship the parity-passing vectorized port first; squeeze + review after.)
+
+## 10. FINAL ACCEPTANCE CRITERIA — every lecture gated against ALL (user, definitive)
+1. **No information drop.** Covers the original numpy lecture's FULL material — every physics piece, every section, the schematic; nothing dropped (the completeness gate, §1).
+2. **As GPU-native as possible** — torch-native throughout (§2), including trivial calcs.
+3. **Maximum squeezing** — no silly loops, no inefficient slicing/indexing, no numpy where a torch alternative exists (the vectorization lint, §2.2).
+4. **Follow kgpu's implementation** where possible (clear 1:1 correspondence) AND flag anything learned here to port BACK to kgpu — bidirectional; these become kgpu's squeeze ideas.
+5. **Parity, no breaking** — both the lecture AND any proposed kgpu back-port are parity-tested against the original (numpy twin / pyk); nothing breaks.
+6. **Format may change** where the original narrative is genuinely at odds with the GPU-narrative — there the GPU story (loop→tensor, the precision budget, kernel choices) WINS; don't force GPU code into a numpy-shaped narrative. Preserve the original where it fits.
+7. **House style** still applies — bite-size cells, spacing between code, well-commented code, walk-through markdown between cells, the closing sections.
+8. **Orchestration** — the external APIs do the expensive generation + iterations; Claude orchestrates + gates; a final Claude read-through at the very end (gates green + token-efficient) catches what the automated gates can't.
