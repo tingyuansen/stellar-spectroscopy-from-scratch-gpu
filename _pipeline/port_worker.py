@@ -1121,6 +1121,695 @@ print(f"TIME {best*1e3:.6f}")
 '''
 
 
+# ============================================================================
+#  LECTURE 12 — molecular equilibrium + TiO band opacity
+# ============================================================================
+_L12_NUMPY = r'''
+# --- L12 numpy twin: TiO molecular band opacity (verify_molecules.py) ---
+KB = 1.380649e-16; AMU = 1.66053906660e-24; C_CMS = 2.99792458e10
+C_NM = 2.99792458e17; H_PLANCK = 6.62607015e-27; CUTOFF = 1e-3
+NELION_MASS = {240: 2.0, 246: 13.0, 258: 17.0, 264: 24.0, 270: 26.0,
+               324: 43.0, 342: 41.0, 366: 64.0, 372: 67.0, 432: 52.0, 492: 24.0}
+
+def molecular_dopple(T, vturb, mass):
+    thermal = np.sqrt(2.0 * KB * T / (mass * AMU)) / C_CMS
+    return np.sqrt(thermal ** 2 + (vturb / C_CMS) ** 2)
+
+def voigt(v, a, h0, h1, h2):
+    v = np.asarray(v, dtype=np.float64); a = np.asarray(a, dtype=np.float64)
+    av = np.abs(v)
+    iv = np.clip((av * 200.0 + 0.5).astype(np.int64), 0, h0.size - 1)
+    H0 = h0[iv]; H1 = h1[iv]; H2 = h2[iv]
+    small = (H2 * a + H1) * a + H0
+    with np.errstate(divide="ignore", invalid="ignore"):
+        small = np.where(av > 10.0, 0.5642 * a / (v * v), small)
+    aa = a * a; vv = v * v
+    u = (aa + vv) * 1.4142
+    far = a * 0.79788 / u
+    aau = aa / u; vvu = vv / u; uu = u * u
+    far_full = ((((aau - 10.0 * vvu) * aau * 3.0 + 15.0 * vvu * vvu)
+                 + 3.0 * vv - aa) / uu + 1.0) * far
+    far = np.where(a <= 100.0, far_full, far)
+    h1c = H1 + H0 * 1.12838
+    h2c = H2 + h1c * 1.12838 - H0
+    h3c = (1.0 - H2) * 0.37613 - h1c * 0.66667 * vv + h2c * 1.12838
+    h4c = (3.0 * h3c - h1c) * 0.37613 + H0 * 0.66667 * vv * vv
+    pa = (((h4c * a + h3c) * a + h2c) * a + h1c) * a + H0
+    pb = ((-0.122727278 * a + 0.532770573) * a - 0.96284325) * a + 0.979895032
+    mid = pa * pb
+    use_far = (a > 1.4) | ((a + av) > 3.2)
+    out = np.where(a < 0.2, small, np.where(use_far, far, mid))
+    return out
+
+def accumulate_depth(buf, cont_row, wavelength, ci, mol_wl, xnfdop, dop_val,
+                     cgf, elo, gr, gs, gw, xne, txnxn, hckt, h0, h1, h2):
+    n_wl = buf.size
+    clamped = np.clip(ci, 0, n_wl - 1)
+    kapmin = CUTOFF * cont_row[clamped]
+    kappa0_pre = cgf * xnfdop
+    boltz = np.exp(-elo * hckt)
+    kappa0 = kappa0_pre * boltz
+    adamp_raw = (gr + gs * xne + gw * txnxn) / dop_val
+    keep = (xnfdop > 0.0) & (dop_val > 0.0) & (mol_wl > 0.0) \
+        & (kappa0_pre >= kapmin) & (kappa0 > 0.0) & (kappa0 >= kapmin) \
+        & (adamp_raw >= 0.0)
+    if not np.any(keep):
+        return
+    idx = np.nonzero(keep)[0]
+    ci = ci[idx]; clamped = clamped[idx]; kapmin = kapmin[idx]
+    kappa0 = kappa0[idx]; mol_wl = mol_wl[idx]; dop_val = dop_val[idx]
+    adamp = np.maximum(adamp_raw[idx], 1e-12)
+    vc = np.where(adamp < 0.2, 1.0 - 1.128 * adamp, voigt(0.0, adamp, h0, h1, h2))
+    kapcen = kappa0 * vc
+    in_grid = (ci >= 0) & (ci < n_wl)
+    np.add.at(buf, ci[in_grid], kapcen[in_grid])
+    resolu = np.empty_like(dop_val)
+    fwd = clamped < n_wl - 1
+    bwd = (~fwd) & (clamped > 0)
+    resolu[fwd] = 1.0 / (wavelength[clamped[fwd] + 1] / wavelength[clamped[fwd]] - 1.0)
+    resolu[bwd] = 1.0 / (wavelength[clamped[bwd]] / wavelength[clamped[bwd] - 1] - 1.0)
+    resolu[~(fwd | bwd)] = 300000.0
+    dopple = dop_val
+    dr = dopple * resolu
+    n10dop = np.minimum((10.0 * dr).astype(np.int64), 1_000_000)
+    max_n10 = int(n10dop.max()) if n10dop.size else 0
+    prof_n10 = np.zeros_like(kappa0)
+    early = np.zeros(kappa0.shape, dtype=bool)
+    alive = np.ones(kappa0.shape, dtype=bool)
+    is_small = adamp < 0.2
+    tabstep = np.where(dr > 0.0, 200.0 / dr, 200.0)
+    dvoigt = np.where(dr > 0.0, 1.0 / dr, 1e-6)
+    for ns in range(1, max_n10 + 1):
+        active = alive & (ns <= n10dop)
+        if not np.any(active):
+            break
+        tabi = 0.5 + ns * tabstep
+        it = np.clip(tabi.astype(np.int64), 0, h0.size - 1)
+        pval_small = kappa0 * (h0[it] + adamp * h1[it])
+        pval_big = kappa0 * voigt(ns * dvoigt, adamp, h0, h1, h2)
+        pval = np.where(is_small, pval_small, pval_big)
+        ir = ci + ns; ib = ci - ns
+        okr = active & (ir >= 0) & (ir < n_wl)
+        okb = active & (ib >= 0) & (ib < n_wl)
+        np.add.at(buf, ir[okr], pval[okr])
+        np.add.at(buf, ib[okb], pval[okb])
+        below = active & (pval < kapmin)
+        early |= below
+        prof_n10 = np.where(active & (ns == n10dop), pval, prof_n10)
+        alive &= ~below
+    do_far = (~early) & (n10dop > 0) & (prof_n10 > 0.0)
+    if np.any(do_far):
+        x_far = prof_n10 * n10dop.astype(np.float64) ** 2
+        maxstep = np.zeros(kappa0.shape, dtype=np.int64)
+        pos = do_far & (x_far > 0.0) & (kapmin > 0.0)
+        maxstep[pos] = np.minimum((np.sqrt(x_far[pos] / kapmin[pos]) + 1.0).astype(np.int64), 1_000_000)
+        zero_k = do_far & (x_far > 0.0) & (kapmin == 0.0)
+        maxstep[zero_k] = 1_000_000
+        far_max = int(maxstep.max()) if maxstep.size else 0
+        far_alive = do_far.copy()
+        for ns in range(1, far_max + 1):
+            active = far_alive & (ns > n10dop) & (ns <= maxstep)
+            if not np.any(active):
+                if ns > maxstep.max():
+                    break
+                continue
+            pval = x_far / (float(ns) * float(ns))
+            ir = ci + ns; ib = ci - ns
+            on_r = (ir >= 0) & (ir < n_wl)
+            on_b = (ib >= 0) & (ib < n_wl)
+            okr = active & on_r
+            okb = active & on_b
+            np.add.at(buf, ir[okr], pval[okr])
+            np.add.at(buf, ib[okb], pval[okb])
+            kill = active & ~(on_r | on_b)
+            far_alive &= ~kill
+
+def compute_mol_opacity(npz, dt, m, L4):
+    wavelength = dt["wavelength"].astype(np.float64)
+    cont = (dt["continuum_absorption"] + dt["continuum_scattering"]).astype(np.float64)
+    T = npz["temperature"].astype(np.float64)
+    rho = npz["mass_density"].astype(np.float64)
+    xne = npz["electron_density"].astype(np.float64)
+    hckt = npz["hckt"].astype(np.float64)
+    vturb = npz["turbulent_velocity"].astype(np.float64)
+    txnxn = (npz["xnf_h"] + 0.42 * npz["xnf_he1"] + 0.85 * npz["xnf_h2"]) \
+        * (T / 10000.0) ** 0.3
+    h0 = L4["h0tab"].astype(np.float64); h1 = L4["h1tab"].astype(np.float64); h2 = L4["h2tab"].astype(np.float64)
+    pop = np.array(npz["population_per_ion"], dtype=np.float64)
+    dop = np.array(npz["doppler_per_ion"], dtype=np.float64)
+    for nelion, mass in NELION_MASS.items():
+        elem = nelion // 6 - 1
+        dop[:, 5, elem] = molecular_dopple(T, vturb, mass)
+    nbuff = m["nbuff"].astype(np.int64)
+    nelion = m["nelion"].astype(np.int64)
+    eidx = nelion // 6 - 1
+    cgf = m["cgf"].astype(np.float32).astype(np.float64)
+    elo = m["elo_cm"].astype(np.float32).astype(np.float64)
+    gr = m["gamma_rad"].astype(np.float32).astype(np.float64)
+    gs = m["gamma_stark"].astype(np.float32).astype(np.float64)
+    gw = m["gamma_vdw"].astype(np.float32).astype(np.float64)
+    ratiolg = float(m["ratiolg"]); ixwlbeg = int(m["ixwlbeg"])
+    ci0 = (nbuff - 1)
+    mol_wl = np.exp((nbuff.astype(np.float64) - 1 + ixwlbeg) * ratiolg).astype(np.float32).astype(np.float64)
+    n_depths = T.size; n_wl = wavelength.size
+    mol_asynth = np.zeros((n_depths, n_wl), dtype=np.float64)
+    for di in range(n_depths):
+        if rho[di] <= 0.0:
+            continue
+        dop_val = dop[di, 5, eidx]
+        pop_val = pop[di, 5, eidx]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            xnfdop = np.where((dop_val > 0.0) & (pop_val > 0.0),
+                              pop_val / (rho[di] * dop_val), 0.0)
+        accumulate_depth(mol_asynth[di], cont[di], wavelength, ci0.copy(), mol_wl,
+                         xnfdop, dop_val, cgf, elo, gr, gs, gw,
+                         xne[di], txnxn[di], hckt[di], h0, h1, h2)
+    freq = C_NM / wavelength
+    hkt = H_PLANCK / (KB * np.maximum(T, 1.0))
+    stim = 1.0 - np.exp(-freq[None, :] * hkt[:, None])
+    mol_asynth *= stim
+    return mol_asynth
+'''
+
+_L12_SPEC = """Port the TiO MOLECULAR BAND-OPACITY accumulation to fully vectorized torch/MPS. The numpy
+twin `compute_mol_opacity` loops over the 80 atmosphere depths (Python `for di in range(n_depths)`)
+and, per depth, runs `accumulate_depth`: it gates ~1.17M molecular lines, deposits each surviving
+line's CENTRE opacity, then marches its NEAR wing (steps 1..n10dop, tabulated Voigt) and FAR wing
+(steps n10dop+1.., the 1/n^2 Lorentz tail) symmetrically (red+blue), scatter-ADDING every step into
+the depth's [n_w] opacity buffer with `np.add.at`. The whole grid is [80 depths, 9136 wavelengths].
+Finally a stimulated-emission factor STIM = 1 - exp(-h nu / kT) multiplies the result.
+
+This is the same SCATTER-ADD hot path as Lecture 5, now for molecular lines — BORROW + REDUCE kgpu's
+validated molecular accumulator (`molecular.py`: `_accumulate_chunk` / `_near_wing` / `_far_wing` /
+`_scatter_add_flat`, the depth-batched [D,L] cutoff mask + flattened pair deposit + `index_put_`
+scatter, and the L4 Harris Voigt). Vectorize over the (depth, line) and (depth, line, wing-step)
+axes; `np.add.at` becomes `index_put_(accumulate=True)` (the scatter optimum — NO custom Metal kernel,
+NO per-line/per-depth Python loop). Reserve a `for` ONLY for the wing-STEP march (a fixed shrinking
+ns=1,2,3,... offset sweep, exactly as kgpu's `_near_wing`/`_far_wing` do in vectorized OFF_CHUNK
+blocks): each step must be a fully vectorized [D,L]-or-[pairs] tensor op, never a Python loop over
+lines or depths. The center deposit and the per-line gate are pure broadcast/mask. Reproduce every
+numpy constant and threshold bit-for-bit: CUTOFF=1e-3, the gate `keep` mask, the per-line resolving
+power R (forward/back/300000 fallback from the grid spacing), n10dop = min(10*dr, 1e6), the small-
+damping table path `kappa0*(h0[it]+adamp*h1[it])` at `it = clip(0.5 + ns*tabstep)` vs the full Voigt
+path `kappa0*voigt(ns*dvoigt, adamp)`, the per-line early-cutoff (`pval < kapmin` kills the line) and
+the far-wing IRREVERSIBLE break (the FIRST step with NEITHER red nor blue end on the grid kills the
+line for good). DEVICE/DTYPE picked once at module top; fp32 on MPS / fp64 on CPU; float floor ~1e-6.
+
+PRECISION NOTE: this is a positive-only scatter-add of ~1e6 line wings per pixel; the only floor is
+accumulation order (np.add.at vs index_put_), well within ~1e-6 on the opacity-bearing pixels."""
+
+_L12_CONTRACT = """Your module MUST define, importable as `port`:
+  - port.DEVICE, port.DTYPE  (device + working dtype picked once at module top)
+  - port.molecular_dopple(T, vturb, mass) -> tensor/array [D]  (vectorized molecular Doppler width)
+  - port.mol_band_opacity(npz, dt, m, L4) -> tensor [D, n_w]  (the full molecular ASYNTH WITH stim)
+        The four args are the loaded npz mappings (dict-like; index with [] and .astype works via
+        np.asarray — treat them as numpy arrays you cast onto DEVICE/DTYPE inside):
+          npz: m3500g50.npz   (temperature, mass_density, electron_density, hckt, turbulent_velocity,
+                               xnf_h, xnf_he1, xnf_h2, population_per_ion[D,6,139], doppler_per_ion[D,6,139])
+          dt:  diag_tio.npz   (wavelength[n_w], continuum_absorption[D,n_w], continuum_scattering[D,n_w])
+          m:   mol_lines_tio.npz (nbuff[L] int, cgf[L] f32, nelion[L], elo_cm[L], gamma_rad/stark/vdw[L],
+                               ratiolg scalar, ixwlbeg scalar)
+          L4:  L4.npz         (h0tab/h1tab/h2tab[2001])
+        Return [D, n_w] = [80, 9136]. The molecular slot is ion stage 5; element index eidx = nelion//6-1;
+        the per-species masses come from NELION_MASS (recompute doppler_per_ion slot 5 like the twin).
+        The returned tensor may be on DEVICE; the harness moves it to CPU/fp64.
+You MAY define helpers (the Voigt kernel, the wing-march, the scatter)."""
+
+_L12_HARNESS = r'''
+import numpy as np, torch, math, pathlib
+REFDIR = pathlib.Path("reference")
+npz = np.load(REFDIR / "m3500g50.npz")
+dt  = np.load(REFDIR / "diag_tio.npz")
+da  = np.load(REFDIR / "diag_atomic.npz")
+m   = np.load(REFDIR / "mol_lines_tio.npz")
+L4  = np.load(REFDIR / "L4.npz")
+
+def to64(x):
+    if torch.is_tensor(x): return x.detach().cpu().to(torch.float64).numpy()
+    return np.asarray(x, float)
+''' + _L12_NUMPY + r'''
+
+# --- numpy reference: full molecular band opacity [80, 9136] ---
+mol_ref_twin = compute_mol_opacity(npz, dt, m, L4)
+# also the production reference (diag_tio - diag_atomic); the twin reproduces this to ~1e-11
+mol_ref_prod = (dt["line_opacity"] - da["line_opacity"]).astype(np.float64)
+
+# --- torch port over the whole grid ---
+mol_torch = to64(port.mol_band_opacity(npz, dt, m, L4))
+
+# parity vs the NUMPY TWIN (the oracle); restrict to opacity-bearing pixels
+big = mol_ref_twin > 1e-30
+if big.sum() == 0:
+    dev = 1e9
+else:
+    dev = float(np.max(np.abs(mol_torch[big] - mol_ref_twin[big]) / np.abs(mol_ref_twin[big])))
+# sanity vs production (informational)
+bigp = mol_ref_prod != 0.0
+devp = float(np.max(np.abs(mol_torch[bigp] - mol_ref_prod[bigp]) / np.abs(mol_ref_prod[bigp]))) if bigp.sum() else 9e9
+print(f"mol_band_dev_vs_twin={dev:.3e}  vs_prod={devp:.3e}  "
+      f"(nonzero px={int(big.sum())})  twin_max={mol_ref_twin.max():.3e} torch_max={mol_torch.max():.3e} "
+      f"device={port.DEVICE}")
+print(f"PARITY {dev:.6e}")
+
+# --- timing: the full-grid molecular accumulation is the hot path ---
+import time as _t
+for _ in range(2):
+    Pb = port.mol_band_opacity(npz, dt, m, L4)
+    if torch.is_tensor(Pb) and Pb.device.type=="mps": torch.mps.synchronize()
+best = 1e9
+for _ in range(3):
+    t0=_t.perf_counter()
+    Pb = port.mol_band_opacity(npz, dt, m, L4)
+    if torch.is_tensor(Pb) and Pb.device.type=="mps": torch.mps.synchronize()
+    best=min(best, _t.perf_counter()-t0)
+print(f"TIME {best*1e3:.6f}")
+'''
+
+
+# ============================================================================
+#  LECTURE 13 — coupled molecular equilibrium (the NMOLEC Newton solve)
+# ============================================================================
+_L13_NUMPY = r'''
+# --- L13 numpy twin: the coupled NMOLEC Newton equilibrium solve (verify_nmolec.py) ---
+import math as _math
+MAXMOL = 200; MAXEQ = 30; MAXLOC = 3 * MAXMOL
+KBOLTZ_EV = 8.617333262e-5
+
+def readmol(molecules_path):
+    code_mol = np.zeros(MAXMOL, dtype=np.float64)
+    equil = np.zeros((7, MAXMOL), dtype=np.float64)
+    locj = np.zeros(MAXMOL + 1, dtype=np.int32)
+    kcomps = np.zeros(MAXLOC, dtype=np.int32)
+    idequa = np.zeros(MAXEQ, dtype=np.int32)
+    ifequa = np.zeros(102, dtype=np.int32)
+    xcode = np.array([1e14, 1e12, 1e10, 1e8, 1e6, 1e4, 1e2, 1e0], dtype=np.float64)
+    kloc = 0; locj[0] = 0; nummol = 0
+    for raw in pathlib.Path(molecules_path).read_text().splitlines():
+        line = raw.rstrip("\n\r"); stripped = line.strip()
+        if (not stripped or stripped.startswith("C") or stripped.startswith("c")
+                or stripped.startswith("#")):
+            continue
+        c_str = line[0:min(18, len(line))].strip()
+        if not c_str: continue
+        try: c = float(c_str)
+        except ValueError: continue
+        cols = [(18, 25), (25, 36), (36, 47), (47, 58), (58, 69), (69, 80), (80, 91)]
+        ee = [0.0] * 7
+        for i, (a, b) in enumerate(cols):
+            if len(line) >= b:
+                s = line[a:b].strip()
+                if s: ee[i] = float(s)
+        if c == 0.0 or abs(c) < 1e-12: continue
+        ii = 0
+        for i in range(8):
+            if c >= xcode[i]: ii = i; break
+        x = c
+        for i in range(ii, 8):
+            id_elem = int(x / xcode[i]); x = x - float(id_elem) * xcode[i]
+            if id_elem == 0: id_elem = 100
+            ifequa[id_elem] = 1; kcomps[kloc] = id_elem; kloc += 1
+        ion = int(x * 100.0 + 0.5)
+        if ion >= 1:
+            ifequa[100] = 1; ifequa[101] = 1
+            for _ in range(ion): kcomps[kloc] = 101; kloc += 1
+        locj[nummol + 1] = kloc; code_mol[nummol] = c
+        for i in range(7): equil[i, nummol] = ee[i]
+        nummol += 1
+    nloc = kloc; iequa = 1
+    for i in range(1, 101):
+        if ifequa[i] == 1: iequa += 1; ifequa[i] = iequa; idequa[iequa - 1] = i
+    nequa = iequa; ifequa[101] = nequa + 1
+    for k in range(nloc): kcomps[k] = ifequa[kcomps[k]] - 1
+    return nummol, code_mol, equil, locj, kcomps, idequa, nequa, nloc
+
+def compute_equilj_polynomial(j, T, tkev, tlog, nummol, code_mol, equil, locj):
+    eqj = np.zeros(nummol, dtype=np.float64)
+    for jmol in range(nummol):
+        if equil[0, jmol] == 0.0: continue
+        ncomp = locj[jmol + 1] - locj[jmol]
+        code_int = int(code_mol[jmol])
+        ion = int((np.float64(code_mol[jmol]) - np.float64(code_int)) * 100.0 + 0.5)
+        if T[j] > 10000.0: continue
+        if abs(code_mol[jmol] - 101.0) < 1e-9:
+            ea = (4.478 / tkev[j] - 46.4584
+                  + (1.63660e-3 + (-4.93992e-7 + (1.11822e-10 + (-1.49567e-14
+                     + (1.06206e-18 - 3.08720e-23 * T[j]) * T[j]) * T[j]) * T[j])
+                     * T[j]) * T[j] - 1.5 * tlog[j])
+            eqj[jmol] = np.exp(ea); continue
+        poly = (np.float64(equil[0, jmol]) / tkev[j] - equil[1, jmol]
+                + (equil[2, jmol] + (-equil[3, jmol] + (equil[4, jmol]
+                   + (-equil[5, jmol] + equil[6, jmol] * T[j]) * T[j]) * T[j])
+                   * T[j]) * T[j])
+        tlog_term = -1.5 * np.float64(ncomp - ion - ion - 1) * tlog[j]
+        eqj[jmol] = np.exp(np.float64(poly + tlog_term))
+    return eqj
+
+def solvit(a2d, n, b):
+    a = np.asarray(a2d, dtype=np.float64, order="F")
+    a_vec = np.reshape(a, a.size, order="F")
+    a_work = np.zeros(n * n + 1, dtype=np.float64); a_work[1:] = a_vec
+    b_work = np.zeros(n + 1, dtype=np.float64); b_work[1:] = np.asarray(b, dtype=np.float64)
+    ipivot = np.zeros(n + 1, dtype=np.int32)
+    for _ in range(1, n + 1):
+        amax = 0.0; irow = 1; icolum = 1
+        for row in range(1, n + 1):
+            if ipivot[row] == 1: continue
+            jk = row - n
+            for col in range(1, n + 1):
+                jk = jk + n
+                if ipivot[col] == 1: continue
+                aa = abs(a_work[jk])
+                if aa > amax: amax = aa; irow = row; icolum = col
+        ipivot[icolum] += 1
+        if irow != icolum:
+            irl = irow - n; icl = icolum - n
+            for _ in range(1, n + 1):
+                irl += n; swap = a_work[irl]; icl += n
+                a_work[irl] = a_work[icl]; a_work[icl] = swap
+            b_work[irow], b_work[icolum] = b_work[icolum], b_work[irow]
+        pivot_idx = icolum * n + icolum - n; pivot = a_work[pivot_idx]
+        a_work[pivot_idx] = 1.0; icl = icolum - n
+        for _ in range(1, n + 1): icl += n; a_work[icl] = a_work[icl] / pivot
+        b_work[icolum] = b_work[icolum] / pivot
+        l1ic = icolum * n - n
+        for l1 in range(1, n + 1):
+            l1ic += 1
+            if l1 == icolum: continue
+            t = a_work[l1ic]; a_work[l1ic] = 0.0
+            if t == 0.0: continue
+            l1l = l1 - n; icl = icolum - n
+            for _ in range(1, n + 1):
+                l1l += n; icl += n
+                a_work[l1l] = a_work[l1l] - a_work[icl] * t
+            b_work[l1] = b_work[l1] - b_work[icolum] * t
+    return b_work[1:]
+
+def _stable_subtract(a, b):
+    a = np.float64(a); b = np.float64(b)
+    if not (np.isfinite(a) and np.isfinite(b)): return a - b
+    tiny = np.finfo(np.float64).tiny
+    if abs(a) > tiny: return np.float64(a * (1.0 - b / a))
+    return np.float64(a - b)
+
+def _ratio_pp(num, den):
+    num = np.float64(num); den = np.float64(den)
+    if den == 0.0: return 0.0 if num == 0.0 else np.inf
+    if num == 0.0: return 0.0
+    mant_n, exp_n = np.frexp(num); mant_d, exp_d = np.frexp(den)
+    mant = mant_n / mant_d; exp = int(exp_n) - int(exp_d)
+    mant, adj = np.frexp(mant); exp += int(adj)
+    try: return float(abs(np.ldexp(mant, exp)))
+    except (OverflowError, OSError): return float(np.inf)
+
+_HAS_FMA = hasattr(_math, "fma")
+def _two_sum(a, b):
+    s = a + b; ap = s - b; bp = s - ap
+    return s, (a - ap) + (b - bp)
+def _two_product_fma(a, b):
+    p = a * b
+    if _HAS_FMA:
+        try: e = _math.fma(a, b, -p)
+        except OverflowError: e = 0.0
+    else:
+        factor = 134217729.0
+        ah = a * factor; ah = ah - (ah - a); al = a - ah
+        bh = b * factor; bh = bh - (bh - b); bl = b - bh
+        e = ((ah * bh - p) + ah * bl + al * bh) + al * bl
+    return p, e
+def _accurate_element_residual(xn_k, xab_k, xn0):
+    if xn0 == 0.0 or not np.isfinite(xn0): return xn_k - xab_k * xn0
+    if not np.isfinite(xn_k) or not np.isfinite(xab_k): return xn_k - xab_k * xn0
+    prod_hi, prod_lo = _two_product_fma(xab_k, xn0)
+    if not np.isfinite(prod_hi): return xn_k - xab_k * xn0
+    diff_hi, diff_lo = _two_sum(xn_k, -prod_hi)
+    if diff_hi == 0.0 and diff_lo == 0.0: return 0.0
+    result = diff_hi + diff_lo
+    if prod_hi != 0.0:
+        rel = abs(result) / abs(prod_hi)
+        if rel < 1e-14:
+            if result == 0.0:
+                ratio = xn_k / xn0; sign = 1.0 if ratio >= xab_k else -1.0
+            else: sign = 1.0 if result > 0 else -1.0
+            return sign * abs(prod_hi) * 1e-15
+    return result
+
+def nmolec_solve(T, gas_pressure, electron_density, xabund,
+                 nummol, code_mol, equil, locj, kcomps, idequa, nequa, equilj_ion):
+    n_layers = T.shape[0]
+    tkev = T * KBOLTZ_EV; tk = T * 1.380649e-16; tlog = np.log(T)
+    nequa1 = nequa + 1; neqneq = nequa * nequa
+    electron_idx = nequa - 1 if idequa[nequa - 1] == 100 else None
+    xab = np.zeros(MAXEQ, dtype=np.float64)
+    for k in range(1, nequa):
+        id_elem = idequa[k]
+        if id_elem < 100: xab[k] = max(xabund[id_elem - 1], 1e-20)
+    if idequa[nequa - 1] == 100: xab[nequa - 1] = 0.0
+    xnatom_out = np.zeros(n_layers, dtype=np.float64)
+    xnmol_out = np.zeros((n_layers, MAXMOL), dtype=np.float64)
+    xnz_out = np.zeros((n_layers, MAXEQ), dtype=np.float64)
+    electron_out = electron_density.copy()
+    xn = np.zeros(MAXEQ, dtype=np.float64)
+    xnz_prev = np.zeros(MAXEQ, dtype=np.float64)
+    xne_computed = np.zeros(n_layers, dtype=np.float64)
+    for j in range(n_layers):
+        xntot = gas_pressure[j] / tk[j]
+        if j == 0:
+            xn[0] = xntot / 2.0; base_x = xn[0] / 10.0
+            for k in range(1, nequa): xn[k] = base_x * xab[k]
+            if electron_idx is not None: xn[electron_idx] = base_x
+            xne_computed[j] = base_x; electron_out[j] = base_x
+        else:
+            ratio = gas_pressure[j] / gas_pressure[j - 1]
+            for k in range(nequa): xn[k] = xnz_prev[k] * ratio
+            xne_scaled = xne_computed[j - 1] * ratio
+            xne_computed[j] = xne_scaled; electron_out[j] = xne_scaled
+        xnz_prev[:nequa] = xn[:nequa]
+        equilj = compute_equilj_polynomial(j, T, tkev, tlog, nummol, code_mol, equil, locj)
+        ion_mask = (equil[0, :nummol] == 0.0)
+        equilj[ion_mask] = equilj_ion[j, :nummol][ion_mask]
+        eqold = np.zeros(nequa, dtype=np.float64)
+        for _iteration in range(200):
+            deq = np.zeros(neqneq, dtype=np.float64); eq = np.zeros(nequa, dtype=np.float64)
+            use_numba_setup = not (j == 0 and _iteration < 5)
+            eq[0] = -xntot; kk = 0; xn0 = xn[0]
+            for k in range(1, nequa):
+                eq[0] = eq[0] + xn[k]; deq[k * nequa] = 1.0
+                if use_numba_setup: eq[k] = xn[k] - xab[k] * xn0
+                else: eq[k] = _accurate_element_residual(xn[k], xab[k], xn0)
+                kk += nequa1; deq[kk] = 1.0; deq[k] = -xab[k]
+            if electron_idx is not None and idequa[electron_idx] >= 100:
+                eq[electron_idx] = -xn[electron_idx]; deq[nequa * nequa - 1] = -1.0
+            eq_comp = np.zeros(nequa, dtype=np.float64)
+            for jmol in range(nummol):
+                ncomp = int(locj[jmol + 1] - locj[jmol])
+                if ncomp <= 1: continue
+                locj1 = int(locj[jmol]); locj2 = int(locj[jmol + 1] - 1)
+                ev = equilj[jmol]
+                if not np.isfinite(ev): continue
+                term = ev
+                for lock in range(locj1, locj2 + 1):
+                    k_raw = int(kcomps[lock])
+                    if k_raw >= nequa: term = term / xn[nequa - 1]
+                    else: term = term * xn[k_raw]
+                y = term - eq_comp[0]; t = eq[0] + y; eq_comp[0] = (t - eq[0]) - y; eq[0] = t
+                for lock in range(locj1, locj2 + 1):
+                    k_raw = int(kcomps[lock]); k_idx = nequa - 1 if k_raw == nequa else k_raw
+                    xn_val = xn[k_idx]
+                    if not np.isfinite(xn_val) or xn_val == 0.0: continue
+                    d = (-term / xn_val) if k_raw == nequa else (term / xn_val)
+                    if not np.isfinite(d): continue
+                    y_k = term - eq_comp[k_idx]; t_k = eq[k_idx] + y_k
+                    eq_comp[k_idx] = (t_k - eq[k_idx]) - y_k; eq[k_idx] = t_k
+                    nequak = nequa * k_idx; deq[nequak] = deq[nequak] + d
+                    for locm in range(locj1, locj2 + 1):
+                        m_raw = int(kcomps[locm]); m_idx = nequa - 1 if m_raw == nequa else m_raw
+                        mk = m_idx + nequak; deq[mk] = deq[mk] + d
+                last_raw = int(kcomps[locj2])
+                if last_raw == nequa - 1 and idequa[nequa - 1] == 100:
+                    for lock in range(locj1, locj2 + 1):
+                        kc_raw = int(kcomps[lock]); kc_idx = nequa - 1 if kc_raw >= nequa else kc_raw
+                        xn_val = xn[kc_idx]
+                        if not np.isfinite(xn_val) or xn_val == 0.0: continue
+                        term_corr = term
+                        if not np.isfinite(term_corr): continue
+                        d_corr = term_corr / xn_val
+                        if not np.isfinite(d_corr): continue
+                        if kc_idx == nequa - 1: eq[kc_idx] = eq[kc_idx] - term_corr - term_corr
+                        delta = -d_corr - d_corr
+                        for locm in range(locj1, locj2 + 1):
+                            mc_raw = int(kcomps[locm]); mc_idx = nequa - 1 if mc_raw >= nequa else mc_raw
+                            if mc_idx != nequa - 1: continue
+                            mk = mc_idx + nequa * kc_idx; deq[mk] = deq[mk] + delta
+            deq_2d = deq[:neqneq].reshape(nequa, nequa, order="F").copy()
+            delta_xn = solvit(deq_2d, nequa, eq.copy()); eq[:] = delta_xn
+            iferr = 0; scale = 100.0
+            for k in range(nequa):
+                ratio_k = _ratio_pp(eq[k], xn[k])
+                if ratio_k > 0.001: iferr = 1
+                sign_change = (eqold[k] > 0 and eq[k] < 0) or (eqold[k] < 0 and eq[k] > 0)
+                if sign_change:
+                    ek = np.float64(eq[k]); eq[k] = ek * 0.69 if np.isfinite(ek) else ek
+                xneq = _stable_subtract(np.float64(xn[k]), np.float64(eq[k])); xn100 = xn[k] / 100.0
+                if xneq < xn100:
+                    xn[k] = xn[k] / scale
+                    sc2 = (eqold[k] > 0 and eq[k] < 0) or (eqold[k] < 0 and eq[k] > 0)
+                    if sc2: scale = np.sqrt(scale)
+                else: xn[k] = xneq
+                eqold[k] = eq[k]
+            if iferr == 0: break
+        xnatom_out[j] = xn[0]
+        for k in range(nequa): xnz_out[j, k] = xn[k]
+        xnz_prev[:nequa] = xn[:nequa]
+        if idequa[nequa - 1] == 100:
+            electron_out[j] = xn[nequa - 1]; xne_computed[j] = electron_out[j]
+        for jmol in range(nummol):
+            xnmol_out[j, jmol] = equilj[jmol]
+            locj1 = int(locj[jmol]); locj2 = int(locj[jmol + 1] - 1)
+            for lock in range(locj1, locj2 + 1):
+                k = int(kcomps[lock])
+                if k == nequa:
+                    k = nequa - 1; xnmol_out[j, jmol] = xnmol_out[j, jmol] / xn[k]
+                else: xnmol_out[j, jmol] = xnmol_out[j, jmol] * xn[k]
+    return xnatom_out, xnmol_out, xnz_out, electron_out
+'''
+
+_L13_SPEC = """Port the COUPLED MOLECULAR-EQUILIBRIUM SOLVER (NMOLEC) — a Newton-Raphson fixed-point
+solve — to torch/MPS. The numpy twin `nmolec_solve` finds, at every atmosphere depth, the equilibrium
+number densities of nequa(=23) unknowns XN = (XNATOM, the neutral-atom densities, n_e) such that the
+coupled residual eq(XN)=0 holds: one total-particle equation, one number-conservation equation per
+element, one charge-balance equation, with every molecule's mass-action term K_f * prod XN[k] folded in.
+
+STRUCTURE TO REPRODUCE (this is the crux — read carefully):
+- There is an OUTER loop over the 80 depths (`for j in range(n_layers)`). This loop is INTRINSIC and
+  must stay: depth j's Newton SEED is the CONVERGED depth j-1 scaled by the pressure ratio (a physical
+  warm-start chain), so depths cannot be solved as one independent batched system. Keep the depth loop.
+  Depth 0 seeds from XNATOM=xntot/2, neutrals=(XNATOM/10)*xab, n_e=XNATOM/10.
+- INSIDE each depth is the NEWTON ITERATION (up to 200 iters). EACH ITERATION must be a fully
+  VECTORIZED whole-vector tensor op over the nequa unknowns — NOT a per-equation / per-molecule Python
+  loop. This is what you port from kgpu: kgpu replaces the Fortran hand-built DEQ Jacobian + SOLVIT
+  complete-pivoting elimination with (a) a single vectorized residual `_residual(xn, log_equilj, xab,
+  xntot, struct)` that builds ALL molecular mass-action terms in LOG space and exp's ONCE (so xn^6 ~ 1e84
+  never overflows), assembled from a precomputed branchless `MolStructure` (count/inv_e/neg_ion/active
+  incidence built ONCE from kcomps/locj — NO per-molecule loop in the residual); (b) an AUTODIFF Jacobian
+  via `torch.func.jacrev(resid_one)`; (c) a column-scaled `torch.linalg.solve` (`_newton_step`: scale by
+  diag(|xn|) to equilibrate the ~25-dex Jacobian, the modern stand-in for SOLVIT pivoting); (d) the
+  Fortran damping (convergence test ratio_k=|delta|/|xn| > tol=1e-3; sign-flip relaxation *0.69; the
+  floor-and-rescale /100). BORROW + REDUCE kgpu/nmolec.py's `MolStructure`, `_residual`, `_newton_step`,
+  `_molecular_densities`, `compute_equilj_polynomial` verbatim in spirit. After convergence, assemble the
+  molecular densities n(M)=K_f*prod xn[k]/n_e^inv_e BATCHED over depth (kgpu vmaps `_molecular_densities`).
+
+K_f / log space: K_f(T) (the molecular formation constants, EQUILJ) is computed ONCE in fp64 numpy on the
+host (polynomial molecules recomputed from `compute_equilj_polynomial`; ion molecules supplied as
+equilj_ion), spans ~1e25..1e-78 (beyond fp32 range), so it is carried as LOG(K_f) (~+/-180, safely in
+range), with a -700 sentinel for zero/inactive. Reproduce the polynomial K_f bit-for-bit (the lecture's
+physics): the D0/tkev term, the 5th-order T polynomial, the -1.5*(ncomp-2*ion-1)*log(T) translational
+term, the H- (code 101) H2-dissociation branch, the T>1e4 K cutoff.
+
+PRECISION (teach it): the converged equilibrium is a FIXED POINT, but fp32 conditioning matters — the raw
+Jacobian spans ~25 orders of magnitude, fatal to a plain fp32 LU; the column-scaling (solve for the
+FRACTIONAL step delta=xn*d) is what makes the fp32/MPS solve well-posed. For the PARITY reference run on
+CPU in fp64 (DTYPE=float64 on CPU) so the autodiff-Newton fixed point matches the numpy SOLVIT fixed point
+tightly; the lecture documents that on MPS the same solve runs in fp32 to the ~1e-6 floor. The autodiff
+Newton + column-scaled solve reaches the SAME equilibrium as the numpy hand-DEQ+SOLVIT (it is the same
+Newton, just autodiff'd); it will NOT be bit-identical (different elimination order, no Kahan/double-double),
+so the float floor for this lecture is ~1e-6 on the converged densities (looser than the numpy-vs-Fortran
+1e-13). DEVICE/DTYPE picked once; on CPU use fp64.
+
+DO NOT batch the depth loop into one solve (breaks the warm-start chain → divergence). DO vectorize each
+Newton iteration over the nequa unknowns (NO Python loop over equations or molecules inside the iteration —
+the residual and Jacobian are whole-tensor ops; the only Python loops are over depths and over iterations)."""
+
+_L13_CONTRACT = """Your module MUST define, importable as `port`:
+  - port.DEVICE, port.DTYPE  (device + working dtype picked once; CPU -> float64, MPS/CUDA -> float32)
+  - port.readmol(molecules_path) -> (nummol, code_mol, equil, locj, kcomps, idequa, nequa, nloc)
+        Faithful parse of molecules.dat (you MAY transcribe the numpy twin's readmol on the host; it is a
+        once-per-run host parse, not the hot path — a host loop here is fine, it is NOT vectorizable text I/O).
+  - port.compute_equilj_polynomial(T, code_mol, equil, locj, nummol) -> equilj[n_layers, nummol]
+        The polynomial K_f(T) for ALL depths at once (ion molecules left 0.0). Vectorized over depths; a
+        `for jmol in range(nummol)` over the FIXED molecule set is acceptable ONLY if each iteration is a
+        vectorized [n_layers] tensor/array op (kgpu does exactly this). fp64 numpy on host is fine here.
+  - port.nmolec_solve(T, gas_pressure, electron_density, xabund, nummol, code_mol, equil, locj, kcomps,
+                      idequa, nequa, equilj_ion) -> (xnatom[D], xnmol[D,MAXMOL=200], xnz[D,MAXEQ=30], electron[D])
+        The full coupled solve. Same call signature + same return tuple as the numpy twin. Inside: the depth
+        loop + warm start (intrinsic), each Newton iteration fully vectorized over the nequa unknowns
+        (autodiff Jacobian + column-scaled torch.linalg.solve), the Fortran damping, then the batched
+        molecular-density assembly. Returned tensors may be on DEVICE; the harness moves them to CPU/fp64.
+You MAY (should) define helpers: a MolStructure incidence dataclass, a vectorized `_residual`, a
+`_newton_step`, a `_molecular_densities`, `_safe_log`. NO per-equation/per-molecule Python loop inside the
+Newton iteration."""
+
+_L13_HARNESS = r'''
+import numpy as np, torch, math, pathlib
+REFDIR = pathlib.Path("reference")
+inp = np.load(REFDIR / "nmolec_inputs.npz")
+gt  = np.load(REFDIR / "nmolec_groundtruth.npz")
+MOLPATH = REFDIR / "molecules.dat"
+
+def to64(x):
+    if torch.is_tensor(x): return x.detach().cpu().to(torch.float64).numpy()
+    return np.asarray(x, float)
+''' + _L13_NUMPY + r'''
+
+T = np.asarray(inp["temperature"], float)
+gas_pressure = np.asarray(inp["gas_pressure"], float)
+electron_density = np.asarray(inp["electron_density"], float)
+xabund = np.asarray(inp["xabund"], float)
+equilj_ion = np.asarray(inp["equilj_ion"], float)
+
+# molecules.dat parsed by BOTH (the twin's readmol and the port's) — same structures
+nummol, code_mol, equil, locj, kcomps, idequa, nequa, nloc = readmol(MOLPATH)
+
+# --- numpy reference solve (the oracle) ---
+ref_xnatom, ref_xnmol, ref_xnz, ref_electron = nmolec_solve(
+    T, gas_pressure, electron_density, xabund,
+    nummol, code_mol, equil, locj, kcomps, idequa, nequa, equilj_ion)
+
+# --- torch port solve ---
+p_nummol, p_code_mol, p_equil, p_locj, p_kcomps, p_idequa, p_nequa, p_nloc = port.readmol(MOLPATH)
+o_xnatom, o_xnmol, o_xnz, o_electron = port.nmolec_solve(
+    T, gas_pressure, electron_density, xabund,
+    p_nummol, p_code_mol, p_equil, p_locj, p_kcomps, p_idequa, p_nequa, equilj_ion)
+o_xnatom = to64(o_xnatom); o_xnmol = to64(o_xnmol); o_xnz = to64(o_xnz); o_electron = to64(o_electron)
+
+def maxrel(a, b, floor):
+    a = np.asarray(a, float); b = np.asarray(b, float)
+    mask = np.isfinite(a) & np.isfinite(b) & (np.abs(b) > floor)
+    if not mask.any(): return 0.0
+    return float(np.max(np.abs(a[mask] - b[mask]) / np.abs(b[mask])))
+
+# parity vs the NUMPY TWIN on the physical outputs
+d_atom = maxrel(o_xnatom, ref_xnatom, 0.0)
+d_ne   = maxrel(o_electron, ref_electron, 0.0)
+d_xnz  = maxrel(o_xnz[:, :nequa], ref_xnz[:, :nequa], 1e-300)
+d_mol  = maxrel(o_xnmol[:, :nummol], ref_xnmol[:, :nummol], 1e-300)
+tio = int(np.argmin(np.abs(code_mol[:nummol] - 822.0)))
+d_tio = maxrel(o_xnmol[:, tio], ref_xnmol[:, tio], 0.0)
+dev = max(d_atom, d_ne, d_xnz, d_mol, d_tio)
+
+# also vs ground truth (informational sanity)
+gt_xnmol = np.asarray(gt["xnmol"], float)[:, :nummol]
+d_gt = maxrel(o_xnmol[:, :nummol], gt_xnmol, 1e-300)
+print(f"xnatom={d_atom:.3e} ne={d_ne:.3e} xnz={d_xnz:.3e} xnmol={d_mol:.3e} "
+      f"TiO={d_tio:.3e}  vs_groundtruth={d_gt:.3e}  device={port.DEVICE} dtype={port.DTYPE}")
+print(f"PARITY {dev:.6e}")
+
+# --- timing: the full 80-depth coupled solve ---
+import time as _t
+_ = port.nmolec_solve(T, gas_pressure, electron_density, xabund,
+                      p_nummol, p_code_mol, p_equil, p_locj, p_kcomps, p_idequa, p_nequa, equilj_ion)
+if port.DEVICE.type == "mps": torch.mps.synchronize()
+best = 1e9
+for _ in range(2):
+    t0=_t.perf_counter()
+    _ = port.nmolec_solve(T, gas_pressure, electron_density, xabund,
+                          p_nummol, p_code_mol, p_equil, p_locj, p_kcomps, p_idequa, p_nequa, equilj_ion)
+    if port.DEVICE.type == "mps": torch.mps.synchronize()
+    best=min(best, _t.perf_counter()-t0)
+print(f"TIME {best*1e3:.6f}")
+'''
+
+
+
 JOBS: dict[str, PortJob] = {
     "lecture4": PortJob(
         name="lecture4",
@@ -1181,6 +1870,68 @@ JOBS: dict[str, PortJob] = {
         kgpu_borrow=[("hydrogen.py", 267, 350),   # _sofbeta + _fast_ex_gauss (the quasi-static profile)
                      ("hydrogen.py", 369, 529),   # _hydrogen_profile_grid (the 3-piece HPROF4 profile)
                      ("hydrogen.py", 532, 554)],  # _vcse1f_tensor (the vectorized E_1)
+    ),
+    "lecture12": PortJob(
+        name="lecture12",
+        numpy_source=_L12_NUMPY,
+        spec=_L12_SPEC,
+        contract=_L12_CONTRACT,
+        harness=_L12_HARNESS,
+        float_floor=1e-6,
+        preamble="The molecular (TiO) band-opacity SCATTER-ADD over the full [80, 9136] grid, ~1.17M lines. "
+                 "reference/ holds m3500g50.npz (temperature, mass_density, electron_density, hckt, "
+                 "turbulent_velocity, xnf_h/xnf_he1/xnf_h2, population_per_ion[80,6,139], "
+                 "doppler_per_ion[80,6,139]), diag_tio.npz (wavelength[9136], continuum_absorption/scattering "
+                 "[80,9136], line_opacity[80,9136]), diag_atomic.npz (line_opacity[80,9136] molecules-off; the "
+                 "pure molecular reference is diag_tio.line_opacity - diag_atomic.line_opacity), "
+                 "mol_lines_tio.npz (nbuff[L] int, cgf/elo_cm/gamma_rad/gamma_stark/gamma_vdw[L] f32, "
+                 "nelion[L], ratiolg/ixwlbeg scalars), L4.npz (h0tab/h1tab/h2tab[2001]). The molecular slot is "
+                 "ion stage 5, element index eidx=nelion//6-1; NELION_MASS gives per-species mass. The fp32-MPS "
+                 "float floor is ~1e-6 on the opacity-bearing pixels; the scatter index_put_(accumulate=True) "
+                 "is add-order non-deterministic at ~1e-7 (within floor). This IS the L5 scatter-add shape for "
+                 "molecules — borrow kgpu's molecular accumulator, do NOT regenerate.",
+        # BORROW kgpu's BATCHED molecular accumulation: the [D,L] cutoff mask + flattened survive pairs, the
+        # near/far wing OFF_CHUNK sweeps, the index_put_ scatter, and the L4 Harris Voigt (shared with L4/L5).
+        kgpu_borrow=[("molecular.py", 463, 494),   # species_xnfdop_dopple (the [D,S] population/Doppler tables)
+                     ("molecular.py", 508, 560),   # accumulate_molecular (the top-level [D,n_w] kernel)
+                     ("molecular.py", 563, 579),   # _grid_resolu_np (per-pixel resolving power, host f64)
+                     ("molecular.py", 582, 683),   # _accumulate_chunk (cutoff mask + center + survive pairs)
+                     ("molecular.py", 686, 712),   # _near_wing_pval (table form vs full Voigt, branchless)
+                     ("molecular.py", 715, 790),   # _near_wing (fused reach+deposit OFF_CHUNK sweep)
+                     ("molecular.py", 793, 860),   # _far_wing (1/n^2 tail, irreversible off-grid break)
+                     ("molecular.py", 866, 878)],  # _scatter_add_flat (index_put_ accumulate=True)
+    ),
+    "lecture13": PortJob(
+        name="lecture13",
+        numpy_source=_L13_NUMPY,
+        spec=_L13_SPEC,
+        contract=_L13_CONTRACT,
+        harness=_L13_HARNESS,
+        # The autodiff-Newton + column-scaled solve reaches the SAME equilibrium fixed point as the numpy
+        # hand-DEQ + SOLVIT, but NOT bit-identically (different elimination order, no Kahan/double-double).
+        # On CPU-fp64 the two fixed points agree tightly; the floor is the Newton convergence + reordering,
+        # set to ~1e-6 (the lecture documents the MPS-fp32 path runs the same solve to the same floor).
+        float_floor=1e-6,
+        preamble="The COUPLED molecular-equilibrium NMOLEC Newton solve. reference/ holds nmolec_inputs.npz "
+                 "(temperature[80], gas_pressure[80], electron_density[80], xabund[99], equilj_ion[80,190]), "
+                 "nmolec_groundtruth.npz (xnmol[80,200], xnatom[80], xnz[80,30], electron[80] — comparison "
+                 "only), and molecules.dat (the dissociation table, parsed by readmol). nequa=23 unknowns "
+                 "(XNATOM, neutral atoms, n_e); nummol=190 molecules. THE DEPTH LOOP IS INTRINSIC (warm-start "
+                 "chain: depth j seeded from converged depth j-1 * pressure ratio) — keep it; vectorize the "
+                 "Newton ITERATION over the nequa unknowns (autodiff jacrev Jacobian + column-scaled "
+                 "torch.linalg.solve, the Fortran damping). K_f spans 1e25..1e-78 -> carry as LOG(K_f) in "
+                 "fp32 range; precompute the polynomial K_f in fp64 on the host. RUN THE PARITY ON CPU fp64 so "
+                 "the autodiff-Newton fixed point matches the numpy SOLVIT fixed point; the lecture documents "
+                 "the MPS-fp32 budget. The 1e-3 tol is the STOP rule; the converged densities are the parity "
+                 "target (~1e-6 floor vs the numpy twin).",
+        # BORROW kgpu's GPU-resident NMOLEC: the K_f polynomial, the branchless MolStructure incidence, the
+        # vectorized log-space residual, the autodiff Newton step (column-scaled solve), and the density assembly.
+        kgpu_borrow=[("nmolec.py", 198, 239),   # compute_equilj_polynomial (K_f(T), all depths)
+                     ("nmolec.py", 246, 299),   # MolStructure (branchless count/inv_e/neg_ion/active incidence)
+                     ("nmolec.py", 302, 311),   # _safe_log (dtype-safe log floor)
+                     ("nmolec.py", 317, 376),   # _residual (the vectorized log-space coupled residual)
+                     ("nmolec.py", 382, 412),   # _newton_step (column-scaled solve) + _molecular_densities
+                     ("nmolec.py", 415, 584)],  # nmolec_solve (depth loop + warm start + autodiff Newton)
     ),
 }
 

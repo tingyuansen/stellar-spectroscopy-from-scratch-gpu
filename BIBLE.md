@@ -14,6 +14,7 @@ Every ported computation ships with a **comparison cell** against the numpy twin
 
 ## 2. Compute standard — full MPS, vectorized, branchless
 1. **One device handle, chosen once:** MPS→fp32, CUDA→fp32, CPU→fp64. (Pattern: `build_lecture2_gpu.py`.) The book targets **full MPS/GPU residency** — CPU is the fp64 reference path, not the shipped path.
+   - **Torch-native THROUGHOUT.** Write even the simple/scalar calculations in torch on the device — don't drop to numpy just because a step is trivial. This is the GPU edition; keep it uniformly GPU-native end to end. numpy appears ONLY as the comparison-cell reference (the parity oracle) and for genuinely non-numerical setup.
 2. **No Python loops** over depths / wavelengths / lines. Batch over the `(depth, wavelength)` axes with tensor ops.
 3. **Branchless:** recast data-dependent `if/else` as boolean-mask × arithmetic, `torch.where`, or `gather`/one-hot selection. Reserve real control flow only for genuinely expensive branches.
 4. **Precision:** fp32 is the default working dtype on MPS. Where a reduction suffers **catastrophic cancellation** (a secant/difference of two nearly-equal sums) or **fp32 accumulation drift** (a long harmonic/optical-depth accumulation), **fp64-promote just that reduction** via a CPU offload — keep it tiny (scalars / per-depth vectors), bulk stays MPS-resident.
