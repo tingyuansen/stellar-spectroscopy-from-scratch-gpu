@@ -4,7 +4,17 @@ A build-from-scratch course that reconstructs a synthetic stellar spectrum from 
 principles — model atmosphere, equation of state, opacity, and radiative transfer — in short,
 readable NumPy. Every step is **benchmarked to machine precision** against
 [**pykurucz**](https://arxiv.org/abs/2603.11693), a pure-Python implementation of Kurucz's
-ATLAS12 and SYNTHE — the equation of state, every opacity source, the model-atmosphere build, and the radiative transfer — then assembled into a lean end-to-end synthesiser and run across the HR diagram (a hot dwarf, the Sun, a giant, an M dwarf) in parity with pykurucz end to end.
+ATLAS12 and SYNTHE — the equation of state, every opacity source, the model-atmosphere build, and the radiative transfer.
+
+A stellar-atmosphere code has **two halves**, and the book builds both, each end to end, each
+benchmarked to pykurucz. The **spectrum half** (Part V, Lecture 14) takes a model atmosphere and
+assembles the whole opacity-and-transfer stack into a lean synthesiser, run across the HR diagram
+(a hot dwarf, the Sun, a giant, an M dwarf) with every spectrum computed from scratch. The
+**atmosphere half** (Part VI, Lectures 15–16) — the book's finale — switches on the millions of
+spectral lines and builds the per-iteration equation of state from scratch, so the line-blanketed
+convergence reaches the *real* Sun's model atmosphere with no pykurucz in the computed path. Chain
+the two and a star's parameters $(T_{\rm eff}, \log g, [{\rm M/H}])$ become its converged
+line-blanketed structure and, from it, its emergent spectrum: the complete from-scratch Sun.
 
 The notebooks are **self-contained**: each imports only `numpy`, `matplotlib`, and `pathlib` and loads
 small reference data files shipped beside it (`reference/*.npz`). They never import pykurucz —
@@ -49,16 +59,43 @@ rather than hidden. pykurucz is the gold standard and is never modified.
 **Part IV — Building the atmosphere**
 9. **Hydrostatic Equilibrium & Temperature Structure** — the grey start and hydrostatic integration (TTAUP), bit-exact.
 10. **Radiative Equilibrium & Temperature Correction** — flux constancy, the Avrett–Krook/TCORR correction, the Rosseland mean, and the radiation-pressure moment.
-11. **Convection & the Converged Atmosphere** — mixing-length convection, overshoot, the EOS derivatives, and the converged model.
+11. **Convection & the Converged Atmosphere** — mixing-length convection, overshoot, the EOS derivatives, and the converged *continuum-only* model (the line-blanketed finish is Part VI).
 
-**Part V — Cool stars and the whole pipeline**
+**Part V — Cool stars & the spectrum end to end**
 12. **Molecular Equilibrium & Molecular Bands** — dissociation equilibrium and the TiO band opacity of a cool dwarf (machine precision).
 13. **Molecular Chemistry: the Coupled Equilibrium and Continuous Opacity** — the coupled NMOLEC Newton solver and the molecular continuum (CH, OH, H₂ collision-induced absorption), from scratch.
-14. **The Capstone: A Spectrum from Stellar Parameters, End to End** — the lean “kurucz” assembled from every component and run across the HR diagram, in parity with pykurucz end to end.
+14. **A Spectrum from Stellar Parameters, End to End** — the **synthesis half**: the lean “kurucz” assembled from every component (EOS, continuum, atomic/hydrogen/helium lines, molecular bands, JOSH transfer) and run across the HR diagram, computing every spectrum from scratch given an atmosphere. *Atmosphere in, spectrum out.*
 
-**Part VI — The true line-blanketed atmosphere**
+**Part VI — The line-blanketed atmosphere (the finale)**
+The other half of “end to end”: the model atmosphere itself, built genuinely from scratch.
 15. **Line Blanketing: the True Model Atmosphere** — the predicted line list and `SELECTLINES`, the `LINOP1` wing-walk deposit kernel (the asymmetric sub-pixel walk, the full Voigt, the cutoff reach) reproduced bit-exact, the line-blanketed Rosseland mean, and one iteration of the Lecture-11 convergence engine — unchanged, with the blanket switched on — reaching the **real Sun's** model atmosphere (`sun.npz`).
-16. **The Full Equation of State: Species Slots & the Convective Heat Capacity** — the per-iteration state the line deposit and the continuum actually consume, now built from scratch: the multi-element `POPSALL`/`NELECT` species slots (the flat 1006-slot population layout, the Doppler widths, the van-der-Waals perturber number), the `TABCONT` continuum-cutoff table and its far-UV metal bound-free forest, the molecular deposit slots, and the `EDENS` convective heat capacity carrying the **ionization energy** (the partial-ionization adiabat that keeps the deep base from over-heating). With this, the full line-blanketed convergence runs end to end with **zero pykurucz in the computed path**, descending from a grey start onto the real Sun's model atmosphere (`sun.npz`) to a temperature median of 7.7 × 10⁻⁴.
+16. **The Full Equation of State: Species Slots & the Convective Heat Capacity** — the per-iteration state the line deposit and the continuum actually consume (the last borrowed intermediate), now built from scratch: the multi-element `POPSALL`/`NELECT` species slots (the flat 1006-slot population layout, the Doppler widths, the van-der-Waals perturber number), the `TABCONT` continuum-cutoff table and its far-UV metal bound-free forest, the molecular deposit slots, and the `EDENS` convective heat capacity carrying the **ionization energy** (the partial-ionization adiabat that keeps the deep base from over-heating). With this, the full line-blanketed convergence runs end to end with **zero pykurucz in the computed path**, descending onto the real Sun's model atmosphere (`sun.npz`) to a temperature median of 7.7 × 10⁻⁴. *Parameters in, atmosphere out — the complete from-scratch Sun.*
+
+## How to read this book
+
+The full structural map — the four-part arc, what each lecture builds and depends on, the two
+halves of "end to end," and the documented out-of-scope boundaries — is in
+**[STRUCTURE.md](STRUCTURE.md)**, the book's organizing map. In brief:
+
+- **Read it front to back.** The arc is cumulative: Parts I–III build the microphysics (foundations,
+  opacity, transfer) treating the atmosphere as given; Part IV builds the atmosphere's structure;
+  Part V adds cool-star chemistry and then assembles the **spectrum end to end**; Part VI is the
+  **finale** — the line-blanketed atmosphere from scratch.
+- **Each lecture is self-contained and stands alone.** Every notebook imports only `numpy`,
+  `matplotlib`, and `pathlib`, loads its own `reference/*.npz`, runs top to bottom, and ends by
+  benchmarking its from-scratch arrays to the shipped reference. You can open any one lecture and
+  understand what it achieves without flipping back; the cross-references are light signposts, not
+  prerequisites you must chase.
+- **The two halves of "end to end."** A stellar-atmosphere code is two halves. **Lecture 14** is the
+  *spectrum* half — atmosphere in, spectrum out — assembled and run from scratch across the HR
+  diagram. **Part VI (Lectures 15–16)** is the *atmosphere* half — parameters in, line-blanketed
+  model atmosphere out — the book's true finale. Lecture 11's converged model is the *continuum-only*
+  scaffold both build on; Part VI switches the blanket on and builds the per-iteration equation of
+  state Lecture 11 and Lecture 14 read from a reference, closing the last borrowed intermediate.
+- **The boundaries are named, not hidden.** Out of scope, by design: full optical bandwidth (an
+  engineering problem of compiled kernels and parallelism — the physics is all here), and NLTE
+  statistical equilibrium (the real physics frontier). The geometry is 1D plane-parallel throughout,
+  matching the production code's own picture.
 
 ## Viewing
 

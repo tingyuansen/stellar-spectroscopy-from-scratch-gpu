@@ -27,7 +27,7 @@ LECTURES = {
     11: dict(slug="Lecture11", title="Convection &amp; the Converged Atmosphere", lecturer="Yuan-Sen Ting", affil=AFFIL),
     12: dict(slug="Lecture12", title="Molecular Equilibrium &amp; Molecular Bands", lecturer="Yuan-Sen Ting", affil=AFFIL),
     13: dict(slug="Lecture13", title="Molecular Chemistry: Coupled Equilibrium &amp; Continuous Opacity", lecturer="Yuan-Sen Ting", affil=AFFIL),
-    14: dict(slug="Lecture14", title="The Capstone: End to End", lecturer="Yuan-Sen Ting", affil=AFFIL),
+    14: dict(slug="Lecture14", title="A Spectrum from Stellar Parameters, End to End", lecturer="Yuan-Sen Ting", affil=AFFIL),
     15: dict(slug="Lecture15", title="Line Blanketing: the True Model Atmosphere", lecturer="Yuan-Sen Ting", affil=AFFIL),
     16: dict(slug="Lecture16", title="The Full Equation of State: Species Slots &amp; the Convective Heat Capacity", lecturer="Yuan-Sen Ting", affil=AFFIL),
 }
