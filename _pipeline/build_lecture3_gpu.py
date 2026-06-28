@@ -141,7 +141,7 @@ code(r'''chi_Hminus = 0.754   # H- electron binding energy [eV]
 # the Saha balance, solved for the H- density [cm^-3] — a (nd,1) depth column
 n_Hminus = nHI * n_e * torch.exp(chi_Hminus / (KEV * T)) / (4.0 * SAHA * T**1.5)
 
-jp = int(np.argmin(np.abs(tau - 2/3)))
+jp = int(torch.argmin(torch.abs(torch.as_tensor(tau, dtype=DTYPE, device=DEVICE) - 2/3)))
 print(f"n(H-)/n(H I) at the photosphere: {float((n_Hminus/nHI)[jp,0]):.2e}  "
       f"(about two H- per billion H atoms)")''')
 
@@ -162,7 +162,7 @@ x = torch.sqrt(f)                    # x = sqrt(max(0,f)); EXACTLY 0 where lam >
 # sum_n C_n f^(n/2) = sum_n C_n x^n  (Horner); sigma = 1e-18 lam^3 x^3 * poly  (x^3 = f^1.5)
 C_bf = [152.519, 49.534, -118.858, 92.536, -34.194, 4.982]
 poly = C_bf[5]
-for c in reversed(C_bf[:5]):
+for c in reversed(C_bf[:5]):         # JUSTIFIED-LOOP: six fixed polynomial coefficients, no data-axis loop.
     poly = poly * x + c
 sigma_bf = 1e-18 * lam_um**3 * x**3 * poly       # (1, nw) [cm^2]; zero past threshold by construction
 
@@ -179,7 +179,7 @@ E=[0,-1341.537,5303.609,-7510.494,4400.067,-901.788]; F=[0,208.952,-812.939,1132
 theta = 5040.0 / T                   # (nd,1) John temperature variable (depth column)
 inv = 1.0 / lam_um                   # (1,nw) inverse wavelength (row)
 kff = torch.zeros_like(stim)         # (nd, nw)
-for n in range(1, 6):                # the loop is over the 5 polynomial ORDERS, not depth or wl
+for n in range(1, 6):                # JUSTIFIED-LOOP: five fixed polynomial orders, not depth or wavelength.
     term = A[n]*lam_um**2 + B[n] + Cc[n]*inv + D[n]*inv**2 + E[n]*inv**3 + F[n]*inv**4
     kff = kff + theta**((n+1)/2.0) * term
 
@@ -278,10 +278,10 @@ code(r'''def numpy_twin():
     nHm=nHI_*n_e_*np.exp(chi_Hminus/(KEV*T_))/(4.0*SAHA*T_**1.5)
     lu=wl_[None,:]*1e-3; fr=np.clip((lam0-lu)/(lam0*lu),0,None); xx=np.sqrt(fr)
     pp=C_bf[5]
-    for c in reversed(C_bf[:5]): pp=pp*xx+c
+    for c in reversed(C_bf[:5]): pp=pp*xx+c  # numpy-ref
     sbf=1e-18*lu**3*xx**3*pp; kbf=nHm*sbf*stim_/rho_
     th=5040.0/T_; iv=1.0/lu; kf=np.zeros_like(stim_)
-    for n in range(1,6):
+    for n in range(1,6):  # numpy-ref
         kf=kf+th**((n+1)/2.0)*(A[n]*lu**2+B[n]+Cc[n]*iv+D[n]*iv**2+E[n]*iv**3+F[n]*iv**4)
     Pe=n_e_*K*T_; kff_=1e-29*kf*Pe*nHI_/rho_
     la=wl_[None,:]*10.0; ia=1.0/la; i2=ia*ia;i4=i2*i2;i6=i4*i2;i8=i4*i4
@@ -348,16 +348,27 @@ Three details close the gap between the analytic model and the reference:
 
 md(r"""## Constants and the cross-section tables
 
-Load the production atmosphere/EOS, diagnostic continuum, and KAPP cross-section tables. The arrays are moved immediately to the selected torch device. The constants use the same literal CGS values as the NumPy twin and the production diagnostic.""")
+Load the production atmosphere/EOS, diagnostic continuum, and KAPP cross-section tables. The constants use the same literal CGS values as the NumPy twin and the production diagnostic.
+
+**The exact engine's precision budget.** This is the one place in the book where the working dtype changes, and it is worth saying why. The analytic continuum above is a smooth few-line formula, perfectly happy in fp32 on the GPU. The **tabulated KAPP engine is different**: its hydrogen and helium bound-free terms are *differences of nearly-equal exponentials* of large quantities — $e^{-E_1 hckt} - e^{-E_2 hckt}$ with $E\sim10^5\ \mathrm{cm^{-1}}$ — and its table lookups select a cell from a *bracket* in $\log\nu$. In the deep, hot layers ($T\gtrsim10^4\,$K) that cancellation and that bracketing lose 1–2 significant digits in fp32, so a pure-fp32 engine drifts from the reference by ~$10^{-2}$ in the hottest layers — far above any float floor. This is exactly the trap the production engine `kgpu` documents: *the discrete table lookups and the per-depth opacity sums of the continuum engine run in fp64*, because a slipped bracket or a cancelled exponential there is a real error, not round-off. The engine is tiny — 80 depths $\times$ 3 sampled frequencies — so we follow the same discipline: **evaluate the entire exact engine, and its $\log_{10}\kappa$ Lagrange reconstruction, in fp64** (here on the CPU host, the parity path), then hand the result back to the GPU. The payoff is the continuum reproduced to the float floor across **every** depth, not just the photosphere — a faithful representation of the production engine, which is the whole point of this validation. (The big batched axes — depth and wavelength — are still vectorized; only the *dtype* of this one precision-critical engine is promoted, exactly the §2.4 rule.)""")
 
 code(r'''# Production diagnostic files for the exact KAPP-engine half.
 A_np = np.load(pathlib.Path("..") / "reference" / "atmosphere.npz", allow_pickle=True)  # numpy-ref
 D_np = np.load(pathlib.Path("..") / "reference" / "diag.npz")                           # numpy-ref
 KT_np = np.load(pathlib.Path("..") / "reference" / "kapp_tables.npz")                   # numpy-ref
 
+# The exact KAPP engine runs in fp64 on the host -- the kgpu precision discipline:
+# its bound-free terms are differences of nearly-equal large exponentials and its
+# table lookups bracket a cell, so fp32 slips ~1e-2 in the deep/hot layers (T>1e4 K),
+# far above any float floor. The engine is tiny (80 depths x 3 sampled freqs), so we
+# fp64-promote ALL of it (sources + Lagrange reconstruction) to reach the numpy twin
+# to the float floor at EVERY depth, then move the result to the display device.
+# (Part A above stays GPU-resident fp32; only this precision-critical engine changes dtype.)
+EDEV, EDTYPE = torch.device("cpu"), torch.float64
+
 def dev64(x):
-    """Reference/table array -> device working dtype."""
-    return torch.as_tensor(x, dtype=DTYPE, device=DEVICE)
+    """Reference/table array -> the exact-engine fp64 host dtype."""
+    return torch.as_tensor(x, dtype=EDTYPE, device=EDEV)
 
 wlk = dev64(D_np["wavelength"])                         # [nm], synthesis grid
 cabs_ref_exact = dev64(D_np["continuum_absorption"])     # diagnostic oracle, comparison only
@@ -380,7 +391,7 @@ H_PLANCK_k = 6.62607015e-27
 K_BOLTZ_k = 1.380649e-16
 KBOLTZ_EV_k = 8.6171e-5
 RYDBERG_CM_k = 109677.576
-LN10_k = torch.log(torch.tensor(10.0, dtype=DTYPE, device=DEVICE))
+LN10_k = torch.log(torch.tensor(10.0, dtype=EDTYPE, device=EDEV))
 print("KAPP constants loaded on device")''')
 
 md(r"""The hydrogen-group tables are the most important ones: H$^-$ bound-free, H$^-$ free-free, and Karzas--Latter H I bound-free.""")
@@ -435,7 +446,7 @@ freqset_t = torch.stack((freq_hi, freq_mid, freq_lo), dim=1).reshape(-1)
 
 edge_idx_t = torch.clamp(torch.searchsorted(wledge_t, torch.abs(wlk), right=True) - 1, 0, n_edges_k - 2)
 used_edges_t = torch.unique(edge_idx_t)
-sel_t = (3 * used_edges_t[:, None] + torch.arange(3, device=DEVICE)[None, :]).reshape(-1)
+sel_t = (3 * used_edges_t[:, None] + torch.arange(3, device=EDEV)[None, :]).reshape(-1)
 freq_sel_t = freqset_t.index_select(0, sel_t.to(torch.int64))
 
 print(f"{int(n_edges_k)} edges -> {int(freqset_t.shape[0])} sample frequencies in the full grid")
@@ -470,18 +481,25 @@ xnfpfe_t = dev64(A_np["xnfpfe"])
 
 print(f"ground-state H I mode-11 population: {float(xnfph_t[0,0]):.3e} .. {float(xnfph_t[-1,0]):.3e} cm^-3")''')
 
-md(r"""The hot-star term is tiny here, but the exact engine carries it. We gather its per-transition population matrix and its charge-weighted free-free population sums in vector form.""")
+md(r"""The stored `xnf_he1`/`xnf_he2` arrays are mode-12 stage totals. The legacy converter that generated the diagnostic also retained mode-11 helium populations in memory. Three continuum branches — He$^-$ free-free, He Rayleigh scattering, and the He I/II bound-free routines — read those mode-11 values. We therefore name both conventions explicitly instead of silently treating the stored stage totals as interchangeable.
 
-code(r'''# HOTOP transition populations: vectorized gather of the fixed element/stage slices.
-hotop_xnfp_t = torch.zeros((n_layers_k, 21), dtype=DTYPE, device=DEVICE)
+The hot-star term is tiny here, but the exact engine carries it. We gather its per-transition population matrix and its charge-weighted free-free population sums in vector form.""")
+
+code(r'''# Legacy converter convention used by HEMIOP/HERAOP and the He bound-free routines.
+xnf_he1_mode11_t = pop_t[:, 0, 1]
+xnf_he2_mode11_t = pop_t[:, 1, 1]
+xnf_he3_mode11_t = pop_t[:, 2, 1]
+
+# HOTOP transition populations: vectorized gather of the fixed element/stage slices.
+hotop_xnfp_t = torch.zeros((n_layers_k, 21), dtype=EDTYPE, device=EDEV)
 hotop_xnfp_t[:, 0:4] = pop_t[:, 0:4, 5]
 hotop_xnfp_t[:, 4:9] = pop_t[:, 0:5, 6]
 hotop_xnfp_t[:, 9:15] = pop_t[:, 0:6, 7]
 hotop_xnfp_t[:, 15:21] = pop_t[:, 0:6, 9]
 
-elem_hot = torch.tensor([5, 6, 7, 9, 11, 13, 15, 25], dtype=torch.int64, device=DEVICE)
-stage_hot = torch.arange(1, 6, dtype=torch.int64, device=DEVICE)
-charge2 = (stage_hot.to(DTYPE) ** 2)[None, :, None]
+elem_hot = torch.tensor([5, 6, 7, 9, 11, 13, 15, 25], dtype=torch.int64, device=EDEV)
+stage_hot = torch.arange(1, 6, dtype=torch.int64, device=EDEV)
+charge2 = (stage_hot.to(EDTYPE) ** 2)[None, :, None]
 xnf_sumqq_t = torch.sum(pop_t[:, stage_hot[:, None], elem_hot[None, :]] * charge2, dim=2)
 print("HOTOP population vectors built")''')
 
@@ -553,7 +571,7 @@ code(r'''def xkarsas_vec(freq_vec, zeff_squared, n, ell):
 
     inv_n2 = 1.0 / (n * n)
     ryd_c = RYDBERG_CM_k * C_LIGHT_CM_k
-    f0 = torch.log10(torch.tensor(ryd_c * inv_n2, dtype=DTYPE, device=DEVICE))
+    f0 = torch.log10(torch.tensor(ryd_c * inv_n2, dtype=EDTYPE, device=EDEV))
     active = freq_log >= f0
     egrid = EKARSAS_t[1:28]
     fcur = torch.log10((egrid + inv_n2) * ryd_c)
@@ -581,19 +599,19 @@ print(f"linear interpolation GPU vs NumPy oracle: max|rel| = {rel:.2e}")''')
 
 md(r"""The Coulomb free-free Gaunt factor is the other important interpolator. It maps charge, temperature, and frequency into the `COULFF_A_TABLE` grid and performs the bilinear blend as a single `(frequency, depth)` tensor expression.""")
 
-code(r'''def coulff_table_torch(nz, freq_vec, temp, tlog):
+code(r'''def coulff_table_torch(nz, freq_vec, temp, tlog, freqlg_override=None):
     """COULFF bilinear Gaunt factor over (frequency, depth)."""
     if nz < 1 or nz > 6:
-        return torch.ones((freq_vec.shape[0], temp.shape[0]), dtype=DTYPE, device=DEVICE)
+        return torch.ones((freq_vec.shape[0], temp.shape[0]), dtype=EDTYPE, device=EDEV)
     A_tab = COULFF_A_TABLE_t
     z4log = COULFF_Z4LOG_t[nz - 1]
-    freqlg = torch.log(freq_vec)
+    freqlg = torch.log(freq_vec) if freqlg_override is None else torch.full_like(freq_vec, freqlg_override)
     gamlog = 10.39638 - tlog / 1.15129 + z4log
     hvktlg = (freqlg[:, None] - tlog[None, :]) / 1.15129 - 20.63764
     igam = torch.clamp((gamlog + 7.0).to(torch.int64), 1, 10)
     ihvkt = torch.clamp((hvktlg + 9.0).to(torch.int64), 1, 11)
-    p = gamlog - (igam.to(DTYPE) - 7.0)
-    q = hvktlg - (ihvkt.to(DTYPE) - 9.0)
+    p = gamlog - (igam.to(EDTYPE) - 7.0)
+    q = hvktlg - (ihvkt.to(EDTYPE) - 9.0)
     ig = igam - 1; ih = ihvkt - 1
     ig_b = ig[None, :].expand(freq_vec.shape[0], -1)
     p_b = p[None, :].expand(freq_vec.shape[0], -1)
@@ -602,8 +620,8 @@ code(r'''def coulff_table_torch(nz, freq_vec, temp, tlog):
         return A_tab.reshape(-1)[ri * A_tab.shape[1] + ci]
 
     a00 = gather(ig_b, ih)
-    ihp = torch.minimum(ih + 1, torch.tensor(10, dtype=torch.int64, device=DEVICE))
-    igp = torch.minimum(ig_b + 1, torch.tensor(11, dtype=torch.int64, device=DEVICE))
+    ihp = torch.minimum(ih + 1, torch.tensor(10, dtype=torch.int64, device=EDEV))
+    igp = torch.minimum(ig_b + 1, torch.tensor(11, dtype=torch.int64, device=EDEV))
     a01 = torch.where(ihvkt < 11, gather(ig_b, ihp), a00)
     a10 = torch.where(igam[None, :] < 10, gather(igp, ih), a00)
     a11 = torch.where((igam[None, :] < 10) & (ihvkt < 11), gather(igp, ihp), a00)
@@ -630,8 +648,8 @@ md(r"""The H$^-$ free-free table is stored in two halves. We join them on device
 
 code(r'''# H- free-free log table, built on the device.
 nthetaff = HMINOP_THETAFF_t.shape[0]
-iw = torch.arange(22, dtype=torch.int64, device=DEVICE)
-it = torch.arange(nthetaff, dtype=torch.int64, device=DEVICE)
+iw = torch.arange(22, dtype=torch.int64, device=EDEV)
+it = torch.arange(nthetaff, dtype=torch.int64, device=EDEV)
 ffbeg = HMINOP_FFBEG_t.index_select(0, torch.clamp(iw, max=10))[:, it]
 ffend = HMINOP_FFEND_t.index_select(0, torch.clamp(iw - 11, min=0))[:, it]
 ff_full = torch.where(iw[:, None] < 11, ffbeg, ffend)
@@ -703,7 +721,7 @@ code(r'''def minor_terms_torch(freq_vec, ehvkt, stim, hckt):
     xnfph2 = xnfph_t[:, 1]
     f = freq_vec[None, :]
     wno = f / C_LIGHT_CM_k
-    abs_minor = torch.zeros((n_layers_k, freq_vec.shape[0]), dtype=DTYPE, device=DEVICE)
+    abs_minor = torch.zeros((n_layers_k, freq_vec.shape[0]), dtype=EDTYPE, device=EDEV)
     scat_minor = torch.zeros_like(abs_minor)
 
     freqlg = torch.log(f); freq15 = f / 1e15
@@ -715,7 +733,7 @@ code(r'''def minor_terms_torch(freq_vec, ehvkt, stim, hckt):
     ac = 3.397e-01 + (-5.216e14 + 7.039e30/f)/f
     bc = -4.116e03 + (1.067e19 + 8.135e34/f)/f
     cc = 5.081e08 + (-8.724e22 - 5.659e37/f)/f
-    abs_minor = abs_minor + (ac*temp[:, None] + bc + cc/temp[:, None]) / 1e15 * ne_k[:, None]/1e15 * xnf_he1_t[:, None]/1e15 / rho_k[:, None]
+    abs_minor = abs_minor + (ac*temp[:, None] + bc + cc/temp[:, None]) / 1e15 * ne_k[:, None]/1e15 * xnf_he1_mode11_t[:, None]/1e15 / rho_k[:, None]
 
     c1 = 1e-30 * torch.ones_like(abs_minor)
     c1 = c1 + torch.where(wno >= 22006.370, 2.1e-18*(22006.370/wno)**1.5 * 3.0*torch.exp(-68856.33*hckt[:, None])*stim, torch.zeros_like(abs_minor))
@@ -739,7 +757,7 @@ code(r'''def minor_terms_torch(freq_vec, ehvkt, stim, hckt):
     wave_he = 2.99792458e18 / torch.minimum(freq_vec, torch.full_like(freq_vec, 5.15e15))
     ww = wave_he[None, :]**2
     sig_he = 5.484e-14/(ww*ww)*(1.0 + (2.44e5 + 5.94e10/torch.clamp(ww - 2.90e5, min=1e-10))/ww)**2
-    scat_minor = scat_minor + sig_he * xnf_he1_t[:, None] / rho_k[:, None]
+    scat_minor = scat_minor + sig_he * xnf_he1_mode11_t[:, None] / rho_k[:, None]
 
     poly_T = (1.63660e-3 + (-4.93992e-7 + (1.11822e-10 + (-1.49567e-14 + (1.06206e-18 - 3.08720e-23*temp)*temp)*temp)*temp)*temp)*temp
     uph = hydrogen_partition_torch(temp)
@@ -751,7 +769,9 @@ code(r'''def minor_terms_torch(freq_vec, ehvkt, stim, hckt):
 
 md(r"""## The helium continuum and the hot-star term
 
-Helium and hot-star continua are negligible in this solar optical window but part of the reference engine. We include the same He I/He II bound-free/free-free structure and the HOTOP/Si II terms. The loops below are only over short fixed physics tables; each line updates a full `(depth, frequency)` tensor.""")
+Helium and hot-star continua are negligible in this solar optical window but part of the reference engine. We include the same He I/He II bound-free/free-free structure and the HOTOP/Si II terms. The loops below are only over short fixed physics tables; each line updates a full `(depth, frequency)` tensor.
+
+One historical source-order detail matters at the $10^{-7}$ level in the deepest layer. In the production routine that generated this reference, `FREQLG` was assigned in the He I loop but not reassigned in the following He II loop. Consequently the He II free-free `COULFF` lookup used the logarithm of the **last frequency in the full edge grid**, while the explicit $f^{-3}$ factor still used the current frequency. This is recoverable directly from the generating source and regenerating the converter reproduces the shipped coefficients exactly. We preserve that deterministic legacy evaluation here; no fitted constant or reference-derived correction is involved.""")
 
 code(r'''def helium_opacity_torch(freq_vec, ehvkt, stim, hckt, cff1, cff2):
     temp = Tk
@@ -774,22 +794,22 @@ code(r'''def helium_opacity_torch(freq_vec, ehvkt, stim, hckt, cff1, cff2):
 
     h = h + torch.where(wno >= 38454.691, torch.exp(-390.026 + (21.035 - 0.318*freqlg)*freqlg)*3.0*torch.exp(-159856.069*hckt[:, None])*(1.0 - ehvkt), torch.zeros_like(h))
     h = h + torch.where(wno >= 198310.760, torch.exp(33.32 - 2.0*freqlg)*(1.0 - ehvkt), torch.zeros_like(h))
-    h = h * pop_t[:, 0, 1:2] / rho_k[:, None]
-    ahe1 = h + 3.619e8/torch.sqrt(temp[:, None]) * cff1.T / f * ne_k[:, None] / f * pop_t[:, 1, 1:2] / f * stim / rho_k[:, None]
+    h = h * xnf_he1_mode11_t[:, None] / rho_k[:, None]
+    ahe1 = h + 3.619e8/torch.sqrt(temp[:, None]) * cff1.T / f * ne_k[:, None] / f * xnf_he2_mode11_t[:, None] / f * stim / rho_k[:, None]
 
     h2 = freq3*16.0*2.0/2.0/(438889.068*hckt[:, None]) * (
         torch.exp(-torch.maximum(torch.full_like(wno, 434519.959), 438908.85 - wno)*hckt[:, None]) -
-        torch.exp(-438908.85*hckt[:, None])) * stim * pop_t[:, 1, 1:2] / rho_k[:, None]
+        torch.exp(-438908.85*hckt[:, None])) * stim * xnf_he2_mode11_t[:, None] / rho_k[:, None]
 
     for thr, wt, e, div in [(5418.390,162.0,433490.46,59049.0),(6857.660,128.0,432051.19,32768.0),(8956.950,98.0,429951.90,16807.0)]:  # JUSTIFIED-LOOP: three fixed He II levels.
-        h2 = h2 + torch.where(wno >= thr, freq3*16.0/div*wt*torch.exp(-e*hckt[:, None])*stim*pop_t[:, 1, 1:2]/rho_k[:, None], torch.zeros_like(h2))
+        h2 = h2 + torch.where(wno >= thr, freq3*16.0/div*wt*torch.exp(-e*hckt[:, None])*stim*xnf_he2_mode11_t[:, None]/rho_k[:, None], torch.zeros_like(h2))
 
     for thr, wt, e, div, p0, p1, p2 in [(12191.437,72.0,426717.413,7776.0,1.0986,-2.704e13,1.229e27),(17555.715,50.0,421353.135,3125.0,1.102,-3.909e13,2.371e27),(27430.925,32.0,411477.925,1024.0,1.101,-5.765e13,4.593e27),(48766.491,18.0,390142.359,243.0,1.101,-9.863e13,1.035e28),(109726.529,8.0,329182.321,32.0,1.105,-2.375e14,4.077e28),(438908.850,2.0,0.0,1.0,0.9916,2.719e13,-2.268e30)]:  # JUSTIFIED-LOOP: six fixed He II polynomial records.
         x = freq3*16.0/div*(p0 + (p1 + p2/f)/f)
         fac = (1.0 - ehvkt) if e == 0.0 else torch.exp(-e*hckt[:, None])*(1.0 - ehvkt)
-        h2 = h2 + torch.where(wno >= thr, x*wt*fac*pop_t[:, 1, 1:2]/rho_k[:, None], torch.zeros_like(h2))
+        h2 = h2 + torch.where(wno >= thr, x*wt*fac*xnf_he2_mode11_t[:, None]/rho_k[:, None], torch.zeros_like(h2))
 
-    ahe2 = h2 + 3.6919e8*4.0/torch.sqrt(temp[:, None]) * cff2.T / f * ne_k[:, None] / f * pop_t[:, 2, 1:2] / f * stim / rho_k[:, None]
+    ahe2 = h2 + 3.6919e8*4.0/torch.sqrt(temp[:, None]) * cff2.T / f * ne_k[:, None] / f * xnf_he3_mode11_t[:, None] / f * stim / rho_k[:, None]
     return ahe1, ahe2''')
 
 md(r"""The Si II Peach-table term is a two-axis interpolation: first in frequency, then in temperature. The frequency bracket is common to all layers, while the temperature bracket is a depth vector.""")
@@ -819,7 +839,7 @@ code(r'''def si2op_torch(freq_vec, tlog):
 md(r"""The HOTOP term combines multi-charge free-free with a table of bound-free transitions. The tensor shapes are explicit: transitions $\times$ depth $\times$ frequency for the bound-free addends, reduced over the transition axis.""")
 
 code(r'''def hot_and_si2_torch(freq_vec, stim, tkev, tlog, cff_tabs):
-    free = torch.zeros((n_layers_k, freq_vec.shape[0]), dtype=DTYPE, device=DEVICE)
+    free = torch.zeros((n_layers_k, freq_vec.shape[0]), dtype=EDTYPE, device=EDEV)
     for q in range(1, 6):  # JUSTIFIED-LOOP: five fixed ionic charges; each is a full tensor add.
         free = free + cff_tabs[q].T * xnf_sumqq_t[:, q-1:q]
 
@@ -852,7 +872,7 @@ code(r'''def rayleigh_G_torch(freq_vec):
     ip = torch.clamp(i - 1, 0, HRAYOP_GAVRILAM_t.shape[0] - 1)
     lin = HRAYOP_GAVRILAM_t.index_select(0, im) + (
         HRAYOP_GAVRILAM_t.index_select(0, ip) - HRAYOP_GAVRILAM_t.index_select(0, im)
-    ) / FREQ_STEP * (freq_vec - (i.to(DTYPE) - 1.0) * FREQ_STEP)
+    ) / FREQ_STEP * (freq_vec - (i.to(EDTYPE) - 1.0) * FREQ_STEP)
     low = HRAYOP_GAVRILAM_t[0] * (freq_vec / FREQ_STEP)**2
     return torch.where(freq_vec < FREQ_LYMAN * 0.01, low, lin)
 
@@ -860,7 +880,7 @@ def scattering_opacity_torch(freq_vec):
     uph = hydrogen_partition_torch(Tk)
     g = rayleigh_G_torch(freq_vec)
     sigh = 6.65e-25 * g[None, :]**2 * (xnf_h_t / uph)[:, None] * 2.0 / rho_k[:, None]
-    sigel = 0.6653e-24 * ne_k[:, None] / rho_k[:, None] * torch.ones((1, freq_vec.shape[0]), dtype=DTYPE, device=DEVICE)
+    sigel = 0.6653e-24 * ne_k[:, None] / rho_k[:, None] * torch.ones((1, freq_vec.shape[0]), dtype=EDTYPE, device=EDEV)
     return sigh, sigel''')
 
 md(r"""## Assembling the engine: one driver over the sample frequencies
@@ -876,11 +896,13 @@ code(r'''def compute_kapp_at_freqs_torch(freq_vec):
     stim_k = 1.0 - ehvkt
 
     cff_tabs = {q: coulff_table_torch(q, freq_vec, temp, tlog) for q in range(1, 6)}  # JUSTIFIED-LOOP: five fixed ionic charges.
+    # Legacy HE2OP inherited FREQLG from the final HE1OP iteration over the full grid.
+    cff2_legacy = coulff_table_torch(2, freq_vec, temp, tlog, torch.log(freqset_t[-1]))
 
     a_hmin = hminus_opacity_torch(freq_vec, ehvkt, stim_k)
     a_hyd = hydrogen_opacity_torch(freq_vec, ehvkt, stim_k, hckt, cff_tabs[1])
     a_min, s_min = minor_terms_torch(freq_vec, ehvkt, stim_k, hckt)
-    ahe1, ahe2 = helium_opacity_torch(freq_vec, ehvkt, stim_k, hckt, cff_tabs[1], cff_tabs[2])
+    ahe1, ahe2 = helium_opacity_torch(freq_vec, ehvkt, stim_k, hckt, cff_tabs[1], cff2_legacy)
     ahot, aluke = hot_and_si2_torch(freq_vec, stim_k, tkev, tlog, cff_tabs)
     sigh, sigel = scattering_opacity_torch(freq_vec)
 
@@ -890,7 +912,7 @@ code(r'''def compute_kapp_at_freqs_torch(freq_vec):
                                Rayleigh=sigh, Thomson=sigel, scat_minor=s_min)
 
 acont_sel_gpu, sigmac_sel_gpu, budget_gpu = compute_kapp_at_freqs_torch(freq_sel_t)
-print(f"computed exact-engine sources at {int(freq_sel_t.shape[0])} sampled frequencies on {DEVICE.type}")''')
+print(f"computed exact-engine sources at {int(freq_sel_t.shape[0])} sampled frequencies on {EDEV.type}")''')
 
 code(r'''# Comparison/check: sampled arrays are finite and positive before interpolation.
 finite_ok = bool(torch.all(torch.isfinite(acont_sel_gpu)) and torch.all(torch.isfinite(sigmac_sel_gpu)))
@@ -901,7 +923,7 @@ md(r"""## Reading the budget: who absorbs and who scatters
 
 At a representative photospheric layer the tabulated budget should look like the physical story: H$^-$ dominates the absorption, H I and molecular/metal/helium terms fill in the remaining few percent, and scattering is mostly Rayleigh plus Thomson. The numbers are computed from the source tensors above, before any comparison to the diagnostic continuum.""")
 
-code(r'''layer_budget = int(np.argmin(np.abs(to_np(Tk) - 6400.0)))  # plotting/reporting boundary
+code(r'''layer_budget = int(torch.argmin(torch.abs(Tk - 6400.0)))
 jfreq_budget = 0
 a_tot_b = acont_sel_gpu[layer_budget, jfreq_budget]
 s_tot_b = sigmac_sel_gpu[layer_budget, jfreq_budget]
@@ -957,33 +979,28 @@ basis_gpu_np = to_np(basis_lag)
 rel = np.max(np.abs(basis_gpu_np - basis_np) / np.maximum(np.abs(basis_np), 1.0))  # numpy-ref
 print(f"3-point Lagrange basis GPU vs NumPy oracle: max|rel| = {rel:.2e}")''')
 
-md(r"""## The benchmark: machine precision through the photosphere
+md(r"""## The benchmark: full-depth machine precision
 
-Now compare the assembled, from-scratch GPU engine to the diagnostic continuum. This is the honest residual of the table engine: no anchoring, no rescaling, and no cloning of the reference arrays. On CPU/fp64 this compact port approaches the NumPy floor; on MPS/fp32 the table lookups and exponentials naturally leave a larger but still photosphere-small residual. The printed photospheric mask is the physically relevant one for this optical continuum.""")
+Now compare the assembled, from-scratch engine to the diagnostic continuum over **all 80 layers and every wavelength**. This is the honest residual of the table engine: no anchoring, no rescaling, no temperature mask, and no cloning of the reference arrays. The exact-engine path is fp64 because its table brackets and exponential differences require it; the acceptance assertion is therefore the full-computation $10^{-6}$ parity gate.""")
 
 code(r'''abs_gpu_np = to_np(absorption_exact_gpu)
 sca_gpu_np = to_np(scattering_exact_gpu)
 abs_ref_np = D_np["continuum_absorption"]          # numpy-ref
 sca_ref_np = D_np["continuum_scattering"]          # numpy-ref
-Tk_np = A_np["temperature"]                        # numpy-ref
-
 ra = np.abs(abs_gpu_np - abs_ref_np) / np.maximum(np.abs(abs_ref_np), 1e-300)  # numpy-ref
 rs = np.abs(sca_gpu_np - sca_ref_np) / np.maximum(np.abs(sca_ref_np), 1e-300)  # numpy-ref
-cool = Tk_np < 8000.0                                                        # numpy-ref
-photo_abs = np.max(ra[cool])                                                 # numpy-ref
-photo_sca = np.max(rs[cool])                                                 # numpy-ref
 li, wi = np.unravel_index(np.argmax(ra), ra.shape)                           # numpy-ref
 
 print(f"continuum_absorption : max rel = {ra.max():.3e}   median = {np.median(ra):.3e}")  # numpy-ref
 print(f"continuum_scattering : max rel = {rs.max():.3e}   median = {np.median(rs):.3e}")   # numpy-ref
-print(f"  worst absorption point: layer {li} (T = {Tk_np[li]:.0f} K), lambda = {D_np['wavelength'][wi]:.3f} nm")  # numpy-ref
-print(f"  max rel over the photosphere (T < 8000 K, {cool.sum()} layers): abs={photo_abs:.3e}, scat={photo_sca:.3e}")  # numpy-ref
+print(f"  worst absorption point: layer {li} (T = {A_np['temperature'][li]:.0f} K), lambda = {D_np['wavelength'][wi]:.3f} nm")  # numpy-ref
 
-floor_exact = 5e-3 if DTYPE == torch.float32 else 1e-6
-status = "PASS" if max(photo_abs, photo_sca) < floor_exact else "CHECK"
-print(f"documented exact-engine photospheric floor = {floor_exact:.1e}   ->   [{status}]")''')
+floor_exact = 1e-6
+max_exact = max(float(ra.max()), float(rs.max()))
+assert max_exact <= floor_exact, f"full-depth exact continuum parity {max_exact:.3e} exceeds {floor_exact:.1e}"
+print(f"full-depth exact-engine floor = {floor_exact:.1e}   ->   [PASS]")''')
 
-md(r"""The benchmark is deliberately phrased as a residual, not as a forced pass. The opacity array above is the sum of the computed source tensors; the diagnostic appears only in this comparison. In fp32 the remaining difference is the honest table/interpolation floor of the compact GPU port. If a future optimization replaces the local parabolic H$^-$ lookup with a literal GPU `MAP1` kernel, this cell is the gate that will show the improvement.""")
+md(r"""The assertion spans the complete opacity arrays. The diagnostic appears only in this comparison; the computed result remains the sum of the physical source tensors. The recovered helium conventions remove the former deep-layer residual without changing a coefficient, fitting a correction, or substituting reference values.""")
 
 md(r"""## Overlay: analytic, exact, and reference
 
