@@ -190,7 +190,7 @@ chi_H = chi[0, 0]                             # hydrogen ionization potential [e
 r = saha_ratio(U_HI, U_HII, chi_H, T, n_e_ref, dchi_eV=potlow * 1)
 frac_HII = r / (1.0 + r)                       # ionized fraction n(H II)/n(H total)
 
-compare("H II fraction", frac_HII, REF["fracH"][:, 1], tol=2e-3)
+compare("H II fraction", frac_HII, REF["fracH"][:, 1], tol=5e-6)
 jphot = int(torch.argmin(torch.abs(tau - 2/3)))
 print(f"H is {100*float(frac_HII[jphot]):.4f}% ionized at the photosphere")''')
 
@@ -330,10 +330,10 @@ This is the per-part check that defines the GPU edition. We have just computed t
 code(r'''print(f"Validating the GPU equation of state against reference/L2.npz")
 print(f"  device = {DEVICE.type}   dtype = {str(DTYPE).split('.')[-1]}\n")
 
-# the documented EOS float floors: fp32 GPU ~1.5e-6; fp64 CPU recovers machine precision
+# the documented EOS float floors: fp32 GPU lands at a few e-6; fp64 CPU recovers machine precision
 is_fp32 = (DTYPE == torch.float32)
 floor_ne   = 5e-6 if is_fp32 else 1e-10
-floor_frac = 2e-3 if is_fp32 else 2e-3          # H II fraction (a ratio; the NumPy edition's own tol)
+floor_frac = 5e-6 if is_fp32 else 1e-10
 
 devs = {
     "electron density n_e": compare("electron density n_e", n_e, REF["xne"], tol=floor_ne),
@@ -710,7 +710,14 @@ dU  = compare_pfsaha("partition function U",        U_pf,    PFT["U"])
 dF  = compare_pfsaha("stage fraction F/U",          popfrac, PFT["population_fraction"])
 dP  = compare_pfsaha("per-ion population n_ion/U",  popion,  PFT["population_per_ion"])
 
-max_dev = max(dU, dF, dP)
+charge_pf = torch.arange(NSTORE, dtype=DTYPE, device=DEVICE)
+xne_from_pfsaha = (popion * U_pf * charge_pf[None, None, :]).sum(dim=(1, 2))
+charge_np = np.arange(NSTORE, dtype=np.float64)
+xne_from_pfsaha_ref = (PFT["population_per_ion"] * PFT["U"] * charge_np[None, None, :]).sum(axis=(1, 2))
+dx = compare("PFSAHA stored-stage ne", xne_from_pfsaha, xne_from_pfsaha_ref,
+             tol=(5e-5 if DTYPE == torch.float32 else 1e-9))
+
+max_dev = max(dU, dF, dP, dx)
 floor = 5e-5 if DTYPE == torch.float32 else 1e-9
 print(f"\nmax relative deviation (GPU {DEVICE.type}/{str(DTYPE).split('.')[-1]} vs pykurucz PFSAHA) "
       f"= {max_dev:.2e}")

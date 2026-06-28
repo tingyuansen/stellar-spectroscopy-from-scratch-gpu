@@ -237,7 +237,7 @@ chi_H = chi[0, 0]                             # hydrogen ionization potential [e
 r = saha_ratio(U_HI, U_HII, chi_H, T, n_e_ref, dchi_eV=potlow * 1)
 frac_HII = r / (1.0 + r)                       # ionized fraction n(H II)/n(H total)
 
-compare(&quot;H II fraction&quot;, frac_HII, REF[&quot;fracH&quot;][:, 1], tol=2e-3)
+compare(&quot;H II fraction&quot;, frac_HII, REF[&quot;fracH&quot;][:, 1], tol=5e-6)
 jphot = int(torch.argmin(torch.abs(tau - 2/3)))
 print(f&quot;H is {100*float(frac_HII[jphot]):.4f}% ionized at the photosphere&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
@@ -251,7 +251,7 @@ chi_H = chi[<span class="hljs-number">0</span>, <span class="hljs-number">0</spa
 r = saha_ratio(U_HI, U_HII, chi_H, T, n_e_ref, dchi_eV=potlow * <span class="hljs-number">1</span>)
 frac_HII = r / (<span class="hljs-number">1.0</span> + r)                       <span class="hljs-comment"># ionized fraction n(H II)/n(H total)</span>
 
-compare(<span class="hljs-string">&quot;H II fraction&quot;</span>, frac_HII, REF[<span class="hljs-string">&quot;fracH&quot;</span>][:, <span class="hljs-number">1</span>], tol=<span class="hljs-number">2e-3</span>)
+compare(<span class="hljs-string">&quot;H II fraction&quot;</span>, frac_HII, REF[<span class="hljs-string">&quot;fracH&quot;</span>][:, <span class="hljs-number">1</span>], tol=<span class="hljs-number">5e-6</span>)
 jphot = <span class="hljs-built_in">int</span>(torch.argmin(torch.<span class="hljs-built_in">abs</span>(tau - <span class="hljs-number">2</span>/<span class="hljs-number">3</span>)))
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;H is <span class="hljs-subst">{<span class="hljs-number">100</span>*<span class="hljs-built_in">float</span>(frac_HII[jphot]):<span class="hljs-number">.4</span>f}</span>% ionized at the photosphere&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">H II fraction                 max|rel diff| = 4.07e-06   [agree]
@@ -490,10 +490,10 @@ XNE = xne_np.copy()
         <button class="copy-btn" type="button" data-code="print(f&quot;Validating the GPU equation of state against reference/L2.npz&quot;)
 print(f&quot;  device = {DEVICE.type}   dtype = {str(DTYPE).split(&#39;.&#39;)[-1]}\n&quot;)
 
-# the documented EOS float floors: fp32 GPU ~1.5e-6; fp64 CPU recovers machine precision
+# the documented EOS float floors: fp32 GPU lands at a few e-6; fp64 CPU recovers machine precision
 is_fp32 = (DTYPE == torch.float32)
 floor_ne   = 5e-6 if is_fp32 else 1e-10
-floor_frac = 2e-3 if is_fp32 else 2e-3          # H II fraction (a ratio; the NumPy edition&#39;s own tol)
+floor_frac = 5e-6 if is_fp32 else 1e-10
 
 devs = {
     &quot;electron density n_e&quot;: compare(&quot;electron density n_e&quot;, n_e, REF[&quot;xne&quot;], tol=floor_ne),
@@ -514,10 +514,10 @@ print(&quot;\nThe GPU equation of state matches the NumPy edition to the documen
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;Validating the GPU equation of state against reference/L2.npz&quot;</span>)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;  device = <span class="hljs-subst">{DEVICE.<span class="hljs-built_in">type</span>}</span>   dtype = <span class="hljs-subst">{<span class="hljs-built_in">str</span>(DTYPE).split(<span class="hljs-string">&#x27;.&#x27;</span>)[-<span class="hljs-number">1</span>]}</span>\n&quot;</span>)
 
-<span class="hljs-comment"># the documented EOS float floors: fp32 GPU ~1.5e-6; fp64 CPU recovers machine precision</span>
+<span class="hljs-comment"># the documented EOS float floors: fp32 GPU lands at a few e-6; fp64 CPU recovers machine precision</span>
 is_fp32 = (DTYPE == torch.float32)
 floor_ne   = <span class="hljs-number">5e-6</span> <span class="hljs-keyword">if</span> is_fp32 <span class="hljs-keyword">else</span> <span class="hljs-number">1e-10</span>
-floor_frac = <span class="hljs-number">2e-3</span> <span class="hljs-keyword">if</span> is_fp32 <span class="hljs-keyword">else</span> <span class="hljs-number">2e-3</span>          <span class="hljs-comment"># H II fraction (a ratio; the NumPy edition&#x27;s own tol)</span>
+floor_frac = <span class="hljs-number">5e-6</span> <span class="hljs-keyword">if</span> is_fp32 <span class="hljs-keyword">else</span> <span class="hljs-number">1e-10</span>
 
 devs = {
     <span class="hljs-string">&quot;electron density n_e&quot;</span>: compare(<span class="hljs-string">&quot;electron density n_e&quot;</span>, n_e, REF[<span class="hljs-string">&quot;xne&quot;</span>], tol=floor_ne),
@@ -541,7 +541,7 @@ n_e via attribution           max|rel diff| = 3.42e-06   [agree]
 H II fraction                 max|rel diff| = 4.07e-06   [agree]
 
 max relative deviation (GPU mps/float32 vs NumPy reference) = 4.075e-06
-documented float floor = 2.0e-03   -&gt;   [PASS]
+documented float floor = 5.0e-06   -&gt;   [PASS]
 
 The GPU equation of state matches the NumPy edition to the documented float floor.
 </pre></div></div><div class="prose"><p><strong>What the number means.</strong> The GPU equation of state reproduces the NumPy edition&#39;s electron density and hydrogen ionization to the float floor — a few <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>×</mo><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>6</mn></mrow></msup></mrow><annotation encoding="application/x-tex">\times 10^{-6}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8974em;vertical-align:-0.0833em;"></span><span class="mord">×</span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">6</span></span></span></span></span></span></span></span></span></span></span></span> in fp32 on the GPU, machine precision in fp64 on a CPU run. That residual is the single-precision round-off of the Saha ladder and the charge-balance reduction, <em>not</em> a physics difference: the formulas, the constants, and the atomic data are identical to the NumPy edition (and hence to pykurucz). The depth-batched <code>torch</code> port is correct.</p>
@@ -1206,7 +1206,14 @@ dU  = compare_pfsaha(&quot;partition function U&quot;,        U_pf,    PFT[&quot
 dF  = compare_pfsaha(&quot;stage fraction F/U&quot;,          popfrac, PFT[&quot;population_fraction&quot;])
 dP  = compare_pfsaha(&quot;per-ion population n_ion/U&quot;,  popion,  PFT[&quot;population_per_ion&quot;])
 
-max_dev = max(dU, dF, dP)
+charge_pf = torch.arange(NSTORE, dtype=DTYPE, device=DEVICE)
+xne_from_pfsaha = (popion * U_pf * charge_pf[None, None, :]).sum(dim=(1, 2))
+charge_np = np.arange(NSTORE, dtype=np.float64)
+xne_from_pfsaha_ref = (PFT[&quot;population_per_ion&quot;] * PFT[&quot;U&quot;] * charge_np[None, None, :]).sum(axis=(1, 2))
+dx = compare(&quot;PFSAHA stored-stage ne&quot;, xne_from_pfsaha, xne_from_pfsaha_ref,
+             tol=(5e-5 if DTYPE == torch.float32 else 1e-9))
+
+max_dev = max(dU, dF, dP, dx)
 floor = 5e-5 if DTYPE == torch.float32 else 1e-9
 print(f&quot;\nmax relative deviation (GPU {DEVICE.type}/{str(DTYPE).split(&#39;.&#39;)[-1]} vs pykurucz PFSAHA) &quot;
       f&quot;= {max_dev:.2e}&quot;)
@@ -1235,7 +1242,14 @@ dU  = compare_pfsaha(<span class="hljs-string">&quot;partition function U&quot;<
 dF  = compare_pfsaha(<span class="hljs-string">&quot;stage fraction F/U&quot;</span>,          popfrac, PFT[<span class="hljs-string">&quot;population_fraction&quot;</span>])
 dP  = compare_pfsaha(<span class="hljs-string">&quot;per-ion population n_ion/U&quot;</span>,  popion,  PFT[<span class="hljs-string">&quot;population_per_ion&quot;</span>])
 
-max_dev = <span class="hljs-built_in">max</span>(dU, dF, dP)
+charge_pf = torch.arange(NSTORE, dtype=DTYPE, device=DEVICE)
+xne_from_pfsaha = (popion * U_pf * charge_pf[<span class="hljs-literal">None</span>, <span class="hljs-literal">None</span>, :]).<span class="hljs-built_in">sum</span>(dim=(<span class="hljs-number">1</span>, <span class="hljs-number">2</span>))
+charge_np = np.arange(NSTORE, dtype=np.float64)
+xne_from_pfsaha_ref = (PFT[<span class="hljs-string">&quot;population_per_ion&quot;</span>] * PFT[<span class="hljs-string">&quot;U&quot;</span>] * charge_np[<span class="hljs-literal">None</span>, <span class="hljs-literal">None</span>, :]).<span class="hljs-built_in">sum</span>(axis=(<span class="hljs-number">1</span>, <span class="hljs-number">2</span>))
+dx = compare(<span class="hljs-string">&quot;PFSAHA stored-stage ne&quot;</span>, xne_from_pfsaha, xne_from_pfsaha_ref,
+             tol=(<span class="hljs-number">5e-5</span> <span class="hljs-keyword">if</span> DTYPE == torch.float32 <span class="hljs-keyword">else</span> <span class="hljs-number">1e-9</span>))
+
+max_dev = <span class="hljs-built_in">max</span>(dU, dF, dP, dx)
 floor = <span class="hljs-number">5e-5</span> <span class="hljs-keyword">if</span> DTYPE == torch.float32 <span class="hljs-keyword">else</span> <span class="hljs-number">1e-9</span>
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;\nmax relative deviation (GPU <span class="hljs-subst">{DEVICE.<span class="hljs-built_in">type</span>}</span>/<span class="hljs-subst">{<span class="hljs-built_in">str</span>(DTYPE).split(<span class="hljs-string">&#x27;.&#x27;</span>)[-<span class="hljs-number">1</span>]}</span> vs pykurucz PFSAHA) &quot;</span>
       <span class="hljs-string">f&quot;= <span class="hljs-subst">{max_dev:<span class="hljs-number">.2</span>e}</span>&quot;</span>)
@@ -1249,6 +1263,7 @@ status = <span class="hljs-string">&quot;PASS&quot;</span> <span class="hljs-key
 partition function U               significant n= 29200  max|rel| = 1.91e-06  median = 1.89e-08   [agree]
 stage fraction F/U                 significant n= 22796  max|rel| = 1.49e-05  median = 8.06e-07   [agree]
 per-ion population n_ion/U         significant n= 22796  max|rel| = 1.49e-05  median = 8.10e-07   [agree]
+PFSAHA stored-stage ne        max|rel diff| = 4.16e-06   [agree]
 
 max relative deviation (GPU mps/float32 vs pykurucz PFSAHA) = 1.49e-05
 documented PFSAHA float floor = 5.0e-05   -&gt;   [PASS]

@@ -300,14 +300,43 @@ print(f"  device = {DEVICE.type}   dtype = {str(DTYPE).split('.')[-1]}\n")
 is_fp32 = (DTYPE == torch.float32)
 floor = 1e-6 if is_fp32 else 1e-10        # ~1e-6 fp32 on MPS; machine precision in fp64 on CPU
 
-# rebuild the reference single-line kappa with the NumPy edition's exact assembly, for the check
+def voigt_H_numpy(a, v):
+    """Independent NumPy Harris-table reference for H(a,v), no torch/GPU path."""
+    aa = np.asarray(a, dtype=np.float64).reshape(-1, 1)
+    vv0 = np.asarray(v, dtype=np.float64).reshape(1, -1)
+    av = np.abs(vv0); vv = vv0*vv0; a2 = aa*aa
+    iv = np.clip((av*200.0 + 0.5).astype(np.int64), 0, REF["h0tab"].shape[0]-1)
+    h0 = REF["h0tab"][iv]; h1t = REF["h1tab"][iv]; h2t = REF["h2tab"][iv]
+
+    vv_safe = np.where(vv > 0.0, vv, 1.0)
+    h_low = np.where(av > 10.0, 0.5642*aa/vv_safe, (h2t*aa + h1t)*aa + h0)
+
+    u = (a2 + vv)*1.4142
+    u_safe = np.where(u > 0.0, u, 1.0)
+    val = aa*0.79788/u_safe
+    aau, vvu, uu = a2/u_safe, vv/u_safe, u_safe*u_safe
+    corr = ((((aau - 10.0*vvu)*aau*3.0 + 15.0*vvu*vvu) + 3.0*vv - a2)/uu + 1.0)
+    h_high = np.where(aa <= 100.0, corr*val, val)
+
+    h1 = h1t + h0*1.12838
+    h2 = h2t + h1*1.12838 - h0
+    h3 = (1.0 - h2t)*0.37613 - h1*0.66667*vv + h2*1.12838
+    h4 = (3.0*h3 - h1)*0.37613 + h0*0.66667*vv*vv
+    polyA = (((h4*aa + h3)*aa + h2)*aa + h1)*aa + h0
+    polyB = ((-0.122727278*aa + 0.532770573)*aa - 0.96284325)*aa + 0.979895032
+    h_mid = polyA*polyB
+
+    far = (aa > 1.4) | ((aa + av) > 3.2)
+    return np.where(aa < 0.2, h_low, np.where(far, h_high, h_mid))
+
+# rebuild the reference single-line kappa with an independent NumPy Harris assembly
 T_np, xne_np, rho_np, nHI_np = REF["T"], REF["xne"], REF["rho"], REF["nHI"]
 nFe_np, UFe_np, tau_np = REF["n_FeI"], REF["U_FeI"], REF["tau"]
 jpn = int(np.argmin(np.abs(tau_np - 2/3)))
 dnuD = (nu0/C)*np.sqrt(2*K*T_np[jpn]/m_Fe + xi**2)
 ad = (2.0e8 + 1.0e-7*nHI_np[jpn] + 1.0e-8*xne_np[jpn]) / (4*np.pi*dnuD)
 lamn = np.linspace(lam0_nm-0.04, lam0_nm+0.04, 800); nun = C/(lamn*1e-7); vn = (nun-nu0)/dnuD
-Hn = voigt_H(np.array([ad]), vn).detach().cpu().to(torch.float64).numpy()[0]
+Hn = voigt_H_numpy(np.array([ad]), vn)[0]
 phin = Hn/(np.sqrt(np.pi)*dnuD)
 stimn = 1.0 - np.exp(-H_C*nun/(K*T_np[jpn]))
 nlg = (nFe_np[jpn]/UFe_np[jpn])*np.exp(-chi_l/(KEV*T_np[jpn]))
@@ -335,6 +364,28 @@ md(r"""## Summary
 - The profile is a **Voigt** $\phi = H(a,v)/(\sqrt{\pi}\Delta\nu_D)$, the convolution of the Gaussian Doppler core with the Lorentzian damping wings, with $a=\gamma/4\pi\Delta\nu_D$.
 - $H(a,v)$ is Kurucz's three-branch Harris-table approximation, recast as **one branchless `torch` expression** evaluated on the whole $(a,v)$ grid: every regime computed, the right one selected by `torch.where`; the table lookup is a clamped `index_select`.
 - The GPU result matches the NumPy reference to the float floor — the branch-to-mask flattening is exact, seams and all — and the `voigt_H` kernel is reused across the entire line list in Lecture 5.""")
+
+md(r"""## Synthesis: what you built and where it goes
+
+You built a single spectral line from its parts. Its **strength** is the classical constant times the oscillator strength `log gf` times the lower-level population — and that population comes from the **ionization** (Saha) and **excitation** (Boltzmann, through $\chi_\ell$) of Lecture 2. Its **shape** is the **Voigt profile**, reproduced here through Kurucz's Harris-table approximation: the convolution of the thermal-plus-turbulent Gaussian Doppler profile with the Lorentzian damping profile from natural, Stark, and van der Waals broadening. You overlaid the result on the H$^-$ continuum and saw the opacity spike that becomes an absorption line.
+
+One line is a demonstration; a real spectrum is a forest. Lecture 5 reads the Kurucz line list — over a million atomic transitions — assigns each its $\log gf$, excitation potential, and damping constants, and sums their Voigt profiles onto a wavelength grid to build the total line opacity at every depth, ready for radiative transfer.""")
+
+md(r"""## Practice exercises
+
+**1. Excitation potential and depth.** Recompute the line's central opacity for $\chi_\ell = 0$ and $\chi_\ell = 5\ \mathrm{eV}$ at three depths. Which line is relatively stronger in the cool upper photosphere, and why does high excitation make a line a deeper-forming, more temperature-sensitive probe?
+
+**2. The damping wings.** Increase $\gamma_{\rm vdW}$ by factors of $3$ and $10$ and plot the profiles. How does the damping parameter $a$ change, and where in the profile does the extra opacity appear? This is the surface-gravity diagnostic.
+
+**3. Toy equivalent-width proxy.** Numerically integrate the line depth $1 - e^{-\tau_{\rm line}}$ over wavelength across the line for a range of $\log gf$ from $-4$ to $0$, treating $\tau_{\rm line} = \kappa_{\rm line}/\kappa_{\rm cont}$ with a fixed normalisation. This is not formal radiative transfer, so what matters is the curve's shape: the linear, saturated, and damping-wing regimes of the curve of growth.""")
+
+md(r"""## Further reading
+
+- **Gray, D. F. (2005). *The Observation and Analysis of Stellar Photospheres*, 3rd ed.** Chapters 11–13 on line absorption coefficients, broadening, and the curve of growth.
+- **Rutten, R. J. (2003). *Radiative Transfer in Stellar Atmospheres*.** A lucid derivation of the Voigt profile and line opacity.
+- **Humlíček, J. (1982). *Optimized computation of the Voigt and complex probability functions*, JQSRT, 27, 437.** Fast accurate evaluation of the Faddeeva function behind the Voigt profile.
+- **Anstee, S. D. & O'Mara, B. J. (1995). *Width cross-sections for collisional broadening...*, MNRAS, 276, 859.** Modern van der Waals broadening theory.
+- **Kim, E. M. & Ting, Y.-S. (2026). [*pykurucz*](https://arxiv.org/abs/2603.11693).** The implementation our reference Harris-Voigt tables are computed with.""")
 
 nb = new_notebook(cells=cells, metadata={
     "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
