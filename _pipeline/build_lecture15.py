@@ -56,9 +56,9 @@ md(r"""# Lecture 15 — Line Blanketing: the True Model Atmosphere
 # ── introduction ──────────────────────────────────────────────────────────────
 md(r"""## Introduction: the debt Lecture 11 left open
 
-Lecture 11 converged a model atmosphere of the Sun and benchmarked it to the production code's precision floor. But it converged a **continuum-only** model: in the frequency sweep, the only opacity was the continuum of Lecture 3 — bound-free, free-free, and scattering — and the millions of spectral lines of Lectures 4–6 were switched off. That was a deliberate simplification, and an honest one: it needs no multi-gigabyte line list, so the whole loop stays reproducible with NumPy alone. But it is not the real Sun.
+Lecture 11 converged a model atmosphere of the Sun and benchmarked it to the production code's precision floor. But it converged a **continuum-only** model: in the frequency sweep, the only opacity was the continuum of Lecture 3 — bound-free and free-free absorption, plus scattering — and the millions of spectral lines of Lectures 4–6 were switched off. That was a deliberate simplification, and an honest one: it needs no multi-gigabyte line list, so the whole loop stays reproducible with NumPy alone. But it is not the real Sun.
 
-A real model atmosphere is **line-blanketed**. The spectral lines — overwhelmingly the iron-group metals, crowded thickest in the ultraviolet — are not a thin garnish on top of the continuum; in the blue and ultraviolet they *are* the opacity, hundreds of overlapping wings filling every frequency interval. Switching them on reshapes the temperature structure through radiative equilibrium. The lines block radiation across huge stretches of the ultraviolet, so the photons that would have escaped there thermalize deeper instead, and the **deep layers heat up** — the classic *back-warming*. Meanwhile the thin upper layers, which the same line opacity now makes far more emissive in the blocked bands while shielding them from the deep flux, can radiate away their energy more efficiently and **cool down** to keep the total flux constant. The temperature structure of the converged model is genuinely different from the continuum-only one: warmer below, cooler above. This is the single most important physical effect that separates a real model atmosphere from the toy of Lecture 11, and it is what this lecture finally puts in.
+A real model atmosphere is **line-blanketed**. The spectral lines — overwhelmingly the iron-group metals, crowded thickest in the ultraviolet — are not a thin garnish on top of the continuum; in the blue and ultraviolet they *are* the opacity, hundreds of overlapping wings filling every frequency interval. Switching them on reshapes the temperature structure through radiative equilibrium. The lines block the radiative flux across huge stretches of the ultraviolet, suppressing the escape of energy from the deeper layers in those bands; under radiative equilibrium that energy is redistributed to other wavelengths, and the layers below the blocking region **heat up** — the classic *back-warming*. Meanwhile the optically thin upper layers, shielded from the deep ultraviolet flux that the lines now intercept, settle to a new radiative equilibrium at **lower temperature** — the surface **cools**, keeping the total flux constant. The temperature structure of the converged model is genuinely different from the continuum-only one: warmer below, cooler above. This is the single most important physical effect that separates a real model atmosphere from the toy of Lecture 11, and it is what this lecture finally puts in.
 
 The good news is that almost all the machinery is already built. Lecture 11 established the whole convergence loop — the JOSH flux solver, the Rosseland mean, the mixing-length convection, the temperature correction — and that machinery is **opacity-agnostic**: it does not care whether the opacity it folds is continuum, lines, or both. The forward look at the end of Lecture 11 said exactly this: *"Switching them on changes nothing in the machinery of this lecture — the frequency sweep simply carries line opacity alongside the continuum."* So the new physics this lecture must build is narrow and well-defined: **how to deposit a line's opacity onto the wavelength grid**, and **how to select which of the millions of lines to bother with**. We build the deposit kernel from scratch, benchmark it to the single-precision floor, fold the result into the Rosseland mean, and then hand it to the unchanged Lecture 11 engine — which, with the blanket switched on, reaches the real Sun.""")
 
@@ -161,17 +161,17 @@ To deposit a line we need three numbers at each depth: the **line-center opacity
 
 **The line-center opacity.** The classical oscillator-strength cross-section, scaled by wavelength and the *species* population, then multiplied by the Boltzmann factor to select the lower-level population:
 
-$$\kappa_0(j) \;=\; \underbrace{C_{gf}\,\lambda\,gf}_{\texttt{cgf}}\;\cdot\;\underbrace{\frac{n_{\rm low}}{\Delta\nu_{\rm D}\,\rho}}_{\texttt{xnfdop}}\;\cdot\;e^{-\chi_{\rm low}\,hc/kT(j)},
+$$\kappa_0(j) \;=\; \underbrace{C_{gf}\,\lambda\,gf}_{\texttt{cgf}}\;\cdot\;\underbrace{\frac{n_{\rm sp}}{\Delta\nu_{\rm D}\,\rho}}_{\texttt{xnfdop}}\;\cdot\;\underbrace{e^{-\chi_{\rm low}\,hc/kT(j)}}_{\text{lower-level Boltzmann factor}},
 \qquad C_{gf}=\frac{0.026538}{\sqrt\pi\,c},$$
 
-where $0.026538=\pi e^2/m_e c$ is the classical line constant, $\sqrt\pi=1.77245$ is the Gaussian normalisation, and $c$ is in nm s$^{-1}$. The combination `xnfdop` $=n_{\rm low}/(\Delta\nu_{\rm D}\rho)$ — the population divided by Doppler width and density — is exactly what the equation of state hands us, so that $\kappa_0$ already carries the Voigt peak normalisation $1/(\sqrt\pi\,\Delta\nu_{\rm D})$.
+where $0.026538=\pi e^2/m_e c$ is the classical line constant, $\sqrt\pi=1.77245$ is the Gaussian normalisation, and $c$ is in nm s$^{-1}$. The combination `xnfdop` $=n_{\rm sp}/(\Delta\nu_{\rm D}\rho)$ is the **species** population (the ion or molecule population the equation of state hands us, with its partition-function normalisation already folded in) divided by the *fractional* Doppler width $\Delta\nu_{\rm D}/\nu=\Delta\lambda_{\rm D}/\lambda$ (the dimensionless $v/c$ the code variable `dopple` carries) and the density; the explicit Boltzmann factor $e^{-\chi_{\rm low}\,hc/kT}$ then selects the *lower-level* population, so the two together give the line's lower-level number. Written this way $\kappa_0$ already carries the profile-normalisation factor $1/(\sqrt\pi\,\Delta\nu_{\rm D})$ (the stimulated-emission correction $1-e^{-h\nu/kT}$ is applied later, in the Rosseland and JOSH fold).
 
-**The damping parameter.** The three broadening mechanisms — radiative (natural), Stark (linear in the electron density $n_e$), and van der Waals (linear in the neutral-perturber number, with the standard $T^{0.3}$ temperature factor folded in) — sum into a total damping rate (the Lorentzian full width), divided by the Doppler width:
+**The damping parameter.** The three broadening mechanisms — radiative (natural), Stark (linear in the electron density $n_e$), and van der Waals (linear in the neutral-perturber number — dominantly neutral hydrogen in solar-type stars — with the standard $T^{0.3}$ temperature factor folded in) — sum into a total damping rate, which becomes the Lorentz half-width in frequency and is divided by the Doppler width to give the dimensionless Voigt $a$:
 
 $$a(j) \;=\; \frac{\Gamma_{\rm rad} + \Gamma_{\rm Stark}\,n_e(j) + \Gamma_{\rm vdW}\,\texttt{txnxn}(j)}{\Delta\nu_{\rm D}(j)},
 \qquad \Gamma = C_\Gamma\,\lambda\,\texttt{TABLOG}[\,\cdot\,],\;\; C_\Gamma=\frac{1}{4\pi\,c}.$$
 
-The $1/(4\pi)$ that turns a half-width into the Voigt $a$ lives in $C_\Gamma$. We compute these per-line scalars now, for every depth, using the shipped equation-of-state state.""")
+The packed quantities are Kurucz damping *rates*; the $1/(4\pi)$ in $C_\Gamma$ converts a rate to the Lorentz half-width in frequency, and dividing by the Doppler width then gives the dimensionless Voigt $a$. (The linear dependences quoted above — Stark $\propto n_e$, van der Waals $\propto$ perturber number with the $T^{0.3}$ factor — are the Kurucz/SYNTHE parameterisation used here, not universal broadening laws.) We compute these per-line scalars now, for every depth, using the shipped equation-of-state state.""")
 
 code(r'''# constants in the line-center opacity and the damping (production values, explicit)
 C_NM       = 2.99792458e17                       # speed of light [nm/s]
@@ -403,7 +403,7 @@ print("the from-scratch deposit (blue) lies under the production reference (red 
 # ── the line-blanketed Rosseland mean ──────────────────────────────────────────
 md(r"""## The line-blanketed Rosseland mean
 
-With a way to deposit lines, we can fold them into the **Rosseland mean** — the harmonic, $\partial B_\nu/\partial T$-weighted average of the total opacity that sets the optical-depth scale (Lecture 10). The only change from Lecture 11 is the opacity that enters: where Lecture 11 used $\kappa_\nu = \kappa^{\rm cont}_\nu + \sigma_\nu$ (continuum absorption plus scattering), the blanketed mean uses
+With a way to deposit lines, we can fold them into the **Rosseland mean** — the harmonic, $\partial B_\nu/\partial T$-weighted average of the total opacity that sets the optical-depth scale (Lecture 10). The only change from Lecture 11 is the opacity that enters: where Lecture 11 used $\kappa_\nu = \kappa^{\rm cont}_\nu + \sigma_\nu$ (continuum absorption plus scattering — scattering enters because the Rosseland mean weights the *total extinction* that impedes the radiative flux, not absorption alone), the blanketed mean uses
 
 $$\kappa^{\rm tot}_\nu \;=\; \kappa^{\rm cont}_\nu \;+\; \kappa^{\rm line}_\nu \;+\; \sigma_\nu,
 \qquad \frac{1}{\kappa_{\rm Ross}} \;=\; \frac{\int (1/\kappa^{\rm tot}_\nu)\,(\partial B_\nu/\partial T)\,d\nu}{\int (\partial B_\nu/\partial T)\,d\nu}.$$
@@ -453,11 +453,672 @@ print("the lines lift kappa_Ross above the continuum-only mean -- most in the li
 # ── the convergence engine (Lecture 11), unchanged ─────────────────────────────
 md(r"""## The convergence engine — Lecture 11, unchanged, with the blanket on
 
-Everything else is Lecture 11. We carry over, **verbatim**, the convergence engine that lecture built: the numerical kernels (`parcoe`, `integ`, `deriv`, `map1`), the JOSH full-depth flux solver, the Rosseland finalize, the `ROSSTAB` opacity table, the hydrostatic `ttaup`, the mixing-length `convec`, and the temperature correction `tcorr_mode3`. They are **inlined in the next cell**, byte-identical to Lecture 11, so this notebook stays self-contained (it imports only NumPy) — we do not re-derive them here. That cell is a long appendix you can fold away; the lecture's new physics is the deposit kernel and the line-blanketed fold above.
+Everything else is Lecture 11. We carry over, **verbatim**, the convergence engine that lecture built — the numerical kernels (`parcoe`, `integ`, `deriv`, `map1`), the JOSH full-depth flux solver, the Rosseland finalize, the `ROSSTAB` opacity table, the hydrostatic `ttaup`, the mixing-length `convec`, and the temperature correction `tcorr_mode3`. These are byte-identical to the routines Lecture 11 derived, so this notebook stays self-contained (it imports only NumPy) and we do **not** re-derive them here. To keep the established rhythm — one idea per cell — we lay them out one routine at a time over the next several cells, each preceded by a one-line reminder of what it does and where Lecture 11 built it. A reader who knows them from Lecture 11 can skim straight through; nothing in them is new.
 
-The single difference is in the frequency sweep: where Lecture 11 passed *zero* line opacity to the JOSH solver, we now pass the deposited blanket `aline`. The JOSH solver already accepts a line-opacity argument — it always did — so the only change is the value we hand it. The temperature correction, the convection, the radiation pressure, the hydrostatic re-equilibration: all unchanged, all opacity-agnostic, exactly as Lecture 11 promised.""")
+The single difference is in the frequency sweep that appears below the engine routines in this notebook (but logically *drives* the iteration): where Lecture 11 passed *zero* line opacity to the JOSH solver, we now pass the deposited blanket `aline`. The JOSH solver already accepts a line-opacity argument — it always did — so the only change is the value we hand it. The temperature correction, the convection, the radiation pressure, the hydrostatic re-equilibration: all unchanged, all opacity-agnostic, exactly as Lecture 11 promised.
 
-code('# --- The Lecture 11 convergence engine, carried over VERBATIM ---------------------\n# These are byte-identical to the kernels and solvers Lecture 11 built (PARCOE/INTEG/\n# DERIV/MAP1, the JOSH full-depth flux solver, ROSS, ROSSTAB, TTAUP, CONVEC, TCORR).\n# We do not re-derive them here -- this lecture\'s new physics is the line deposit and\n# the line-blanketed fold above; the engine below is unchanged and opacity-agnostic.\n# The notebook stays self-contained (only numpy): the engine is inlined, not imported.\nFOURPI = 12.5664            # 4 pi, written explicitly by ATLAS\nITER_TOL = 1.0e-5           # JOSH inner-sweep tolerance\n# the JOSH operator tables (Lecture 8): CH_MAT (H moment), CK_W (surface K moment)\nCH_MAT = np.load(pathlib.Path("..") / "reference" / "converged_ref.npz")["josh_coefh"].astype(np.float64)\nCK_W   = np.load(pathlib.Path("..") / "reference" / "josh_ck.npz")["ck"].astype(np.float32)\n\ndef parcoe(f, x):\n    n = f.size\n    a = np.zeros(n); b = np.zeros(n); c = np.zeros(n)\n    if n == 0:\n        return a, b, c\n    if n == 1:\n        a[0] = f[0]; return a, b, c\n    b[0] = (f[1] - f[0]) / (x[1] - x[0]); a[0] = f[0] - x[0] * b[0]\n    n1 = n - 1\n    b[-1] = (f[-1] - f[n1 - 1]) / (x[-1] - x[n1 - 1]); a[-1] = f[-1] - x[-1] * b[-1]\n    if n == 2:\n        return a, b, c\n    for j in range(1, n1):\n        j1 = j - 1\n        d = (f[j] - f[j1]) / (x[j] - x[j1])\n        c[j] = f[j + 1] / ((x[j + 1] - x[j]) * (x[j + 1] - x[j1])) + \\\n            (f[j1] / (x[j + 1] - x[j1]) - f[j] / (x[j + 1] - x[j])) / (x[j] - x[j1])\n        b[j] = d - (x[j] + x[j1]) * c[j]\n        a[j] = f[j1] - x[j1] * d + x[j] * x[j1] * c[j]\n    c[1] = 0.0; b[1] = (f[2] - f[1]) / (x[2] - x[1]); a[1] = f[1] - x[1] * b[1]\n    if n > 3:\n        c[2] = 0.0; b[2] = (f[3] - f[2]) / (x[3] - x[2]); a[2] = f[2] - x[2] * b[2]\n    for j in range(1, n1):\n        if c[j] == 0.0:\n            continue\n        j1 = min(j + 1, n - 1)\n        denom = abs(c[j1]) + abs(c[j])\n        wt = abs(c[j1]) / denom if denom > 0.0 else 0.0\n        a[j] = a[j1] + wt * (a[j] - a[j1])\n        b[j] = b[j1] + wt * (b[j] - b[j1])\n        c[j] = c[j1] + wt * (c[j] - c[j1])\n    a[n1 - 1] = a[-1]; b[n1 - 1] = b[-1]; c[n1 - 1] = c[-1]\n    return a, b, c\n\ndef integ(x, f, start):\n    n = f.size\n    out = np.zeros(n)\n    if n == 0:\n        return out\n    a, b, c = parcoe(f, x)\n    out[0] = start\n    for i in range(n - 1):\n        dx = x[i + 1] - x[i]\n        term = a[i] + 0.5 * b[i] * (x[i + 1] + x[i]) + (c[i] / 3.0) * ((x[i + 1] + x[i]) * x[i + 1] + x[i] * x[i])\n        out[i + 1] = out[i] + term * dx\n    return out\n\ndef deriv(x, f):\n    n = f.size\n    d = np.zeros(n)\n    if n < 2:\n        return d\n    d[0] = (f[1] - f[0]) / (x[1] - x[0])\n    d[-1] = (f[-1] - f[-2]) / (x[-1] - x[-2])\n    if n == 2:\n        return d\n    s = abs(x[1] - x[0]) / (x[1] - x[0]) if x[1] != x[0] else 1.0\n    for j in range(1, n - 1):\n        scale = max(abs(f[j - 1]), abs(f[j]), abs(f[j + 1]))\n        scale = scale / abs(x[j]) if x[j] != 0.0 else scale\n        if scale == 0.0:\n            scale = 1.0\n        d1 = (f[j + 1] - f[j]) / (x[j + 1] - x[j]) / scale\n        d0 = (f[j] - f[j - 1]) / (x[j] - x[j - 1]) / scale\n        tan1 = d1 / (s * np.sqrt(1.0 + d1 * d1) + 1.0)\n        tan0 = d0 / (s * np.sqrt(1.0 + d0 * d0) + 1.0)\n        d[j] = (tan1 + tan0) / (1.0 - tan1 * tan0) * scale\n    return d\n\ndef map1(xold, fold, xnew):\n    nold, nnew = xold.size, xnew.size\n    fnew = np.zeros(nnew)\n    if nold == 0 or nnew == 0:\n        return fnew, 0\n    xo = np.empty(nold + 1); fo = np.empty(nold + 1)\n    xo[1:] = xold; fo[1:] = fold\n    l = 2; ll = 0\n    cfor = bfor = afor = cbac = bbac = abac = a = b = c = 0.0\n    for k in range(1, nnew + 1):\n        xk = xnew[k - 1]\n        while True:\n            if xk < xo[l]:\n                if l == ll:\n                    break\n                if l == 2 or l == 3:\n                    l = min(nold, l); c = 0.0\n                    b = (fo[l] - fo[l - 1]) / (xo[l] - xo[l - 1]); a = fo[l] - xo[l] * b; ll = l\n                    break\n                l1 = l - 1\n                if l > ll + 1 or l == 3 or l == 4:\n                    l2 = l - 2\n                    d = (fo[l1] - fo[l2]) / (xo[l1] - xo[l2])\n                    cbac = fo[l] / ((xo[l] - xo[l1]) * (xo[l] - xo[l2])) + \\\n                        (fo[l2] / (xo[l] - xo[l2]) - fo[l1] / (xo[l] - xo[l1])) / (xo[l1] - xo[l2])\n                    bbac = d - (xo[l1] + xo[l2]) * cbac\n                    abac = fo[l2] - xo[l2] * d + xo[l1] * xo[l2] * cbac\n                else:\n                    cbac, bbac, abac = cfor, bfor, afor\n                if l >= nold:\n                    c, b, a, ll = cbac, bbac, abac, l\n                    break\n                d = (fo[l] - fo[l1]) / (xo[l] - xo[l1])\n                cfor = fo[l + 1] / ((xo[l + 1] - xo[l]) * (xo[l + 1] - xo[l1])) + \\\n                    (fo[l1] / (xo[l + 1] - xo[l1]) - fo[l] / (xo[l + 1] - xo[l])) / (xo[l] - xo[l1])\n                bfor = d - (xo[l] + xo[l1]) * cfor\n                afor = fo[l1] - xo[l1] * d + xo[l] * xo[l1] * cfor\n                wt = abs(cfor) / (abs(cfor) + abs(cbac)) if abs(cfor) != 0.0 else 0.0\n                a = afor + wt * (abac - afor); b = bfor + wt * (bbac - bfor); c = cfor + wt * (cbac - cfor)\n                ll = l\n                break\n            l += 1\n            if l > nold:\n                l = min(nold, l); c = 0.0\n                b = (fo[l] - fo[l - 1]) / (xo[l] - xo[l - 1]); a = fo[l] - xo[l] * b; ll = l\n                break\n        fnew[k - 1] = a + (b + c * xk) * xk\n    return fnew, max(ll - 1, 0)\n\ndef map1_scalar(xold, fold, xnew_val):\n    out, _ = map1(np.asarray(xold), np.asarray(fold), np.asarray([xnew_val]))\n    return float(out[0])\n\ndef _nz_signed(x, eps=1e-300):\n    if abs(x) >= eps:\n        return x\n    return eps if x >= 0.0 else -eps\n\ndef josh_profiles(acont, scont, aline, sline, sigmac, sigmal, rhox, bnu,\n                  xtau, ch, coefj):\n    n = rhox.size\n    nxtau = xtau.size\n    coefj_diag = np.diag(coefj).astype(np.float32)\n\n    abtot = np.maximum(acont + aline + sigmac + sigmal, 1e-300)\n    alpha = (sigmac + sigmal) / abtot\n    den = acont + aline\n    snubar = bnu.copy()\n    np.divide(acont * scont + aline * sline, den, out=snubar, where=den > 0.0)\n\n    taunu = integ(rhox, abtot, abtot[0] * rhox[0])\n    snu = np.zeros(n); hnu = np.zeros(n); jnu = np.zeros(n); jmins = np.zeros(n)\n    xs = np.zeros(nxtau, dtype=np.float32)\n\n    if taunu[0] > xtau[-1]:\n        maxj = 1\n    else:\n        xsbar8, maxj = map1(taunu, snubar, xtau)\n        xalpha8, maxj = map1(taunu, alpha, xtau)\n        xalpha8 = np.maximum(xalpha8.astype(np.float32), np.float32(0.0))\n        xsbar8 = np.maximum(xsbar8.astype(np.float32), np.float32(1.0e-38))\n        mask = xtau < taunu[0]\n        if np.any(mask):\n            xsbar8[mask] = max(snubar[0], 1.0e-38)\n            xalpha8[mask] = max(alpha[0], 0.0)\n        xs[:] = xsbar8\n        one32 = np.float32(1.0)\n        diag = one32 - xalpha8 * coefj_diag\n        xsbar_mod = (one32 - xalpha8) * xsbar8\n        for _ in range(nxtau):\n            iferr = 0\n            for kk in range(nxtau):\n                k = nxtau - 1 - kk\n                dot = np.float32(np.dot(coefj[k, :].astype(np.float32), xs))\n                num = np.float32(dot * xalpha8[k] + xsbar_mod[k] - xs[k])\n                dd = np.float32(diag[k])\n                if abs(float(dd)) < 1.0e-37:\n                    dd = np.float32(1.0e-37 if float(dd) >= 0.0 else -1.0e-37)\n                delxs = np.float32(num / dd)\n                xbase = np.float32(xs[k])\n                if abs(float(xbase)) < 1.0e-37:\n                    xbase = np.float32(1.0e-37 if float(xbase) >= 0.0 else -1.0e-37)\n                errx = np.float32(abs(float(delxs / xbase)))\n                if errx > np.float32(ITER_TOL):\n                    iferr = 1\n                xs[k] = np.float32(max(float(np.float32(xs[k] + delxs)), 1.0e-37))\n            if iferr == 0:\n                break\n        xs8 = xs.astype(np.float64)\n        snu_head, _ = map1(xtau, xs8, taunu[:maxj])\n        snu[:maxj] = snu_head\n\n    if maxj == n:\n        raise RuntimeError("maxj==n branch not expected for this reference atmosphere")\n\n    maxj1 = maxj + 1\n    if maxj == 1:\n        maxj1 = 1\n    snu[maxj1 - 1:] = snubar[maxj1 - 1:]\n    m = max(maxj - 1, 1)\n    m0 = m - 1\n    nmj0 = maxj - 1\n    for _ in range(nxtau):\n        error = 0.0\n        ifneg = 0\n        if np.any(snu[m0:] <= 0.0):\n            ifneg = 1\n            snubar[m0:] = bnu[m0:]\n            snu[m0:] = bnu[m0:]\n        hnu[m0:] = deriv(taunu[m0:], snu[m0:]) / 3.0\n        if np.any(hnu[m0:] <= 0.0):\n            ifneg = 1\n            snubar[m0:] = bnu[m0:]\n            snu[m0:] = bnu[m0:]\n            hnu[m0:] = deriv(taunu[m0:], snu[m0:]) / 3.0\n        jmins[nmj0:] = deriv(taunu[nmj0:], hnu[nmj0:])\n        for j in range(maxj1 - 1, n):\n            if ifneg == 1:\n                jmins[j] = 0.0\n            jnu[j] = jmins[j] + snu[j]\n            snew = (1.0 - alpha[j]) * snubar[j] + alpha[j] * jnu[j]\n            error += abs(snew - snu[j]) / max(abs(snew), 1e-300)\n            snu[j] = snew\n        if error < ITER_TOL:\n            break\n\n    if maxj == 1:\n        # degenerate surface (tau beyond the grid): surface Eddington factor K = J/3\n        knu_surface = jnu[0] / 3.0\n        return taunu, hnu, jmins, abtot, alpha, float(knu_surface)\n\n    xjs = (-xs + coefj.astype(np.float32) @ xs).astype(np.float64)\n    xh = (CH_MAT @ xs).astype(np.float64)\n    jmins[:maxj], _ = map1(xtau, xjs, taunu[:maxj])\n    hnu[:maxj], _ = map1(xtau, xh, taunu[:maxj])\n    # surface second moment off the SAME float32 source vector: K_nu(0) = CK . xs\n    knu_surface = float(np.dot(CK_W, xs))\n    return taunu, hnu, jmins, abtot, alpha, float(knu_surface)\n\ndef ross_finalize(acc, T, rhox):\n    abross = (4.0 * SIGMA / 3.14159) * np.power(T, 3.0) / np.maximum(acc, 1e-300)\n    tauros = integ(rhox, abross, abross[0] * rhox[0])\n    return abross, tauros\n\ndef expi3(x):\n    a = (-44178.5471728217, 57721.7247139444, 9938.31388962037, 1842.11088668,\n         101.093806161906, 5.03416184097568)\n    b = (76537.3323337614, 32597.1881290275, 6106.10794245759, 635.419418378382, 37.2298352833327)\n    c = (4.65627107975096e-7, 0.999979577051595, 9.04161556946329, 24.3784088791317,\n         23.0192559391333, 6.90522522784444, 0.430967839469389)\n    dco = (10.0411643829054, 32.4264210695138, 41.2807841891424, 20.4494785013794,\n           3.31909213593302, 0.103400130404874)\n    e = (-0.999999999998447, -26.6271060431811, -241.055827097015, -895.927957772937,\n         -1298.85688746484, -545.374158883133, -5.66575206533869)\n    fco = (28.6271060422192, 292.310039388533, 1332.78537748257, 2777.61949509163,\n           2404.01713225909, 631.6574832808)\n    if x <= 0.0:\n        ex1 = 0.0\n    else:\n        ex = np.exp(-x)\n        if x > 4.0:\n            ex1 = (ex + ex * (e[0] + (e[1] + (e[2] + (e[3] + (e[4] + (e[5] + e[6] / x) / x) / x) / x) / x) / x)\n                   / (x + fco[0] + (fco[1] + (fco[2] + (fco[3] + (fco[4] + fco[5] / x) / x) / x) / x) / x)) / x\n        elif x > 1.0:\n            ex1 = ex * (c[6] + (c[5] + (c[4] + (c[3] + (c[2] + (c[1] + c[0] * x) * x) * x) * x) * x) * x) / \\\n                (dco[5] + (dco[4] + (dco[3] + (dco[2] + (dco[1] + (dco[0] + x) * x) * x) * x) * x) * x)\n        else:\n            ex1 = (a[0] + (a[1] + (a[2] + (a[3] + (a[4] + a[5] * x) * x) * x) * x) * x) / \\\n                (b[0] + (b[1] + (b[2] + (b[3] + (b[4] + x) * x) * x) * x) * x) - np.log(x)\n    out = ex1\n    for i in range(1, 3):\n        out = (np.exp(-x) - x * out) / float(i)\n    return out\n\nclass Rosstab:\n    def __init__(self):\n        self.t = []; self.p = []; self.k = []\n        self.zerot = self.zerop = 0.0\n        self.slopet = self.slopep = 1.0\n        self.n = 0\n\n    def ingest(self, T, P, kappa):\n        nn = T.size\n        if self.n == 0:\n            self.zerot = np.log10(max(float(T[0]), 1e-300))\n            self.zerop = np.log10(max(float(P[0]), 1e-300))\n            self.slopet = np.log10(max(float(T[-1]), 1e-300)) - self.zerot\n            self.slopep = np.log10(max(float(P[-1]), 1e-300)) - self.zerop\n            if abs(self.slopet) < 1e-300:\n                self.slopet = 1.0\n            if abs(self.slopep) < 1e-300:\n                self.slopep = 1.0\n        for j in range(nn):\n            self.t.append((np.log10(max(float(T[j]), 1e-300)) - self.zerot) / self.slopet)\n            self.p.append((np.log10(max(float(P[j]), 1e-300)) - self.zerop) / self.slopep)\n            self.k.append(np.log10(max(float(kappa[j]), 1e-300)))\n            self.n += 1\n\n    def eval(self, temp, pressure):\n        if self.n <= 0:\n            return 1.0\n        templog = (np.log10(max(temp, 1e-300)) - self.zerot) / self.slopet\n        presslog = (np.log10(max(pressure, 1e-300)) - self.zerop) / self.slopep\n        rpp = rpm = rmp = rmm = 1.0e30\n        i_pp = i_pm = i_mp = i_mm = -1\n        v_pp = v_pm = v_mp = v_mm = 0.0\n        for i in range(self.n):\n            dp = self.p[i] - presslog\n            dt = self.t[i] - templog\n            r2 = dt * dt + dp * dp\n            if dt >= 0.0 and dp >= 0.0:\n                if r2 < rpp:\n                    rpp = r2; i_pp = i; v_pp = self.k[i]\n            elif dt >= 0.0 and dp < 0.0:\n                if r2 < rpm:\n                    rpm = r2; i_pm = i; v_pm = self.k[i]\n            elif dt < 0.0 and dp >= 0.0:\n                if r2 < rmp:\n                    rmp = r2; i_mp = i; v_mp = self.k[i]\n            else:\n                if r2 < rmm:\n                    rmm = r2; i_mm = i; v_mm = self.k[i]\n        if i_pp >= 0 and i_pm >= 0 and i_mp >= 0 and i_mm >= 0:\n            tpp, ppp = self.t[i_pp], self.p[i_pp]\n            tpm, ppm = self.t[i_pm], self.p[i_pm]\n            tmp, pmp = self.t[i_mp], self.p[i_mp]\n            tmm, pmm = self.t[i_mm], self.p[i_mm]\n            den_tp = max(tpp - tmp, 1e-300); den_tm = max(tpm - tmm, 1e-300)\n            rppmp = ((templog - tmp) * v_pp + (tpp - templog) * v_mp) / den_tp\n            rpmmm = ((templog - tmm) * v_pm + (tpm - templog) * v_mm) / den_tm\n            pppmp = ((templog - tmp) * ppp + (tpp - templog) * pmp) / den_tp\n            ppmmm = ((templog - tmm) * ppm + (tpm - templog) * pmm) / den_tm\n            r = ((presslog - ppmmm) * rppmp + (pppmp - presslog) * rpmmm) / max(pppmp - ppmmm, 1e-300)\n            return float(10.0 ** r)\n        w_pp = 1.0 / (np.sqrt(rpp) + 1.0e-5); w_pm = 1.0 / (np.sqrt(rpm) + 1.0e-5)\n        w_mp = 1.0 / (np.sqrt(rmp) + 1.0e-5); w_mm = 1.0 / (np.sqrt(rmm) + 1.0e-5)\n        rwt = w_pp + w_pm + w_mp + w_mm\n        i_pp = max(i_pp, 0); i_pm = max(i_pm, 0); i_mp = max(i_mp, 0); i_mm = max(i_mm, 0)\n        r = (self.k[i_pp] * w_pp + self.k[i_pm] * w_pm + self.k[i_mp] * w_mp + self.k[i_mm] * w_mm) / max(rwt, 1e-300)\n        return float(10.0 ** r)\n\ndef ttaup(t, tau, prad, pturb, grav, rosstab):\n    n = int(t.size)\n    abstd = np.zeros(n); ptotal = np.zeros(n); pgas = np.zeros(n)\n    dlg_tau = np.log(max(float(tau[1] / max(tau[0], 1e-300)), 1e-300)) if n > 1 else 0.0\n    plog1 = plog2 = plog3 = plog4 = 0.0\n    dplog1 = dplog2 = dplog3 = 0.0\n    abstd[0] = 0.1\n    if prad[0] > 0.0:\n        abstd[0] = min(0.1, grav * tau[0] / max(prad[0], 1e-300) / 2.0)\n    for j in range(n):\n        if j == 0:\n            plog = np.log(max(grav / max(abstd[0], 1e-300) * tau[0], 1e-300))\n        elif j <= 3:\n            plog = plog1 + dplog1\n        else:\n            plog = (3.0 * plog4 + 8.0 * dplog1 - 4.0 * dplog2 + 8.0 * dplog3) / 3.0\n        error = 1.0; dplog = 0.0; itn = 1\n        while True:\n            plog = min(plog, 709.78)\n            ptotal[j] = np.exp(plog)\n            pgas[j] = ptotal[j] + (prad[0] - prad[j]) - pturb[j]\n            if pgas[j] <= 0.0:\n                pgas[j] = 1e-30; abstd[j] = 0.1; break\n            abstd[j] = rosstab(float(t[j]), float(pgas[j]))\n            dplog = grav / max(abstd[j], 1e-300) * tau[j] / max(ptotal[j], 1e-300) * dlg_tau\n            itn += 1\n            if itn > 1000 or error <= 5.0e-5:\n                break\n            if j == 0:\n                pnew = np.log(max(grav / max(abstd[j], 1e-300) * tau[j], 1e-300))\n            elif j <= 3:\n                pnew = (plog + 2.0 * plog1 + dplog + dplog1) / 3.0\n            else:\n                pnew = (126.0 * plog1 - 14.0 * plog3 + 9.0 * plog4 + 42.0 * dplog\n                        + 108.0 * dplog1 - 54.0 * dplog2 + 24.0 * dplog3) / 121.0\n            error = abs(pnew - plog)\n            plog = 0.5 * (pnew + plog)\n        plog4 = plog3; plog3 = plog2; plog2 = plog1; plog1 = plog\n        dplog3 = dplog2; dplog2 = dplog1; dplog1 = dplog\n    return abstd, ptotal, pgas\n\ndef high_from_rhox(rhox, rho):\n    rhoinv = 1.0e-5 / np.maximum(rho, 1e-300)\n    return integ(rhox, rhoinv, 0.0)\n\ndef convec(rosstab, rhox, tauros, t, p, rho, abross, pradk, ptotal, grav,\n           flux, ed1, ed2, ed3, ed4, r1, r2, r3, r4,\n           mixlth=1.25, nconv=36):\n    n = int(t.size)\n    dtdrhx = deriv(rhox, t)                 # dT/dRHOX, for the actual gradient\n    dilut = 1.0 - np.exp(-tauros)           # geometric dilution of P_rad gradient\n\n    dltdlp = np.zeros(n); heatcp = np.zeros(n); dlrdlt = np.zeros(n)\n    velsnd = np.zeros(n); grdadb = np.zeros(n); hscale = np.zeros(n)\n    flxcnv = np.zeros(n); vconv = np.zeros(n); flxcnv0 = np.zeros(n)\n    deltat = np.zeros(n); rosst = np.zeros(n)\n\n    for j in range(n):\n        delt = 0.0\n        # EOS derivatives from the +-0.1% finite differences (POPS samples).\n        dedt = (ed1[j] - ed2[j]) / max(t[j], 1e-300) * 500.0\n        drdt = (r1[j] - r2[j]) / max(t[j], 1e-300) * 500.0\n        dedpg = (ed3[j] - ed4[j]) / max(p[j], 1e-300) * 500.0\n        drdpg = (r3[j] - r4[j]) / max(p[j], 1e-300) * 500.0\n\n        dpdpg = 1.0\n        dpdt = 4.0 * pradk[j] / max(t[j], 1e-300) * dilut[j]     # radiation P term\n        # actual (radiative) gradient d ln T / d ln P\n        dltdlp[j] = ptotal[j] / max(t[j] * grav, 1e-300) * dtdrhx[j]\n        drdpg_safe = _nz_signed(float(drdpg))\n        heatcv = dedt - dedpg * drdt / drdpg_safe               # specific heat at const V\n        heatcp[j] = (dedt - dedpg * dpdt / max(dpdpg, 1e-300)\n                     - ptotal[j] / max(rho[j] ** 2, 1e-300)\n                     * (drdt - drdpg * dpdt / max(dpdpg, 1e-300)))   # at const P\n        if heatcv > 0.0:\n            velsnd[j] = np.sqrt(max(heatcp[j] / heatcv * dpdpg / drdpg_safe, 0.0))\n        dlrdlt[j] = t[j] / max(rho[j], 1e-300) * (drdt - drdpg * dpdt / max(dpdpg, 1e-300))\n        if abs(heatcp[j]) > 1e-300:\n            grdadb[j] = -ptotal[j] / max(rho[j] * t[j], 1e-300) * dlrdlt[j] / heatcp[j]\n        hscale[j] = ptotal[j] / max(rho[j] * grav, 1e-300)      # pressure scale height\n\n        # decide whether the layer convects (mixlth>0, j>=3, super-adiabatic)\n        if mixlth == 0.0 or j < 3:\n            continue\n        delt = dltdlp[j] - grdadb[j]                            # superadiabaticity\n        if delt < 0.0:\n            continue\n        vco = 0.5 * mixlth * np.sqrt(\n            max(-0.5 * ptotal[j] / max(rho[j], 1e-300) * dlrdlt[j], 0.0))\n        if vco == 0.0:\n            continue\n        fluxco = 0.5 * rho[j] * heatcp[j] * t[j] * mixlth / FOURPI\n        rosst[j] = rosstab.eval(float(t[j]), float(p[j]))       # cell-center opacity\n        olddelt = 0.0\n        # 30-iteration inner loop: solve flxcnv + temperature excess deltat\n        for _ in range(30):\n            rosst_denom = _nz_signed(float(rosst[j]))\n            dplus = rosstab.eval(float(t[j] + deltat[j]), float(p[j])) / rosst_denom\n            dminus = rosstab.eval(float(t[j] - deltat[j]), float(p[j])) / rosst_denom\n            if dplus == 0.0 or dminus == 0.0:\n                abconv = 0.0\n            else:\n                abconv = 2.0 / (1.0 / dplus + 1.0 / dminus) * abross[j]\n            den1 = abconv * hscale[j] * rho[j]\n            den2 = fluxco * FOURPI\n            if den1 == 0.0 or den2 == 0.0 or vco == 0.0:\n                d = 0.0\n            else:\n                d = 8.0 * SIGMA * t[j] ** 4 / den1 / den2 / vco\n            taub = abconv * rho[j] * mixlth * hscale[j]         # cell optical thickness\n            d = d * taub ** 2 / (2.0 + taub ** 2)               # optical-thickness factor\n            d = d ** 2 / 2.0\n            ddd = (delt / _nz_signed(float(d + delt))) ** 2\n            if ddd < 0.5:\n                # series expansion of (1-sqrt(1-ddd))/ddd for small ddd\n                delta = 0.5; term = 0.5; up = -1.0; down = 2.0\n                while term > 1.0e-6:\n                    up += 2.0; down += 2.0\n                    term = up / down * ddd * term\n                    delta += term\n            else:\n                delta = (1.0 - np.sqrt(max(1.0 - ddd, 0.0))) / max(ddd, 1e-300)\n            delta = delta * delt ** 2 / _nz_signed(float(d + delt))\n            vconv[j] = vco * np.sqrt(max(delta, 0.0))\n            flxcnv[j] = max(fluxco * vconv[j] * delta, 0.0)\n            deltat[j] = t[j] * mixlth * delta\n            deltat[j] = min(deltat[j], t[j] * 0.15)             # cap the excess\n            deltat[j] = deltat[j] * 0.7 + olddelt * 0.3         # under-relax\n            if olddelt - 0.5 < deltat[j] < olddelt + 0.5:\n                break\n            olddelt = deltat[j]\n\n    flxcnv0[:] = flxcnv\n    height = high_from_rhox(rhox, rho)\n    # overwt=0 -> no overshoot blend.  Force the top NCONV layers non-convective.\n    k = int(max(min(nconv, n), 0))\n    if k > 0:\n        flxcnv[:k] = 0.0\n    return dict(flxcnv=flxcnv, flxcnv0=flxcnv0, dltdlp=dltdlp, grdadb=grdadb,\n                hscale=hscale, dlrdlt=dlrdlt, heatcp=heatcp, vconv=vconv,\n                velsnd=velsnd, height=height)\n\ndef tcorr_mode3(T, rhox, tauros, abross, flxrad, rjmins, rdabh, rdiagj,\n                flux, teff, prad, grav, rosstab, cv, mixlth=1.25,\n                steplg=0.125, tau1lg=-6.875):\n    n = T.size\n    dtdrhx = deriv(rhox, T)\n    dabros = deriv(rhox, abross)\n\n    flxcnv = cv["flxcnv"]; flxcnv0 = cv["flxcnv0"]\n    dltdlp = cv["dltdlp"]; grdadb = cv["grdadb"]; hscale = cv["hscale"]\n    dlrdlt = cv["dlrdlt"]; heatcp = cv["heatcp"]\n    ptotal_cv = cv.get("ptotal")\n    rho_cv = cv.get("rho")\n    ddlt = deriv(rhox, dltdlp)\n\n    # cnvflx: copy FLXCNV, zero the two top layers, then a 1-2-1 smoothing pass.\n    cnvflx = flxcnv.copy()\n    cnvflx[0] = 0.0\n    if n >= 2:\n        cnvflx[1] = 0.0\n    if n >= 3:\n        ccc = cnvflx.copy()\n        for j in range(1, n - 1):\n            ccc[j] = 0.25 * cnvflx[j - 1] + 0.5 * cnvflx[j] + 0.25 * cnvflx[j + 1]\n        ccc[-1] = 0.25 * cnvflx[-3] + 0.25 * cnvflx[-2] + 0.5 * cnvflx[-1]\n        for j in range(1, n - 1):\n            cnvflx[j] = ccc[j]\n        cnvflx[-1] = ccc[-1]\n\n    rdabh_eff = rdabh - flxrad * dabros / np.maximum(abross, 1e-300)\n    codrhx = np.zeros(n)\n    ddel = np.zeros(n)\n    for j in range(n):\n        delv = 1.0\n        d = 0.0\n        # convective-efficiency factor ddel for layers that actually convect\n        if cnvflx[j] > 0.0 and flxcnv0[j] > 0.0:\n            delv = dltdlp[j] - grdadb[j]\n            vco = 0.5 * mixlth * np.sqrt(max(-0.5 * ptotal_cv[j] / max(rho_cv[j], 1e-300) * dlrdlt[j], 0.0))\n            fluxco = 0.5 * rho_cv[j] * heatcp[j] * T[j] * mixlth / FOURPI\n            if mixlth > 0.0 and vco > 0.0:\n                d = (8.0 * SIGMA * T[j] ** 4\n                     / np.maximum(abross[j] * hscale[j] * rho_cv[j], 1e-300)\n                     / np.maximum(fluxco * FOURPI, 1e-300) / vco)\n            taub = abross[j] * rho_cv[j] * mixlth * hscale[j]\n            d = d * taub * taub / (2.0 + taub * taub)\n            d = d * d / 2.0\n            den_deld = _nz_signed(float(d + delv))\n            del_safe = _nz_signed(float(delv))\n            ddel[j] = (1.0 + d / den_deld) / del_safe\n        cnvfl = 0.0\n        if flxrad[j] > 0.0:\n            if cnvflx[j] / flxrad[j] > 1.0e-3 and flxcnv0[j] / flxrad[j] > 1.0e-3:\n                cnvfl = cnvflx[j]\n        den_deld = _nz_signed(float(d + delv))\n        del_safe = _nz_signed(float(delv))\n        num = rdabh_eff[j] + cnvfl * (\n            dtdrhx[j] / max(T[j], 1e-300) * (1.0 - 9.0 * d / den_deld)\n            + 1.5 * ddlt[j] / del_safe * (1.0 + d / den_deld))\n        den = flxrad[j] + cnvflx[j] * 1.5 * dltdlp[j] * ddel[j]\n        codrhx[j] = num / _nz_signed(float(den))\n    codrhx[0] = 0.0\n    if n >= 2:\n        codrhx[1] = 0.0\n\n    g = np.exp(integ(rhox, codrhx, 0.0))\n    gfden = flxrad + cnvflx * 1.5 * dltdlp * ddel\n    gfden_safe = np.where(np.abs(gfden) >= 1e-300, gfden, np.where(gfden >= 0.0, 1e-300, -1e-300))\n    gflux = g * (flxrad + cnvflx - flux) / gfden_safe\n    dtau = integ(tauros, gflux, 0.0) / np.maximum(g, 1e-300)\n    dtau = np.maximum(-tauros / 3.0, np.minimum(tauros / 3.0, dtau))\n    dtflux = -dtau * dtdrhx / np.maximum(abross, 1e-300)\n\n    flxerr = (flxrad + cnvflx - flux) / np.maximum(flux, 1e-300) * 100.0\n    flxdrv = deriv(tauros, flxerr)\n    dtlamb = np.zeros(n)\n    teff25 = teff / 25.0\n    for j in range(n):\n        ratio = cnvflx[j] / np.maximum(flxrad[j], 1e-300)\n        if ratio < 1.0e-5:\n            flxdrv[j] = rjmins[j] / np.maximum(abross[j], 1e-300) / np.maximum(flux, 1e-300) * 100.0\n        denom = rdiagj[j] if abs(rdiagj[j]) > 1e-300 else np.sign(rdiagj[j]) * 1e-300\n        dtlamb[j] = -flxdrv[j] * flux / 100.0 / denom * abross[j]\n        if not (ratio < 1.0e-5 and tauros[j] < 1.0):\n            dtlamb[j] = 0.0\n            for k in range(1, 6):\n                jj = j - k\n                if jj >= 0:\n                    dtlamb[jj] *= 0.5\n        dtlamb[j] = float(np.clip(dtlamb[j], -teff25, teff25))\n\n    dtsur = (flux - flxrad[0]) / np.maximum(flux, 1e-300) * 0.25 * T[0]\n    dtsur = float(np.clip(dtsur, -teff25, teff25))\n    dum = dtflux + dtlamb\n    tinteg = integ(tauros, dum, 0.0)\n    tone = map1_scalar(tauros, tinteg, 0.1)\n    ttwo = map1_scalar(tauros, tinteg, 2.0)\n    tav = (ttwo - tone) / 2.0\n    if dtsur * tav <= 0.0:\n        tav = 0.0\n    if abs(tav) > abs(dtsur):\n        tav = dtsur\n    dtsur = dtsur - tav\n    dtsurf = np.full(n, dtsur)\n\n    dtflux = np.nan_to_num(dtflux, nan=0.0, posinf=0.0, neginf=0.0)\n    dtlamb = np.nan_to_num(dtlamb, nan=0.0, posinf=0.0, neginf=0.0)\n    dtsurf = np.nan_to_num(dtsurf, nan=0.0, posinf=0.0, neginf=0.0)\n    t1 = dtflux + dtlamb + dtsurf\n\n    # iteration 1: damping/acceleration skipped (skip_damp = True at iter_index=1)\n    tnew = T + t1\n    bad = ~np.isfinite(tnew)\n    if bad.any():\n        tnew = np.where(bad, T, tnew)\n    tnew = np.maximum(tnew, 1.0)\n    for i in range(1, n):\n        j = n - 1 - i\n        tnew[j] = np.fmin(tnew[j], tnew[j + 1] - 1.0)\n        if not np.isfinite(tnew[j]):\n            tnew[j] = max(T[j], 1.0)\n\n    # DRHOX: re-run TTAUP on TAUSTD for T and for T+t1, take fractional dP, map back\n    taustd = 10.0 ** (tau1lg + np.arange(n) * steplg)\n    rfun = rosstab.eval\n    tnew1, _ = map1(tauros, T, taustd)\n    prdnew, _ = map1(tauros, prad, taustd)\n    _a1, ptot1, _p1 = ttaup(tnew1, taustd, prdnew, np.zeros(n), grav, rfun)\n    tplus = T + t1\n    tnew2, _ = map1(tauros, tplus, taustd)\n    _a2, ptot2, _p2 = ttaup(tnew2, taustd, prdnew, np.zeros(n), grav, rfun)\n    ppp = (ptot2 - ptot1) / np.maximum(ptot1, 1e-300)\n    rrr, _ = map1(taustd, ppp, tauros)\n    drhox = rrr * rhox\n    rhox_new = rhox + drhox\n\n    return dict(t1=t1, dtflux=dtflux, dtlamb=dtlamb, flxerr=flxerr,\n                cnvflx=cnvflx, tnew=tnew, rhox_new=rhox_new, drhox=drhox)\nprint("Lecture 11 convergence engine inlined (JOSH, ROSS, ROSSTAB, TTAUP, CONVEC, TCORR) -- unchanged")')
+The data flow through one iteration is: **frequency sweep → JOSH moments (J, H, K) → Rosseland accumulator → mixing-length convection → temperature correction → remap onto the standard optical-depth grid.** The routines below are the pieces that sweep calls, in roughly the order they are needed.""")
+
+md(r"""We lay the engine out one routine at a time. First the constants and the two JOSH operator tables (the $H$-moment matrix `CH_MAT` and the surface $K$-moment weights `CK_W`) that Lecture 8 built; everything below is loaded once here.""")
+
+code(r'''# --- The Lecture 11 convergence engine, carried over VERBATIM ---------------------
+# These are byte-identical to the kernels and solvers Lecture 11 built (PARCOE/INTEG/
+# DERIV/MAP1, the JOSH full-depth flux solver, ROSS, ROSSTAB, TTAUP, CONVEC, TCORR).
+# We do not re-derive them here -- this lecture's new physics is the line deposit and
+# the line-blanketed fold above; the engine below is unchanged and opacity-agnostic.
+# The notebook stays self-contained (only numpy): the engine is inlined, not imported.
+FOURPI = 12.5664            # 4 pi, written explicitly by ATLAS
+ITER_TOL = 1.0e-5           # JOSH inner-sweep tolerance
+# the JOSH operator tables (Lecture 8): CH_MAT (H moment), CK_W (surface K moment)
+CH_MAT = np.load(pathlib.Path("..") / "reference" / "converged_ref.npz")["josh_coefh"].astype(np.float64)
+CK_W   = np.load(pathlib.Path("..") / "reference" / "josh_ck.npz")["ck"].astype(np.float32)
+''')
+
+md(r"""**`parcoe`** — Lecture 8's parabolic-coefficient fit. Given samples $(x_i,f_i)$ it returns the per-interval quadratic coefficients $a,b,c$ with the same monotonicity-preserving weighting ATLAS uses; `integ` and `map1` are built on it.""")
+
+code(r'''def parcoe(f, x):
+    n = f.size
+    a = np.zeros(n); b = np.zeros(n); c = np.zeros(n)
+    if n == 0:
+        return a, b, c
+    if n == 1:
+        a[0] = f[0]; return a, b, c
+    b[0] = (f[1] - f[0]) / (x[1] - x[0]); a[0] = f[0] - x[0] * b[0]
+    n1 = n - 1
+    b[-1] = (f[-1] - f[n1 - 1]) / (x[-1] - x[n1 - 1]); a[-1] = f[-1] - x[-1] * b[-1]
+    if n == 2:
+        return a, b, c
+    for j in range(1, n1):
+        j1 = j - 1
+        d = (f[j] - f[j1]) / (x[j] - x[j1])
+        c[j] = f[j + 1] / ((x[j + 1] - x[j]) * (x[j + 1] - x[j1])) + \
+            (f[j1] / (x[j + 1] - x[j1]) - f[j] / (x[j + 1] - x[j])) / (x[j] - x[j1])
+        b[j] = d - (x[j] + x[j1]) * c[j]
+        a[j] = f[j1] - x[j1] * d + x[j] * x[j1] * c[j]
+    c[1] = 0.0; b[1] = (f[2] - f[1]) / (x[2] - x[1]); a[1] = f[1] - x[1] * b[1]
+    if n > 3:
+        c[2] = 0.0; b[2] = (f[3] - f[2]) / (x[3] - x[2]); a[2] = f[2] - x[2] * b[2]
+    for j in range(1, n1):
+        if c[j] == 0.0:
+            continue
+        j1 = min(j + 1, n - 1)
+        denom = abs(c[j1]) + abs(c[j])
+        wt = abs(c[j1]) / denom if denom > 0.0 else 0.0
+        a[j] = a[j1] + wt * (a[j] - a[j1])
+        b[j] = b[j1] + wt * (b[j] - b[j1])
+        c[j] = c[j1] + wt * (c[j] - c[j1])
+    a[n1 - 1] = a[-1]; b[n1 - 1] = b[-1]; c[n1 - 1] = c[-1]
+    return a, b, c
+''')
+
+md(r"""**`integ`** — the running integral $\int f\,dx$ over the depth grid, using `parcoe`'s quadratic on each interval. This is how optical depth is accumulated from opacity, and how the flux integrals are formed.""")
+
+code(r'''def integ(x, f, start):
+    n = f.size
+    out = np.zeros(n)
+    if n == 0:
+        return out
+    a, b, c = parcoe(f, x)
+    out[0] = start
+    for i in range(n - 1):
+        dx = x[i + 1] - x[i]
+        term = a[i] + 0.5 * b[i] * (x[i + 1] + x[i]) + (c[i] / 3.0) * ((x[i + 1] + x[i]) * x[i + 1] + x[i] * x[i])
+        out[i + 1] = out[i] + term * dx
+    return out
+''')
+
+md(r"""**`deriv`** — Lecture 8's monotonic numerical derivative $df/dx$ (the harmonic-mean slope that avoids overshoot at sharp gradients). The transfer moments and the temperature correction both differentiate with it.""")
+
+code(r'''def deriv(x, f):
+    n = f.size
+    d = np.zeros(n)
+    if n < 2:
+        return d
+    d[0] = (f[1] - f[0]) / (x[1] - x[0])
+    d[-1] = (f[-1] - f[-2]) / (x[-1] - x[-2])
+    if n == 2:
+        return d
+    s = abs(x[1] - x[0]) / (x[1] - x[0]) if x[1] != x[0] else 1.0
+    for j in range(1, n - 1):
+        scale = max(abs(f[j - 1]), abs(f[j]), abs(f[j + 1]))
+        scale = scale / abs(x[j]) if x[j] != 0.0 else scale
+        if scale == 0.0:
+            scale = 1.0
+        d1 = (f[j + 1] - f[j]) / (x[j + 1] - x[j]) / scale
+        d0 = (f[j] - f[j - 1]) / (x[j] - x[j - 1]) / scale
+        tan1 = d1 / (s * np.sqrt(1.0 + d1 * d1) + 1.0)
+        tan0 = d0 / (s * np.sqrt(1.0 + d0 * d0) + 1.0)
+        d[j] = (tan1 + tan0) / (1.0 - tan1 * tan0) * scale
+    return d
+''')
+
+md(r"""**`map1`** — the parabolic interpolator that re-maps a quantity from one depth grid to another (e.g. from the frequency-dependent optical depth $\tau_\nu$ to the standard $\tau$ grid the JOSH tables live on). `map1_scalar` is the one-point version, and `_nz_signed` is a small guard that keeps a denominator from being exactly zero without changing its sign.""")
+
+code(r'''def map1(xold, fold, xnew):
+    nold, nnew = xold.size, xnew.size
+    fnew = np.zeros(nnew)
+    if nold == 0 or nnew == 0:
+        return fnew, 0
+    xo = np.empty(nold + 1); fo = np.empty(nold + 1)
+    xo[1:] = xold; fo[1:] = fold
+    l = 2; ll = 0
+    cfor = bfor = afor = cbac = bbac = abac = a = b = c = 0.0
+    for k in range(1, nnew + 1):
+        xk = xnew[k - 1]
+        while True:
+            if xk < xo[l]:
+                if l == ll:
+                    break
+                if l == 2 or l == 3:
+                    l = min(nold, l); c = 0.0
+                    b = (fo[l] - fo[l - 1]) / (xo[l] - xo[l - 1]); a = fo[l] - xo[l] * b; ll = l
+                    break
+                l1 = l - 1
+                if l > ll + 1 or l == 3 or l == 4:
+                    l2 = l - 2
+                    d = (fo[l1] - fo[l2]) / (xo[l1] - xo[l2])
+                    cbac = fo[l] / ((xo[l] - xo[l1]) * (xo[l] - xo[l2])) + \
+                        (fo[l2] / (xo[l] - xo[l2]) - fo[l1] / (xo[l] - xo[l1])) / (xo[l1] - xo[l2])
+                    bbac = d - (xo[l1] + xo[l2]) * cbac
+                    abac = fo[l2] - xo[l2] * d + xo[l1] * xo[l2] * cbac
+                else:
+                    cbac, bbac, abac = cfor, bfor, afor
+                if l >= nold:
+                    c, b, a, ll = cbac, bbac, abac, l
+                    break
+                d = (fo[l] - fo[l1]) / (xo[l] - xo[l1])
+                cfor = fo[l + 1] / ((xo[l + 1] - xo[l]) * (xo[l + 1] - xo[l1])) + \
+                    (fo[l1] / (xo[l + 1] - xo[l1]) - fo[l] / (xo[l + 1] - xo[l])) / (xo[l] - xo[l1])
+                bfor = d - (xo[l] + xo[l1]) * cfor
+                afor = fo[l1] - xo[l1] * d + xo[l] * xo[l1] * cfor
+                wt = abs(cfor) / (abs(cfor) + abs(cbac)) if abs(cfor) != 0.0 else 0.0
+                a = afor + wt * (abac - afor); b = bfor + wt * (bbac - bfor); c = cfor + wt * (cbac - cfor)
+                ll = l
+                break
+            l += 1
+            if l > nold:
+                l = min(nold, l); c = 0.0
+                b = (fo[l] - fo[l - 1]) / (xo[l] - xo[l - 1]); a = fo[l] - xo[l] * b; ll = l
+                break
+        fnew[k - 1] = a + (b + c * xk) * xk
+    return fnew, max(ll - 1, 0)
+
+def map1_scalar(xold, fold, xnew_val):
+    out, _ = map1(np.asarray(xold), np.asarray(fold), np.asarray([xnew_val]))
+    return float(out[0])
+
+def _nz_signed(x, eps=1e-300):
+    if abs(x) >= eps:
+        return x
+    return eps if x >= 0.0 else -eps
+''')
+
+md(r"""**`josh_profiles`** — the JOSH full-depth flux solver of Lecture 8. At one frequency it forms the total extinction $\kappa^{\rm tot}_\nu$ and the thermal source, then iterates the moment equations to return the mean intensity moments and the surface Eddington factor. **This is the one routine the line opacity enters**: `aline` is just another term in `abtot = acont + aline + sigmac + sigmal` — the whole of line blanketing, as promised.""")
+
+code(r'''def josh_profiles(acont, scont, aline, sline, sigmac, sigmal, rhox, bnu,
+                  xtau, ch, coefj):
+    n = rhox.size
+    nxtau = xtau.size
+    coefj_diag = np.diag(coefj).astype(np.float32)
+
+    abtot = np.maximum(acont + aline + sigmac + sigmal, 1e-300)
+    alpha = (sigmac + sigmal) / abtot
+    den = acont + aline
+    snubar = bnu.copy()
+    np.divide(acont * scont + aline * sline, den, out=snubar, where=den > 0.0)
+
+    taunu = integ(rhox, abtot, abtot[0] * rhox[0])
+    snu = np.zeros(n); hnu = np.zeros(n); jnu = np.zeros(n); jmins = np.zeros(n)
+    xs = np.zeros(nxtau, dtype=np.float32)
+
+    if taunu[0] > xtau[-1]:
+        maxj = 1
+    else:
+        xsbar8, maxj = map1(taunu, snubar, xtau)
+        xalpha8, maxj = map1(taunu, alpha, xtau)
+        xalpha8 = np.maximum(xalpha8.astype(np.float32), np.float32(0.0))
+        xsbar8 = np.maximum(xsbar8.astype(np.float32), np.float32(1.0e-38))
+        mask = xtau < taunu[0]
+        if np.any(mask):
+            xsbar8[mask] = max(snubar[0], 1.0e-38)
+            xalpha8[mask] = max(alpha[0], 0.0)
+        xs[:] = xsbar8
+        one32 = np.float32(1.0)
+        diag = one32 - xalpha8 * coefj_diag
+        xsbar_mod = (one32 - xalpha8) * xsbar8
+        for _ in range(nxtau):
+            iferr = 0
+            for kk in range(nxtau):
+                k = nxtau - 1 - kk
+                dot = np.float32(np.dot(coefj[k, :].astype(np.float32), xs))
+                num = np.float32(dot * xalpha8[k] + xsbar_mod[k] - xs[k])
+                dd = np.float32(diag[k])
+                if abs(float(dd)) < 1.0e-37:
+                    dd = np.float32(1.0e-37 if float(dd) >= 0.0 else -1.0e-37)
+                delxs = np.float32(num / dd)
+                xbase = np.float32(xs[k])
+                if abs(float(xbase)) < 1.0e-37:
+                    xbase = np.float32(1.0e-37 if float(xbase) >= 0.0 else -1.0e-37)
+                errx = np.float32(abs(float(delxs / xbase)))
+                if errx > np.float32(ITER_TOL):
+                    iferr = 1
+                xs[k] = np.float32(max(float(np.float32(xs[k] + delxs)), 1.0e-37))
+            if iferr == 0:
+                break
+        xs8 = xs.astype(np.float64)
+        snu_head, _ = map1(xtau, xs8, taunu[:maxj])
+        snu[:maxj] = snu_head
+
+    if maxj == n:
+        raise RuntimeError("maxj==n branch not expected for this reference atmosphere")
+
+    maxj1 = maxj + 1
+    if maxj == 1:
+        maxj1 = 1
+    snu[maxj1 - 1:] = snubar[maxj1 - 1:]
+    m = max(maxj - 1, 1)
+    m0 = m - 1
+    nmj0 = maxj - 1
+    for _ in range(nxtau):
+        error = 0.0
+        ifneg = 0
+        if np.any(snu[m0:] <= 0.0):
+            ifneg = 1
+            snubar[m0:] = bnu[m0:]
+            snu[m0:] = bnu[m0:]
+        hnu[m0:] = deriv(taunu[m0:], snu[m0:]) / 3.0
+        if np.any(hnu[m0:] <= 0.0):
+            ifneg = 1
+            snubar[m0:] = bnu[m0:]
+            snu[m0:] = bnu[m0:]
+            hnu[m0:] = deriv(taunu[m0:], snu[m0:]) / 3.0
+        jmins[nmj0:] = deriv(taunu[nmj0:], hnu[nmj0:])
+        for j in range(maxj1 - 1, n):
+            if ifneg == 1:
+                jmins[j] = 0.0
+            jnu[j] = jmins[j] + snu[j]
+            snew = (1.0 - alpha[j]) * snubar[j] + alpha[j] * jnu[j]
+            error += abs(snew - snu[j]) / max(abs(snew), 1e-300)
+            snu[j] = snew
+        if error < ITER_TOL:
+            break
+
+    if maxj == 1:
+        # degenerate surface (tau beyond the grid): surface Eddington factor K = J/3
+        knu_surface = jnu[0] / 3.0
+        return taunu, hnu, jmins, abtot, alpha, float(knu_surface)
+
+    xjs = (-xs + coefj.astype(np.float32) @ xs).astype(np.float64)
+    xh = (CH_MAT @ xs).astype(np.float64)
+    jmins[:maxj], _ = map1(xtau, xjs, taunu[:maxj])
+    hnu[:maxj], _ = map1(xtau, xh, taunu[:maxj])
+    # surface second moment off the SAME float32 source vector: K_nu(0) = CK . xs
+    knu_surface = float(np.dot(CK_W, xs))
+    return taunu, hnu, jmins, abtot, alpha, float(knu_surface)
+''')
+
+md(r"""**`ross_finalize`** — turns the accumulated Rosseland integral into the Rosseland-mean opacity $\kappa_{\rm Ross}$ and integrates it to the Rosseland optical depth $\tau_{\rm Ross}$ (Lecture 10).""")
+
+code(r'''def ross_finalize(acc, T, rhox):
+    abross = (4.0 * SIGMA / 3.14159) * np.power(T, 3.0) / np.maximum(acc, 1e-300)
+    tauros = integ(rhox, abross, abross[0] * rhox[0])
+    return abross, tauros
+''')
+
+md(r"""**`expi3`** — the third exponential integral $E_3$, used in the surface boundary terms. It is the production rational-polynomial approximation, accurate across the whole argument range.""")
+
+code(r'''def expi3(x):
+    a = (-44178.5471728217, 57721.7247139444, 9938.31388962037, 1842.11088668,
+         101.093806161906, 5.03416184097568)
+    b = (76537.3323337614, 32597.1881290275, 6106.10794245759, 635.419418378382, 37.2298352833327)
+    c = (4.65627107975096e-7, 0.999979577051595, 9.04161556946329, 24.3784088791317,
+         23.0192559391333, 6.90522522784444, 0.430967839469389)
+    dco = (10.0411643829054, 32.4264210695138, 41.2807841891424, 20.4494785013794,
+           3.31909213593302, 0.103400130404874)
+    e = (-0.999999999998447, -26.6271060431811, -241.055827097015, -895.927957772937,
+         -1298.85688746484, -545.374158883133, -5.66575206533869)
+    fco = (28.6271060422192, 292.310039388533, 1332.78537748257, 2777.61949509163,
+           2404.01713225909, 631.6574832808)
+    if x <= 0.0:
+        ex1 = 0.0
+    else:
+        ex = np.exp(-x)
+        if x > 4.0:
+            ex1 = (ex + ex * (e[0] + (e[1] + (e[2] + (e[3] + (e[4] + (e[5] + e[6] / x) / x) / x) / x) / x) / x)
+                   / (x + fco[0] + (fco[1] + (fco[2] + (fco[3] + (fco[4] + fco[5] / x) / x) / x) / x) / x)) / x
+        elif x > 1.0:
+            ex1 = ex * (c[6] + (c[5] + (c[4] + (c[3] + (c[2] + (c[1] + c[0] * x) * x) * x) * x) * x) * x) / \
+                (dco[5] + (dco[4] + (dco[3] + (dco[2] + (dco[1] + (dco[0] + x) * x) * x) * x) * x) * x)
+        else:
+            ex1 = (a[0] + (a[1] + (a[2] + (a[3] + (a[4] + a[5] * x) * x) * x) * x) * x) / \
+                (b[0] + (b[1] + (b[2] + (b[3] + (b[4] + x) * x) * x) * x) * x) - np.log(x)
+    out = ex1
+    for i in range(1, 3):
+        out = (np.exp(-x) - x * out) / float(i)
+    return out
+''')
+
+md(r"""**`Rosstab`** — the `ROSSTAB` opacity table of Lecture 9: ingest $(\,T,P,\kappa_{\rm Ross})$ from the current model, then evaluate $\kappa_{\rm Ross}(T,P)$ at any point by the four-quadrant nearest-neighbour interpolation ATLAS uses inside the hydrostatic and convection solves.""")
+
+code(r'''class Rosstab:
+    def __init__(self):
+        self.t = []; self.p = []; self.k = []
+        self.zerot = self.zerop = 0.0
+        self.slopet = self.slopep = 1.0
+        self.n = 0
+
+    def ingest(self, T, P, kappa):
+        nn = T.size
+        if self.n == 0:
+            self.zerot = np.log10(max(float(T[0]), 1e-300))
+            self.zerop = np.log10(max(float(P[0]), 1e-300))
+            self.slopet = np.log10(max(float(T[-1]), 1e-300)) - self.zerot
+            self.slopep = np.log10(max(float(P[-1]), 1e-300)) - self.zerop
+            if abs(self.slopet) < 1e-300:
+                self.slopet = 1.0
+            if abs(self.slopep) < 1e-300:
+                self.slopep = 1.0
+        for j in range(nn):
+            self.t.append((np.log10(max(float(T[j]), 1e-300)) - self.zerot) / self.slopet)
+            self.p.append((np.log10(max(float(P[j]), 1e-300)) - self.zerop) / self.slopep)
+            self.k.append(np.log10(max(float(kappa[j]), 1e-300)))
+            self.n += 1
+
+    def eval(self, temp, pressure):
+        if self.n <= 0:
+            return 1.0
+        templog = (np.log10(max(temp, 1e-300)) - self.zerot) / self.slopet
+        presslog = (np.log10(max(pressure, 1e-300)) - self.zerop) / self.slopep
+        rpp = rpm = rmp = rmm = 1.0e30
+        i_pp = i_pm = i_mp = i_mm = -1
+        v_pp = v_pm = v_mp = v_mm = 0.0
+        for i in range(self.n):
+            dp = self.p[i] - presslog
+            dt = self.t[i] - templog
+            r2 = dt * dt + dp * dp
+            if dt >= 0.0 and dp >= 0.0:
+                if r2 < rpp:
+                    rpp = r2; i_pp = i; v_pp = self.k[i]
+            elif dt >= 0.0 and dp < 0.0:
+                if r2 < rpm:
+                    rpm = r2; i_pm = i; v_pm = self.k[i]
+            elif dt < 0.0 and dp >= 0.0:
+                if r2 < rmp:
+                    rmp = r2; i_mp = i; v_mp = self.k[i]
+            else:
+                if r2 < rmm:
+                    rmm = r2; i_mm = i; v_mm = self.k[i]
+        if i_pp >= 0 and i_pm >= 0 and i_mp >= 0 and i_mm >= 0:
+            tpp, ppp = self.t[i_pp], self.p[i_pp]
+            tpm, ppm = self.t[i_pm], self.p[i_pm]
+            tmp, pmp = self.t[i_mp], self.p[i_mp]
+            tmm, pmm = self.t[i_mm], self.p[i_mm]
+            den_tp = max(tpp - tmp, 1e-300); den_tm = max(tpm - tmm, 1e-300)
+            rppmp = ((templog - tmp) * v_pp + (tpp - templog) * v_mp) / den_tp
+            rpmmm = ((templog - tmm) * v_pm + (tpm - templog) * v_mm) / den_tm
+            pppmp = ((templog - tmp) * ppp + (tpp - templog) * pmp) / den_tp
+            ppmmm = ((templog - tmm) * ppm + (tpm - templog) * pmm) / den_tm
+            r = ((presslog - ppmmm) * rppmp + (pppmp - presslog) * rpmmm) / max(pppmp - ppmmm, 1e-300)
+            return float(10.0 ** r)
+        w_pp = 1.0 / (np.sqrt(rpp) + 1.0e-5); w_pm = 1.0 / (np.sqrt(rpm) + 1.0e-5)
+        w_mp = 1.0 / (np.sqrt(rmp) + 1.0e-5); w_mm = 1.0 / (np.sqrt(rmm) + 1.0e-5)
+        rwt = w_pp + w_pm + w_mp + w_mm
+        i_pp = max(i_pp, 0); i_pm = max(i_pm, 0); i_mp = max(i_mp, 0); i_mm = max(i_mm, 0)
+        r = (self.k[i_pp] * w_pp + self.k[i_pm] * w_pm + self.k[i_mp] * w_mp + self.k[i_mm] * w_mm) / max(rwt, 1e-300)
+        return float(10.0 ** r)
+''')
+
+md(r"""**`ttaup`** — the hydrostatic integration `TTAUP` of Lecture 9: given $T(\tau)$ and the `Rosstab` opacity, march the pressure inward so that $dP/d\tau = g/\kappa$, returning the standard opacity, total pressure, and gas pressure.""")
+
+code(r'''def ttaup(t, tau, prad, pturb, grav, rosstab):
+    n = int(t.size)
+    abstd = np.zeros(n); ptotal = np.zeros(n); pgas = np.zeros(n)
+    dlg_tau = np.log(max(float(tau[1] / max(tau[0], 1e-300)), 1e-300)) if n > 1 else 0.0
+    plog1 = plog2 = plog3 = plog4 = 0.0
+    dplog1 = dplog2 = dplog3 = 0.0
+    abstd[0] = 0.1
+    if prad[0] > 0.0:
+        abstd[0] = min(0.1, grav * tau[0] / max(prad[0], 1e-300) / 2.0)
+    for j in range(n):
+        if j == 0:
+            plog = np.log(max(grav / max(abstd[0], 1e-300) * tau[0], 1e-300))
+        elif j <= 3:
+            plog = plog1 + dplog1
+        else:
+            plog = (3.0 * plog4 + 8.0 * dplog1 - 4.0 * dplog2 + 8.0 * dplog3) / 3.0
+        error = 1.0; dplog = 0.0; itn = 1
+        while True:
+            plog = min(plog, 709.78)
+            ptotal[j] = np.exp(plog)
+            pgas[j] = ptotal[j] + (prad[0] - prad[j]) - pturb[j]
+            if pgas[j] <= 0.0:
+                pgas[j] = 1e-30; abstd[j] = 0.1; break
+            abstd[j] = rosstab(float(t[j]), float(pgas[j]))
+            dplog = grav / max(abstd[j], 1e-300) * tau[j] / max(ptotal[j], 1e-300) * dlg_tau
+            itn += 1
+            if itn > 1000 or error <= 5.0e-5:
+                break
+            if j == 0:
+                pnew = np.log(max(grav / max(abstd[j], 1e-300) * tau[j], 1e-300))
+            elif j <= 3:
+                pnew = (plog + 2.0 * plog1 + dplog + dplog1) / 3.0
+            else:
+                pnew = (126.0 * plog1 - 14.0 * plog3 + 9.0 * plog4 + 42.0 * dplog
+                        + 108.0 * dplog1 - 54.0 * dplog2 + 24.0 * dplog3) / 121.0
+            error = abs(pnew - plog)
+            plog = 0.5 * (pnew + plog)
+        plog4 = plog3; plog3 = plog2; plog2 = plog1; plog1 = plog
+        dplog3 = dplog2; dplog2 = dplog1; dplog1 = dplog
+    return abstd, ptotal, pgas
+''')
+
+md(r"""**`high_from_rhox`** — the geometric height from the column mass, $z = \int \rho^{-1}\,d(\rho x)$ (in units of $10^5$ cm), a convenience the convection routine reports.""")
+
+code(r'''def high_from_rhox(rhox, rho):
+    rhoinv = 1.0e-5 / np.maximum(rho, 1e-300)
+    return integ(rhox, rhoinv, 0.0)
+''')
+
+md(r"""**`convec`** — the mixing-length convection of Lecture 11. From the equation-of-state finite-difference samples it forms the heat capacity, the adiabatic gradient, and the pressure scale height, decides which layers convect, and solves the cubic mixing-length relation for the convective flux $F_{\rm conv}$ and the temperature excess. (Lecture 16 builds the EOS samples this routine consumes.)""")
+
+code(r'''def convec(rosstab, rhox, tauros, t, p, rho, abross, pradk, ptotal, grav,
+           flux, ed1, ed2, ed3, ed4, r1, r2, r3, r4,
+           mixlth=1.25, nconv=36):
+    n = int(t.size)
+    dtdrhx = deriv(rhox, t)                 # dT/dRHOX, for the actual gradient
+    dilut = 1.0 - np.exp(-tauros)           # geometric dilution of P_rad gradient
+
+    dltdlp = np.zeros(n); heatcp = np.zeros(n); dlrdlt = np.zeros(n)
+    velsnd = np.zeros(n); grdadb = np.zeros(n); hscale = np.zeros(n)
+    flxcnv = np.zeros(n); vconv = np.zeros(n); flxcnv0 = np.zeros(n)
+    deltat = np.zeros(n); rosst = np.zeros(n)
+
+    for j in range(n):
+        delt = 0.0
+        # EOS derivatives from the +-0.1% finite differences (POPS samples).
+        dedt = (ed1[j] - ed2[j]) / max(t[j], 1e-300) * 500.0
+        drdt = (r1[j] - r2[j]) / max(t[j], 1e-300) * 500.0
+        dedpg = (ed3[j] - ed4[j]) / max(p[j], 1e-300) * 500.0
+        drdpg = (r3[j] - r4[j]) / max(p[j], 1e-300) * 500.0
+
+        dpdpg = 1.0
+        dpdt = 4.0 * pradk[j] / max(t[j], 1e-300) * dilut[j]     # radiation P term
+        # actual (radiative) gradient d ln T / d ln P
+        dltdlp[j] = ptotal[j] / max(t[j] * grav, 1e-300) * dtdrhx[j]
+        drdpg_safe = _nz_signed(float(drdpg))
+        heatcv = dedt - dedpg * drdt / drdpg_safe               # specific heat at const V
+        heatcp[j] = (dedt - dedpg * dpdt / max(dpdpg, 1e-300)
+                     - ptotal[j] / max(rho[j] ** 2, 1e-300)
+                     * (drdt - drdpg * dpdt / max(dpdpg, 1e-300)))   # at const P
+        if heatcv > 0.0:
+            velsnd[j] = np.sqrt(max(heatcp[j] / heatcv * dpdpg / drdpg_safe, 0.0))
+        dlrdlt[j] = t[j] / max(rho[j], 1e-300) * (drdt - drdpg * dpdt / max(dpdpg, 1e-300))
+        if abs(heatcp[j]) > 1e-300:
+            grdadb[j] = -ptotal[j] / max(rho[j] * t[j], 1e-300) * dlrdlt[j] / heatcp[j]
+        hscale[j] = ptotal[j] / max(rho[j] * grav, 1e-300)      # pressure scale height
+
+        # decide whether the layer convects (mixlth>0, j>=3, super-adiabatic)
+        if mixlth == 0.0 or j < 3:
+            continue
+        delt = dltdlp[j] - grdadb[j]                            # superadiabaticity
+        if delt < 0.0:
+            continue
+        vco = 0.5 * mixlth * np.sqrt(
+            max(-0.5 * ptotal[j] / max(rho[j], 1e-300) * dlrdlt[j], 0.0))
+        if vco == 0.0:
+            continue
+        fluxco = 0.5 * rho[j] * heatcp[j] * t[j] * mixlth / FOURPI
+        rosst[j] = rosstab.eval(float(t[j]), float(p[j]))       # cell-center opacity
+        olddelt = 0.0
+        # 30-iteration inner loop: solve flxcnv + temperature excess deltat
+        for _ in range(30):
+            rosst_denom = _nz_signed(float(rosst[j]))
+            dplus = rosstab.eval(float(t[j] + deltat[j]), float(p[j])) / rosst_denom
+            dminus = rosstab.eval(float(t[j] - deltat[j]), float(p[j])) / rosst_denom
+            if dplus == 0.0 or dminus == 0.0:
+                abconv = 0.0
+            else:
+                abconv = 2.0 / (1.0 / dplus + 1.0 / dminus) * abross[j]
+            den1 = abconv * hscale[j] * rho[j]
+            den2 = fluxco * FOURPI
+            if den1 == 0.0 or den2 == 0.0 or vco == 0.0:
+                d = 0.0
+            else:
+                d = 8.0 * SIGMA * t[j] ** 4 / den1 / den2 / vco
+            taub = abconv * rho[j] * mixlth * hscale[j]         # cell optical thickness
+            d = d * taub ** 2 / (2.0 + taub ** 2)               # optical-thickness factor
+            d = d ** 2 / 2.0
+            ddd = (delt / _nz_signed(float(d + delt))) ** 2
+            if ddd < 0.5:
+                # series expansion of (1-sqrt(1-ddd))/ddd for small ddd
+                delta = 0.5; term = 0.5; up = -1.0; down = 2.0
+                while term > 1.0e-6:
+                    up += 2.0; down += 2.0
+                    term = up / down * ddd * term
+                    delta += term
+            else:
+                delta = (1.0 - np.sqrt(max(1.0 - ddd, 0.0))) / max(ddd, 1e-300)
+            delta = delta * delt ** 2 / _nz_signed(float(d + delt))
+            vconv[j] = vco * np.sqrt(max(delta, 0.0))
+            flxcnv[j] = max(fluxco * vconv[j] * delta, 0.0)
+            deltat[j] = t[j] * mixlth * delta
+            deltat[j] = min(deltat[j], t[j] * 0.15)             # cap the excess
+            deltat[j] = deltat[j] * 0.7 + olddelt * 0.3         # under-relax
+            if olddelt - 0.5 < deltat[j] < olddelt + 0.5:
+                break
+            olddelt = deltat[j]
+
+    flxcnv0[:] = flxcnv
+    height = high_from_rhox(rhox, rho)
+    # overwt=0 -> no overshoot blend.  Force the top NCONV layers non-convective.
+    k = int(max(min(nconv, n), 0))
+    if k > 0:
+        flxcnv[:k] = 0.0
+    return dict(flxcnv=flxcnv, flxcnv0=flxcnv0, dltdlp=dltdlp, grdadb=grdadb,
+                hscale=hscale, dlrdlt=dlrdlt, heatcp=heatcp, vconv=vconv,
+                velsnd=velsnd, height=height)
+''')
+
+md(r"""**`tcorr_mode3`** — the Avrett–Krook temperature correction of Lecture 10, with convection folded in (Lecture 11). It compares the carried flux to the target, forms the flux-error, Lambda, and surface corrections, and returns the updated temperature `tnew` and column mass `rhox_new`. With this last routine the engine is complete; the next cells run one iteration of it with the blanket on.""")
+
+code(r'''def tcorr_mode3(T, rhox, tauros, abross, flxrad, rjmins, rdabh, rdiagj,
+                flux, teff, prad, grav, rosstab, cv, mixlth=1.25,
+                steplg=0.125, tau1lg=-6.875):
+    n = T.size
+    dtdrhx = deriv(rhox, T)
+    dabros = deriv(rhox, abross)
+
+    flxcnv = cv["flxcnv"]; flxcnv0 = cv["flxcnv0"]
+    dltdlp = cv["dltdlp"]; grdadb = cv["grdadb"]; hscale = cv["hscale"]
+    dlrdlt = cv["dlrdlt"]; heatcp = cv["heatcp"]
+    ptotal_cv = cv.get("ptotal")
+    rho_cv = cv.get("rho")
+    ddlt = deriv(rhox, dltdlp)
+
+    # cnvflx: copy FLXCNV, zero the two top layers, then a 1-2-1 smoothing pass.
+    cnvflx = flxcnv.copy()
+    cnvflx[0] = 0.0
+    if n >= 2:
+        cnvflx[1] = 0.0
+    if n >= 3:
+        ccc = cnvflx.copy()
+        for j in range(1, n - 1):
+            ccc[j] = 0.25 * cnvflx[j - 1] + 0.5 * cnvflx[j] + 0.25 * cnvflx[j + 1]
+        ccc[-1] = 0.25 * cnvflx[-3] + 0.25 * cnvflx[-2] + 0.5 * cnvflx[-1]
+        for j in range(1, n - 1):
+            cnvflx[j] = ccc[j]
+        cnvflx[-1] = ccc[-1]
+
+    rdabh_eff = rdabh - flxrad * dabros / np.maximum(abross, 1e-300)
+    codrhx = np.zeros(n)
+    ddel = np.zeros(n)
+    for j in range(n):
+        delv = 1.0
+        d = 0.0
+        # convective-efficiency factor ddel for layers that actually convect
+        if cnvflx[j] > 0.0 and flxcnv0[j] > 0.0:
+            delv = dltdlp[j] - grdadb[j]
+            vco = 0.5 * mixlth * np.sqrt(max(-0.5 * ptotal_cv[j] / max(rho_cv[j], 1e-300) * dlrdlt[j], 0.0))
+            fluxco = 0.5 * rho_cv[j] * heatcp[j] * T[j] * mixlth / FOURPI
+            if mixlth > 0.0 and vco > 0.0:
+                d = (8.0 * SIGMA * T[j] ** 4
+                     / np.maximum(abross[j] * hscale[j] * rho_cv[j], 1e-300)
+                     / np.maximum(fluxco * FOURPI, 1e-300) / vco)
+            taub = abross[j] * rho_cv[j] * mixlth * hscale[j]
+            d = d * taub * taub / (2.0 + taub * taub)
+            d = d * d / 2.0
+            den_deld = _nz_signed(float(d + delv))
+            del_safe = _nz_signed(float(delv))
+            ddel[j] = (1.0 + d / den_deld) / del_safe
+        cnvfl = 0.0
+        if flxrad[j] > 0.0:
+            if cnvflx[j] / flxrad[j] > 1.0e-3 and flxcnv0[j] / flxrad[j] > 1.0e-3:
+                cnvfl = cnvflx[j]
+        den_deld = _nz_signed(float(d + delv))
+        del_safe = _nz_signed(float(delv))
+        num = rdabh_eff[j] + cnvfl * (
+            dtdrhx[j] / max(T[j], 1e-300) * (1.0 - 9.0 * d / den_deld)
+            + 1.5 * ddlt[j] / del_safe * (1.0 + d / den_deld))
+        den = flxrad[j] + cnvflx[j] * 1.5 * dltdlp[j] * ddel[j]
+        codrhx[j] = num / _nz_signed(float(den))
+    codrhx[0] = 0.0
+    if n >= 2:
+        codrhx[1] = 0.0
+
+    g = np.exp(integ(rhox, codrhx, 0.0))
+    gfden = flxrad + cnvflx * 1.5 * dltdlp * ddel
+    gfden_safe = np.where(np.abs(gfden) >= 1e-300, gfden, np.where(gfden >= 0.0, 1e-300, -1e-300))
+    gflux = g * (flxrad + cnvflx - flux) / gfden_safe
+    dtau = integ(tauros, gflux, 0.0) / np.maximum(g, 1e-300)
+    dtau = np.maximum(-tauros / 3.0, np.minimum(tauros / 3.0, dtau))
+    dtflux = -dtau * dtdrhx / np.maximum(abross, 1e-300)
+
+    flxerr = (flxrad + cnvflx - flux) / np.maximum(flux, 1e-300) * 100.0
+    flxdrv = deriv(tauros, flxerr)
+    dtlamb = np.zeros(n)
+    teff25 = teff / 25.0
+    for j in range(n):
+        ratio = cnvflx[j] / np.maximum(flxrad[j], 1e-300)
+        if ratio < 1.0e-5:
+            flxdrv[j] = rjmins[j] / np.maximum(abross[j], 1e-300) / np.maximum(flux, 1e-300) * 100.0
+        denom = rdiagj[j] if abs(rdiagj[j]) > 1e-300 else np.sign(rdiagj[j]) * 1e-300
+        dtlamb[j] = -flxdrv[j] * flux / 100.0 / denom * abross[j]
+        if not (ratio < 1.0e-5 and tauros[j] < 1.0):
+            dtlamb[j] = 0.0
+            for k in range(1, 6):
+                jj = j - k
+                if jj >= 0:
+                    dtlamb[jj] *= 0.5
+        dtlamb[j] = float(np.clip(dtlamb[j], -teff25, teff25))
+
+    dtsur = (flux - flxrad[0]) / np.maximum(flux, 1e-300) * 0.25 * T[0]
+    dtsur = float(np.clip(dtsur, -teff25, teff25))
+    dum = dtflux + dtlamb
+    tinteg = integ(tauros, dum, 0.0)
+    tone = map1_scalar(tauros, tinteg, 0.1)
+    ttwo = map1_scalar(tauros, tinteg, 2.0)
+    tav = (ttwo - tone) / 2.0
+    if dtsur * tav <= 0.0:
+        tav = 0.0
+    if abs(tav) > abs(dtsur):
+        tav = dtsur
+    dtsur = dtsur - tav
+    dtsurf = np.full(n, dtsur)
+
+    dtflux = np.nan_to_num(dtflux, nan=0.0, posinf=0.0, neginf=0.0)
+    dtlamb = np.nan_to_num(dtlamb, nan=0.0, posinf=0.0, neginf=0.0)
+    dtsurf = np.nan_to_num(dtsurf, nan=0.0, posinf=0.0, neginf=0.0)
+    t1 = dtflux + dtlamb + dtsurf
+
+    # iteration 1: damping/acceleration skipped (skip_damp = True at iter_index=1)
+    tnew = T + t1
+    bad = ~np.isfinite(tnew)
+    if bad.any():
+        tnew = np.where(bad, T, tnew)
+    tnew = np.maximum(tnew, 1.0)
+    for i in range(1, n):
+        j = n - 1 - i
+        tnew[j] = np.fmin(tnew[j], tnew[j + 1] - 1.0)
+        if not np.isfinite(tnew[j]):
+            tnew[j] = max(T[j], 1.0)
+
+    # DRHOX: re-run TTAUP on TAUSTD for T and for T+t1, take fractional dP, map back
+    taustd = 10.0 ** (tau1lg + np.arange(n) * steplg)
+    rfun = rosstab.eval
+    tnew1, _ = map1(tauros, T, taustd)
+    prdnew, _ = map1(tauros, prad, taustd)
+    _a1, ptot1, _p1 = ttaup(tnew1, taustd, prdnew, np.zeros(n), grav, rfun)
+    tplus = T + t1
+    tnew2, _ = map1(tauros, tplus, taustd)
+    _a2, ptot2, _p2 = ttaup(tnew2, taustd, prdnew, np.zeros(n), grav, rfun)
+    ppp = (ptot2 - ptot1) / np.maximum(ptot1, 1e-300)
+    rrr, _ = map1(taustd, ppp, tauros)
+    drhox = rrr * rhox
+    rhox_new = rhox + drhox
+
+    return dict(t1=t1, dtflux=dtflux, dtlamb=dtlamb, flxerr=flxerr,
+                cnvflx=cnvflx, tnew=tnew, rhox_new=rhox_new, drhox=drhox)
+print("Lecture 11 convergence engine inlined (JOSH, ROSS, ROSSTAB, TTAUP, CONVEC, TCORR) -- unchanged")''')
 
 code(r'''XTAU = JT["xtau"].astype(np.float64); CH = JT["ch"].astype(np.float64); COEFJ = JT["coefj"].astype(np.float64)
 print("JOSH grid tables ready")''')
@@ -563,7 +1224,7 @@ ok = (rel_deposit < 1e-5) and (rT < 1e-5) and (rX < 1e-5) and (np.median(rTsun) 
 print("  PASS" if ok else "  FAIL")
 print("="*66)''')
 
-md(r"""The deposit kernel matches to the float32 wing-accumulator floor; the line-blanketed engine reproduces the production single step to its precision floor; and the corrected model sits on the real Sun's `sun.npz` to the documented deep-column residual (a part in $10^3$ — the same floor the independent line-blanketed convergence reaches, set by the deep-base opacity self-consistency, not by any approximation in the deposit or the fold). The continuum-only model of Lecture 11 has become the real, line-blanketed Sun.""")
+md(r"""The deposit kernel matches to the float32 wing-accumulator floor; the line-blanketed engine reproduces the production single step to its precision floor; and the corrected model sits on the real Sun's `sun.npz` to the documented deep-column residual (a part in $10^3$ — the same floor the independent line-blanketed convergence reaches, set by the deep-base opacity self-consistency, not by any approximation in the deposit or the fold). Starting from the converged line-blanketed solar model, one iteration of the unchanged engine remains on that fixed point and matches the production step — the line-blanketed machinery, and the model atmosphere it holds, are now the book's own. (The genuine descent *onto* `sun.npz` from a warm start, with the equation of state also rebuilt each iteration, is Lecture 16.)""")
 
 code(r'''fig, ax = plt.subplots(1, 2, figsize=(11, 4.1))
 ax[0].plot(np.log10(tauros), T_cont, color="0.55", lw=1.7, label="continuum only (Lecture 11)")
@@ -587,7 +1248,7 @@ Lecture 11 converged a *continuum-only* model atmosphere of the Sun and named th
 
 We built the one genuinely new piece — the **line-deposit kernel** — from scratch and benchmarked it to the single-precision floor: the predicted line list and the `SELECTLINES` strength cut that keeps only the lines that can beat the continuum; the per-line center opacity, Doppler width, and damping from the line record and the equation-of-state state; and the production wing-walk itself — the **asymmetric, sub-pixel** abscissa on the logarithmic grid, the **full** three-branch Voigt (not a Gaussian-plus-Lorentzian shortcut, which fails for the heavily-damped base lines), and the **adaptive `cv<continuum` cutoff** that walks each line outward only as far as it stays visible. We folded the deposited opacity into the **Rosseland mean** and watched $\kappa_{\rm Ross}$ rise above the continuum-only value.
 
-Then we did what Lecture 11 promised would *just work*: we handed the line opacity to the **unchanged Lecture 11 convergence engine** — the same JOSH flux, Rosseland mean, mixing-length convection (with the ionization-energy heat capacity intact), radiation pressure, and temperature correction — and ran one iteration with the blanket on. It reproduced the production single line-blanketed step to its precision floor and landed on the **real Sun's model atmosphere** `sun.npz` (surface 3696 K, base 11425 K, base column mass 12.14), to the documented part-in-$10^3$ deep-column residual. The continuum-only toy of Lecture 11 has become the real, line-blanketed Sun.
+Then we did what Lecture 11 promised would *just work*: we handed the line opacity to the **unchanged Lecture 11 convergence engine** — the same JOSH flux, Rosseland mean, mixing-length convection (with the ionization-energy heat capacity intact), radiation pressure, and temperature correction — and ran one iteration with the blanket on. It reproduced the production single line-blanketed step to its precision floor and remained on the **real Sun's model atmosphere** `sun.npz` (surface 3696 K, base 11425 K, base column mass 12.14), to the documented part-in-$10^3$ deep-column residual — confirming that the converged line-blanketed Sun is a fixed point of the unchanged engine once the blanket is fed in. (Lecture 16 then makes the equation of state from scratch too, and descends onto `sun.npz` from a warm start.)
 
 One thread is still tied to a reference, and it is the *only* one left in the book. The deposit kernel here reads its per-iteration equation-of-state state — the populations, Doppler widths, the continuum-cutoff table, the heat capacity — from a precomputed file, exactly as Lecture 11 read the continuum. **Lecture 16**, the closing lecture of Part VI, builds that state from scratch and hands it back to this loop, so the line-blanketed convergence runs with no pykurucz in the computed path. With Lecture 15 supplying the *physics* and Lecture 16 the *state it runs on*, Part VI completes the atmosphere half of the book from scratch — the counterpart to the spectrum half assembled in Lecture 14.""")
 
@@ -613,7 +1274,7 @@ md(r"""## Practice exercises
 
 **4. The blanket's reach in the Rosseland mean.** Split the line-blanketed Rosseland integral into ultraviolet ($\lambda<400$ nm), optical, and infrared bands. Which band's lines lift $\kappa_{\rm Ross}$ most at the hot base, and which at the cool surface? Relate this to the Wien peak of $\partial B_\nu/\partial T$ at 11425 K versus 3696 K.
 
-**5. Back-warming, quantified.** Using the shipped continuum-only and line-blanketed temperatures, find the optical depth where the blanketed model is warmest relative to the continuum-only one. Estimate, from the change in the Rosseland opacity, roughly how much deeper the $\tau_{\rm Ross}=1$ surface sits in the blanketed model, and connect that to the surface cooling.
+**5. Back-warming, quantified.** Using the shipped continuum-only and line-blanketed temperatures, find the optical depth where the blanketed model is warmest relative to the continuum-only one. Estimate, from the change in the Rosseland opacity, roughly how the column mass of the $\tau_{\rm Ross}=1$ surface shifts in the blanketed model (with larger opacity, a given Rosseland optical depth is reached at *smaller* column mass — higher up), and connect that to the surface cooling.
 
 **6. Switch the blanket off, mid-loop.** Re-run the convergence frequency sweep passing `z` (zero) for `aline_nu` instead of the deposited blanket — i.e. reproduce Lecture 11's continuum-only step from the *line-blanketed* Sun. The corrected temperature should now move *away* from `sun.npz` (toward the continuum-only structure). By how much, and at what optical depth? This is the structural imprint of line blanketing, isolated.""")
 

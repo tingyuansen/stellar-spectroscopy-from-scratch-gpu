@@ -456,8 +456,11 @@ SI2OP_PEACH = KT["_SI2OP_PEACH"]; SI2OP_FREQSI = KT["_SI2OP_FREQSI"]
 SI2OP_FLOG = KT["_SI2OP_FLOG"]; SI2OP_TLG = KT["_SI2OP_TLG"]
 H_ENERGY_CM = KT["H_ENERGY_CM"]; H_STAT_WEIGHT = KT["H_STAT_WEIGHT"]; CONTX = KT["CONTX"]
 H_ENERGY_EV = H_ENERGY_CM / 8065.479
-H_MAX_LEVEL = 6
+H_MAX_LEVEL = 6''')
 
+md(r"""`linter` is the linear interpolator used to read the tabulated cross-sections at an arbitrary frequency — the workhorse lookup behind every continuum edge.""")
+
+code(r'''
 def linter(xold, yold, xnew):
     """Linear interpolation/EXTRAPOLATION (Fortran LINTER) - no clamping at the ends."""
     nold, nnew = xold.size, xnew.size; ynew = np.zeros(nnew); iold = 1
@@ -469,8 +472,11 @@ def linter(xold, yold, xnew):
         else:
             w = (xnew[inew] - xold[iold - 1]) / den
             ynew[inew] = yold[iold - 1] + (yold[iold] - yold[iold - 1]) * w
-    return ynew
+    return ynew''')
 
+md(r"""`xkarsas` is the Karzas–Latter hydrogenic bound-free cross-section (Lecture 3): the photoionisation cross-section of a single level $n$ with effective charge $Z_{\rm eff}$, with the Gaunt factor folded in.""")
+
+code(r'''
 def xkarsas(freq, zeff_squared, n, ell):
     """Karsas hydrogen bf cross-section coefficient (binary search, log10(freq) linear)."""
     if freq <= 0.0 or zeff_squared <= 0.0 or n <= 0: return 0.0
@@ -507,8 +513,11 @@ def xkarsas(freq, zeff_squared, n, ell):
             w = (freq_log - fcur) / den
             x_val = (XN_LOG[idx - 1, 14] - XN_LOG[idx, 14]) * w + XN_LOG[idx, 14]
             return float(np.exp(x_val * LN10) / zeff_squared)
-    return float(np.exp(XN_LOG[28, 14] * LN10) / zeff_squared)
+    return float(np.exp(XN_LOG[28, 14] * LN10) / zeff_squared)''')
 
+md(r"""`coulff` is the Coulomb (hydrogenic) free-free Gaunt factor — the thermally-averaged $g_{\rm ff}$ that scales the free-free opacity of every ion (Lecture 3).""")
+
+code(r'''
 def coulff(nz, freq, freqlg, temp, tlog):
     """Coulomb free-free Gaunt factor, vectorised over layers (Fortran COULFF, bilinear)."""
     if nz < 1 or nz > 6: return np.ones_like(temp)
@@ -523,16 +532,22 @@ def coulff(nz, freq, freqlg, temp, tlog):
     a10 = np.where(igam < 10, COULFF_A_TABLE[np.minimum(ig + 1, 11), ih], a00)
     a11 = np.where((igam < 10) & (ihvkt < 11),
                    COULFF_A_TABLE[np.minimum(ig + 1, 11), np.minimum(ih + 1, 10)], a00)
-    return (1.0 - p) * ((1.0 - q) * a00 + q * a01) + p * ((1.0 - q) * a10 + q * a11)
+    return (1.0 - p) * ((1.0 - q) * a00 + q * a01) + p * ((1.0 - q) * a10 + q * a11)''')
 
+md(r"""`planck_nu` is the Planck function $B_\nu(T)$ in CGS per unit frequency — used to weight the opacity into the thermal source.""")
+
+code(r'''
 def planck_nu(freq, temp):
     """Planck B_nu(T), RJ limit for tiny hnu/kT (KAPP's internal H I bf source weight)."""
     const = 2.0 * H_PLANCK / C_LIGHT_CM**2
     x = H_PLANCK * freq / (K_BOLTZ * temp)
     bnu = np.where(x < 1e-6, 2.0 * K_BOLTZ * temp * freq**2 / C_LIGHT_CM**2,
                    const * freq**3 / np.expm1(np.where(x < 1e-6, 1.0, x)))
-    return np.where(np.isfinite(bnu), bnu, 0.0)
+    return np.where(np.isfinite(bnu), bnu, 0.0)''')
 
+md(r"""`si2op_vectorized` evaluates the Si II photoionisation cross-section from its resonance-fit coefficients — one of the metal bound-free edges that matter in the near-UV continuum.""")
+
+code(r'''
 def si2op_vectorized(freq, freqlg, temp, tlog):
     """Si II opacity (Peach tables), returns cross-section * partition per layer."""
     n_layers = temp.size
@@ -552,8 +567,11 @@ def si2op_vectorized(freq, freqlg, temp, tlog):
         nj = nt[jj] - 1
         val = x[nj] * (1.0 - dt[jj]) + x[nj + 1] * dt[jj] if nj < 5 else x[5]
         result[jj] = np.exp(val) * 6.0
-    return result
+    return result''')
 
+md(r"""`hydrogen_partition` returns the hydrogen partition function $U_{\rm H}(T)$ — the normalisation the H populations are built on.""")
+
+code(r'''
 def hydrogen_partition(temp):
     """H partition function U(T) from the lowest H_MAX_LEVEL levels (Rayleigh ground state)."""
     kt = KBOLTZ_EV * temp; U = np.zeros_like(temp)
@@ -1208,8 +1226,11 @@ MAX_PROFILE_STEPS = 1_000_000
 
 # ── FASTEX: exp(-x) via the EXTAB/EXTABF lookup tables (tables.py) ──────────
 _EXTAB = np.exp(-np.arange(1001, dtype=np.float64))
-_EXTABF = np.exp(-np.arange(1001, dtype=np.float64) * 0.001)
+_EXTABF = np.exp(-np.arange(1001, dtype=np.float64) * 0.001)''')
 
+md(r"""`fast_ex_array` is the tabulated $e^{-x}$ (the production `FASTEX` lookup, vectorised) — the Boltzmann factor evaluated by table rather than by calling `exp` millions of times.""")
+
+code(r'''
 
 def fast_ex_array(x):
     """Vectorized FASTEX: exp(-x) with the same table rounding as pykurucz."""
@@ -1233,8 +1254,11 @@ def fast_ex_array(x):
         if np.any(~tab):
             po[~tab] = np.exp(-p[~tab])
         out[pos] = po
-    return out
+    return out''')
 
+md(r"""`voigt_profile` is the Voigt/Hjerting function $H(a,v)$ from the Harris tables (Lecture 4), with all three branches (small-$a$ core, far-wing Lorentzian, large-$a$ Harris series). Every metal line's shape comes from this.""")
+
+code(r'''
 
 # ── Voigt H(a,v): Kurucz Harris-table routine (voigt_jit.voigt_profile_jit) ─
 def voigt_profile(v, a, h0tab, h1tab, h2tab):
@@ -1268,8 +1292,11 @@ def voigt_profile(v, a, h0tab, h1tab, h2tab):
         h4 = (3.0 * h3 - h1) * 0.37613 + h0 * 0.66667 * vv * vv
         poly_a = (((h4 * a + h3) * a + h2) * a + h1) * a + h0
         poly_b = ((-0.122727278 * a + 0.532770573) * a - 0.96284325) * a + 0.979895032
-        return poly_a * poly_b
+        return poly_a * poly_b''')
 
+md(r"""`voigt_h_at_zero` is the line-centre value $H(a,0)$ — used to normalise each line's peak before the wings are walked out.""")
+
+code(r'''
 
 def voigt_h_at_zero(adamp, h0tab, h1tab, h2tab):
     """Vectorized Voigt H(a,0) used to back-solve the wing kappa0 (_voigt_h_at_zero)."""
@@ -1295,8 +1322,11 @@ def voigt_h_at_zero(adamp, h0tab, h1tab, h2tab):
         h_high_base,
     )
     voigt_c = np.where(a < 0.2, h_low, np.where((a > 1.4) | (a > 3.2), h_high, h_mid))
-    return np.maximum(voigt_c, 1e-30)
+    return np.maximum(voigt_c, 1e-30)''')
 
+md(r"""`nearest_grid_indices` maps a set of line-centre wavelengths to the nearest pixels on the log-wavelength grid (the vectorised lookup the deposit needs).""")
+
+code(r'''
 
 # ── log-grid index rounding (engine/opacity._nearest_grid_indices) ─────────
 def nearest_grid_indices(grid, values):
@@ -1308,8 +1338,11 @@ def nearest_grid_indices(grid, values):
     indices = ixwl - ix_start
     indices[values < grid[0]] = -1
     indices[values > grid[-1]] = grid.size
-    return indices
+    return indices''')
 
+md(r"""`nearest_grid_indices_raw` is the same lookup against the raw integer log-wavelength index, the form the production deposit uses when it walks from a known origin pixel.""")
+
+code(r'''
 
 def nearest_grid_indices_raw(grid, values, origin_start):
     """Wing index: rint(log(wl/wbegin)/ratiolg), wbegin from floor of grid origin."""
@@ -1321,8 +1354,11 @@ def nearest_grid_indices_raw(grid, values, origin_start):
     if wbegin < start_val:
         ix_floor += 1
         wbegin = np.exp(ix_floor * ratiolg)
-    return np.rint(np.log(values / wbegin) / ratiolg).astype(np.int64)
+    return np.rint(np.log(values / wbegin) / ratiolg).astype(np.int64)''')
 
+md(r"""`process_wing_pair` is the ASYNTH wing-accumulation kernel of Lecture 5: for one line it walks the red and blue wings outward, adding $\kappa_0\,H(a,v)$ to the opacity grid until the contribution falls below the cutoff. This is the heart of the metal-line forest.""")
+
+code(r'''
 
 # ── one (line, depth) wing accumulation (_process_asynth_wing_pair_nb) ─────
 def process_wing_pair(asynth_d, wavelength_grid, center_idx, kappa0, adamp,
@@ -1440,8 +1476,11 @@ LYMAN_ALPHA_CENTER_WN = 82259.10     # cm^-1
 _EHYD_CM = np.array([0.0, 82259.105, 97492.302, 102823.893, 105291.651,
                      106632.160, 107440.444, 107965.051], dtype=np.float64)
 _HYD_RYD_CM = 109677.576             # cm^-1
-_HYD_EINF_CM = 109678.764            # cm^-1
+_HYD_EINF_CM = 109678.764            # cm^-1''')
 
+md(r"""`compute_metal_opacity` is the driver for the metal-line forest: it selects the visible lines for the star from the catalog, loops over depth, and accumulates each line with the ASYNTH wing kernel above. This is the dense neutral- and ionised-metal forest the Sun's window exercises.""")
+
+code(r'''
 def compute_metal_opacity(cat, atm, diag, L4):
     """All metal (type-0, Z>=3) lines through the ASYNTH Voigt kernel."""
     wl = cat["cat_wl"]
@@ -1570,14 +1609,19 @@ md(r"""## Step 5 — the hydrogen lines (HPROF4 linear-Stark)
 
 Hydrogen is broadened differently from the metals: by the **linear Stark effect**, the splitting of the degenerate hydrogen levels by the microfields of the surrounding ions and electrons. That is the HPROF4 / HLINOP engine of Lecture 6, the dominant absorber in the hot dwarf's window. We inline the full from-scratch port: the quasi-static profile `_sofbeta`, the Lyman-region cutoffs, the per-line profile `_hydrogen_line_profile` (core Doppler + Lorentz wing + Stark quasi-static term), and the per-depth wing walk `_accumulate_hyd_line_depth`. It is long because the linear-Stark profile is genuinely intricate — but every piece was derived in Lecture 6. The HPROF4 Stark tables and the fine-structure components come from the shared static-tables file `KT` (the same data Lecture 6 used).""")
 
+md(r"""We build the HPROF4 hydrogen-line engine of Lecture 6 one routine at a time. First `_build_e1_table` precomputes the first-exponential-integral $E_1$ table the Stark profile interpolates.""")
+
 code(r'''def _build_e1_table():
     values = np.empty(2000, dtype=np.float64)
     for i in range(2000):
         x = (i + 1) * 0.01
         values[i] = np.exp(-x) / x
     return values
-_E1_TABLE = _build_e1_table()
+_E1_TABLE = _build_e1_table()''')
 
+md(r"""`_vcse1f` is the exponential-integral evaluation used by the Stark microfield convolution — the rational approximation that makes the profile cheap.""")
+
+code(r'''
 
 def _vcse1f(x):
     if x <= 0.0:
@@ -1592,14 +1636,20 @@ def _vcse1f(x):
         return 0.0
     numerator = x * (x + 2.334733) + 0.25062
     denominator = (x * (x + 3.330657) + 1.681534) * x
-    return numerator / denominator * np.exp(-x)
+    return numerator / denominator * np.exp(-x)''')
 
+md(r"""`_fast_ex` is the scalar tabulated $e^{-x}$ Boltzmann factor (the `FASTEX` lookup) used inside the hydrogen profile loop.""")
+
+code(r'''
 
 def _fast_ex(x):
     if x > 80.0:
         return 0.0
-    return np.exp(-x)
+    return np.exp(-x)''')
 
+md(r"""`_hf_nm` returns the oscillator-strength factor $f_{nm}$ for the Balmer (and other) transition $n\!\to\!m$ — the line strength of each hydrogen line.""")
+
+code(r'''
 
 def _hf_nm(n, m):
     if m <= n:
@@ -1614,8 +1664,11 @@ def _hf_nm(n, m):
     fk = fkn * (xm / (xmn * (xm + xn))) ** 3
     xmn12 = xmn ** 1.2
     wt = (xmn12 - 1.0) / (xmn12 + wtc)
-    return fk * (1.0 - wt * ginf - (0.222 + gca / xm) * (1.0 - wt))
+    return fk * (1.0 - wt * ginf - (0.222 + gca / xm) * (1.0 - wt))''')
 
+md(r"""`_interpolate_cutoff` reads the tabulated profile cutoff at a given wavenumber offset — the table-driven reach that stops each wing walk.""")
+
+code(r'''
 
 def _interpolate_cutoff(delta_wn, table, start, step):
     """Returns 1e300 sentinel when delta_wn > max_delta (== None in source)."""
@@ -1632,8 +1685,11 @@ def _interpolate_cutoff(delta_wn, table, start, step):
     frac = position - index
     if index >= table.shape[0] - 1:
         return float(table[-1])
-    return float(table[index] + (table[index + 1] - table[index]) * frac)
+    return float(table[index] + (table[index + 1] - table[index]) * frac)''')
 
+md(r"""`_sofbeta` evaluates the Stark profile $S(\beta)$ as a function of the reduced field strength $\beta$ — the Holtsmark-microfield line shape that gives hydrogen its broad linear-Stark wings (Lecture 6).""")
+
+code(r'''
 
 def _sofbeta(beta, p, n, m, propbm, c_arr, d_arr, pp_arr, beta_arr):
     if beta <= 0.0:
@@ -1698,8 +1754,11 @@ def _sofbeta(beta, p, n, m, propbm, c_arr, d_arr, pp_arr, beta_arr):
         if denom2 == 0.0:
             denom2 = 1e-30
         corr = 1.0 + dd / denom2
-    return (1.5 / sb + 27.0 / b2) / b2 * corr
+    return (1.5 / sb + 27.0 / b2) / b2 * corr''')
 
+md(r"""`_lyman_alpha_lorentz` adds the Lyman-$\alpha$ resonance and van der Waals Lorentzian — the red-wing contribution that matters in cool-star ultraviolet.""")
+
+code(r'''
 
 def _lyman_alpha_lorentz(freq, freqnm, del_freq, dop, hwres, hwvdw, hwrad,
                          cutoff_h2, cutoff_h2_plus, xnfph_0, xnfph_1):
@@ -1735,8 +1794,11 @@ def _lyman_alpha_lorentz(freq, freqnm, del_freq, dop, hwres, hwvdw, hwrad,
         if freq >= 1.8e15:
             hvdw_term = (hwvdw * freqnm / np.pi
                          / (del_freq * del_freq + hhw_use * hhw_use) * 1.77245 * dop)
-    return hres_term + hrad_term + hvdw_term
+    return hres_term + hrad_term + hvdw_term''')
 
+md(r"""`_lyman_quasistatic_cutoff` applies the quasi-static field cutoff to the Lyman line — the production reach limit for the far wing.""")
+
+code(r'''
 
 def _lyman_quasistatic_cutoff(freq, prqs, xnfph_0, xnfph_1, fo, dbeta, dop, n, m,
                               cutoff_h2_plus, propbm, c_arr, d_arr, pp_arr, beta_arr, pp_val):
@@ -1760,8 +1822,11 @@ def _lyman_quasistatic_cutoff(freq, prqs, xnfph_0, xnfph_1, fo, dbeta, dop, n, m
         cutoff4000 = (10.0 ** (-11.07 - 14.0)) * xnfph_1 / C_LIGHT_CM
         if normalization > 0.0:
             extra += (cutoff4000 / normalization * (prqs / fo_safe * dbeta) * 1.77245 * dop)
-    return extra
+    return extra''')
 
+md(r"""`_hydrogen_line_profile` assembles the full per-line profile from the pieces above: the Stark $S(\beta)$ core, the resonance and van der Waals Lorentzians, and the Doppler convolution. It returns the profile a single hydrogen line deposits at one depth.""")
+
+code(r'''
 
 def _hydrogen_line_profile(n, m, delta_lambda_nm, hyd, tabs, fine_offsets, fine_weights, n_fine):
     """Port of _hydrogen_line_profile_jit. `hyd` is a dict of per-depth scalars;
@@ -1908,8 +1973,11 @@ def _hydrogen_line_profile(n, m, delta_lambda_nm, hyd, tabs, fine_offsets, fine_
         if nwid == 2:
             return max(lorentz, 0.0)
         return max(stark_core + stark_extra, 0.0)
-    return max(core + lorentz + stark_core + stark_extra, 0.0)
+    return max(core + lorentz + stark_core + stark_extra, 0.0)''')
 
+md(r"""`_accumulate_hyd_line_depth` walks that profile out onto the wavelength grid at one depth — the hydrogen analogue of the metal-line wing accumulation, with its own (much wider) reach.""")
+
+code(r'''
 
 def _accumulate_hyd_line_depth(buffer, continuum_row, stim_row, grid, center_index,
                                line_wavelength, kappa0, n_lower, n_upper, wcon, wtail,
@@ -2012,8 +2080,11 @@ def _accumulate_hyd_line_depth(buffer, continuum_row, stim_row, grid, center_ind
                         blue_active = False
                     else:
                         buffer[idx] += value
-        offset += 1
+        offset += 1''')
 
+md(r"""`_ehyd_cm` returns the hydrogen level energy $E_n$ in cm$^{-1}$ — used to set each line's lower-level population.""")
+
+code(r'''
 
 def _ehyd_cm(n):
     if n <= 0:
@@ -2021,8 +2092,11 @@ def _ehyd_cm(n):
     idx = n - 1
     if 0 <= idx < _EHYD_CM.size:
         return float(_EHYD_CM[idx])
-    return _HYD_EINF_CM - _HYD_RYD_CM / float(n * n)
+    return _HYD_EINF_CM - _HYD_RYD_CM / float(n * n)''')
 
+md(r"""`compute_hydrogen_opacity` is the driver: it selects the visible hydrogen lines for the star, loops over depth, and deposits each line with the routines above, returning the hydrogen line opacity on the full grid. This is the Balmer-wing engine the hot dwarf's H$\beta$ exercises.""")
+
+code(r'''
 
 def compute_hydrogen_opacity(cat, atm, diag, L4):
     """Hydrogen line opacity (HPROF4) — full from-scratch port of the JIT engine."""
@@ -2202,6 +2276,8 @@ md(r"""## Step 6 — the helium wings (Voigt-batch + Inglis-Teller taper)
 
 The He I/II lines get a Voigt-batch wing walk with a continuum-merge taper (the high-$n$ transitions Stark-broaden into a pseudo-continuum before reaching the theoretical series limit, so the merge point is set by physics rather than by the line list). The central opacity, damping, and Doppler width are recomputed from scratch with the standard metal recipe; only the **taper limits** `wcon`/`wtail` — where the merging high lines blend into the continuum — derive from the Inglis–Teller merge level plus the `fort.19` continuum-identification metadata, which we recompute from scratch in `helium_taper_limits`. We inline the Voigt kernel `_voigt_hav`, the wing walk `_accumulate_helium_line`, and `compute_helium_opacity`.""")
 
+md(r"""The helium wings use a batched Voigt with an Inglis–Teller taper. `_voigt_hav` is the per-value Voigt $H(a,v)$ (the Harris-table form again), here written for the helium batch.""")
+
 code(r'''def _voigt_hav(x_val, adamp, h0tab, h1tab, h2tab):
     """Voigt H(a,v) exactly as in the helium kernel (voigt_jit, fastmath stripped)."""
     iv = int(x_val * 200.0 + 0.5)
@@ -2232,8 +2308,11 @@ code(r'''def _voigt_hav(x_val, adamp, h0tab, h1tab, h2tab):
         h4 = (3.0 * h3 - h1) * 0.37613 + h0 * 0.66667 * vv * vv
         poly_a = (((h4 * adamp + h3) * adamp + h2) * adamp + h1) * adamp + h0
         poly_b = ((-0.122727278 * adamp + 0.532770573) * adamp - 0.96284325) * adamp + 0.979895032
-        return poly_a * poly_b
+        return poly_a * poly_b''')
 
+md(r"""`_accumulate_helium_line` walks one He line's wings onto the grid, with the taper that limits the reach where neighbouring lines merge (the Inglis–Teller dissolution).""")
+
+code(r'''
 
 def _accumulate_helium_line(wings_row, continuum_row, grid, center_index,
                             line_wavelength, kappa_eff, doppler, adamp, cutoff,
@@ -2274,8 +2353,11 @@ def _accumulate_helium_line(wings_row, continuum_row, grid, center_index,
                 value = value * (wave - base_wave) / denom
             if value < continuum_row[idx] * cutoff:
                 break
-            wings_row[idx] += value
+            wings_row[idx] += value''')
 
+md(r"""`compute_helium_opacity` is the driver: it loops the selected He lines over depth and accumulates their opacity — the helium contribution to the blue continuum of the hot dwarf.""")
+
+code(r'''
 
 def compute_helium_opacity(cat, atm, diag, L4):
     """Helium I/II wing opacity via the pre-STIM Voigt-batch walk; STIM applied last.
@@ -2437,13 +2519,19 @@ NELION_MASS = {240: 2.0, 246: 13.0, 258: 17.0, 264: 24.0, 270: 26.0,
 KB = 1.380649e-16          # erg/K  (molecular Doppler)
 AMU = 1.66053906660e-24    # g
 C_CMS = 2.99792458e10      # cm/s
-C_NM = 2.99792458e17       # nm/s
+C_NM = 2.99792458e17       # nm/s''')
 
+md(r"""`molecular_dopple` is the molecular Doppler width $\Delta\lambda_{\rm D}$ — the thermal-plus-microturbulent width set by the molecule's mass (much narrower than a light atom's like hydrogen, though comparable to a heavy metal's: TiO at 64 amu sits close to iron's 56 amu).""")
+
+code(r'''
 def molecular_dopple(T, vturb, mass):
     """DOPPLE = sqrt( (2kT/m)/c^2 + (vturb/c)^2 )  (fractional velocity width)."""
     thermal = np.sqrt(2.0 * KB * T / (mass * AMU)) / C_CMS
-    return np.sqrt(thermal ** 2 + (vturb / C_CMS) ** 2)
+    return np.sqrt(thermal ** 2 + (vturb / C_CMS) ** 2)''')
 
+md(r"""`voigt` is the Voigt $H(a,v)$ for the molecular bands (the same Harris-table profile, kept local to this engine).""")
+
+code(r'''
 
 # ── Voigt H(a,v) — book L4/L5 tabulated kernel (== pykurucz voigt_profile_jit) ─
 def voigt(v, a, h0, h1, h2):
@@ -2484,8 +2572,11 @@ def voigt(v, a, h0, h1, h2):
 
     use_far = (a > 1.4) | ((a + av) > 3.2)
     out = np.where(a < 0.2, small, np.where(use_far, far, mid))
-    return out
+    return out''')
 
+md(r"""`accumulate_depth` deposits one molecular line's profile onto the grid at one depth — the band-head opacity is millions of these narrow lines packed together.""")
+
+code(r'''
 
 # ── (2) the molecular opacity kernel, vectorized per depth ───────────────────
 def accumulate_depth(buf, cont_row, wavelength, ci, mol_wl, xnfdop, dop_val,
@@ -2599,8 +2690,11 @@ def accumulate_depth(buf, cont_row, wavelength, ci, mol_wl, xnfdop, dop_val,
             # grid at a later step. We replicate that hard, irreversible break: once
             # a line records a step with neither end on-grid, kill it for good.
             kill = active & ~(on_r | on_b)
-            far_alive &= ~kill
+            far_alive &= ~kill''')
 
+md(r"""`compute_mol_opacity` is the driver: it loops the TiO (and other) band lines over depth and accumulates the molecular opacity — the band-head engine the M dwarf exercises.""")
+
+code(r'''
 
 def compute_mol_opacity(npz, dt, m, L4):
     """Full molecular ASYNTH (with stim) over all depths and the 705-718 nm grid."""
@@ -2665,19 +2759,27 @@ Here is where the steps chain. We have the continuum (Step 3), the metal forest 
 
 The small `NpzView` helper is just a dict that also answers `.files`, so the engines — written against NumPy `npz` objects — can read our from-scratch arrays unchanged.""")
 
+md(r"""With every engine built, we assemble them. `NpzView` is a thin dict wrapper that lets the per-star reference `.npz` be addressed by attribute — a convenience for the assembler.""")
+
 code(r'''class NpzView(dict):
     """A dict that also answers .files, so the line engines read our arrays unchanged."""
     @property
     def files(self):
-        return list(self.keys())
+        return list(self.keys())''')
 
+md(r"""`components` splits a model's shipped arrays into the continuum, line, and scattering pieces the transfer needs.""")
+
+code(r'''
 # which opacity sources a star's window contains (shipped has_* flags)
 def components(d):
     return {k[4:]: bool(d[k]) for k in d.files if k.startswith("has_")}
 
 # the continuum-source IFOP gate (which KAPP terms are active), exactly as Lecture 3
-IFOP = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0]
+IFOP = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0]''')
 
+md(r"""`from_scratch_opacity` is the assembly point: it calls the continuum, atomic-line, hydrogen, helium, and molecular engines above and sums them into the total opacity — the synthesis half's opacity, entirely from scratch. (The `override_pop` hook is what the tamper check uses to perturb one input.)""")
+
+code(r'''
 def from_scratch_opacity(d, override_pop=None):
     """COMPUTE the entire (continuum + line + molecular) opacity from scratch.
 
@@ -2742,6 +2844,8 @@ md(r"""Now the **source function**, and the final chain. The transfer needs, at 
 
 `synthesise` is the whole pipeline in one function: compute the opacity from scratch, compute the Planck source inline, then for each wavelength solve the JOSH transfer twice — once with the full from-scratch line opacity (the spectrum) and once with it zeroed (the local continuum) — and return their ratio, the **normalised spectrum**.""")
 
+md(r"""`planck_source` builds the thermal source function $S_\nu=B_\nu$ on the grid (with the scattering fraction the transfer needs) — the source the JOSH solver carries.""")
+
 code(r'''def planck_source(d):
     """LTE Planck source B_nu(T) on the (depth, wavelength) grid (Note A: computed, not read).
 
@@ -2754,8 +2858,11 @@ code(r'''def planck_source(d):
     freq = C_LIGHT_NM / d["wavelength"].astype(float)
     ehvkt = np.exp(-freq[None, :] * hkt[:, None])
     stim = np.maximum(1.0 - ehvkt, 1e-300)
-    return 1.47439e-2 * ((freq / 1.0e15) ** 3)[None, :] * ehvkt / stim
+    return 1.47439e-2 * ((freq / 1.0e15) ** 3)[None, :] * ehvkt / stim''')
 
+md(r"""`synthesise` is the final chain: assemble the opacity from scratch, build the source, and solve the transfer at every wavelength to get the emergent spectrum. (The `override_pop` hook threads through to the tamper check.)""")
+
+code(r'''
 def synthesise(d, override_pop=None):
     """The full chain: from-scratch opacity + inline Planck source -> JOSH -> normalised spectrum."""
     # atm_depth is the column-mass (RHOX) depth scale the transfer integrates over
@@ -2902,14 +3009,19 @@ The synthesis half is complete and verified on four stars. We close the loop on 
 
 We inline the operator's kernels (namespaced `tc_*` to sit alongside the synthesis kernels): the numerical helpers `tc_parcoe`/`tc_integ`/`tc_deriv`/`tc_map1`, the JOSH full depth-profile kernel `tc_josh_profiles` (which returns the per-layer flux $H_\nu$, the moment $J_\nu - S_\nu$, and $\tau_\nu$ that the correction needs), the Rosseland mean `tc_ross_finalize`, the exponential integral `tc_expi3`, the `TcRosstab` opacity table, the hydrostatic re-integrator `tc_ttaup`, and the correction itself `tc_tcorr_mode3`. These use ATLAS's slightly different CGS constants, kept here as `TC_*`.""")
 
+md(r"""The atmosphere operator reruns one convergence step from the Sun's grey start, to show the synthesis half is fed by a from-scratch structure. It is the Lecture 11 engine again (here `tc_`-prefixed to keep it local); we lay it out one routine at a time. First the constants.""")
+
 code(r'''# ATLAS12's exact CGS constants for the temperature-correction operator (Lecture 10)
 TC_SIGMA  = 5.6697e-5            # Stefan-Boltzmann, erg cm^-2 s^-1 K^-4
 TC_PLANCK = 6.6256e-27          # erg s
 TC_KBOLTZ = 1.38054e-16         # erg / K
 TC_EPS = 1.0e-38
 TC_ITER_TOL = 1.0e-5
-TC_CH_MAT = None                # J->H moment operator, set from the Sun's reference below
+TC_CH_MAT = None                # J->H moment operator, set from the Sun's reference below''')
 
+md(r"""`tc_parcoe` — the parabolic-coefficient fit (Lecture 8) the integrator and interpolator are built on.""")
+
+code(r'''
 def tc_parcoe(f, x):
     """Parabolic coefficients a,b,c so f ~ a + b x + c x^2 (Fortran PARCOE)."""
     n = f.size
@@ -2943,8 +3055,11 @@ def tc_parcoe(f, x):
         b[j] = b[j1] + wt * (b[j] - b[j1])
         c[j] = c[j1] + wt * (c[j] - c[j1])
     a[n1 - 1] = a[-1]; b[n1 - 1] = b[-1]; c[n1 - 1] = c[-1]
-    return a, b, c
+    return a, b, c''')
 
+md(r"""`tc_integ` — the running integral over the depth grid (optical depth, flux integrals).""")
+
+code(r'''
 
 def tc_integ(x, f, start):
     """Cumulative integral of f dx, left-point parabola per interval (Fortran INTEG)."""
@@ -2958,8 +3073,11 @@ def tc_integ(x, f, start):
         dx = x[i + 1] - x[i]
         term = a[i] + 0.5 * b[i] * (x[i + 1] + x[i]) + (c[i] / 3.0) * ((x[i + 1] + x[i]) * x[i + 1] + x[i] * x[i])
         out[i + 1] = out[i] + term * dx
-    return out
+    return out''')
 
+md(r"""`tc_deriv` — the monotonic numerical derivative (Lecture 8) used by the transfer moments and the temperature correction.""")
+
+code(r'''
 
 def tc_deriv(x, f):
     """Cubic-tangent derivative df/dx (Fortran DERIV)."""
@@ -2982,8 +3100,11 @@ def tc_deriv(x, f):
         tan1 = d1 / (s * np.sqrt(1.0 + d1 * d1) + 1.0)
         tan0 = d0 / (s * np.sqrt(1.0 + d0 * d0) + 1.0)
         d[j] = (tan1 + tan0) / (1.0 - tan1 * tan0) * scale
-    return d
+    return d''')
 
+md(r"""`tc_map1` — the parabolic interpolator that re-maps a quantity between depth grids; `tc_map1_scalar` is the one-point version.""")
+
+code(r'''
 
 def tc_map1(xold, fold, xnew):
     """Piecewise-quadratic remap matching Fortran MAP1.  Returns (fnew, ll-1)."""
@@ -3033,13 +3154,17 @@ def tc_map1(xold, fold, xnew):
                 b = (fo[l] - fo[l - 1]) / (xo[l] - xo[l - 1]); a = fo[l] - xo[l] * b; ll = l
                 break
         fnew[k - 1] = a + (b + c * xk) * xk
-    return fnew, max(ll - 1, 0)
+    return fnew, max(ll - 1, 0)''')
 
+code(r'''
 
 def tc_map1_scalar(xold, fold, xnew_val):
     out, _ = tc_map1(np.asarray(xold), np.asarray(fold), np.asarray([xnew_val]))
-    return float(out[0])
+    return float(out[0])''')
 
+md(r"""`tc_josh_profiles` — the JOSH full-depth flux solver (Lecture 8): at one frequency it forms the total extinction and the source, iterates the moment equations, and returns the intensity moments and the surface Eddington factor.""")
+
+code(r'''
 
 # ===========================================================================
 # 2. JOSH full depth-profile kernel (Lecture 8), float32 inner iteration.
@@ -3152,8 +3277,11 @@ def tc_josh_profiles(acont, scont, aline, sline, sigmac, sigmal, rhox, bnu,
 
 # TC_CH_MAT is the H-moment operator COEFH (maps the source vector xs -> H_nu on the
 # fixed xtau grid).  It is set in main() from the shipped reference (tcorr_ref.npz).
-TC_CH_MAT = None
+TC_CH_MAT = None''')
 
+md(r"""`tc_ross_finalize` — turns the accumulated Rosseland integral into $\kappa_{\rm Ross}$ and integrates it to $\tau_{\rm Ross}$ (Lecture 10).""")
+
+code(r'''
 
 # ===========================================================================
 # 3. ROSS: Rosseland mean + optical-depth scale (Fortran ROSS).
@@ -3162,8 +3290,11 @@ def tc_ross_finalize(acc, T, rhox):
     """mode 3: kappa_Ross = (4 sigma / pi) T^3 / acc ; tauros = tc_integ(rhox, kappa)."""
     abross = (4.0 * TC_SIGMA / 3.14159) * np.power(T, 3.0) / np.maximum(acc, 1e-300)
     tauros = tc_integ(rhox, abross, abross[0] * rhox[0])
-    return abross, tauros
+    return abross, tauros''')
 
+md(r"""`tc_expi3` — the third exponential integral $E_3$ for the surface boundary terms.""")
+
+code(r'''
 
 # ===========================================================================
 # 4. EXPI(3, x) = E3 exponential integral (Fortran FUNCTION EXPI), used by rdiagj.
@@ -3196,8 +3327,11 @@ def tc_expi3(x):
     out = ex1
     for i in range(1, 3):       # EXPI(N=3, x): two recurrence steps
         out = (np.exp(-x) - x * out) / float(i)
-    return out
+    return out''')
 
+md(r"""`TcRosstab` — the `ROSSTAB` opacity table (Lecture 9): ingest $(T,P,\kappa_{\rm Ross})$ and evaluate $\kappa_{\rm Ross}(T,P)$ by four-quadrant interpolation inside the hydrostatic and convection solves.""")
+
+code(r'''
 
 # ===========================================================================
 # 4b. ROSSTAB: a small opacity table (log T', log P', log kappa) built from the
@@ -3273,8 +3407,11 @@ class TcRosstab:
         rwt = w_pp + w_pm + w_mp + w_mm
         i_pp = max(i_pp, 0); i_pm = max(i_pm, 0); i_mp = max(i_mp, 0); i_mm = max(i_mm, 0)
         r = (self.k[i_pp] * w_pp + self.k[i_pm] * w_pm + self.k[i_mp] * w_mp + self.k[i_mm] * w_mm) / max(rwt, 1e-300)
-        return float(10.0 ** r)
+        return float(10.0 ** r)''')
 
+md(r"""`tc_ttaup` — the hydrostatic integration `TTAUP` (Lecture 9): march the pressure inward so $dP/d\tau=g/\kappa$.""")
+
+code(r'''
 
 # ===========================================================================
 # 5. TTAUP: hydrostatic re-integration (used by DRHOX in TCORR mode 3).
@@ -3319,14 +3456,20 @@ def tc_ttaup(t, tau, prad, pturb, grav, rosstab):
             plog = 0.5 * (pnew + plog)
         plog4 = plog3; plog3 = plog2; plog2 = plog1; plog1 = plog
         dplog3 = dplog2; dplog2 = dplog1; dplog1 = dplog
-    return abstd, ptotal, pgas
+    return abstd, ptotal, pgas''')
 
+md(r"""`tc_nz_signed` — the small guard that keeps a denominator non-zero without flipping its sign.""")
+
+code(r'''
 
 def tc_nz_signed(x, eps=1e-300):
     if abs(x) >= eps:
         return x
-    return eps if x >= 0.0 else -eps
+    return eps if x >= 0.0 else -eps''')
 
+md(r"""`tc_tcorr_mode3` — the Avrett–Krook temperature correction with convection (Lectures 10–11): compare the carried flux to the target, form the flux-error, Lambda, and surface corrections, and return the updated temperature and column mass. With this the operator is complete.""")
+
+code(r'''
 
 # ===========================================================================
 # 6. TCORR mode 3: assemble T1 = dtflux + dtlamb + dtsurf, DRHOX, monotonicity.
@@ -3623,7 +3766,7 @@ A textbook that claims to rebuild a production code owes the reader a clear stat
 # ── LTE -> NLTE horizon ────────────────────────────────────────────────────────────
 md(r"""## The LTE–NLTE horizon
 
-Every population in this book came from **LTE**: the Saha equation (Lecture 2) for ionisation, the Boltzmann factor for level populations, the coupled molecular equilibrium (Lecture 13) for the molecules, and the Planck function — which we computed inline above — for the thermal source. Operationally, LTE here means Saha–Boltzmann populations and a Planck thermal source set by the *local* temperature; the usual physical reason this becomes valid is that high collision rates dominate over the radiation field in setting the populations. In the deep, dense photosphere where most lines form, this holds well, and it is why the book reaches its documented floor against a code that also assumes LTE.
+Every population in this book came from **LTE**: the Saha equation (Lecture 2) for ionisation, the Boltzmann factor for level populations, the coupled molecular equilibrium (Lecture 13) for the molecules, and the Planck function — which we computed inline above — for the thermal source. Operationally, LTE here means Saha–Boltzmann populations and a Planck thermal source set by the *local* temperature; the usual physical reason this becomes valid is that high collision rates dominate over the radiation field in setting the populations. In the dense lower photosphere where the continuum and the weak and moderate lines form, this holds well; the common exception is the cores of strong lines, which form in the thin, low-density upper layers where the radiation field, not collisions, increasingly sets the populations. It is the deep-forming majority that lets the book reach its documented floor against a code that also assumes LTE.
 
 LTE begins to break down when the radiation field, which is *non-local* (photons travel between layers at different temperatures), competes with collisions in setting the populations. This happens where the gas is thin and the lines are strong:
 

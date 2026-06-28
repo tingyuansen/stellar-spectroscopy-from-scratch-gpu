@@ -36,7 +36,7 @@ By "the full equation of state" we mean the *full ATLAS/SYNTHE per-iteration sta
 
 **Learning objectives.** By the end of this lecture you will be able to:
 
-- Extend Lecture 2's single-element Saha–Boltzmann equation of state to the **multi-element "special-slot" layout** — the flat array, indexed by a species code, that holds the population of every ion of every element the opacity engines read. This is the `POPSALL` array of ATLAS.
+- Extend Lecture 2's single-element Saha–Boltzmann equation of state to the **multi-element "special-slot" layout** — the flat array, indexed by a species code, that holds the population of every ion stage the Kurucz slot schedule allots (every stage for the light elements, the first few stages for the heavy ones) that the opacity engines read. This is the `POPSALL` array of ATLAS.
 - Build the **Doppler widths** `dopple` and the population-per-Doppler-width-per-density `xnfdop` for every species slot, and the **van der Waals perturber number** `txnxn` the line-damping parameter needs.
 - Construct the **continuum-cutoff table** `tabcont` the deposit keys off, and complete Lecture 3's continuous opacity with the **far-UV metal bound-free forest** that dominates the 90–150 nm continuum at the hot deep base.
 - Compute the **convective heat capacity** from finite-difference equation-of-state samples, and see *why the gas internal energy must carry the ionization energy*.
@@ -177,7 +177,7 @@ There is a subtlety the deep base exposes. Lecture 3's continuum was validated i
 (500–510 nm), and there it is exact. But the Rosseland mean is a *harmonic* opacity mean weighted by
 $\partial B_\lambda/\partial T$, so at the hot base (11425 K) — where that weighting function peaks
 near 250 nm — the relatively transparent **far-ultraviolet** windows carry a disproportionate share of
-the mean, and missing opacity there matters most. In the 90–150 nm window the dominant continuous
+the mean. Because the mean is harmonic ($\int (1/\kappa)\,dB$), the $1/\kappa$ integrand blows up exactly where the opacity is lowest, so a *transparent* window dominates the integral even when the thermal weighting there is below its peak — and missing opacity in such a window matters most. In the 90–150 nm window the dominant continuous
 opacity is the **metal bound-free forest** — the carbon, magnesium, silicon, aluminium and iron
 photoionisation edges. Lecture 3 kept only each metal's single *optical* edge (a safe truncation for
 the optical window); for the deep base we must restore the full far-UV series. At 100 nm and 11425 K
@@ -221,10 +221,9 @@ capacity is large and $\nabla_{\rm ad}$ drops far below the ideal-gas value. The
 
 $$u = \tfrac32\, n_{\rm tot} k T \;+\; \sum_{\rm species} n_{\rm ion}\,\chi^{\rm cum}_{\rm ion} \;+\; \sum_{\rm species} n_{\rm ion}\,kT\,\frac{\partial\ln U}{\partial\ln T},$$
 
-where $\chi^{\rm cum}_{\rm ion}$ is the energy to have stripped that many electrons (built from the
-same ionization potentials Lecture 2 uses) and the last term is the partition-function excitation
-energy ($kT\,\partial\ln U/\partial\ln T$ is the mean excitation energy per particle; the convection
-routine divides $u$ by $\rho$ to get the specific energy it differentiates). *Omit the ionization
+where $u$ here is an energy **density** (erg cm$^{-3}$); the finite-difference arrays actually handed to `convec` are the corresponding *specific* energies $u/\rho$ (erg g$^{-1}$), with the small radiation-energy term added separately, so the bookkeeping below works in specific energy throughout. $\chi^{\rm cum}_{\rm ion}$ is the energy to have stripped that many electrons (built from the
+same ionization potentials Lecture 2 uses) and the last term (with $U$ the species partition function) is the partition-function excitation
+energy per particle. Note the derivative is taken with respect to $\ln T$, so this term is dimensionally a thermal energy: $kT\,\partial\ln U/\partial\ln T = kT^2\,\partial\ln U/\partial T$, the standard mean-excitation-energy form (it reduces to zero for a temperature-independent partition function). *Omit the ionization
 term* and the energy derivative is the ideal-gas value: $\nabla_{\rm ad}\approx0.4$ (the monatomic
 $2/5$) instead of the true $\sim0.11$ at the base. That single mistake collapses the convective flux,
 flips the sign of the temperature correction, and sends the deep base running away to $\sim13000$ K.
@@ -298,7 +297,10 @@ With this lecture's state in hand, the convergence loop of Lecture 15 no longer 
 iteration it rebuilds the equation of state, the Doppler widths, the continuum and its cutoff table,
 the molecular populations, and the convective heat capacity — all from the current structure — deposits
 the line blanket, and steps the temperature. Started from a warm-start model far from the answer, it
-descends onto the real Sun. The companion driver `converge_fromscratch.py` runs this loop; its result
+descends onto the real Sun — by which, as throughout Part VI, we mean the reference 1D, LTE,
+line-blanketed Kurucz solar model `sun.npz` at solar parameters, the target a model atmosphere should
+reproduce, not the actual 3D, time-dependent, partly non-LTE Sun. The companion driver
+`converge_fromscratch.py` runs this loop; its result
 is summarised below (re-run it yourself to reproduce the trajectory).""")
 
 code(r'''# the from-scratch convergence trajectory (produced by converge_fromscratch.py, summarised here)
