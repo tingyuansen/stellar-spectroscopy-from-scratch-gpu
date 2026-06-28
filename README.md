@@ -58,6 +58,7 @@ rather than hidden. pykurucz is the gold standard and is never modified.
 
 **Part VI — The true line-blanketed atmosphere**
 15. **Line Blanketing: the True Model Atmosphere** — the predicted line list and `SELECTLINES`, the `LINOP1` wing-walk deposit kernel (the asymmetric sub-pixel walk, the full Voigt, the cutoff reach) reproduced bit-exact, the line-blanketed Rosseland mean, and one iteration of the Lecture-11 convergence engine — unchanged, with the blanket switched on — reaching the **real Sun's** model atmosphere (`sun.npz`).
+16. **The Full Equation of State: Species Slots & the Convective Heat Capacity** — the per-iteration state the line deposit and the continuum actually consume, now built from scratch: the multi-element `POPSALL`/`NELECT` species slots (the flat 1006-slot population layout, the Doppler widths, the van-der-Waals perturber number), the `TABCONT` continuum-cutoff table and its far-UV metal bound-free forest, the molecular deposit slots, and the `EDENS` convective heat capacity carrying the **ionization energy** (the partial-ionization adiabat that keeps the deep base from over-heating). With this, the full line-blanketed convergence runs end to end with **zero pykurucz in the computed path**, descending from a grey start onto the real Sun's model atmosphere (`sun.npz`) to a temperature median of 7.7 × 10⁻⁴.
 
 ## Viewing
 
@@ -79,7 +80,7 @@ pip install -r requirements.txt
 npm install                                   # marked / katex / highlight.js for rendering
 python _pipeline/build_lecture4.py            # assemble one notebook (content/Lecture4.ipynb)
 python _pipeline/build.py 4                    # execute it + render to content/Lecture4.html
-# or rebuild all:  python _pipeline/build.py 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+# or rebuild all:  python _pipeline/build.py 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
 ```
 
 The `reference/*.npz` data files were generated once by `_pipeline/make_references.py` (the

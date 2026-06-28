@@ -10,3 +10,5 @@ reference/*.log
 # internal LLM-critic QA output, not book content
 _pipeline/critic_reports/
 _pipeline/_proof_mol_numba.py
+# internal dev planning doc (kept in git history, not in the published tree)
+_pipeline/PLAN_lineblanket_fromscratch.md

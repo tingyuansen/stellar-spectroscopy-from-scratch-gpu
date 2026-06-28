@@ -53,9 +53,10 @@ window.BOOK = {
     },
     {
       name: "Part VI", title: "The True Line-Blanketed Atmosphere",
-      blurb: "Switch on the millions of spectral lines: the predicted line list, the wing-walk deposit kernel, the line-blanketed Rosseland mean, and the convergence that reaches the real Sun's model atmosphere.",
+      blurb: "Switch on the millions of spectral lines: the predicted line list, the wing-walk deposit kernel, the line-blanketed Rosseland mean, and the convergence that reaches the real Sun's model atmosphere — then build the full multi-element equation of state and convective heat capacity from scratch, so the whole pipeline runs with no pykurucz in the computed path.",
       chapters: [
-        { n: 15, slug: "Lecture15", type: "html", title: "Line Blanketing: the True Model Atmosphere", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
+        { n: 15, slug: "Lecture15", type: "html", title: "Line Blanketing: the True Model Atmosphere", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
+        { n: 16, slug: "Lecture16", type: "html", title: "The Full Equation of State: Species Slots & the Convective Heat Capacity", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
       ]
     }
   ]
