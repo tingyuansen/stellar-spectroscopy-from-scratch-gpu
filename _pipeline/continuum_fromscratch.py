@@ -26,6 +26,21 @@ import verify_kapp as VK   # the book's own Lecture-3 KAPP continuum (compute_ka
 ROOT = Path(__file__).resolve().parent.parent
 REF = ROOT / "reference"
 
+# verify_kapp loads its continuum cross-section tables from the pykurucz data path (it is the
+# verification script).  Those tables are bit-identical to the ones the book SHIPS in
+# reference/leankurucz_tables.npz (the honest-input Lecture-3 KAPP data).  Re-point verify_kapp's
+# module globals at the book's shipped copy so this from-scratch path loads ONLY book data — no pyk
+# path dependency in the taught continuum.
+_LK = np.load(REF / "leankurucz_tables.npz", allow_pickle=False)
+for _name in ("FREQ_LOG", "XN_LOG", "XL_LOG_ARRAY", "EKARSAS", "HMINOP_WBF", "HMINOP_BF",
+              "HMINOP_WAVEK", "HMINOP_THETAFF", "HMINOP_FFBEG", "HMINOP_FFEND",
+              "HRAYOP_GAVRILAM", "HRAYOP_GAVRILAMAB", "HRAYOP_GAVRILAMBC", "HRAYOP_GAVRILAMCD",
+              "HRAYOP_GAVRILALYMANCONT", "HRAYOP_FGAVRILALYMANCONT", "COULFF_Z4LOG",
+              "COULFF_A_TABLE", "HOTOP_TRANSITIONS", "_SI2OP_PEACH", "_SI2OP_FREQSI",
+              "_SI2OP_FLOG", "_SI2OP_TLG", "H_ENERGY_CM", "H_STAT_WEIGHT"):
+    if _name in _LK.files and hasattr(VK, _name):
+        setattr(VK, _name, np.asarray(_LK[_name]))
+
 _H_PLANCK = 6.6256e-27
 _K_BOLTZ = 1.38054e-16
 _C_LIGHT_NM = 2.99792458e17

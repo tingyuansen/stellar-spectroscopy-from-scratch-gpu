@@ -50,6 +50,13 @@ window.BOOK = {
         { n: 13, slug: "Lecture13", type: "html", title: "Molecular Chemistry: the Coupled Equilibrium and Continuous Opacity", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
         { n: 14, slug: "Lecture14", type: "html", title: "The Capstone: A Spectrum from Stellar Parameters, End to End", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
       ]
+    },
+    {
+      name: "Part VI", title: "The True Line-Blanketed Atmosphere",
+      blurb: "Switch on the millions of spectral lines: the predicted line list, the wing-walk deposit kernel, the line-blanketed Rosseland mean, and the convergence that reaches the real Sun's model atmosphere.",
+      chapters: [
+        { n: 15, slug: "Lecture15", type: "html", title: "Line Blanketing: the True Model Atmosphere", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
+      ]
     }
   ]
 };

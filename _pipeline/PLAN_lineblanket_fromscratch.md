@@ -360,3 +360,29 @@ LECTURE AUTHORING: L16 (new) authored (build_lecture16.py) — the from-scratch 
 slots), house style, all teaching cells verified bit-exact. L15 prose updated to point the borrowed
 EOS forward to L16. build.py registry + eos_state_ref.npz fixture added. REMAINING: final convergence
 fixture + L16 build/execute + BOTH critics on L16 + changed L15.
+
+--------------------------------------------------------------------------------
+## ★★ FINAL STATE (2026-06-28) — BUILD COMPLETE
+SETTLED CONVERGENCE (converge_fromscratch.py, 30 iters, NO pyk in computed path):
+  surf T = 3690.7 (sun 3696)   base T = 11459.5 (sun 11425)   base RHOX = 12.347 (sun 12.14)
+  T vs sun.npz: median|rel| = 7.67e-4 (under the ~0.1% target)   max|rel| = 4.47e-3
+  -> the book's OWN from-scratch line-blanketed convergence reaches near-sun. Documented residual:
+     deep-base kappa_R ~0.94-0.96 = the float32 deposit + Balmer-limit merged-line floor (kgpu's
+     native deposit carries it IDENTICALLY); optically invisible (below the photosphere); the
+     line-forming photosphere is bit-faithful. NOT claimed as machine precision.
+NO REGRESSION: verify_converged PASS, verify_capstone PASS (all 4 stars, JOSH float floor <1e-6).
+ZERO PYK in the taught path: the 4 from-scratch modules import no pyk; the lecture notebooks have
+  no pyk code refs (only the prose citation); continuum_fromscratch re-points verify_kapp's tables
+  to the book's shipped leankurucz_tables.npz (bit-identical, diff 0.0) so the taught continuum
+  loads only book data.
+LECTURES: L16 (new) + L15 (updated) both EXECUTE end-to-end with 0 error cells. Both dual-critic
+  reviewed (GPT-5.5 + Gemini-3.1-pro); all [HIGH]/[MED] prose+accuracy fixes applied (excitation
+  energy kT^2 dlnU/dT / energy-density-vs-specific; xnfdop=species pop not lower-level; slot
+  1-based/0-based; Rosseland harmonic-mean weighting + dB_lambda/dT Wien peak; "full EOS" scope
+  qualifier; surface-cooling radiative-equilibrium causality; damping rate not half-width; "real
+  Sun"=reference 1D LTE model scope note). NO number/formula/code changed (critics barred from it).
+NEW FILES: _pipeline/{eos_fromscratch,continuum_fromscratch,continuum_faruv,molecular_fromscratch,
+  converge_fromscratch,build_lecture16}.py; content/Lecture16.{ipynb}; reference/{atomic_masses,
+  wavetab_grid,eos_state_ref,converge_fromscratch_result}.npz; _pipeline/critic_reports/Lecture1[56]_*.md
+CHANGED: _pipeline/build_lecture15.py + content/Lecture15.ipynb (prose -> point EOS to L16 + critic
+  fixes); _pipeline/build.py (register L16); _pipeline/PLAN_lineblanket_fromscratch.md.

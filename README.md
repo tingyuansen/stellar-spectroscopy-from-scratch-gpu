@@ -56,6 +56,9 @@ rather than hidden. pykurucz is the gold standard and is never modified.
 13. **Molecular Chemistry: the Coupled Equilibrium and Continuous Opacity** — the coupled NMOLEC Newton solver and the molecular continuum (CH, OH, H₂ collision-induced absorption), from scratch.
 14. **The Capstone: A Spectrum from Stellar Parameters, End to End** — the lean “kurucz” assembled from every component and run across the HR diagram, in parity with pykurucz end to end.
 
+**Part VI — The true line-blanketed atmosphere**
+15. **Line Blanketing: the True Model Atmosphere** — the predicted line list and `SELECTLINES`, the `LINOP1` wing-walk deposit kernel (the asymmetric sub-pixel walk, the full Voigt, the cutoff reach) reproduced bit-exact, the line-blanketed Rosseland mean, and one iteration of the Lecture-11 convergence engine — unchanged, with the blanket switched on — reaching the **real Sun's** model atmosphere (`sun.npz`).
+
 ## Viewing
 
 The rendered book is a static site. Serve the directory and open `index.html`:
@@ -76,7 +79,7 @@ pip install -r requirements.txt
 npm install                                   # marked / katex / highlight.js for rendering
 python _pipeline/build_lecture4.py            # assemble one notebook (content/Lecture4.ipynb)
 python _pipeline/build.py 4                    # execute it + render to content/Lecture4.html
-# or rebuild all:  python _pipeline/build.py 1 2 3 4 5 6 7 8 9 10 11 12 13 14
+# or rebuild all:  python _pipeline/build.py 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
 ```
 
 The `reference/*.npz` data files were generated once by `_pipeline/make_references.py` (the

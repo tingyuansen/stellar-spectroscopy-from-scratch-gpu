@@ -30,6 +30,8 @@ md(r"""# Lecture 16 — The Full Equation of State: Species Slots & the Convecti
 
 **Why this lecture exists.** Lecture 11 converged a model atmosphere, and Lecture 15 switched on the line blanket — but both leaned on one convenience: the *per-iteration equation-of-state state* was shipped as a given. The populations that feed the continuum, the Doppler widths and species populations the line deposit indexes, the continuum-cutoff table, and the convective heat-capacity samples were all read from a reference file, computed once by the production code. That is the last borrowed intermediate. This lecture removes it: it builds, from scratch, every piece of state the converged line-blanketed atmosphere needs each iteration, so the loop is genuinely the book's own — honest inputs (the atomic-data tables and the line catalog) in, a converged solar model out.
 
+By "the full equation of state" we mean the *full ATLAS/SYNTHE per-iteration state* — the ideal Saha–Boltzmann ionization equilibrium of Lecture 2 across all species, plus the derived per-slot quantities the opacity engines read. It is "full" in the sense of *complete for the Kurucz atmosphere pipeline*, not a general non-ideal stellar equation of state (no pressure ionization, degeneracy, or Coulomb corrections — none of which matter at photospheric densities).
+
 **Learning objectives.** By the end of this lecture you will be able to:
 
 - Extend Lecture 2's single-element Saha–Boltzmann equation of state to the **multi-element "special-slot" layout** — the flat array, indexed by a species code, that holds the population of every ion of every element the opacity engines read. This is the `POPSALL` array of ATLAS.
@@ -72,15 +74,17 @@ md(r"""## 1. The special-slot population layout (`POPSALL`)
 
 Lecture 2 solved the Saha–Boltzmann equation of state for a single element: given $(T, n_e)$ it
 returned the partition function and the ionization fractions of each ion stage. The opacity engines,
-though, need the population of *every* ion of *every* element at once, laid out in a single flat
-array that they index by a compact **species code** — the same code each line in the catalog carries.
-ATLAS calls the routine that fills this array `POPSALL`, and the array itself is the heart of the
-per-iteration state.
+though, need the population of *every ion stage the Kurucz layout carries*, for every element, laid
+out in a single flat array that they index by a compact **species code** — the same code each line in
+the catalog carries. ATLAS calls the routine that fills this array `POPSALL`, and the array itself is
+the heart of the per-iteration state.
 
 The layout is a fixed schedule. Element $Z$'s ion stages occupy a contiguous block of slots; the
-blocks are packed *triangularly* for $Z\le30$ (hydrogen gets 2 slots, helium 3, lithium 4, …) and
-on a stride-5 grid from slot 496 for $Z\ge31$. A line whose species code is `ielion` deposits into
-slot `nelion = |ielion|//10`. So the first job is to run the Lecture-2 equation of state across all
+blocks are packed *triangularly* for $Z\le30$ (hydrogen gets 2 slots, helium 3, lithium 4, …) and on
+a stride-5 grid from slot 496 for $Z\ge31$ (the heavy elements keep only their first few stages, the
+ones that populate at photospheric temperatures). A line's species code `ielion` names the Kurucz slot
+number $\texttt{nelion}=|\texttt{ielion}|//10$ (a 1-based Fortran index); the corresponding NumPy
+column is $\texttt{nelion}-1$. So the first job is to run the Lecture-2 equation of state across all
 99 elements and pack the results into this flat layout. Our `eos_fromscratch.popsall` does exactly
 that — it is Lecture 2's `run_pfsaha`/`run_nelect`, vectorised over depth and assembled into the slot
 array. Let us run it on the Sun and look at what it produces.""")
@@ -127,9 +131,11 @@ $$\frac{\Delta\lambda_{\rm D}}{\lambda} = \frac{1}{c}\sqrt{\frac{2k_{\rm B}T}{m}
 
 the *same* width for every ion stage of an element (it depends only on the atomic mass $m$). The line
 deposit reads it per species slot as `dopple`, and reads the line-center normalisation as
-`xnfdop` $= n_{\rm low}/(\Delta\nu_{\rm D}\,\rho)$ — the population divided by the Doppler width and
-the density, the combination that carries the Voigt peak normalisation. We build both from the
-populations of section 1 and the atomic masses.
+`xnfdop` $= n_{\rm species}/(\Delta\nu_{\rm D}\,\rho)$ — the **species** population (the ion or
+molecular number density, before any per-line factor) divided by the Doppler width and the density,
+the combination that carries the Voigt peak normalisation. Each individual line later supplies its own
+lower-level Boltzmann factor and $gf$ on top of this slot value (exactly the deposit of Lecture 15).
+We build both from the populations of section 1 and the atomic masses.
 
 The damping parameter's van der Waals term needs one more quantity: the **neutral perturber number**,
 
@@ -161,17 +167,19 @@ md(r"""## 3. The continuum-cutoff table — and completing the far-UV continuum
 The line deposit of Lecture 15 walks each line's wings outward only as long as the line opacity stays
 above the local continuum; the threshold it compares against is the **continuum-cutoff table**
 `tabcont`, the continuum opacity sampled on a coarse 344-point wavelength grid and scaled,
-$\texttt{tabcont}=(\kappa^{\rm cont}+\sigma^{\rm cont})\cdot10^{-3}/\,\texttt{stim}$. Building it is a
-direct application of Lecture 3's continuous opacity at the 344 cutoff wavelengths.
+$\texttt{tabcont}=(\kappa^{\rm cont}+\sigma^{\rm cont})\cdot10^{-3}/\,\texttt{stim}$, where
+$\texttt{stim}=1-e^{-hc/\lambda kT}$ is the stimulated-emission correction. Building it is a direct
+application of Lecture 3's continuous opacity at the 344 cutoff wavelengths.
 
 There is a subtlety the deep base exposes. Lecture 3's continuum was validated in the optical
-(500–510 nm), and there it is exact. But the Rosseland mean at the hot base (11425 K) is weighted
-toward the **far ultraviolet** (the Wien peak of $\partial B_\nu/\partial T$ sits near 250 nm), and
-in the 90–150 nm window the dominant continuous opacity is the **metal bound-free forest** — the
-carbon, magnesium, silicon, aluminium and iron photoionisation edges. Lecture 3 kept only each metal's
-single *optical* edge (a safe truncation for the optical window); for the deep base we must restore the
-full far-UV series. At 100 nm and 11425 K the carbon I bound-free alone supplies $\sim95\%$ of the
-continuum. The module `continuum_faruv` adds this forest (the multi-edge level series, the
+(500–510 nm), and there it is exact. But the Rosseland mean is a *harmonic* opacity mean weighted by
+$\partial B_\lambda/\partial T$, so at the hot base (11425 K) — where that weighting function peaks
+near 250 nm — the relatively transparent **far-ultraviolet** windows carry a disproportionate share of
+the mean, and missing opacity there matters most. In the 90–150 nm window the dominant continuous
+opacity is the **metal bound-free forest** — the carbon, magnesium, silicon, aluminium and iron
+photoionisation edges. Lecture 3 kept only each metal's single *optical* edge (a safe truncation for
+the optical window); for the deep base we must restore the full far-UV series. At 100 nm and 11425 K
+the carbon I bound-free alone supplies $\sim95\%$ of the continuum. The module `continuum_faruv` adds this forest (the multi-edge level series, the
 Luo–Pradhan resonances, and the Kramers–Gaunt free-free), reusing Lecture 3's own Karzas–Latter
 cross-section. We compute the continuum *with* the far-UV forest and build `tabcont`.""")
 
@@ -206,17 +214,19 @@ piece of bookkeeping in the whole convergence.
 
 The gas internal energy is *not* just the thermal $\tfrac32 n k T$. At the ionizing hot base, energy
 poured into the gas goes into **stripping electrons**, not into raising the temperature, so the heat
-capacity is large and $\nabla_{\rm ad}$ drops far below the ideal-gas value. The internal energy must
-carry the cumulative ionization energy,
+capacity is large and $\nabla_{\rm ad}$ drops far below the ideal-gas value. The internal energy
+*density* $u$ must carry the cumulative ionization energy,
 
-$$e = \tfrac32\, n_{\rm tot} k T \;+\; \sum_{\rm species} n_{\rm ion}\,\chi^{\rm cum}_{\rm ion} \;+\; \sum_{\rm species} n_{\rm ion}\,kT\,\frac{\partial\ln U}{\partial T},$$
+$$u = \tfrac32\, n_{\rm tot} k T \;+\; \sum_{\rm species} n_{\rm ion}\,\chi^{\rm cum}_{\rm ion} \;+\; \sum_{\rm species} n_{\rm ion}\,kT\,\frac{\partial\ln U}{\partial\ln T},$$
 
 where $\chi^{\rm cum}_{\rm ion}$ is the energy to have stripped that many electrons (built from the
 same ionization potentials Lecture 2 uses) and the last term is the partition-function excitation
-energy. *Omit the ionization term* and the energy derivative is the ideal-gas value: $\nabla_{\rm ad}
-\approx0.4$ (the monatomic $2/5$) instead of the true $\sim0.11$ at the base. That single mistake
-collapses the convective flux, flips the sign of the temperature correction, and sends the deep base
-running away to $\sim13000$ K. We build the samples *with* the ionization energy and confirm the
+energy ($kT\,\partial\ln U/\partial\ln T$ is the mean excitation energy per particle; the convection
+routine divides $u$ by $\rho$ to get the specific energy it differentiates). *Omit the ionization
+term* and the energy derivative is the ideal-gas value: $\nabla_{\rm ad}\approx0.4$ (the monatomic
+$2/5$) instead of the true $\sim0.11$ at the base. That single mistake collapses the convective flux,
+flips the sign of the temperature correction, and sends the deep base running away to $\sim13000$ K.
+We build the samples *with* the ionization energy and confirm the
 adiabatic gradient lands on the partial-ionization value.""")
 
 code(r'''# the cumulative ionization-energy table (built from Lecture 2's ionization potentials)
@@ -305,10 +315,24 @@ ax.set_xlabel(r"$\log_{10}\ \rho x$ [g/cm$^2$]"); ax.set_ylabel("temperature [K]
 ax.set_title("The fully from-scratch line-blanketed solar model"); ax.legend()
 fig.tight_layout(); plt.show()''')
 
-md(r"""The book now computes everything. The remaining difference from `sun.npz` is the documented
-deep-column residual — an optically-invisible few-percent in the column mass at the very base, where
-the temperature is set by the convective gradient and the line opacity is the float-32 deposit floor.
-The line-forming photosphere, where the spectrum is made, matches the Sun to a fraction of a percent.
+md(r"""The book now computes everything. From the emulator warm-start (base $T\approx10100$ K, column
+mass $\rho x\approx7.5$) the loop descends monotonically onto the Sun and settles at **surface
+$T=3691$ K** (sun 3696), **base $T=11460$ K** (sun 11425), **base $\rho x=12.35$** (sun 12.14), with a
+median temperature error of $7.7\times10^{-4}$ — a part in $10^3$ across the whole column.
+
+It is worth being precise about the residual, and *not* calling this machine precision. The
+line-forming **photosphere** ($\tau_{\rm Ross}\sim0.01$–1, where the emergent spectrum is made) matches
+`sun.npz` to a fraction of a percent — that part is faithful. The small difference that remains lives at
+the **deep base** ($\tau_{\rm Ross}\gg1$): the from-scratch Rosseland mean there sits at
+$\sim0.94$–$0.96$ of the production value, which lets the column integrate slightly deeper (the
+$\sim1.7\%$ in $\rho x$ above). That deficit is a **documented floor, not an approximation we can tune
+away**: it is the single-precision (float-32) accumulation of the line deposit on the most crowded
+far-ultraviolet pixels — overlapping line wings and the merged high-$n$ Balmer lines at the Balmer
+limit ($364.6$ nm) — where summing hundreds of contributions in float-32 differs from the production
+order by a fraction of a percent. The production deposit carries the *identical* floor (a clean-room
+re-derivation of the same deposit reproduces this exact base value), so it is a property of the
+single-precision kernel, not of our reconstruction. Crucially it is **optically invisible**: it sits
+below the photosphere, so it does not move the emergent spectrum.
 
 From honest inputs — the atomic-data tables and the line catalog — the lectures of this book now
 reconstruct, end to end and in pure NumPy, the line-blanketed model atmosphere of the Sun.""")
