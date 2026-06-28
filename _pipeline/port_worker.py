@@ -318,6 +318,16 @@ LINT_PATTERNS = [
     (re.compile(r"\.to\(\s*['\"]cpu['\"]\s*,\s*torch\.float64"), "MPS-illegal `.to('cpu', float64)` cast"),
     (re.compile(r"\.numpy\(\)"), "`.numpy()` (host bounce — fine at the boundary, flag if mid-compute)"),
 ]
+# MAXIMUM-SQUEEZE lint (final-criteria #3): flag inefficient slicing / indexing that has a cheaper
+# torch form — a python list-comprehension over a tensor axis, torch.cat/stack inside a comprehension
+# (build the tensor in one op instead), `.repeat(`/`.expand(` chains better done by broadcasting, and a
+# per-element python index assignment. These are advisory (review), not hard-fail like a host loop.
+SLICE_PATTERNS = [
+    (re.compile(r"\bfor\b.*\bin\b.*\][\s)]*$"), "list-comprehension over a tensor axis (vectorize?)"),
+    (re.compile(r"torch\.(cat|stack)\([^)]*for\b"), "torch.cat/stack inside a comprehension (build in one op?)"),
+    (re.compile(r"\.repeat\([^)]*\)\.repeat\("), "chained `.repeat()` (use broadcasting / a single expand?)"),
+    (re.compile(r"for\s+\w+\s+in\s+range\([^)]*\):\s*\w+\["), "per-element python index assignment (scatter/vectorize?)"),
+]
 # the numpy lint catches gratuitous numpy in the shipped torch path (allowed only in the ref cell)
 NUMPY_PATTERN = (re.compile(r"\bnp\.\w+|\bnumpy\.\w+"),
                  "numpy in shipped code (allowed ONLY in the comparison-reference cell)")
@@ -403,11 +413,12 @@ def _builder_cells(src: str):
         yield kind, start, body
 
 
-def lint_builder(src: str) -> list[str]:
+def lint_builder(src: str, slice_audit: bool = True) -> list[str]:
     """Cell-aware vectorization lint for a build_lecture*.py BUILDER (Part A.3 hard gate). Skips
     md() prose cells entirely; in code() cells, flags host loops / host pulls everywhere, but flags
     numpy ONLY in genuine COMPUTE cells (a comparison/reference/plot cell is excused, since the bible
-    allows numpy as the parity oracle + matplotlib). Justified loops (JUSTIFY_RE) are excused."""
+    allows numpy as the parity oracle + matplotlib). Justified loops (JUSTIFY_RE) are excused. With
+    `slice_audit`, also emits MAXIMUM-SQUEEZE advisories for inefficient slicing/indexing (#3)."""
     hits = []
     for kind, start, body in _builder_cells(src):
         if kind == "md":
@@ -425,6 +436,12 @@ def lint_builder(src: str) -> list[str]:
             else:
                 if not is_refcell and NUMPY_PATTERN[0].search(line):
                     hits.append(f"  L{ln_no}: {NUMPY_PATTERN[1]}  |  {line.strip()[:80]}")
+                    continue
+                if slice_audit and not is_refcell:
+                    for pat, msg in SLICE_PATTERNS:
+                        if pat.search(line):
+                            hits.append(f"  L{ln_no}: SQUEEZE — {msg}  |  {line.strip()[:80]}")
+                            break
     return hits
 
 
