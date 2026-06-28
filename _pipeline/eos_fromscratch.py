@@ -617,6 +617,120 @@ def solve_nelect(T, P, xabund, *, tab: EOSTables, wtmole=None, xne_seed=None,
     return xne, xnatom, rho, U, popfrac
 
 
+# ── Stage 4: EDENS finite-difference samples WITH the ionization energy ────────
+# The convective heat capacity (CONVEC grdadb) needs the gas INTERNAL energy carrying the
+# IONIZATION energy, not just 1.5 n k T.  Without it grad_ad ~= 0.40 (ideal monatomic) instead
+# of the partial-ionization ~0.11 at the hot base, the convective flux collapses, and the deep
+# base over-heats (the documented 13179 K collapse).  This is the load-bearing deep-base fix.
+_HC_ERG_CM = H_PLANCK * C_LIGHT     # erg cm  (h c, for cm^-1 -> erg)
+_CUM_IP_ERG_CACHE = None
+
+
+def _build_cumulative_ip_erg(tab: EOSTables):
+    """Cumulative ionization energy [erg] per (Z, ion-stage): stage 0 = 0; stage i = sum_{k<=i} chi_k.
+
+    This is the ENERGYDENSITY weight: the energy stored in having stripped i electrons, from the
+    same POTION ionization-potential table the EOS uses.  (99, 6) table, built once.
+    """
+    potion = tab.POTION
+    ipcum = np.zeros((99, 6), np.float64)
+    for z in range(1, 100):
+        acc = 0.0
+        for ion in range(6):
+            ipcum[z - 1, ion] = acc
+            idx = _potion_index_1based(z, ion + 1)
+            if 0 < idx <= potion.size:
+                acc += potion[idx - 1]
+    return ipcum * _HC_ERG_CM
+
+
+def _cumulative_ip_erg(tab: EOSTables):
+    global _CUM_IP_ERG_CACHE
+    if _CUM_IP_ERG_CACHE is None:
+        _CUM_IP_ERG_CACHE = _build_cumulative_ip_erg(tab)
+    return _CUM_IP_ERG_CACHE
+
+
+def _nelect_solve_edens(T, P, xabund, wtmole, xne_seed, tab,
+                        max_iter=200, tol=1e-4, frac_term=True):
+    """NELECT at fixed (T,P) returning (xne, xnatom, rho, e_internal).
+
+    e_internal [erg/g] = (1.5 n_tot kT + sum n_ion*chi_cum + sum n_ion*kT*dlnU/dT) / rho,
+    i.e. thermal + cumulative-ionization energy + the partition-function excitation derivative.
+    """
+    T = np.asarray(T, np.float64); P = np.asarray(P, np.float64)
+    nd = T.size
+    tk = T * K_BOLTZ
+    xntot = P / np.maximum(tk, _FLOOR)
+    xab = np.asarray(xabund, np.float64)
+    if xab.ndim == 1:
+        xab = np.broadcast_to(xab, (nd, 99))
+    xne = np.asarray(xne_seed, np.float64).copy()
+    ion_charge = _ION_CHARGE[None, None, :]
+    ones99 = np.ones(99, np.float64)
+
+    weighted = None
+    for _ in range(max_iter):
+        state = derived_state(T, P, xne, tab=tab)
+        state["xabund"] = ones99
+        U, _pop, popfrac = populations(state, tab)
+        Fpop = popfrac * U
+        xnatom = np.maximum(xntot - xne, _FLOOR)
+        weighted = Fpop * (xnatom[:, None, None] * xab[:, :, None])   # n_ion per (Z,ion)
+        xnenew = (weighted * ion_charge).sum(axis=(1, 2))
+        xnenew = np.maximum(xnenew, xne * 0.5)
+        xnenew = 0.5 * (xnenew + xne)
+        err = np.abs((xne - xnenew) / np.maximum(xnenew, _FLOOR))
+        xne = xnenew
+        if np.all(err < tol):
+            break
+    xnatom = np.maximum(xntot - xne, _FLOOR)
+    rho = xnatom * np.asarray(wtmole, np.float64) * AMU
+
+    # gas internal energy: thermal + cumulative ionization + partition-derivative
+    e_ion = (weighted * _cumulative_ip_erg(tab)[None, :, :]).sum(axis=(1, 2))
+    e = 1.5 * xntot * tk + e_ion
+    if frac_term:
+        def _U_eval(Tp):
+            st = derived_state(Tp, P, xne, tab=tab)   # hold (xne, P) fixed; xnatom from xne
+            st["xnatom"] = xnatom                     # FIX xnatom (pyk's PF FD holds it)
+            st["xabund"] = ones99
+            return populations(st, tab)[0]
+        Up = _U_eval(T * 1.001)
+        Um = _U_eval(T * 0.999)
+        frac = (Up - Um) / np.maximum(Up + Um, 1e-30) * 1000.0
+        e = e + (weighted * frac).sum(axis=(1, 2)) * tk
+    e_internal = e / np.maximum(rho, _FLOOR)
+    return xne, xnatom, rho, e_internal
+
+
+@dataclass
+class FDSamples:
+    edens1: np.ndarray; edens2: np.ndarray; edens3: np.ndarray; edens4: np.ndarray
+    rho1: np.ndarray; rho2: np.ndarray; rho3: np.ndarray; rho4: np.ndarray
+
+
+def convec_fd_samples(T, P, xabund, wtmole, xne_seed, pradk, tauros, tab):
+    """The four CONVEC FD EOS perturbation samples (T+/-0.1%, P+/-0.1%), with the ionization energy.
+
+    EDENS = e_internal(T,P) + radiation term; the radiation term carries the dilut*(scale^4-1)
+    factor for the T perturbations and the base radiation for the P perturbations.
+    """
+    T = np.asarray(T, np.float64); P = np.asarray(P, np.float64)
+    pradk = np.asarray(pradk, np.float64)
+    dilut = 1.0 - np.exp(-np.asarray(tauros, np.float64))
+    xne_b, _, _, _ = _nelect_solve_edens(T, P, xabund, wtmole, xne_seed, tab)
+    _, _, rho1, ei1 = _nelect_solve_edens(T * 1.001, P, xabund, wtmole, xne_b, tab)
+    _, _, rho2, ei2 = _nelect_solve_edens(T * 0.999, P, xabund, wtmole, xne_b, tab)
+    _, _, rho3, ei3 = _nelect_solve_edens(T, P * 1.001, xabund, wtmole, xne_b, tab)
+    _, _, rho4, ei4 = _nelect_solve_edens(T, P * 0.999, xabund, wtmole, xne_b, tab)
+    ed1 = ei1 + 3.0 * pradk / np.maximum(rho1, _FLOOR) * (1.0 + dilut * (1.001 ** 4 - 1.0))
+    ed2 = ei2 + 3.0 * pradk / np.maximum(rho2, _FLOOR) * (1.0 + dilut * (0.999 ** 4 - 1.0))
+    ed3 = ei3 + 3.0 * pradk / np.maximum(rho3, _FLOOR)
+    ed4 = ei4 + 3.0 * pradk / np.maximum(rho4, _FLOOR)
+    return FDSamples(ed1, ed2, ed3, ed4, rho1, rho2, rho3, rho4)
+
+
 def popsall(T, P, xabund, *, tab: EOSTables, wtmole=None, xne_seed=None,
             max_iter: int = 200, tol: float = 1e-4) -> PopsAllResult:
     """Full-slot EOS fill from (T, P, abundances) with self-consistent n_e."""

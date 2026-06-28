@@ -227,3 +227,9 @@ house style, and run the two critics (GPT-5.5 + Gemini-3.1-pro) on every new/cha
   the deep-base fold. If it does, extend the L3 continuum with the far-UV metal-bf forest (template
   kgpu/continuum.py _c1op/_mg1op/_si1op/_fe1op/_minor_terms). Honest input: reference/wavetab_grid.npz
   (static KAPCONT grid). [2026-06-28]
+- Stage 4 (EDENS FD samples WITH ionization energy — the grad_ad fix, eos_fromscratch.py):
+  BIT-EXACT PASS, max|reldiff| = 1.27e-15 (fp64 floor) over {edens1..4, rho1..4, ipcum}.
+  ★ GATE 4b PASS (the convective-collapse guard): the from-scratch EDENS -> book convec gives
+  grdadb @ hot base (11425 K) = 0.1130 (target ~0.11 partial-ionization, NOT 0.40 ideal-gas),
+  grdadb @ tau~1 = 0.3837 (target ~0.38). The ionization-energy heat capacity is correct; the
+  13179 K convective collapse is GUARDED. [2026-06-28]
