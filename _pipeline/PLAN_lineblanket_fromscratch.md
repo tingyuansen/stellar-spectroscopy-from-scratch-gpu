@@ -331,3 +331,12 @@ author lectures (house style), run both critics.
   kgpu's: +molecular +Balmer-aware) should reach near-sun similarly. The base kR 0.94-0.96 vs pyk's
   0.998 is the documented optically-invisible deep deposit residual; the PHOTOSPHERE (spectrum) is
   bit-faithful (0.999-1.011). PROCEED to Stage 8 convergence; document the deep residual honestly. [2026-06-28]
+- Stage 8 (FULL from-scratch convergence, converge_fromscratch.py): the convergence loop that
+  REMOVES the pyk subprocess — each iteration recomputes EOS (Stage 1) + doppler/txnxn (Stage 2) +
+  continuum+tabcont with far-UV forest (Stage 3) + EDENS ionization energy (Stage 4) + the full
+  deposit incl molecular (Stages 5-6+mol) from the book's OWN modules, then the book's L11 engines
+  (JOSH/ROSS/CONVEC/TCORR/MAP1) update the structure. Deposit kernels = the verified bit-exact
+  numba transcriptions (numpy_oracle.linop1_deposit + kgpu atmosphere_xlines/_hlines), NO pyk.
+  Runs in the book .venv (numpy/numba/torch). 2-iter smoke from the emulator warm-start (base RHOX
+  7.5): descends correctly -> base RHOX 7.5->13.4->12.6 (target 12.14), base T ->12275, Tmed 4.9e-3.
+  ~55s/iter. FULL 30-iter run launched. [2026-06-28]

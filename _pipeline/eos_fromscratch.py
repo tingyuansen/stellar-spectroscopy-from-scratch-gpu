@@ -710,6 +710,21 @@ class FDSamples:
     rho1: np.ndarray; rho2: np.ndarray; rho3: np.ndarray; rho4: np.ndarray
 
 
+def convec_fd_raw(T, P, xabund, wtmole, xne_seed, tab):
+    """The raw gas internal energy (thermal+ionization) + rho at the 4 FD perturbations.
+
+    Returns (ei1..4, rho1..4) WITHOUT the radiation term, so the convergence loop can add the
+    radiation term 3*pradk/rho*(dilut factor) fresh each iteration with the current pradk/tauros.
+    """
+    T = np.asarray(T, np.float64); P = np.asarray(P, np.float64)
+    xne_b, _, _, _ = _nelect_solve_edens(T, P, xabund, wtmole, xne_seed, tab)
+    _, _, rho1, ei1 = _nelect_solve_edens(T * 1.001, P, xabund, wtmole, xne_b, tab)
+    _, _, rho2, ei2 = _nelect_solve_edens(T * 0.999, P, xabund, wtmole, xne_b, tab)
+    _, _, rho3, ei3 = _nelect_solve_edens(T, P * 1.001, xabund, wtmole, xne_b, tab)
+    _, _, rho4, ei4 = _nelect_solve_edens(T, P * 0.999, xabund, wtmole, xne_b, tab)
+    return ei1, ei2, ei3, ei4, rho1, rho2, rho3, rho4
+
+
 def convec_fd_samples(T, P, xabund, wtmole, xne_seed, pradk, tauros, tab):
     """The four CONVEC FD EOS perturbation samples (T+/-0.1%, P+/-0.1%), with the ionization energy.
 
