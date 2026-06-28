@@ -74,6 +74,7 @@ column is <span class="katex"><span class="katex-mathml"><math xmlns="http://www
 99 elements and pack the results into this flat layout. Our <code>eos_fromscratch.popsall</code> does exactly
 that — it is Lecture 2&#39;s <code>run_pfsaha</code>/<code>run_nelect</code>, vectorised over depth and assembled into the slot
 array. Let us run it on the Sun and look at what it produces.</p>
+<p><img src="resources/figures/s16_eos.png" alt="The two pieces of the full per-iteration state. Top: the POPSALL layout — a single flat array with one slot per ion stage, indexed by a species code, holding every stage the opacity engines read (every stage for the light elements, the first few for the heavy ones). Bottom: why the internal energy must carry the ionization energy — at the hot base, energy poured into the gas strips electrons rather than raising the temperature, so the adiabatic gradient grad_ad drops from the ideal-gas 0.4 to about 0.11 at the partially-ionized base; omitting the ionization energy leaves grad_ad at 0.4 and sends the deep structure running away."></p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[2]</span>Python</span>
