@@ -46,8 +46,13 @@ Generated from source inspection on 2026-06-29.
 - Run the focused physics gates:
   `python _pipeline/verify_leankurucz.py`,
   `python _pipeline/verify_lineblanket.py`,
+  `python _pipeline/verify_molecules.py`,
+  `python _pipeline/verify_nmolec.py`,
+  `python _pipeline/verify_mol_continuum.py`,
   `python _pipeline/verify_convec_gaps.py`,
   `python _pipeline/verify_converged.py`.
+- Run the full critic sweep before declaring prose/passdown closure:
+  `python _pipeline/critic.py 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16`.
 - Keep `reference/MANIFEST_L14_L16.md` current whenever L14-L16 reference arrays are added or
   reclassified.
 - Do not upgrade any lecture claim from "comparison target" or "integration input" to

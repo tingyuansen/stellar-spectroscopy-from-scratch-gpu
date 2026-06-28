@@ -61,6 +61,13 @@ the passdown must say so and name the integration work needed to remove it.
   clean-room NumPy helper modules (`eos_fromscratch.py`, `continuum_fromscratch.py`,
   `molecular_fromscratch.py`). These helpers are self-contained and do not import `kgpu`/`pykurucz`,
   but they are integration debts for the final GPU-native book.
+- A full L1-L16 API critic sweep completed on 2026-06-29:
+  `python _pipeline/critic.py 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16`.
+  Source/rendered cleanup commits after that sweep:
+  `78505ca` tightened L3/L7/L12/L14/L15/L16 prose and boundaries;
+  `b96a277` tightened L13 molecular-chemistry terminology and boundary claims.
+  Remaining critic work is now mostly larger integration/GPU-native closure, not hidden
+  pass/fail wording.
 
 ## L14 checks just run
 
@@ -95,6 +102,12 @@ Notebook audit:
   `python _pipeline/verify_lineblanket.py` PASS. Teaching-window deposit max rel
   `2.877e-06`; one-step line-blanketed engine fidelity T `6.606e-09`, RHOX `5.850e-09`;
   corrected Sun base RHOX `12.152` vs sun `12.144`.
+- L12/L13 molecular checks after critic cleanup:
+  `python _pipeline/verify_molecules.py` PASS, TiO band spectrum max rel `1.063e-08`,
+  median `1.679e-13`;
+  `python _pipeline/verify_nmolec.py` PASS, all molecular densities max rel `9.920e-14`;
+  `python _pipeline/verify_mol_continuum.py` PASS, CH/OH/H2-CIA molecular continuum max rel
+  `0.000e+00`.
 - Targeted API critic review:
   `_pipeline/critic_reports/GPU_textbook_selfcontained_gpu_native_gpt55.md` and
   `_pipeline/critic_reports/GPU_textbook_selfcontained_gpu_native_gemini.md` both say the repo is
