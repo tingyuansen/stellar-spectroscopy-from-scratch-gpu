@@ -306,3 +306,19 @@ author lectures (house style), run both critics.
   the deep-base kappa_R (more than the cleanroom's surface-only estimate). REMEDIATION (next):
   compute molecular populations via the book's L13 NMOLEC -> fill xnfdop/dopple slots 841-940 ->
   deposit the molecular line records (separate molecular deposit path) -> re-fold to ~1.0. [2026-06-28]
+- Stage 7 MOLECULAR lines (molecular_fromscratch.py): the book's OWN L13 NMOLEC (verify_nmolec.
+  nmolec_solve) driven by the Stage-1 EOS + transcribed equilj_ion_from_saha + molecular_xnfpmol
+  (kgpu template, pure numpy) -> molecular populations for the 16 slots (841-940). xnfpmol vs kgpu:
+  median|rel| 1.18e-13 (NMOLEC float64 floor), max 3.1e-4 (a few layers, L13 Newton damping floor);
+  CO/H2O at the base match to all digits. Filled into xnfdop/dopple slots 841-940 -> the 440k
+  molecular line records now deposit. RESULT: abross fold PHOTOSPHERE now EXCELLENT (surf 1.010,
+  mid40 1.011, deep55 0.999 — the molecular surface blanket is correct); base 0.936 -> 0.941.
+- Stage 7 BALMER-LIMIT residual (precise): the remaining ~6% deep-base deficit is NOT molecular and
+  NOT atomic fort12 — it is a tight cluster at 364-366 nm (the Balmer limit 364.6 nm) where pyk's
+  xlines = ~656 but mine = ~10 (factor ~70). These are the MERGED high-n Balmer lines (the type-1 H
+  XLINOP / Inglis-Teller line_type 81 quasi-continuum at the Balmer jump). The kgpu-template type-1 H
+  deposit under-deposits this specific Balmer-limit merged feature (cleanroom claimed bit-exact on a
+  DIFFERENT window). This is a bounded HPROF4 detail at the Balmer limit; the photosphere (spectrum
+  region) is correct regardless. To assess: does the convergence with base kR 0.941 reach near-sun
+  (the deficit -> deeper RHOX)? If the residual RHOX is within the documented optically-invisible
+  ~1.5% floor, document it; else extend the Balmer-limit merged-line deposit. [2026-06-28]
