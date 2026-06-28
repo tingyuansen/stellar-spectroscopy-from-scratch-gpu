@@ -47,7 +47,7 @@ md(r"""# Lecture 12 — Molecular Equilibrium & Molecular Bands *(GPU Edition)*
 
 **Learning objectives.** By the end of this lecture you will be able to:
 
-- Say **why cool stars form molecules** and warm ones do not, and write the chemical equilibrium of a diatomic molecule as a **Saha-like law** — the dissociation energy $D_0$ plus a temperature polynomial for the formation constant $\log K_f(T)$ — taking the converged populations as given from the cool M-dwarf model.
+- Say **why cool stars form molecules** and warm ones do not, and write the chemical equilibrium of a diatomic molecule as a **Saha-like law** — the dissociation energy $D_0$ plus a temperature polynomial for the formation constant $\ln K_f(T)$ in the Kurucz/NMOLEC convention — taking the converged populations as given from the cool M-dwarf model.
 - Turn a molecular number density into the line-opacity driver **XNFDOP** $= n_{\rm mol}/(\rho\,\Delta\lambda_D/\lambda)$, recomputing the molecular **Doppler width** from the species mass on the device with a single torch op (`molecular_dopple`).
 - Feed those populations into the **same Voigt kernel** as the atomic lines (Lectures 4–6), now `_voigt` written branchlessly over a whole tensor of reduced frequencies.
 - See how the NumPy edition's **per-depth loop + per-line scalar wing-march** becomes a **batched scatter-add**: `_accumulate_chunk` keeps the line list in tensor blocks, `_near_wing` / `_far_wing` sweep fixed offset-blocks over every surviving pair at once, and **one `_scatter_add_flat` = `index_put_(accumulate=True)`** per block deposits the whole `[pairs, step]` opacity into the flattened `[D·n_w]` buffer.
@@ -116,7 +116,7 @@ where the $Z$ are partition functions and $m_{AB}^*$ is the reduced mass. Two pi
 It is often more convenient to track the inverse — the **formation** constant $K_f(T) \equiv n_{AB}/(n_A n_B) = 1/K_d(T)$, which carries the binding factor as $e^{+D_0/kT}$, so it is **large in cool gas** (much molecule formed) and small in hot gas. The production code tabulates this formation form: for a molecule built from $n_{\rm comp}$ atoms with net charge `ion`, the Fortran NMOLEC routine evaluates
 
 $$
-\log K_f(T) = \frac{D_0}{kT} - E_1 + E_2 T - E_3 T^2 + E_4 T^3 - E_5 T^4 + E_6 T^5 \;-\; \tfrac32\,(n_{\rm comp} - 2\,{\rm ion} - 1)\,\log T ,
+\ln K_f(T) = \frac{D_0}{kT} - E_1 + E_2 T - E_3 T^2 + E_4 T^3 - E_5 T^4 + E_6 T^5 \;-\; \tfrac32\,(n_{\rm comp} - 2\,{\rm ion} - 1)\,\ln T ,
 $$
 
 with $kT$ in electron-volts. The first term is the binding Boltzmann factor (positive, so $K_f$ grows as the gas cools); the polynomial $E_1..E_6$ is the partition-function fit; the last term is the $(kT)^{3/2}$ phase-space scaling. For TiO, $D_0 \approx 6.9$ eV — a strong bond, which is exactly why TiO survives in cool atmospheres. The coupled set of these balances over all molecules, conserving each element's nuclei and the charge, is solved by a Newton iteration (NMOLEC) when the atmosphere is converted. **We take its result for the populations as given in this lecture** and focus on what those populations do to the spectrum — the bands. (Building the coupled solve from scratch is the subject of Lecture 13.)""")
@@ -158,9 +158,9 @@ print(f"molecular lines in window: {M['nbuff'].size:,};  wavelength grid: {DT['w
 # ════════════════════════════════════════════════════════════════════════════
 #  THE FORMATION CONSTANT log Kf(T) FOR TiO
 # ════════════════════════════════════════════════════════════════════════════
-md(r"""## Evaluating $\log K_f(T)$ for TiO
+md(r"""## Evaluating $\ln K_f(T)$ for TiO
 
-The dissociation table `molecules.dat` gives, for each molecule, its $D_0$ and the $E_1..E_6$ polynomial. TiO is a neutral diatomic, so $n_{\rm comp}=2$ and ${\rm ion}=0$, which makes the phase-space coefficient $n_{\rm comp}-2\,{\rm ion}-1 = 1$. We read TiO's coefficients (code $8\times100+22 = 822$: oxygen then titanium) and evaluate the NMOLEC formula across temperature, with the Fortran constant $k = 8.6171\times10^{-5}$ eV/K. This is a cheap scalar curve — a few elementwise ops — so we keep it in NumPy as a pure-physics setup (no scatter, nothing to batch); the GPU machinery begins with the band opacity below.""")
+The dissociation table `molecules.dat` gives, for each molecule, its $D_0$ and the $E_1..E_6$ polynomial. TiO is a neutral diatomic, so $n_{\rm comp}=2$ and ${\rm ion}=0$, which makes the bracketed coefficient $n_{\rm comp}-2\,{\rm ion}-1 = 1$ and therefore makes the full logarithmic term $-\tfrac32\ln T$. Here the logarithm is the Fortran/NMOLEC natural logarithm; plots convert to dex only when they explicitly divide by $\ln 10$. We read TiO's coefficients (code $8\times100+22 = 822$: oxygen then titanium) and evaluate the NMOLEC formula across temperature, with the Fortran constant $k = 8.6171\times10^{-5}$ eV/K. This is a cheap scalar curve — a few elementwise ops — so we keep it in NumPy as a pure-physics setup (no scatter, nothing to batch); the GPU machinery begins with the band opacity below.""")
 
 code(r'''TKEV = 8.6171e-5      # Boltzmann constant in eV/K (Fortran value, not CODATA)
 
@@ -882,7 +882,7 @@ md(r"""The spectrum is no longer a near-flat continuum dusted with narrow atomic
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## Why an M dwarf's spectrum looks nothing like the Sun's
 
-It is worth stating plainly what changed, because nothing in the line physics did. The atomic lines are still there; they are simply buried. Three things conspire in a cool atmosphere:
+It is worth stating plainly what changed, because nothing in the line physics did. The atomic lines are still there; they are simply buried in relative contrast. Molecular band opacity raises the total extinction across broad wavelength ranges, pushes the $\tau_\lambda\approx1$ surface outward to cooler, lower-density layers, and leaves the narrow atomic features sitting on a much higher pseudo-continuum. Three things conspire in a cool atmosphere:
 
 - **Molecules form.** The formation Boltzmann factor $e^{+D_0/kT}$ grows rapidly as $T$ falls (equivalently, the dissociation constant is exponentially suppressed at low $T$), so as the gas cools from 5800 K to 3500 K species like TiO, VO, and the hydrides reach abundances that matter.
 - **Bands, not lines.** A molecule has thousands of rovibronic transitions packed into a narrow wavelength range; their overlapping wings merge into continuous **bands** with sharp heads, depressing whole stretches of spectrum rather than carving isolated lines.
@@ -895,7 +895,7 @@ The same code that synthesised the Sun synthesises the M dwarf; only the populat
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## Synthesis
 
-Adding molecules to the synthesis took exactly two new ideas on top of the warm-star pipeline. The first was **dissociation equilibrium** — chemical balance written as a Saha-like law, the dissociation energy $D_0$ in a Boltzmann factor times a temperature polynomial for the formation constant $\log K_f(T)$. We read TiO's $D_0$ and polynomial from `molecules.dat`, saw the steep formation curve that keeps the molecule whole in cool gas, and took the converged populations as given from the cool M-dwarf model (Lecture 13 earns them from scratch).
+Adding molecules to the synthesis took exactly two new ideas on top of the warm-star pipeline. The first was **dissociation equilibrium** — chemical balance written as a Saha-like law, the dissociation energy $D_0$ in a Boltzmann factor times a temperature polynomial for the formation constant $\ln K_f(T)$ in the NMOLEC convention. We read TiO's $D_0$ and polynomial from `molecules.dat`, saw the steep formation curve that keeps the molecule whole in cool gas, and took the converged populations as given from the cool M-dwarf model (Lecture 13 earns them from scratch).
 
 The second was **nothing new in the physics at all**: the molecular populations enter the line opacity through the same XNFDOP combination, are broadened by the same Voigt profile, and are accumulated by the same wing kernel as the atomic lines of Lectures 4–6 — then carried to the surface by the same JOSH solver of Lecture 8. The GPU edition's distinct value is the **vectorization of that accumulation**. The NumPy edition built the band opacity with a Python `for` over 80 depths, each running a per-line outward wing-march that `np.add.at`-ed one Voigt value at a time. We collapsed it: the depth axis became a batch axis, the line list became `CHUNK_LINES` tensor blocks, the per-line scalar march became a fixed step-block sweep over every surviving $(\text{depth},\text{line})$ pair at once (with `argmax` finding each pair's cutoff crossing instead of a per-line `break`), and the deposit became **one `index_put_(accumulate=True)`** per red/blue block — the batched atomic scatter, over 1.17 million lines. The precision budget demanded one honest choice: summing $\sim10^6$ positive wings per bin is a wide-dynamic-range reduction, so the heavy accumulation runs on the **CPU-fp64 reference path** for bit-exact parity, while the public `molecular_dopple` stays GPU-resident. The band opacity reproduced the production kernel to a float64 accumulation floor — machine precision — and the emergent bandhead spectrum is the Sun's pipeline plus one dissociation balance.""")
 

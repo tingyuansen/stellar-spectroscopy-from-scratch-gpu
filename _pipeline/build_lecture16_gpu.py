@@ -212,6 +212,8 @@ def txnxn_torch(device, dtype):
     Tt = t(T, device, dtype); h = t(pa.xnf_h, device, dtype); he1 = t(pa.xnf_he1, device, dtype)
     tkev = Tt * KEV_FACTOR
     eq = torch.exp(4.478 / tkev - 4.64584e1 + (1.63660e-3 + (-4.93992e-7 + (1.11822e-10 + (-1.49567e-14 + (1.06206e-18 - 3.08720e-23 * Tt) * Tt) * Tt) * Tt) * Tt) * Tt - 1.5 * torch.log(Tt))
+    # Kurucz-compatible numerical cutoff for the H2 neutral-perturber term. This is
+    # a prescription boundary, not a physical discontinuity in molecular equilibrium.
     h2 = torch.where(Tt > 9000.0, torch.zeros_like(Tt), h*h*eq)
     return (h + 0.42 * he1 + 0.85 * h2) * (Tt / 1.0e4) ** 0.3
 
@@ -239,6 +241,8 @@ for name, got in [("rho1", r1), ("rho2", r2), ("rho3", r3), ("rho4", r4),
 ipcum = EOS._cumulative_ip_erg(TAB)
 print(f"H cumulative ionization energy H->H+ = {ipcum[0,1]/1.602176634e-12:.3f} eV")
 print("finite-difference EOS samples are computed, not read")''')
+
+md(r"""The reference names `edens1`...`edens4` are inherited bookkeeping names. They are not radiation energy densities in the usual $aT^4$ sense: each sample is the EOS cumulative ionization-energy term plus a radiation-pressure contribution divided by density, so the quantity behaves as a specific-energy-like thermodynamic helper for the convection finite difference. The lecture keeps the historical names only so the comparison is traceable.""")
 
 md(r"""## 6. Molecular slots and continuum cutoff — computed, with residual limits reported
 

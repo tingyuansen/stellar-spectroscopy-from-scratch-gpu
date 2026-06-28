@@ -364,6 +364,8 @@ def txnxn_torch(device, dtype):
     Tt = t(T, device, dtype); h = t(pa.xnf_h, device, dtype); he1 = t(pa.xnf_he1, device, dtype)
     tkev = Tt * KEV_FACTOR
     eq = torch.exp(4.478 / tkev - 4.64584e1 + (1.63660e-3 + (-4.93992e-7 + (1.11822e-10 + (-1.49567e-14 + (1.06206e-18 - 3.08720e-23 * Tt) * Tt) * Tt) * Tt) * Tt) * Tt - 1.5 * torch.log(Tt))
+    # Kurucz-compatible numerical cutoff for the H2 neutral-perturber term. This is
+    # a prescription boundary, not a physical discontinuity in molecular equilibrium.
     h2 = torch.where(Tt &gt; 9000.0, torch.zeros_like(Tt), h*h*eq)
     return (h + 0.42 * he1 + 0.85 * h2) * (Tt / 1.0e4) ** 0.3
 
@@ -380,6 +382,8 @@ print(f&quot;txnxn surface/base = {float(tx_w[0].detach().cpu()):.3e} / {float(t
     Tt = t(T, device, dtype); h = t(pa.xnf_h, device, dtype); he1 = t(pa.xnf_he1, device, dtype)
     tkev = Tt * KEV_FACTOR
     eq = torch.exp(<span class="hljs-number">4.478</span> / tkev - <span class="hljs-number">4.64584e1</span> + (<span class="hljs-number">1.63660e-3</span> + (-<span class="hljs-number">4.93992e-7</span> + (<span class="hljs-number">1.11822e-10</span> + (-<span class="hljs-number">1.49567e-14</span> + (<span class="hljs-number">1.06206e-18</span> - <span class="hljs-number">3.08720e-23</span> * Tt) * Tt) * Tt) * Tt) * Tt) * Tt - <span class="hljs-number">1.5</span> * torch.log(Tt))
+    <span class="hljs-comment"># Kurucz-compatible numerical cutoff for the H2 neutral-perturber term. This is</span>
+    <span class="hljs-comment"># a prescription boundary, not a physical discontinuity in molecular equilibrium.</span>
     h2 = torch.where(Tt &gt; <span class="hljs-number">9000.0</span>, torch.zeros_like(Tt), h*h*eq)
     <span class="hljs-keyword">return</span> (h + <span class="hljs-number">0.42</span> * he1 + <span class="hljs-number">0.85</span> * h2) * (Tt / <span class="hljs-number">1.0e4</span>) ** <span class="hljs-number">0.3</span>
 
@@ -436,7 +440,8 @@ edens3                             max|rel| = 1.513e-16   limit 5.0e-12
 edens4                             max|rel| = 1.268e-15   limit 5.0e-12
 H cumulative ionization energy H-&gt;H+ = 13.597 eV
 finite-difference EOS samples are computed, not read
-</pre></div></div><div class="prose"><h2>6. Molecular slots and continuum cutoff — computed, with residual limits reported</h2>
+</pre></div></div><div class="prose"><p>The reference names <code>edens1</code>...<code>edens4</code> are inherited bookkeeping names. They are not radiation energy densities in the usual <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>a</mi><msup><mi>T</mi><mn>4</mn></msup></mrow><annotation encoding="application/x-tex">aT^4</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord mathnormal">a</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">4</span></span></span></span></span></span></span></span></span></span></span> sense: each sample is the EOS cumulative ionization-energy term plus a radiation-pressure contribution divided by density, so the quantity behaves as a specific-energy-like thermodynamic helper for the convection finite difference. The lecture keeps the historical names only so the comparison is traceable.</p>
+<h2>6. Molecular slots and continuum cutoff — computed, with residual limits reported</h2>
 <p>These two components are retained as audit sections rather than overstated as exact GPU achievements. The molecular solver is the Lecture-13 clean-room chemistry. <code>TABCONT</code> is built by the NumPy continuum bridge with the far-UV completion. Both are computed before comparison, and their residuals are reported explicitly.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">

@@ -185,7 +185,7 @@ Now the formal solution, built in three short steps: the source function, the $E
 
 **A note on units.** We wrote the transfer equation with $\lambda$ subscripts, but the code carries intensities per unit *frequency*, $B_\nu$, while still using wavelength as the grid coordinate. Because the spectrum we report is a dimensionless *ratio* of two fluxes at the same wavelength, the per-Hz vs per-nm Jacobian cancels — the normalised spectrum is identical either way.
 
-First the source function. In LTE, with scattering neglected, it is the **Planck function** evaluated at each depth's temperature and each wavelength's frequency, $S_\lambda = B_\nu(T)$ — the overflow-safe Kurucz form of Lecture 1, written in torch and broadcast across the whole $[\text{depth},\text{wavelength}]$ grid in one shot.""")
+First the source function. In LTE, with scattering neglected, it is the **Planck function** evaluated at each depth's temperature and each wavelength's frequency. The code uses the per-frequency Kurucz source array $B_\nu(T)$ on a grid labelled by wavelength; the normalized spectrum is unaffected by this bookkeeping because the $c/\lambda^2$ Jacobian cancels between total and continuum flux at each wavelength. To avoid mixing spectral-density conventions, read the symbol below as the source value at the wavelength point, stored in frequency units: $S(\lambda_j)=B_{\nu_j}(T)$.""")
 
 code(r'''def planck_nu(nu, T):
     """Planck B_nu(T) [CGS], overflow-safe Kurucz form, broadcast over (depth, wl). Torch-native."""

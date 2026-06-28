@@ -103,7 +103,7 @@ Before any results, the honest map of this lecture's scope. The opacity coeffici
 **The production-gated opacity, computed from scratch, every star.** From the verified equation-of-state populations (the per-ion Saha/partition densities of Lecture 2, reproduced to the documented EOS floor, composed with the molecular depletion of Lecture 13) plus the production line and molecular data, the book's own engines — **inlined into the cells below** — build the opacity active in this diagnostic, layer by layer and wavelength by wavelength. Here "gated" means the same component switches and wavelength-window inclusion rules used to produce the reference diagnostic, not a claim that omitted components are physically impossible.
 
 - the **continuous opacity** — H I bound-free and free-free, H$^-$, H$_2^+$, the He continua, the metal edges, electron and Rayleigh scattering — with the KAPP engine of Lecture 3, evaluated at the continuum-edge triplets and interpolated onto each window;
-- the **atomic line forest** — every catalogued metal line in the diagnostic window (all selected $Z\ge3$ lines) through the ASYNTH Voigt kernel of Lecture 5;
+- the **atomic line forest** — every selected metal line present in the diagnostic-window catalog (the active $Z\ge3$ subset shipped for that window) through the ASYNTH Voigt kernel of Lecture 5;
 - the **hydrogen lines** — the linear-Stark HPROF4 engine of Lecture 6, the Balmer wings that dominate the hot dwarf;
 - the **helium wings** — the Voigt-batch walk, with the continuum-merge taper limits recomputed from scratch from the Inglis–Teller merge level (the high-$n$ lines Stark-broaden into a pseudo-continuum before reaching the series limit) plus the shipped `fort.19` continuum-identification metadata;
 - the **molecular bands** — the TiO and band-system ASYNTH of Lecture 12, for the cool stars.
@@ -1214,7 +1214,7 @@ code(r'''def molecular_continuum(d):
 # ══════════════════════════════════════════════════════════════════════════════
 md(r"""## Step 4 — the atomic line forest (ASYNTH)
 
-On top of the continuum go the **lines**. The atomic line engine is the ASYNTH kernel of Lectures 4–5: for every metal line (all $Z\ge3$) it computes a central opacity and a Voigt profile, with the local opacity cutoff `KAPMIN` set relative to the *from-scratch* continuum we just built. We inline the verified kernel here.
+On top of the continuum go the **lines**. The atomic line engine is the ASYNTH kernel of Lectures 4–5: for every selected metal line in this diagnostic-window catalog (the active $Z\ge3$ subset) it computes a central opacity and a Voigt profile, with the local opacity cutoff `KAPMIN` set relative to the *from-scratch* continuum we just built. We inline the verified kernel here.
 
 First the shared line helpers: `fast_ex_array` (the FASTEX table lookup for $e^{-x}$), `voigt_profile` and `voigt_h_at_zero` (the Harris-table Voigt $H(a,v)$ of Lecture 4), the log-grid index rounding `nearest_grid_indices`, and `process_wing_pair` (the one-line wing walk with the near-wing tabulated Voigt and the far-wing $1/n^2$ tail). These are the kernels Lecture 4 and Lecture 5 walked through; here they are in compact form.""")
 
@@ -1254,7 +1254,7 @@ def fast_ex_array(x):
         out[pos] = po
     return out''')
 
-md(r"""`voigt_profile` is the Voigt/Hjerting function $H(a,v)$ from the Harris tables (Lecture 4), with all three branches (small-$a$ core, far-wing Lorentzian, large-$a$ Harris series). Every metal line's shape comes from this.""")
+md(r"""`voigt_profile` is the Voigt/Hjerting function $H(a,v)$ from the Harris tables (Lecture 4), with all three branches (small-$a$ core, far-wing Lorentzian, large-$a$ Harris series). The conventional variable is a reduced frequency offset; on this logarithmic wavelength grid the code forms the equivalent local offset used by the ASYNTH deposit. Every selected metal line's shape in the window comes from this kernel.""")
 
 code(r'''
 
