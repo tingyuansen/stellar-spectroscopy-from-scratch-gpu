@@ -260,3 +260,19 @@ author lectures (house style), run both critics.
   far-UV XLINOP fold). Deposit driven entirely by the book's OWN from-scratch EOS H-columns
   (xnf_h/xnfph/xnf_he1/xnfdop[:,0]/dopple[:,0]) + tabcont. Kernel = kgpu/atmosphere_hlines (the
   verified HPROF4 port, bit-exact vs pyk). [2026-06-28]
+- Stage 7 (★ DECISION GATE — matched-input kappa_R fold @ sun structure):
+  From-scratch continuum + from-scratch deposit -> abross[base] = 283.5 vs pyk 305.97 = ratio 0.927
+  (a 7.3% deep-base deficit). Photosphere good: mid40 0.968, deep55 0.978. Deficit grows with depth.
+  ISOLATION (decisive):
+    * book fold is FAITHFUL: reference deposit + reference continuum -> abross[base] 305.7 = 0.999.
+    * the DEPOSIT is faithful/strong: from-scratch deposit base sum 2.52e10 = 1.036x the pyk
+      reference (the type-1 H bit-exact); far-UV bands 0.98-1.00 of reference.
+    * the BINDING LEVER is the far-UV CONTINUUM (the book's L3 KAPP): at 91-120 nm / 11425 K the
+      book gives acont ~33-38 vs kgpu/pyk ~593 (ratio 0.063); 120-150 nm 0.61; >=150 nm >=0.97.
+      Toggling every L3 ifop source barely moves the 100 nm value -> the book's L3 is STRUCTURALLY
+      MISSING the dominant EUV continuum source at the hot base (candidate: He II bf / hot Lyman
+      higher-level bf / EUV electron-metal ff). This is an L3 far-UV completeness gap, NOT an
+      EOS/deposit defect (those are bit-exact/faithful).
+  DECISION (per the plan + coordinator): the far-UV continuum DOES bind the deep base -> extend the
+  book's L3 continuum with the far-UV source (template kgpu/continuum.py). This is the Stage-7
+  remediation. [2026-06-28]
