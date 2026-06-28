@@ -573,6 +573,554 @@ for _ in range(20):
 print(f"TIME {best*1e3:.6f}")
 '''
 
+# ═════════════════════════════════════════════════════════════════════════════
+# Lecture 5 — Line Opacity II: the line list (the SCATTER-ADD hot path).
+# The numpy twin (build_lecture5.py) accumulates EVERY atomic metal line's Voigt
+# wing onto a [80, 5941] log-lambda grid by walking outward from each line centre
+# and += depositing (the per-line, per-depth, per-offset host loop). The GPU port
+# REDUCES kgpu/line_opacity.py: evaluate Harris H(a,v) branchlessly on the whole
+# (a,v) grid, and replace the thousands of tiny per-line += walks with ONE batched
+# [depth, line, offset] scatter (`index_put_(accumulate=True)`). The bible flags
+# this accumulation as the PRIME Metal-kernel candidate (§2.5), so the harness times
+# the scatter so the §9 squeeze can evaluate a custom `torch.mps.compile_shader`
+# kernel vs batched torch.
+# ─────────────────────────────────────────────────────────────────────────────
+_L5_NUMPY = r'''
+# --- the metal-line scatter accumulation (build_lecture5.py, reduced to the core kernel) ---
+# Harris H(a,v) (the L4 kernel): three branches by damping a, table iv = clip(int(|v|*200+0.5),0,N-1)
+def voigt_profile(v, a, h0tab, h1tab, h2tab):
+    iv = max(0, min(int(abs(v)*200.0+0.5), h0tab.size-1))
+    if a < 0.2:
+        if abs(v) > 10.0: return 0.5642*a/(v*v)
+        return (h2tab[iv]*a + h1tab[iv])*a + h0tab[iv]
+    elif a > 1.4 or (a+abs(v)) > 3.2:
+        aa=a*a; vv=v*v; u=(aa+vv)*1.4142; val=a*0.79788/u
+        if a <= 100.0:
+            aau=aa/u; vvu=vv/u; uu=u*u
+            val=((((aau-10.0*vvu)*aau*3.0+15.0*vvu*vvu)+3.0*vv-aa)/uu+1.0)*val
+        return val
+    else:
+        vv=v*v; h0=h0tab[iv]; h1=h1tab[iv]+h0*1.12838; h2=h2tab[iv]+h1*1.12838-h0
+        h3=(1.0-h2tab[iv])*0.37613-h1*0.66667*vv+h2*1.12838
+        h4=(3.0*h3-h1)*0.37613+h0*0.66667*vv*vv
+        pa=(((h4*a+h3)*a+h2)*a+h1)*a+h0
+        pb=((-0.122727278*a+0.532770573)*a-0.96284325)*a+0.979895032
+        return pa*pb
+
+def voigt_h_at_zero(adamp, h0tab, h1tab, h2tab):    # vectorized H(a,0), floored at 1e-30
+    h0_0,h1_0,h2_0=float(h0tab[0]),float(h1tab[0]),float(h2tab[0])
+    h0v=h0_0; h1v=h1_0+h0v*1.12838; h2v=h2_0+h1v*1.12838-h0v
+    h3v=(1.0-h2_0)*0.37613+h2v*1.12838; h4v=(3.0*h3v-h1v)*0.37613
+    a=np.asarray(adamp,float)
+    h_low=(h2_0*a+h1_0)*a+h0_0
+    h_mid=((((h4v*a+h3v)*a+h2v)*a+h1v)*a+h0v)*(((-0.122727278*a+0.532770573)*a-0.96284325)*a+0.979895032)
+    aa=a*a; u=np.maximum(aa*1.4142,1e-40); base=a*0.79788/u; aau=aa/u
+    h_high=np.where(a<=100.0,((aau*aau*3.0-aa)/np.maximum(u*u,1e-40)+1.0)*base,base)
+    return np.maximum(np.where(a<0.2,h_low,np.where((a>1.4)|(a>3.2),h_high,h_mid)),1e-30)
+
+# FASTEX e^{-x}: the production-table Boltzmann factor (must match bit-for-bit)
+def fast_ex(x):
+    v=np.asarray(x,float); out=np.empty_like(v); out[v==0.0]=1.0
+    neg=v<0.0; out[neg]=np.exp(-v[neg]); pos=v>0.0
+    if np.any(pos):
+        p=v[pos]; i=np.floor(p).astype(np.int64); tab=i<_EXTAB.size; po=np.empty_like(p)
+        if np.any(tab):
+            it=i[tab]; j=np.clip(np.floor((p[tab]-it)*1000.0+0.5).astype(np.int64),0,_EXTABF.size-1)
+            po[tab]=_EXTAB[it]*_EXTABF[j]
+        if np.any(~tab): po[~tab]=np.exp(-p[~tab])
+        out[pos]=po
+    return out
+
+# grid index helpers (log grid): center pixel + wing anchor (a sub-pixel apart, both reproduced)
+def nearest_grid_indices(grid, values):
+    ratiolg=np.log(grid[1]/grid[0]); ix0=int(np.log(grid[0])/ratiolg+0.5)
+    idx=(np.log(values)/ratiolg+0.5).astype(np.int64)-ix0
+    idx[values<grid[0]]=-1; idx[values>grid[-1]]=grid.size; return idx
+def nearest_grid_indices_raw(grid, values, origin_start):
+    ratiolg=np.log(grid[1]/grid[0]); ixf=int(np.floor(np.log(origin_start)/ratiolg))
+    wb=np.exp(ixf*ratiolg)
+    if wb<origin_start: ixf+=1; wb=np.exp(ixf*ratiolg)
+    return np.rint(np.log(values/wb)/ratiolg).astype(np.int64)
+
+CUTOFF=1e-3; KAPMIN_FLOOR=1e-8; MAX_PROFILE_STEPS=1_000_000
+CGF_CONSTANT=0.026538/1.77245; C_LIGHT_NM=2.99792458e17
+
+def process_wing_pair(asynth_d, grid, center_idx, kappa0, adamp, doppler_width,
+                      line_wavelength, kapmin_ref, resolu, h0tab, h1tab, h2tab):
+    """One (line, depth) wing walk: stages 1-3 (near wing, far-wing reach, red+blue deposit)."""
+    n_w=grid.size
+    if doppler_width<=0.0: return
+    dopple=doppler_width/line_wavelength if line_wavelength>0.0 else 1e-10
+    n10dop=int(10.0*dopple*resolu); dvoigt=1.0/(dopple*resolu) if dopple>0.0 else 1.0
+    nstep_cutoff=n10dop; profile_at_n10dop=0.0; tabstep=200.0*dvoigt; tabi=0.5; broke=False
+    for nstep in range(1, n10dop+1):
+        if adamp<0.2:
+            tabi+=tabstep; idx=max(int(tabi),0); x=nstep*dvoigt
+            if x>10.0: pv=kappa0*(0.5642*adamp/(x*x))
+            else: pv=kappa0*(h0tab[min(idx,h0tab.size-1)]+adamp*h1tab[min(idx,h1tab.size-1)])
+        else: pv=kappa0*voigt_profile(nstep*dvoigt, adamp, h0tab, h1tab, h2tab)
+        if nstep==n10dop: profile_at_n10dop=pv
+        if pv<kapmin_ref: nstep_cutoff=nstep; broke=True; break
+    if not broke and n10dop>=1: nstep_cutoff=-1
+    if nstep_cutoff!=-1: maxstep=nstep_cutoff; use_far=False; x_far=0.0
+    else:
+        use_far=True
+        if n10dop>0 and profile_at_n10dop>0.0:
+            x_far=profile_at_n10dop*float(n10dop)**2
+            maxstep=int(np.sqrt(x_far/kapmin_ref)+1.0) if kapmin_ref>0.0 else MAX_PROFILE_STEPS
+        else: x_far=0.0; maxstep=0
+        maxstep=min(maxstep, MAX_PROFILE_STEPS)
+    red=blue=True; offset=1; tabi=0.5
+    while offset<=maxstep and (red or blue):
+        if use_far and offset>n10dop: pv=x_far/float(offset)**2
+        elif adamp<0.2:
+            tabi+=tabstep; idx=max(int(tabi),0); x=offset*dvoigt
+            if x>10.0: pv=kappa0*(0.5642*adamp/(x*x))
+            else: pv=kappa0*(h0tab[min(idx,h0tab.size-1)]+adamp*h1tab[min(idx,h1tab.size-1)])
+        else: pv=kappa0*voigt_profile(offset*dvoigt, adamp, h0tab, h1tab, h2tab)
+        if pv==0.0: break
+        if red:
+            j=center_idx+offset
+            if j>=n_w: red=False
+            elif j>=0: asynth_d[j]+=pv
+        if blue:
+            j=center_idx-offset
+            if j<0: blue=False
+            elif j<n_w: asynth_d[j]+=pv
+        offset+=1
+
+def metal_accumulate_numpy(catalog, atm, grid, cont):
+    """The numpy-twin metal-line accumulation -> metal_opacity[n_depths, n_w] (NO stim factor;
+    applied once at the end). The scalar reference the torch scatter must reproduce."""
+    lam=catalog['lam']; gf_lin=catalog['gf']; Elow=catalog['Elow']; idxwl=catalog['idxwl']
+    Zc=catalog['Z']; ion=catalog['ion']; lt=catalog['lt']
+    grad=catalog['grad']; gstark=catalog['gstark']; gvdw=catalog['gvdw']
+    h0tab,h1tab,h2tab=catalog['h0tab'],catalog['h1tab'],catalog['h2tab']
+    pop3=atm['pop3']; dop3=atm['dop3']; rho=atm['rho']; xne=atm['xne']; T=atm['T']
+    hckt=atm['hckt']; txnxn=atm['txnxn']
+    n_depths=T.size; n_w=grid.size
+    freq_hz=C_LIGHT_NM/lam; cgf=CGF_CONSTANT*gf_lin/freq_hz
+    elem_idx=Zc-1; ion_idx=ion-1
+    n_ion_max,n_elem_max=pop3.shape[1],pop3.shape[2]
+    center_idx=nearest_grid_indices(grid, idxwl)
+    wing_idx=nearest_grid_indices_raw(grid, idxwl, float(grid[0]))
+    ratio=grid[1]/grid[0]; resolu=1.0/(ratio-1.0) if ratio>1.0 else 300000.0
+    line_ok=(lt==0)&(elem_idx>=0)&(elem_idx<n_elem_max)&(ion_idx>=0)&(ion_idx<n_ion_max)
+    boltz=fast_ex(Elow[None,:]*hckt[:,None])
+    M=MAX_PROFILE_STEPS
+    center_valid=line_ok&(center_idx>=0)&(center_idx<n_w)
+    wing_active=line_ok&(wing_idx>=-M)&(wing_idx<=n_w-1+M)
+    metal_opacity=np.zeros((n_depths,n_w),dtype=np.float64)
+    for i in np.where(line_ok)[0]:
+        ci=int(center_idx[i]); wi=int(wing_idx[i]); wl_i=lam[i]; clamped=max(0,min(ci,n_w-1))
+        pop=pop3[:,ion_idx[i],elem_idx[i]]; dop=dop3[:,ion_idx[i],elem_idx[i]]
+        kapmin=cont[:,clamped]*CUTOFF; good=(pop>0.0)&(dop>0.0)&(rho>0.0)
+        if not np.any(good): continue
+        xnfdop=np.zeros(n_depths); xnfdop[good]=pop[good]/(rho[good]*dop[good])
+        kappa0_pre=cgf[i]*xnfdop; post=kappa0_pre*boltz[:,i]
+        passcut=good&(kappa0_pre>=kapmin)&(post>=kapmin)&(post>0.0)
+        if not np.any(passcut): continue
+        doppler_width=dop*wl_i; dopple=np.where(wl_i>0,doppler_width/wl_i,1e-6)
+        gamma_total=grad[i]+gstark[i]*xne+gvdw[i]*txnxn
+        adamp=np.where((doppler_width>0)&(dopple>0),gamma_total/dopple,0.0)
+        kapcen=np.zeros(n_depths); cd=passcut&(adamp>=0.0)&(post>0.0)
+        for d in np.where(cd)[0]:
+            ad=adamp[d]
+            kapcen[d]=post[d]*(1.0-1.128*ad) if ad<0.2 else post[d]*voigt_profile(0.0,ad,h0tab,h1tab,h2tab)
+        if center_valid[i]:
+            for d in np.where(cd)[0]: metal_opacity[d,ci]+=kapcen[d]
+        if not wing_active[i]: continue
+        wing_pairs=cd&(kapcen>0.0)
+        if not np.any(wing_pairs): continue
+        adamp_w=np.maximum(adamp,1e-12)
+        kappa0_wing=np.where(kapcen>0.0,kapcen/voigt_h_at_zero(adamp_w,h0tab,h1tab,h2tab),0.0)
+        ci_w=min(max(wi,0),n_w-1); kapmin_ref=np.maximum(cont[:,ci_w]*CUTOFF,cont[:,ci_w]*KAPMIN_FLOOR)
+        for d in np.where(wing_pairs)[0]:
+            process_wing_pair(metal_opacity[d],grid,wi,kappa0_wing[d],adamp_w[d],
+                              doppler_width[d],wl_i,kapmin_ref[d],resolu,h0tab,h1tab,h2tab)
+    return metal_opacity
+'''
+
+_L5_SPEC = """Port the LINE-LIST line-opacity accumulation — the SCATTER-ADD hot path — to fully
+vectorized torch/MPS. Reproduce the numpy twin's metal-line accumulation onto the [n_depths, n_w]
+log-lambda grid: every atomic metal line (type 0) contributes its Voigt wings, walked outward from
+its centre pixel until the profile drops below 1e-3 x the local continuum, += deposited red and blue.
+
+Provide TWO entry points (the contract spells out signatures):
+
+(a) `voigt_H_grid(v, a, h0tab, h1tab, h2tab)` -> H(a,v) on the WHOLE (v,a) broadcast grid, branchless
+    (the L4 Harris kernel, REDUCED from kgpu's `harris_hav`): three regimes (a<0.2 table series with the
+    |v|>10 Lorentzian tail; a>1.4 OR a+|v|>3.2 far-wing asymptotic with the a<=100 correction; else the
+    intermediate polynomial blend) ALL computed and selected with torch.where. Table lookup
+    iv = clamp(int(|v|*200+0.5),0,N-1) is a clamped index_select. No python loop over a or v.
+
+(b) `accumulate_metal(catalog, atm, grid, cont)` -> kappa_metal[n_depths, n_w] (a torch tensor on
+    DEVICE; NO stimulated-emission factor — applied once at the very end, outside this routine). This is
+    the hot path: REDUCE kgpu/line_opacity.py's BATCHED accumulation (`_wing_reach_batched` for the
+    per-(depth,line) reach geometry, `_wing_walk_narrow_core` for the ONE batched [depth,line,offset]
+    deposit, `_scatter_add_3d` = `index_put_(accumulate=True)`). Forbidden: a python `for` over the
+    ~12k lines doing a per-line walk. The line axis MUST be a tensor batch axis; the deposit MUST be a
+    single (or a few reach-tiered) batched scatter, NOT thousands of tiny launches.
+
+    The accumulation, reproduced bit-for-bit from the numpy twin:
+      - cgf_i = (0.026538/sqrt(pi)) * gf_i / (C_LIGHT_NM/lam_i)
+      - center pixel = nearest_grid_indices(grid, idxwl); wing anchor = nearest_grid_indices_raw(...)
+        (a log-grid round; the two anchors are a sub-pixel apart — reproduce BOTH)
+      - resolu = 1/(grid[1]/grid[0] - 1)
+      - per (depth, line): xnfdop = pop/(rho*dop); kappa0_pre = cgf*xnfdop; post = kappa0_pre*FASTEX_boltz;
+        two-stage cutoff (kappa0_pre >= 1e-3*cont AND post >= 1e-3*cont, both at the centre pixel)
+      - adamp = (grad + gstark*xne + gvdw*txnxn) / (doppler_width/lam)
+      - center deposit kapcen = post*(1-1.128*a) for a<0.2 else post*H(a,0); deposited at the centre pixel
+      - wing amplitude kappa0_wing = kapcen / H(a,0) (floor a at 1e-12); walk the near wing (steps up to
+        10 Doppler widths) evaluating the CHEAP a<0.2 2-term form (h0+a*h1, with 0.5642*a/x^2 for x>10)
+        or full H(a,v); set the far-wing reach analytically (x_far = profile_at_n10dop * n10dop^2;
+        reach = sqrt(x_far/kapmin_ref)+1); deposit kappa0_wing*H or x_far/offset^2 at center±offset
+      - the wing cutoff kapmin_ref = max(cont*1e-3, cont*1e-8) at the (clamped) wing anchor pixel
+    Use FASTEX (the production tabulated e^{-x}, EXTAB[floor]*EXTABF[round(1000*frac)]) for the Boltzmann
+    factor — NOT torch.exp — to match the numpy twin bit-for-bit. Match every constant and threshold.
+
+DEVICE/DTYPE picked once at module top; cast inputs onto it. fp32 on MPS; the float floor is ~1e-6."""
+
+_L5_CONTRACT = """Your module MUST define, importable as `port`:
+  - port.DEVICE, port.DTYPE  (device + working dtype picked once)
+  - port.voigt_H_grid(v, a, h0tab, h1tab, h2tab) -> tensor broadcast(v,a)
+        v,a,h*tab are array-likes; cast onto DEVICE/DTYPE inside. v and a broadcast (e.g. v[nv], a[na,1]).
+  - port.accumulate_metal(catalog, atm, grid, cont) -> tensor [n_depths, n_w]  (on DEVICE; NO stim factor)
+        catalog: dict of numpy arrays lam[L],gf[L],Elow[L],idxwl[L],Z[L],ion[L],lt[L],
+                 grad[L],gstark[L],gvdw[L]  (1-based Z and ion; lt is the line-type code, metals are lt==0)
+                 and h0tab[N],h1tab[N],h2tab[N]
+        atm: dict of numpy arrays pop3[D,n_ion,n_elem], dop3[D,n_ion,n_elem], rho[D], xne[D], T[D],
+             hckt[D] (= h*c/kT per depth), txnxn[D] (the effective vdW perturber density)
+        grid: numpy array [n_w] (the log-lambda grid, nm); cont: numpy array [D, n_w] (the cutoff continuum)
+        returns kappa_metal[D, n_w] (the accumulated metal-line opacity BEFORE stimulated emission)
+All returned tensors may be on DEVICE; the harness moves them to CPU/fp64 itself.
+You MAY define helper functions (FASTEX, the grid-index helpers, the batched wing reach + scatter)."""
+
+_L5_HARNESS = r'''
+import numpy as np, torch, pathlib
+REFDIR = pathlib.Path("reference")
+cat = np.load(REFDIR/"full_lines_data.npz", allow_pickle=True)
+atmz = np.load(REFDIR/"atmosphere.npz")
+diag = np.load(REFDIR/"diag.npz")
+
+def to64(x):
+    if torch.is_tensor(x): return x.detach().cpu().to(torch.float64).numpy()
+    return np.asarray(x, float)
+
+_EXTAB  = np.exp(-np.arange(1001, dtype=np.float64))
+_EXTABF = np.exp(-np.arange(1001, dtype=np.float64)*0.001)
+''' + _L5_NUMPY + r'''
+
+# --- assemble the inputs (same arrays the numpy twin reads) ---
+grid = diag["wavelength"]
+cont = diag["continuum_absorption"] + diag["continuum_scattering"]
+T = atmz["temperature"]
+txnxn = (atmz["xnf_h"] + 0.42*atmz["xnf_he1"] + 0.85*atmz["xnf_h2"]) * (T/1e4)**0.3
+catalog = dict(lam=cat["cat_wl"], gf=cat["cat_gf"], Elow=cat["cat_elow"],
+               idxwl=cat["cat_index_wl"], Z=cat["cat_Z"].astype(np.int64),
+               ion=cat["cat_ion"].astype(np.int64), lt=cat["cat_line_types"].astype(np.int64),
+               grad=cat["cat_grad"], gstark=cat["cat_gstark"], gvdw=cat["cat_gvdw"],
+               h0tab=cat["h0tab"], h1tab=cat["h1tab"], h2tab=cat["h2tab"])
+atm = dict(pop3=atmz["population_per_ion"], dop3=atmz["doppler_per_ion"],
+           rho=atmz["mass_density"], xne=atmz["electron_density"], T=T,
+           hckt=atmz["hckt"], txnxn=txnxn)
+
+# --- (a) Voigt grid parity vs the numpy Harris kernel ---
+v_grid = np.linspace(-12.0, 12.0, 481); a_grid = np.array([0.01,0.1,0.5,1.0,2.0,8.0])
+H_ref = np.array([[voigt_profile(vv, aa, catalog["h0tab"], catalog["h1tab"], catalog["h2tab"])
+                   for vv in v_grid] for aa in a_grid])
+H_torch = to64(port.voigt_H_grid(v_grid, a_grid.reshape(-1,1), catalog["h0tab"],
+                                 catalog["h1tab"], catalog["h2tab"]))
+denomH = np.where(H_ref!=0.0, np.abs(H_ref), 1.0)
+dev_voigt = float(np.max(np.abs(H_torch - H_ref)/denomH))
+
+# --- (b) the full metal-line scatter accumulation vs the numpy twin ---
+kappa_ref = metal_accumulate_numpy(catalog, atm, grid, cont)     # [80, 5941], no stim
+kappa_torch = to64(port.accumulate_metal(catalog, atm, grid, cont))
+big = np.abs(kappa_ref) > 1e-12     # the opacity-bearing pixels (the line cores+wings)
+if big.sum() == 0:
+    dev_metal = 1e9
+else:
+    dev_metal = float(np.max(np.abs(kappa_torch[big] - kappa_ref[big]) / np.abs(kappa_ref[big])))
+
+max_dev = max(dev_voigt, dev_metal)
+print(f"voigt_grid_dev={dev_voigt:.3e}  metal_scatter_dev={dev_metal:.3e}  "
+      f"(nonzero px={int(big.sum())})  device={port.DEVICE}")
+print(f"PARITY {max_dev:.6e}")
+
+# --- §9 timing: the scatter accumulation is the hot path; time it (warm, best-of-N) ---
+import time as _t
+for _ in range(2):
+    Kb = port.accumulate_metal(catalog, atm, grid, cont)
+    if torch.is_tensor(Kb) and Kb.device.type=="mps": torch.mps.synchronize()
+best = 1e9
+for _ in range(6):
+    t0=_t.perf_counter()
+    Kb = port.accumulate_metal(catalog, atm, grid, cont)
+    if torch.is_tensor(Kb) and Kb.device.type=="mps": torch.mps.synchronize()
+    best=min(best, _t.perf_counter()-t0)
+print(f"TIME {best*1e3:.6f}")
+'''
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Lecture 6 — Hydrogen Lines: Stark broadening (the HPROF4 profile).
+# The numpy twin (build_lecture6.py) evaluates the HPROF4 hydrogen line profile —
+# the quasi-static Holtsmark `sofbeta` + the electron-impact width + a Doppler core
+# over fine-structure components + the non-Stark Lorentzian — SCALAR, point by point.
+# The GPU port REDUCES kgpu/hydrogen.py: `_sofbeta` + `_hydrogen_profile_grid` evaluate
+# the WHOLE [depth, wavelength] grid branchlessly (the three beta-regimes and the
+# core/wing width-selection folded into torch.where). Note the cancellation-free
+# del_freq factoring (the catastrophic-cancellation fix the GPU edition teaches).
+# ─────────────────────────────────────────────────────────────────────────────
+_L6_NUMPY = r'''
+# --- the HPROF4 hydrogen profile (build_lecture6.py, scalar reference) ---
+RYDH=3.2880515e15; C_LIGHT_AA=2.99792458e18
+def _fast_ex(x): return 0.0 if x>80.0 else math.exp(-x)
+def _vcse1f(x):
+    if x<=0.0: return 0.0
+    if x<=0.01: return -math.log(x)-0.577215+x
+    if x<=1.0:
+        return (-math.log(x)-0.57721566+x*(0.99999193+x*(-0.24991055+x*(0.05519968
+                +x*(-0.00976004+x*0.00107857)))))
+    if x>30.0: return 0.0
+    num=x*(x+2.334733)+0.25062; den=(x*(x+3.330657)+1.681534)*x
+    return num/den*math.exp(-x)
+def _hf_nm(n,m):
+    if m<=n: return 0.0
+    xn,xm=float(n),float(m); ginf=0.2027/xn**0.71; gca=0.124/xn
+    fkn=xn*1.9603; wtc=0.45-2.4/xn**3*(xn-1.0); xmn=xm-xn
+    fk=fkn*(xm/(xmn*(xm+xn)))**3; xmn12=xmn**1.2; wt=(xmn12-1.0)/(xmn12+wtc)
+    return fk*(1.0-wt*ginf-(0.222+gca/xm)*(1.0-wt))
+def sofbeta(beta, p, n, m, propbm, c_arr, d_arr, pp_arr, beta_arr):
+    if beta<=0.0: return 0.0
+    b2=beta*beta; sb=math.sqrt(beta); corr=1.0
+    if beta<=500.0:
+        mmn=m-n; indx=2*(n-1)+mmn if (n<=3 and mmn<=2) else 7; indx=min(max(indx,1),7)
+        im=min(int(5.0*p)+1,4); im=max(im,1); ip=im+1
+        wtp=min(max(5.0*(p-pp_arr[im-1]),0.0),1.0); wtm=1.0-wtp
+        if beta<=25.12:
+            j=int(np.searchsorted(beta_arr,beta)); j=min(max(j,1),beta_arr.shape[0]-1)
+            jm,jp=j-1,j; denom=beta_arr[jp]-beta_arr[jm]
+            wtb=0.0 if denom<=0.0 else (beta-beta_arr[jm])/denom; wtbm=1.0-wtb
+            cbp=propbm[indx-1,ip-1,jp]*wtp+propbm[indx-1,im-1,jp]*wtm
+            cbm=propbm[indx-1,ip-1,jm]*wtp+propbm[indx-1,im-1,jm]*wtm
+            corr=1.0+cbp*wtb+cbm*wtbm
+            wt=min(max(0.5*(10.0-beta),0.0),1.0)
+            pr1=8.0/(83.0+(2.0+0.95*b2)*beta) if beta<=10.0 else 0.0
+            pr2=(1.5/sb+27.0/b2)/b2 if beta>=8.0 else 0.0
+            return (pr1*wt+pr2*(1.0-wt))*corr
+        cc=c_arr[im-1,indx-1]*wtp+c_arr[ip-1,indx-1]*wtm
+        dd=d_arr[im-1,indx-1]*wtp+d_arr[ip-1,indx-1]*wtm
+        denom2=cc+beta*sb
+        if denom2==0.0: denom2=1e-30
+        corr=1.0+dd/denom2
+    return (1.5/sb+27.0/b2)/b2*corr
+def hydrogen_line_profile(n, m, delta_lambda_nm, hyd, tabs, foff, fwt, n_fine):
+    """HPROF4 profile phi(Delta-lambda) for transition n->m (scalar reference)."""
+    t3nhe,t3nh2,fo=hyd["t3nhe"],hyd["t3nh2"],hyd["fo"]; dopph=hyd["dopph"]
+    c1d,c2d,y1s,y1b=hyd["c1d"],hyd["c2d"],hyd["y1s"],hyd["y1b"]
+    gcon1,gcon2,pp_val=hyd["gcon1"],hyd["gcon2"],hyd["pp"]
+    xnfph_0,ne=hyd["xnfph_0"],hyd["ne"]
+    asum=tabs["asum"]; y1wtm=tabs["y1wtm"]; xknmtb=tabs["xknmtb"]
+    propbm=tabs["propbm"]; c_t=tabs["c"]; d_t=tabs["d"]; pp_t=tabs["pp"]; beta_t=tabs["beta"]
+    mmn=m-n
+    if mmn<=0: return 0.0
+    xn,xm=float(n),float(m); xn2,xm2=xn*xn,xm*xm
+    xm2mn2=xm2-xn2; xmn2=xm2*xn2; gnm=xm2mn2/xmn2
+    xknm=xknmtb[n-1,mmn-1] if (n<=4 and mmn<=3) else 5.5e-5/gnm*xmn2/(1.0+0.13/mmn)
+    freqnm=RYDH*gnm; wavenm=C_LIGHT_AA/freqnm; dbeta=C_LIGHT_AA/(freqnm*freqnm*xknm)
+    c1con=xknm/wavenm*gnm*xm2mn2; c2con=(xknm/wavenm)**2
+    n_a=asum.shape[0]
+    radamp=(asum[n-1]+asum[m-1]) if (n<=n_a and m<=n_a) else (asum[n-1] if n<=n_a else 0.0)
+    radamp=radamp/12.5664/freqnm
+    resont=_hf_nm(1,m)/xm/(1.0-1.0/xm2)
+    if n!=1: resont+=_hf_nm(1,n)/xn/(1.0-1.0/xn2)
+    resont*=3.579e-24/gnm
+    vdw=4.45e-26/gnm*(xm2*(7.0*xm2+5.0))**0.4
+    hwvdw=vdw*t3nhe+2.0*vdw*t3nh2; hwrad=radamp; stark=1.6678e-18*freqnm*xknm
+    hwres=resont*xnfph_0*2.0; hwstk=stark*fo; hwlor=hwres+hwvdw+hwrad
+    wlA=wavenm+delta_lambda_nm*10.0
+    if wlA<=0.0: return 0.0
+    freq=C_LIGHT_AA/wlA; del_freq=abs(freq-freqnm)
+    dop=freqnm*max(dopph,1e-40); hfwidth=freqnm*max(max(dopph,1e-40),hwlor,hwstk)
+    ifcore=del_freq<=hfwidth; nwid=1
+    if not (dopph>=hwstk and dopph>=hwlor):
+        nwid=2
+        if hwlor<hwstk: nwid=3
+    core=0.0
+    for fi in range(n_fine):
+        dd=abs(freq-(freqnm+foff[fi]))/max(dop,1e-30)
+        if dd<=7.0: core+=_fast_ex(dd*dd)*fwt[fi]
+    hhw=freqnm*hwlor
+    lorentz=(hhw/math.pi/(del_freq*del_freq+hhw*hhw)*1.77245*dop) if hhw>0.0 else 0.0
+    y1num=320.0 if m>3 else (550.0 if m==2 else 380.0)
+    y1wht=1.0e14 if mmn<=3 else 1.0e13
+    if mmn<=2 and 1<=n<=2 and n<=y1wtm.shape[0] and mmn<=y1wtm.shape[1]: y1wht=y1wtm[n-1,mmn-1]
+    wty1=1.0/(1.0+max(ne,0.0)/max(y1wht,1e-30)); y1_scal=y1num*y1s*wty1+y1b*(1.0-wty1)
+    c1=c1d*c1con*y1_scal; c2=c2d*c2con
+    beta=del_freq/max(fo,1e-30)*dbeta; y1=c1*beta; y2=c2*beta*beta
+    g1=6.77*math.sqrt(max(c1,1e-30))
+    ratio=math.sqrt(c2)/max(c1,1e-30) if (c1>0.0 and c2>0.0) else 0.0
+    log_term=math.log(max(ratio,1e-30)) if ratio>0.0 else 0.0
+    gamma=g1*max(0.0,0.2114+log_term)*(1.0-gcon1-gcon2)
+    if y2>1e-4 and y1>1e-5:
+        gamma=(g1*(0.5*_fast_ex(min(80.0,y1))+_vcse1f(y1)-0.5*_vcse1f(y2))
+               *(1.0-gcon1/(1.0+(90.0*y1)**3)-gcon2/(1.0+2000.0*y1)))
+    f=gamma/math.pi/(gamma*gamma+beta*beta) if gamma>0.0 else 0.0
+    prqs=sofbeta(beta,pp_val,n,m,propbm,c_t,d_t,pp_t,beta_t)
+    p1=(0.9*y1)**2; fns=(p1+0.03*math.sqrt(max(y1,0.0)))/(p1+1.0)
+    stark_core=(prqs*(1.0+fns)+f)/max(fo,1e-30)*dbeta*1.77245*dop
+    if ifcore:
+        if nwid==1: return max(core,0.0)
+        if nwid==2: return max(lorentz,0.0)
+        return max(stark_core,0.0)
+    return max(core+lorentz+stark_core,0.0)
+
+def hydrogen_state_numpy(di, T, xne, xnf_he1, xnf_h2, xnfph, vturb_cms):
+    KBOLTZ=1.380649e-16; AMU=1.66054e-24; C_CMS=2.99792458e10; C_KMS=299792.458; MASS_H=1.008
+    temp=max(float(T[di]),1.0); ne_d=float(xne[di]); x16=ne_d**(1.0/6.0)
+    fo_d=x16**4*1.25e-9; pp=x16*0.08989/math.sqrt(temp)
+    y1b=2.0/(1.0+0.012/temp*math.sqrt(ne_d/temp)); t43=(temp/1.0e4)**0.3
+    y1s=t43/x16; c1d=fo_d*78940.0/temp; c2d=fo_d**2/5.96e-23/ne_d
+    gcon1=0.2+0.09*math.sqrt(max(temp/1e4,1e-12))/(1.0+ne_d/1.0e13); gcon2=0.2/(1.0+ne_d/1.0e15)
+    vth=math.sqrt(2.0*KBOLTZ*temp/(MASS_H*AMU))/C_CMS; vtb=(float(vturb_cms[di])/1e5)/C_KMS
+    dopph=math.sqrt(vth*vth+vtb*vtb)
+    return dict(t3nhe=t43*float(xnf_he1[di]), t3nh2=t43*float(xnf_h2[di]),
+                fo=fo_d, dopph=dopph, c1d=c1d, c2d=c2d, y1s=y1s, y1b=y1b,
+                gcon1=gcon1, gcon2=gcon2, pp=pp, ne=ne_d, xnfph_0=float(xnfph[di,0]))
+'''
+
+_L6_SPEC = """Port the HYDROGEN STARK HPROF4 line profile to fully vectorized torch/MPS. The numpy
+twin evaluates the profile phi(Delta-lambda) for a Balmer transition n->m SCALAR, point by point; the
+GPU port evaluates the WHOLE [n_depths, n_w] grid (all depths x all wavelength offsets) branchlessly.
+
+Provide TWO entry points (the contract spells out signatures):
+
+(a) `sofbeta_grid(beta, p, n, m, propbm, c_arr, d_arr, pp_arr, beta_arr)` -> S(beta) on a [D, n_w]
+    tensor `beta` with [D,1] `p`, REDUCED from kgpu/hydrogen.py `_sofbeta`. The three beta-regimes
+    (beta<=25.12 bilinear-interp correction + near/asymptotic blend; 25.12<beta<=500 asymptotic *
+    (c,d) correction; beta>500 bare Holtsmark tail) ALL computed and torch.where-selected. The (p,beta)
+    bilinear table interpolation becomes flat-gather index math (bracket p in pp_arr, beta in beta_arr
+    via searchsorted), NOT a python loop. Returns 0 where beta<=0.
+
+(b) `hydrogen_profile_grid(n, m, delta_lambda_nm, hyd, tabs, foff, fwt, n_fine)` -> phi[D, n_w],
+    REDUCED from kgpu/hydrogen.py `_hydrogen_profile_grid`. delta_lambda_nm is [D, n_w] (the wavelength
+    offset of every grid pixel from line centre, per depth); `hyd` carries per-depth state as [D,1]
+    tensors. The three profile pieces — (1) Doppler core summed over the n_fine fine-structure Gaussians,
+    (2) the non-Stark Lorentzian, (3) the linear-Stark term (sofbeta_grid * (1+fns) + the electron-impact
+    Lorentzian whose width gamma uses the vectorized E_1(x)) — ALL computed; then SELECTED by the dominant
+    width: inside the dominant half-width return only the dominant piece (Doppler / Lorentz / Stark per
+    the nwid rule), in the wing return the SUM — all folded into torch.where, NO python branch on depth.
+    A short for-loop over the FIXED small n_fine fine-structure components is acceptable ONLY if each
+    iteration is a fully vectorized [D,n_w] tensor op (kgpu does exactly this).
+
+PRECISION TRAP (teach it): del_freq = |freq - freqnm| with freq = C_LIGHT_AA/wlA is a difference of two
+~6e14 Hz numbers — catastrophic fp32 cancellation in the line core. Do NOT subtract them directly; factor
+the wavelength difference out algebraically (freq - freqnm = -C_LIGHT_AA * (delta_lambda_nm*10) /
+(wlA*wavenm), exact, no cancellation), exactly as kgpu's `_hydrogen_profile_grid` does. Apply the same
+factoring to the fine-structure core term (freq - comp_freq = df_signed - foff). Match every numpy
+constant and threshold bit-for-bit (RYDH, C_LIGHT_AA, the Holtsmark coefficients, the E_1 branch points).
+
+You will also need a vectorized E_1(x) (`_vcse1f_tensor`, kgpu hydrogen.py) and a guarded exp(-x)
+(`_fast_ex_gauss`). DEVICE/DTYPE picked once at module top. fp32 on MPS; the float floor is ~1e-6."""
+
+_L6_CONTRACT = """Your module MUST define, importable as `port`:
+  - port.DEVICE, port.DTYPE  (device + working dtype picked once)
+  - port.sofbeta_grid(beta, p, n, m, propbm, c_arr, d_arr, pp_arr, beta_arr) -> tensor [D, n_w]
+        beta is a [D,n_w] array-like, p a [D,1] array-like; n,m python ints; the tables are array-likes.
+        Cast onto DEVICE/DTYPE inside.
+  - port.hydrogen_profile_grid(n, m, delta_lambda_nm, hyd, tabs, foff, fwt, n_fine) -> tensor [D, n_w]
+        n,m python ints; delta_lambda_nm a [D, n_w] array-like (offset in nm of each pixel from centre);
+        hyd: dict of per-depth state — each value a [D] or [D,1] array-like:
+             t3nhe, t3nh2, fo, dopph, c1d, c2d, y1s, y1b, gcon1, gcon2, pp, ne, xnfph_0
+        tabs: dict of tables — asum[96], y1wtm[2,2], xknmtb[4,3], propbm[7,5,15], c[5,7], d[5,7],
+              pp[5], beta[15] (array-likes)
+        foff, fwt: array-likes [n_fine] (fine-structure offsets in Hz and weights); n_fine: python int
+        returns phi[D, n_w]
+All returned tensors may be on DEVICE; the harness moves them to CPU/fp64. You MAY define helpers
+(the vectorized E_1, the guarded exp, the table-gather index math)."""
+
+_L6_HARNESS = r'''
+import numpy as np, torch, math, pathlib
+REFDIR = pathlib.Path("reference")
+C = np.load(REFDIR/"full_lines_data.npz", allow_pickle=True)
+A = np.load(REFDIR/"atmosphere.npz")
+
+def to64(x):
+    if torch.is_tensor(x): return x.detach().cpu().to(torch.float64).numpy()
+    return np.asarray(x, float)
+''' + _L6_NUMPY + r'''
+
+# --- per-depth hydrogen state + tables (same arrays the numpy twin reads) ---
+T = A["temperature"]; xne = np.maximum(A["electron_density"], 1e-40)
+n_depths = T.size
+tabs = dict(asum=C["htab_asum"], y1wtm=C["htab_y1wtm"], xknmtb=C["htab_xknmtb"],
+            propbm=C["htab_propbm"], c=C["htab_c"], d=C["htab_d"],
+            pp=C["htab_pp"], beta=C["htab_beta"])
+fkeys=C["fine_keys"]; foff_a=C["fine_offsets"]; fwt_a=C["fine_weights"]; fn_a=C["fine_n"]
+fine_map={(int(fkeys[j,0]),int(fkeys[j,1])):(foff_a[j],fwt_a[j],int(fn_a[j])) for j in range(fkeys.shape[0])}
+
+# H-beta (n=2, m=4): build the per-depth state for ALL depths, and the [D,n_w] offset grid
+n, m = 2, 4
+foff, fwt, nf = fine_map[(2, 4)]
+RYDH=3.2880515e15; C_LIGHT_AA=2.99792458e18
+wavenm = C_LIGHT_AA / (RYDH*((m*m-n*n)/(m*m*n*n)))   # H-beta centre wavelength in Angstrom
+# a representative wavelength grid spanning the core to the far wing (+-30 nm of H-beta), per depth
+wl_nm = np.linspace(wavenm/10.0 - 30.0, wavenm/10.0 + 30.0, 601)
+line_wl = wavenm/10.0
+dlam = (wl_nm - line_wl)[None, :].repeat(n_depths, 0)   # [D, n_w] offset in nm
+
+states = [hydrogen_state_numpy(di, T, xne, A["xnf_he1"], A["xnf_h2"], A["xnfph"],
+                               A["turbulent_velocity"]) for di in range(n_depths)]
+hyd = {k: np.array([s[k] for s in states], float).reshape(-1, 1)
+       for k in ("t3nhe","t3nh2","fo","dopph","c1d","c2d","y1s","y1b","gcon1","gcon2","pp","ne","xnfph_0")}
+
+# --- numpy reference: scalar profile, every (depth, pixel) ---
+phi_ref = np.array([[hydrogen_line_profile(n, m, float(dlam[di, j]), states[di], tabs, foff, fwt, nf)
+                     for j in range(dlam.shape[1])] for di in range(n_depths)])   # [D, n_w]
+
+# --- torch port over the whole grid ---
+phi_torch = to64(port.hydrogen_profile_grid(n, m, dlam, hyd, tabs, foff, fwt, nf))
+
+big = phi_ref > 1e-12     # the opacity-bearing pixels
+if big.sum() == 0:
+    dev_prof = 1e9
+else:
+    dev_prof = float(np.max(np.abs(phi_torch[big] - phi_ref[big]) / np.abs(phi_ref[big])))
+
+# also a direct sofbeta_grid check over a wide beta range at a deep layer
+di = n_depths - 1
+beta_test = np.logspace(-1, 4, 400)[None, :]    # [1, 400]
+p_test = np.array([[states[di]["pp"]]])
+s_ref = np.array([[sofbeta(float(b), states[di]["pp"], n, m,
+                           tabs["propbm"], tabs["c"], tabs["d"], tabs["pp"], tabs["beta"])
+                   for b in beta_test[0]]])
+s_torch = to64(port.sofbeta_grid(beta_test, p_test, n, m, tabs["propbm"], tabs["c"],
+                                 tabs["d"], tabs["pp"], tabs["beta"]))
+denomS = np.where(s_ref!=0.0, np.abs(s_ref), 1.0)
+dev_sof = float(np.max(np.abs(s_torch - s_ref)/denomS))
+
+max_dev = max(dev_prof, dev_sof)
+print(f"hprof4_grid_dev={dev_prof:.3e}  sofbeta_dev={dev_sof:.3e}  "
+      f"(nonzero px={int(big.sum())})  device={port.DEVICE}")
+print(f"PARITY {max_dev:.6e}")
+
+# --- §9 timing: the profile-grid eval is the hot path; time it (warm, best-of-N) ---
+import time as _t
+for _ in range(3):
+    Pb = port.hydrogen_profile_grid(n, m, dlam, hyd, tabs, foff, fwt, nf)
+    if torch.is_tensor(Pb) and Pb.device.type=="mps": torch.mps.synchronize()
+best = 1e9
+for _ in range(20):
+    t0=_t.perf_counter()
+    Pb = port.hydrogen_profile_grid(n, m, dlam, hyd, tabs, foff, fwt, nf)
+    if torch.is_tensor(Pb) and Pb.device.type=="mps": torch.mps.synchronize()
+    best=min(best, _t.perf_counter()-t0)
+print(f"TIME {best*1e3:.6f}")
+'''
+
+
 JOBS: dict[str, PortJob] = {
     "lecture4": PortJob(
         name="lecture4",
@@ -588,6 +1136,51 @@ JOBS: dict[str, PortJob] = {
         # to REDUCE (bible §6) — it broadcasts (a,v) and selects the 3 regimes with torch.where;
         # the API reshapes it to the [na,nv] grid contract, NOT regenerating the physics.
         kgpu_borrow=[("line_opacity.py", 116, 164)],
+    ),
+    "lecture5": PortJob(
+        name="lecture5",
+        numpy_source=_L5_NUMPY,
+        spec=_L5_SPEC,
+        contract=_L5_CONTRACT,
+        harness=_L5_HARNESS,
+        float_floor=1e-6,
+        preamble="The hot path is the line-opacity ACCUMULATION (scatter-add). reference/ holds "
+                 "full_lines_data.npz (cat_* line columns ~12.5k lines, h0/h1/h2tab[2001]), "
+                 "atmosphere.npz (population_per_ion/doppler_per_ion [80,6,139], hckt[80], xnf_*), and "
+                 "diag.npz (wavelength[5941], continuum_absorption/scattering[80,5941]). The metal lines "
+                 "are line_type==0. The fp32-MPS float floor is ~1e-6 on the opacity-bearing pixels; the "
+                 "scatter `index_put_(accumulate=True)` is add-order non-deterministic at ~1e-7 (within floor).",
+        # BORROW kgpu's BATCHED scatter accumulation: the [D,L] reach geometry, the ONE batched
+        # [D,L,offset] deposit, and the index_put_ scatter, plus the branchless Harris kernels.
+        kgpu_borrow=[("line_opacity.py", 116, 164),   # harris_hav (the L4 Voigt kernel)
+                     ("line_opacity.py", 167, 193),   # harris_h_at_zero (back-solve the wing amplitude)
+                     ("line_opacity.py", 199, 226),   # FASTEX tables + branchless gather
+                     ("line_opacity.py", 557, 585),   # harris_hav_walk (the near-wing H-form)
+                     ("line_opacity.py", 602, 617),   # _scatter_add_3d (index_put_ accumulate)
+                     ("line_opacity.py", 623, 691),   # _wing_reach_batched (Stage-1+2 reach geometry)
+                     ("line_opacity.py", 733, 816)],  # narrow-line batched [D,L,W] deposit (THE hot path)
+    ),
+    "lecture6": PortJob(
+        name="lecture6",
+        numpy_source=_L6_NUMPY,
+        spec=_L6_SPEC,
+        contract=_L6_CONTRACT,
+        harness=_L6_HARNESS,
+        float_floor=1e-6,
+        preamble="The HPROF4 hydrogen Stark profile, vectorized over [depth, wavelength]. reference/ holds "
+                 "full_lines_data.npz (htab_* Stark tables: asum[96], y1wtm[2,2], xknmtb[4,3], "
+                 "propbm[7,5,15], c[5,7], d[5,7], pp[5], beta[15]; fine_* fine-structure components) and "
+                 "atmosphere.npz (temperature, electron_density, xnf_he1/xnf_h2, xnfph[80,*], "
+                 "turbulent_velocity each [80]). The fp32-MPS float floor is ~1e-6 on the opacity-bearing "
+                 "pixels. PRECISION TRAP: del_freq = |freq - freqnm| is fp32 catastrophic cancellation in "
+                 "the core (~6e14 Hz numbers); kgpu factors the wavelength difference out (cancellation-free) "
+                 "— reproduce that exactly. kgpu CPU-fp64-promotes the per-depth state setup; here the harness "
+                 "passes the state in directly, so the port only needs the cancellation-free del_freq.",
+        # BORROW kgpu's vectorized HPROF4: _sofbeta (the 3 beta-regimes), _hydrogen_profile_grid (the
+        # 3-piece profile + the cancellation-free del_freq + the width-selection), and the vectorized E_1.
+        kgpu_borrow=[("hydrogen.py", 267, 350),   # _sofbeta + _fast_ex_gauss (the quasi-static profile)
+                     ("hydrogen.py", 369, 529),   # _hydrogen_profile_grid (the 3-piece HPROF4 profile)
+                     ("hydrogen.py", 532, 554)],  # _vcse1f_tensor (the vectorized E_1)
     ),
 }
 
