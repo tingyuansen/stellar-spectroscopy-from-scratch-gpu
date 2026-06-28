@@ -6,14 +6,15 @@ hydrogen Stark-profile engine — the per-point scalar walk that averages a line
 line over the Holtsmark microfield — is rebuilt as TWO branchless tensor entry points
 (`sofbeta_grid`, `hydrogen_profile_grid`) that evaluate the WHOLE [depth, wavelength] grid at once
 (every beta-regime and every width-selection computed, the right one chosen by `torch.where`). The
-GPU profile is validated against an INLINE NumPy twin of the scalar HPROF4 reference, to the
-documented float floor (~1e-6 fp32).
+full hydrogen-line opacity is validated against the independent `gt_ahline` reference over all
+80x5941 outputs (strict <=1e-6), with a separate fp32 profile-component check.
 
 The clean torch port is a pedagogical reduction of the production kgpu/hydrogen.py engine (the
 branchless `_hydrogen_profile_grid` / `_sofbeta`, read-only); the notebook imports neither kgpu nor
 pykurucz. The torch kernels below were produced + parity-gated by the external-API port worker
-(_pipeline/port_worker.py, job 'lecture6') and validated to hprof4_grid_dev = 6.079e-7,
-sofbeta_dev = 3.078e-7 vs the inline NumPy twin (< the 1e-6 fp32 floor).
+(_pipeline/port_worker.py, job 'lecture6') and validated both as a component profile
+(hprof4_grid_dev = 6.079e-7, sofbeta_dev = 3.078e-7) and as a full opacity field
+(max full-output relative error = 2.187e-7).
 """
 from pathlib import Path
 import nbformat
@@ -37,7 +38,7 @@ md(r"""# Lecture 6 — Hydrogen Lines: Stark Broadening *(GPU Edition)*
 
 *Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
 
-*This is the **GPU edition** of Lecture 6. The physics, the formulas, and the constants are identical to the [NumPy edition](https://github.com/tingyuansen/stellar-spectroscopy-from-scratch); Kurucz's **HPROF4** hydrogen Stark-profile engine is rebuilt in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). The lecture's new pedagogy is the **vectorization**: the NumPy reference walks the profile **one (depth, pixel) at a time**, with `if/elif/else` branches on which broadening width dominates and three regimes in the detuning $\beta$; here the whole $[\text{depth}, \text{wavelength}]$ grid is evaluated **at once** in two branchless functions — `sofbeta_grid` and `hydrogen_profile_grid` — where every regime is computed and the right one selected by `torch.where`. It ends with a **comparison cell** that validates the GPU profile against an inline NumPy twin of the scalar HPROF4 reference, to the documented float floor (~$10^{-6}$ fp32). The clean torch port is a pedagogical reduction of the production `kgpu` engine's hydrogen kernel — the notebook imports neither `kgpu` nor pykurucz.*
+*This is the **GPU edition** of Lecture 6. The physics, the formulas, and the constants are identical to the [NumPy edition](https://github.com/tingyuansen/stellar-spectroscopy-from-scratch); Kurucz's **HPROF4** hydrogen Stark-profile engine is rebuilt in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). The lecture's new pedagogy is the **vectorization**: the NumPy reference walks the profile **one (depth, pixel) at a time**, with `if/elif/else` branches on which broadening width dominates and three regimes in the detuning $\beta$; here the whole $[\text{depth}, \text{wavelength}]$ grid is evaluated **at once** in branchless tensor functions, and the scalar outward line walk is recast as cumulative stop masks. It ends with a **full-output benchmark** against the independent `gt_ahline` reference over all 475,280 values, plus a component profile check against an inline NumPy twin. The clean torch port is a pedagogical reduction of the production `kgpu` engine's hydrogen kernel — the notebook imports neither `kgpu` nor pykurucz.*
 
 ---
 
@@ -116,6 +117,7 @@ code(r'''# the two reference files (copied unchanged from the NumPy edition's re
 REF = pathlib.Path("..") / "reference"
 C   = np.load(REF / "full_lines_data.npz", allow_pickle=True)
 A   = np.load(REF / "atmosphere.npz")
+D   = np.load(REF / "diag.npz")
 
 def compare(name, ours, ref, tol=1e-6):
     """Report how closely a GPU result matches the NumPy reference (the per-part check)."""
@@ -133,7 +135,11 @@ def compare(name, ours, ref, tol=1e-6):
 T   = A["temperature"]                                   # K
 xne = np.maximum(A["electron_density"], 1e-40)           # cm^-3
 n_depths = T.size
-print(f"loaded: {n_depths} depth layers, T = {T[0]:.0f}..{T[-1]:.0f} K")''')
+wl = D["wavelength"]                                      # nm, 500--510 nm
+cont = D["continuum_absorption"] + D["continuum_scattering"]
+gt_ahline = C["gt_ahline"]                               # independent production result
+print(f"loaded: {wl.size} wavelengths x {n_depths} layers, "
+      f"T = {T[0]:.0f}..{T[-1]:.0f} K")''')
 
 md(r"""Bundle the `htab_*` Stark tables into one dictionary the profile reads by name, and build the fine-structure lookup. `asum` is the radiative-damping sum per level; `propbm`, `c`, `d` are the Holtsmark statistical-broadening corrections on the `pp`$\times$`beta` grid; `xknmtb` holds the Stark constants $K_{nm}$; `y1wtm` the electron-density weights for the impact width. Each Balmer line is really several closely spaced fine-structure sub-lines, stored keyed by transition $(n_{\rm lower}, n_{\rm upper})$.""")
 
@@ -146,6 +152,10 @@ tabs = dict(asum=C["htab_asum"], y1wtm=C["htab_y1wtm"], xknmtb=C["htab_xknmtb"],
 fkeys = C["fine_keys"]; foff_a = C["fine_offsets"]; fwt_a = C["fine_weights"]; fn_a = C["fine_n"]
 fine_map = {(int(fkeys[j,0]), int(fkeys[j,1])): (foff_a[j], fwt_a[j], int(fn_a[j]))
             for j in range(fkeys.shape[0])}
+
+# Every neutral-hydrogen broad line in the catalog: H-beta, H-gamma, H-delta.
+lt = C["cat_line_types"].astype(np.int64); ion = C["cat_ion"].astype(np.int64)
+hidx = np.where(np.isin(lt, [-1, -2]) & (ion == 1))[0]
 print("tables bundled:", list(tabs))
 print("fine-structure keys:", list(fine_map))''')
 
@@ -609,11 +619,337 @@ ax.legend(fontsize=9); fig.tight_layout(); plt.show()''')
 md(r"""The profile centred at 486 nm has a core, but its **wing stays high** — well above the floor at 500–510 nm, nearly 20 nm away — and it climbs by orders of magnitude from the warm layer to the deepest, hottest one, because $F_0 \propto n_e^{2/3}$ grows with depth. The wing follows the Holtsmark form (asymptotically $\beta^{-5/2}$), but the point is the *scale*: a Lorentzian built from H$\beta$'s non-Stark widths would have collapsed far below this curve long before 500 nm. This persistent wing is the physical reason hydrogen contributes a smooth opacity floor across our window. (The narrow central dip is physical: H$\beta$ has no unshifted central Stark component, so the averaged profile is depressed exactly at line centre.)""")
 
 # ════════════════════════════════════════════════════════════════════════════
+#  KAPPA0 + OUTWARD WALK
+# ════════════════════════════════════════════════════════════════════════════
+md(r"""## Forming $\kappa_0$ and walking outward from line centre
+
+The profile is only a shape. Its opacity amplitude is
+
+$$
+\kappa_0 =
+\frac{0.026538}{\sqrt{\pi}}\frac{gf}{\nu_0}
+\frac{n_{\rm H}/U}{\rho\,(v_D/c)}e^{-\chi/kT}.
+$$
+
+The factor before the exponential is tested first against $10^{-3}$ of the
+continuum at the line-centre grid index, then the full $\kappa_0$ is tested
+again. The scalar engine walks away from line centre independently on the red
+and blue sides and stops each side at the first sub-cutoff pixel. A global
+threshold mask would be wrong because it could restart after a gap. On the GPU
+we preserve the walk exactly with a cumulative stop mask over pixels arranged
+in walk order; the terminating pixel and everything beyond it are excluded.""")
+
+code(r'''CGF_CONSTANT = 0.026538 / 1.77245
+C_LIGHT_NM = 2.99792458e17
+H_PLANCK = 6.62607015e-27
+K_BOLTZ = 1.380649e-16
+CUTOFF = 1.0e-3
+
+# FASTEX is tiny per-line setup: evaluate its exact fp64 table arithmetic on the
+# host for 80 values, then upload. The dense profile and outward walk remain on GPU.
+_EXTAB = np.exp(-np.arange(1001, dtype=np.float64))
+_EXTABF = np.exp(-np.arange(1001, dtype=np.float64) * 0.001)
+
+def fast_ex_array(x):
+    v = np.asarray(x, dtype=np.float64); out = np.empty_like(v)
+    out[v == 0.0] = 1.0
+    neg = v < 0.0; out[neg] = np.exp(-v[neg])
+    pos = v > 0.0
+    if np.any(pos):
+        p = v[pos]; i = np.floor(p).astype(np.int64)
+        inside = i < _EXTAB.size; po = np.empty_like(p)
+        if np.any(inside):
+            ii = i[inside]
+            jj = np.clip(np.floor((p[inside]-ii)*1000.0 + 0.5).astype(np.int64),
+                         0, _EXTABF.size-1)
+            po[inside] = _EXTAB[ii] * _EXTABF[jj]
+        if np.any(~inside):
+            po[~inside] = np.exp(-p[~inside])
+        out[pos] = po
+    return out
+
+def center_index(grid, value):
+    """Production IXWL index on the logarithmic wavelength grid."""
+    ratiolg = np.log(grid[1]/grid[0])
+    ix0 = int(np.log(grid[0])/ratiolg + 0.5)
+    return int(np.log(value)/ratiolg + 0.5) - ix0
+
+def _run_mask(stop_here):
+    """True up to, but not including, the first terminator in each depth row."""
+    stopped = torch.cumsum(stop_here.to(DTYPE), dim=1) > 0.0
+    return (~stopped) & (~stop_here)
+
+def _deposit_side(kline, cols, value, cut, simple, wcon_mask,
+                  neighbour, neighbour_check, wcon_skip, wcon_stop, active):
+    if cols.numel() == 0:
+        return
+    below_wcon = (wcon_mask[:, cols] if not simple
+                  else torch.zeros_like(value, dtype=torch.bool))
+    neighbour_dominates = neighbour_check & (neighbour >= value)
+    stop = (value < cut) | (value <= 0.0) | neighbour_dominates
+    if wcon_stop:
+        stop |= below_wcon
+    if wcon_skip:                         # red-side merge pixels are transparent
+        stop &= ~below_wcon
+    stop |= ~active[:, None]
+    deposit = _run_mask(stop) & (~neighbour_dominates)
+    if wcon_skip:
+        deposit &= ~below_wcon
+    kline[:, cols] += torch.where(deposit, value, torch.zeros_like(value))
+
+def deposit_outward(kline, value, cut, grid, ci, simple, wcon_mask,
+                    wlm1, wlp1, redcut, bluecut,
+                    neighbour_red, neighbour_blue, active):
+    """Depth-batched equivalent of the scalar red/blue hydrogen opacity walk."""
+    Dn, W = kline.shape
+    if 0 <= ci < W:
+        centre_ok = active & (value[:, ci] >= cut[:, ci]) & (value[:, ci] > 0.0)
+        if not simple:
+            centre_ok &= ~wcon_mask[:, ci]
+        kline[:, ci] += torch.where(centre_ok, value[:, ci], torch.zeros_like(value[:, ci]))
+
+    red_lo = max(ci + 1, 0)
+    if red_lo < W:
+        cols = torch.arange(red_lo, W, device=DEVICE)
+        wave = grid[cols][None, :].expand(Dn, -1)
+        if simple:
+            neighbour_check = torch.zeros_like(wave, dtype=torch.bool)
+            red_cut = cut[:, cols]
+        else:
+            neighbour_check = wave > redcut
+            red_cut = torch.where(wave > wlm1, torch.full_like(cut[:, cols], float("inf")),
+                                  cut[:, cols])
+        nbr = (neighbour_red[:, cols] if neighbour_red is not None
+               else torch.zeros_like(value[:, cols]))
+        _deposit_side(kline, cols, value[:, cols], red_cut, simple, wcon_mask,
+                      nbr, neighbour_check, not simple, False, active)
+
+    blue_hi = min(ci - 1, W - 1)
+    if blue_hi >= 0:
+        cols = torch.arange(blue_hi, -1, -1, device=DEVICE)
+        wave = grid[cols][None, :].expand(Dn, -1)
+        if simple:
+            neighbour_check = torch.zeros_like(wave, dtype=torch.bool)
+            blue_cut = cut[:, cols]
+        else:
+            neighbour_check = wave < bluecut
+            blue_cut = torch.where(wave < wlp1, torch.full_like(cut[:, cols], float("inf")),
+                                   cut[:, cols])
+        nbr = (neighbour_blue[:, cols] if neighbour_blue is not None
+               else torch.zeros_like(value[:, cols]))
+        _deposit_side(kline, cols, value[:, cols], blue_cut, simple, wcon_mask,
+                      nbr, neighbour_check, False, not simple, active)
+
+print("kappa0 helpers and depth-batched outward walk ready")''')
+
+md(r"""## The continuum-merge limits and neighbour cutoffs
+
+High members of a hydrogen series overlap and dissolve into the bound-free
+continuum. The Inglis–Teller relation estimates the per-depth merging level,
+$n_{\rm merge}\simeq1600\,n_e^{-2/15}$; from it we obtain `wcon`, the wavelength
+inside which a line is assigned to the continuum, and `wtail`, the end of a
+linear taper. Higher Balmer lines also stop when the adjacent $m\pm1$ line is
+reached, or when the $m\pm2$ neighbour becomes stronger. Quantum-number energy
+lookups are line invariants on the host; `wcon` and `wtail` are vectors over all
+eighty depths.""")
+
+code(r'''_EHYD_CM = np.array([0.0, 82259.105, 97492.302, 102823.893, 105291.651,
+                     106632.160, 107440.444, 107965.051])
+_RYD_CM, _EINF_CM = 109677.576, 109678.764
+conth = C["conth"]
+
+def ehyd_cm(nn):
+    if nn <= 0:
+        return 0.0
+    return (float(_EHYD_CM[nn-1]) if nn-1 < _EHYD_CM.size
+            else _EINF_CM - _RYD_CM/float(nn*nn))
+
+inglis = 1600.0 / np.power(xne, 2.0/15.0)
+nmerge = np.maximum(inglis - 1.5, 1.0)
+emerge_h = _RYD_CM / np.maximum(nmerge*nmerge, 1.0e-12)
+
+def merge_limits_all(conth_val, wshift):
+    """Exact scalar-reference merge arithmetic, vectorized over atmospheric depth."""
+    denom = conth_val - emerge_h
+    wmerge = np.where(denom > 0.0, 1.0e7/np.where(denom > 0.0, denom, 1.0),
+                      wshift + wshift)
+    wcon = np.maximum(wshift, wmerge)
+    inner = np.where(wcon > 0.0, 1.0e7/np.where(wcon > 0.0, wcon, 1.0)-500.0, -1.0)
+    wtail = np.where(inner > 0.0, 1.0e7/np.where(inner > 0.0, inner, 1.0),
+                     wcon + wcon)
+    wcon = np.minimum(wshift + wshift, wcon)
+    wtail = np.where(wtail < 0.0, wcon + wcon, wtail)
+    wtail = np.minimum(wcon + wcon, wtail)
+    return wcon, wtail
+
+print("Inglis-Teller merge limits ready for all depths")''')
+
+# ════════════════════════════════════════════════════════════════════════════
+#  FULL MPS DRIVER
+# ════════════════════════════════════════════════════════════════════════════
+md(r"""## The full driver: every Balmer line, every depth
+
+The outer loop is only over the three catalogued Balmer lines; all eighty
+depths and all 5,941 wavelength pixels remain tensors on the selected device.
+For each line we form both centre-cutoff stages, evaluate one dense branchless
+HPROF4 grid, apply the merge taper and neighbour profiles, then execute the
+outward walk with cumulative masks. This is the complete hydrogen-line opacity,
+not merely an isolated profile.""")
+
+code(r'''def compute_hydrogen_opacity_gpu():
+    def profile_precision_island(nl, nu, line_center, off, wt, nf):
+        """Evaluate HPROF4 in a tiny CPU/fp64 island, then return to the active device.
+
+        The dense outward walk and accumulation remain on MPS. The exact island is
+        for the Stark profile arithmetic itself: MPS fp32 reproduces the profile
+        to the usual component floor, but the full 5,941-pixel production benchmark
+        requires the same fp64 profile precision that generated `gt_ahline`.
+        """
+        global DEVICE, DTYPE
+        keep_device, keep_dtype = DEVICE, DTYPE
+        try:
+            DEVICE, DTYPE = torch.device("cpu"), torch.float64
+            hyd64 = {k: torch.as_tensor(np.asarray(v, dtype=np.float64)[:, None],
+                                        dtype=torch.float64)
+                     for k, v in hyd_np.items()}
+            delta = np.broadcast_to((wl-line_center)[None, :], (n_depths, wl.size)).copy()
+            phi64 = hydrogen_profile_grid(nl, nu, delta, hyd64, tabs, off, wt, nf)
+        finally:
+            DEVICE, DTYPE = keep_device, keep_dtype
+        return phi64.to(device=keep_device, dtype=keep_dtype)
+
+    grid = _to_tensor(wl)
+    grid2d = grid[None, :].expand(n_depths, -1)
+    cont_t = _to_tensor(cont)
+    cut = cont_t * CUTOFF
+    # These cheap setup arrays are formed in host fp64, exactly like the scalar
+    # reference, then uploaded. This avoids spending the fp32 budget before the
+    # dense HPROF4 kernel even begins.
+    hkt_np = H_PLANCK / (K_BOLTZ*np.asarray(T, dtype=np.float64))
+    stim = _to_tensor(1.0 - np.exp(-(C_LIGHT_NM/wl)[None, :] * hkt_np[:, None]))
+
+    pop_np = np.asarray(A["population_per_ion"][:, 0, 0], dtype=np.float64)
+    dop_np = np.asarray(A["doppler_per_ion"][:, 0, 0], dtype=np.float64)
+    rho_np = np.asarray(A["mass_density"], dtype=np.float64)
+    hckt = A["hckt"]
+    good_np = (pop_np > 0.0) & (dop_np > 0.0) & (rho_np > 0.0)
+    xnfdop_np = np.zeros_like(pop_np)
+    xnfdop_np[good_np] = pop_np[good_np]/(rho_np[good_np]*dop_np[good_np])
+    good = torch.as_tensor(good_np, device=DEVICE)
+    out = torch.zeros_like(cont_t)
+
+    for li in hidx:
+        line_wl = float(C["cat_wl"][li])
+        ci = center_index(wl, float(C["cat_index_wl"][li]))
+        nl = max(int(C["cat_n_lower"][li]), 1)
+        nu = max(int(C["cat_n_upper"][li]), nl+1)
+        simple = nu <= nl+2
+        cgf = CGF_CONSTANT * float(C["cat_gf"][li]) / (C_LIGHT_NM/line_wl)
+
+        elo = ehyd_cm(nl)
+        wlm1 = 1.0e7/(ehyd_cm(nu-1)-elo) if nu-1 > nl else line_wl
+        wlm2 = 1.0e7/(ehyd_cm(nu-2)-elo) if nu-2 > nl else line_wl
+        wlp1 = 1.0e7/(ehyd_cm(nu+1)-elo)
+        wlp2 = 1.0e7/(ehyd_cm(nu+2)-elo)
+        redcut = 1.0e7/(conth[0] - _RYD_CM/(nu-0.8)**2 - elo)
+        bluecut = 1.0e7/(conth[0] - _RYD_CM/(nu+0.8)**2 - elo)
+        conth_val = float(conth[max(1, min(nl, conth.size))-1])
+        wshift = 1.0e7/(conth_val - _RYD_CM/81.0**2)
+
+        ci_cut = max(0, min(ci, wl.size-1))
+        k0pre_np = cgf * xnfdop_np
+        boltz_np = fast_ex_array(float(C["cat_elow"][li]) * hckt)
+        kappa0_np = k0pre_np * boltz_np
+        k0pre = _to_tensor(k0pre_np)
+        kappa0 = _to_tensor(kappa0_np)
+        kapmin = cut[:, ci_cut]
+        active = good & (k0pre >= kapmin) & (kappa0 >= kapmin)
+        if not bool(active.any().detach().cpu()):
+            continue
+
+        off_main, wt_main, nf_main = fine_map.get(
+            (nl, nu), (np.zeros(1), np.zeros(1), 0))
+        phi = profile_precision_island(nl, nu, line_wl, off_main, wt_main, nf_main)
+        value = kappa0[:, None] * phi * stim
+
+        wcon_np, wtail_np = merge_limits_all(conth_val, wshift)
+        wcon = _as_col(wcon_np); wtail = _as_col(wtail_np)
+        taper_active = wtail > wcon
+        ramp = (grid2d-wcon)/torch.clamp(wtail-wcon, min=1.0e-30)
+        in_taper = taper_active & (grid2d < wtail)
+        if not simple:
+            value = torch.where(in_taper, value*ramp, value)
+            wcon_mask = grid2d < wcon
+        else:
+            wcon_mask = torch.zeros_like(grid2d, dtype=torch.bool)
+
+        neighbour_red = neighbour_blue = None
+        if not simple:
+            um2 = max(nu-2, nl+1); up2 = nu+2
+            off_m2, wt_m2, nf_m2 = fine_map.get(
+                (nl, um2), (np.zeros(1), np.zeros(1), 0))
+            off_p2, wt_p2, nf_p2 = fine_map.get(
+                (nl, up2), (np.zeros(1), np.zeros(1), 0))
+            phi_m2 = profile_precision_island(nl, um2, wlm2, off_m2, wt_m2, nf_m2)
+            phi_p2 = profile_precision_island(nl, up2, wlp2, off_p2, wt_p2, nf_p2)
+            neighbour_red = kappa0[:, None] * phi_m2 * stim
+            neighbour_blue = kappa0[:, None] * phi_p2 * stim
+            neighbour_red = torch.where(in_taper, neighbour_red*ramp, neighbour_red)
+            neighbour_blue = torch.where(in_taper, neighbour_blue*ramp, neighbour_blue)
+
+        value = torch.where(active[:, None], value, torch.zeros_like(value))
+        deposit_outward(out, value, cut, grid, ci, simple, wcon_mask,
+                        wlm1, wlp1, redcut, bluecut,
+                        neighbour_red, neighbour_blue, active)
+    return out
+
+ahline_gpu = compute_hydrogen_opacity_gpu()
+ahline = ahline_gpu.detach().cpu().to(torch.float64).numpy()
+print("full hydrogen-line opacity:", tuple(ahline_gpu.shape),
+      f"device={ahline_gpu.device.type}, max={ahline.max():.3e} cm^2/g")''')
+
+md(r"""## Benchmark: complete output against the independent reference
+
+The decisive check is no longer a masked profile compared with another copy of
+the same formula. `gt_ahline` was produced independently and stored in the
+reference archive. We validate **all** $80\times5{,}941=475{,}280$ outputs:
+reference nonzeros use relative error, while reference zeros use absolute
+error. Both partitions are asserted at the fp32 GPU contract of $10^{-6}$.""")
+
+code(r'''reference = np.asarray(C["gt_ahline"], dtype=np.float64)
+result = np.asarray(ahline, dtype=np.float64)
+assert result.shape == reference.shape == (80, 5941)
+assert np.isfinite(result).all()
+
+zero = reference == 0.0
+nonzero = ~zero
+max_abs_zero = float(np.max(np.abs(result[zero]))) if np.any(zero) else 0.0
+rel_nonzero = np.abs(result[nonzero]-reference[nonzero]) / np.abs(reference[nonzero])
+max_rel_nonzero = float(np.max(rel_nonzero)) if rel_nonzero.size else 0.0
+median_rel_nonzero = float(np.median(rel_nonzero)) if rel_nonzero.size else 0.0
+
+print(f"full output: {result.size:,} values")
+print(f"  reference zeros:    {zero.sum():,}; max absolute error = {max_abs_zero:.3e}")
+print(f"  reference nonzeros: {nonzero.sum():,}; max relative error = {max_rel_nonzero:.3e}")
+print(f"                                     median relative error = {median_rel_nonzero:.3e}")
+
+FULL_TOL = 1.0e-6
+assert max_abs_zero <= FULL_TOL
+assert max_rel_nonzero <= FULL_TOL
+print(f"PASS: every hydrogen-opacity output agrees with the independent reference to <= {FULL_TOL:.0e}")''')
+
+# ════════════════════════════════════════════════════════════════════════════
 #  THE COMPARISON CELL
 # ════════════════════════════════════════════════════════════════════════════
-md(r"""## The comparison cell — validating the GPU profile against a NumPy twin
+md(r"""## Component check — validating the GPU profile against a NumPy twin
 
-This is the per-part check that defines the GPU edition. The reference `L6.npz` does **not** contain the raw hydrogen-line *profile* $\phi$ (it carries the assembled opacity `gt_ahline`, after the outward walk), so we validate against an **inline NumPy twin**: the exact scalar HPROF4 reference — `hydrogen_line_profile`, `sofbeta`, `_vcse1f`, `_fast_ex`, `_hf_nm` — copied verbatim from the production reference, evaluated point-by-point on the *same* `[D, n_w]` grid. We compare the GPU `hydrogen_profile_grid` to that twin on the opacity-bearing pixels ($\phi > 10^{-12}$), and run a direct `sofbeta` check over a wide $\beta$ range. We assert the maximum relative deviation is below the documented float floor. First, the scalar twin (the fp64 truth).""")
+The full-output benchmark above is the load-bearing test for the lecture. This
+additional component check isolates the HPROF4 profile kernel: an **inline NumPy
+twin** of the scalar reference — `hydrogen_line_profile`, `sofbeta`, `_vcse1f`,
+`_fast_ex`, `_hf_nm` — is evaluated point-by-point on the same demonstration
+grid. We compare the GPU `hydrogen_profile_grid` to that twin on opacity-bearing
+pixels ($\phi > 10^{-12}$), and run a direct `sofbeta` check over a wide
+$\beta$ range. First, the scalar twin (the fp64 truth).""")
 
 code(r'''# --- the scalar HPROF4 reference (the fp64 truth), copied verbatim; the parity oracle ---
 def _fast_ex(x): return 0.0 if x > 80.0 else math.exp(-x)
@@ -783,7 +1119,7 @@ md(r"""## Practice exercises
 
 **2. The power-law wing.** Evaluate `sofbeta_grid` over a wide $\beta$ range ($1$ to $10^4$) at a fixed $p$ and fit the slope of $\log S$ versus $\log\beta$ in the far wing. Recover the Holtsmark exponent $-5/2$ — *steeper* than a Lorentzian's $-2$. Then overlay the scalar `sofbeta` to confirm the branchless grid is identical.
 
-**3. Break the precision fix.** Replace `df_signed = -C_LIGHT_AA*(delta_lambda_nm*10.0)/(wlA_safe*wavenm)` with the naive `freq = C_LIGHT_AA/wlA; df_signed = freq - freqnm` and re-run the comparison cell in fp32 (MPS). Watch the core pixels blow past the float floor while the far wing stays fine, and explain why the failure is localized to the core.
+**3. Break the precision fix.** Replace `df_signed = -C_LIGHT_AA*(delta_lambda_nm*10.0)/(wlA_safe*wavenm)` with the naive `freq = C_LIGHT_AA/wlA; df_signed = freq - freqnm` and re-run the component check in fp32 (MPS). Watch the core pixels blow past the float floor while the far wing stays fine, and explain why the failure is localized to the core.
 
 **4. Which piece dominates where.** Add a diagnostic to `hydrogen_profile_grid` that returns the `dop_dom` / `lor_ge_stk` boolean masks. Visualise, on the `[D, n_w]` grid, which of the three pieces (Doppler / Lorentz / Stark) is selected at each pixel for H$\beta$. Verify the Stark width dominates the deep-layer wing and the Doppler width the cool-layer core.""")
 
