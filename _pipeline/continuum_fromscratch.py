@@ -69,10 +69,19 @@ def build_continuum_pops(pa, T, rho, xne):
     return pops
 
 
-def compute_continuum(freq, pa, T, rho, xne, ifop=IFOP_SOLAR):
-    """acont, sigmac at arbitrary frequencies from the Stage-1 EOS (the L3 KAPP continuum)."""
+def compute_continuum(freq, pa, T, rho, xne, ifop=IFOP_SOLAR, faruv=True):
+    """acont, sigmac at arbitrary frequencies from the Stage-1 EOS (the L3 KAPP continuum).
+
+    With faruv=True (default), the far-UV metal bound-free forest (continuum_faruv) REPLACES the
+    L3 single-edge metal bf — required for the hot deep-base 91-150 nm Rosseland mean (Stage-7).
+    """
+    freq = np.asarray(freq, np.float64)
     pops = build_continuum_pops(pa, T, rho, xne)
-    return VK.compute_kapp(np.asarray(freq, np.float64), pops, ifop)
+    acont, sigmac = VK.compute_kapp(freq, pops, ifop)
+    if faruv:
+        import continuum_faruv as CFUV
+        acont = CFUV.add_faruv_metal_bf(acont, freq, pops)
+    return acont, sigmac
 
 
 def kapcont_wavetab():

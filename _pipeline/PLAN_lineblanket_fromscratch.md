@@ -291,3 +291,18 @@ author lectures (house style), run both critics.
   the far-UV acont vs kgpu bit-exact, then re-run the Stage-7 fold (target abross[base] ratio ~1.0).
   Honest-input note: the metal-bf cross-section coefficients (_C1_ELEV etc.) are atomic-data
   constants (Karzas-Latter / atlas12.for), the same class as the L3 tables already shipped.
+- Stage 7 FAR-UV CONTINUUM FIX (continuum_faruv.py): transcribed kgpu's far-UV metal-bf forest
+  (C I/Mg I/Si I/Al I/Fe I _xNop_atlas + element data + reusing the book's own xkarsas) into the
+  L3 continuum (REPLACES the L3 single-edge metals, matching ATLAS12 COOLOP). VERIFIED ~BIT-EXACT
+  vs kgpu: 96nm 740.2=740.2, 100nm 803.6=803.6, 108nm 813.3=813.3, 120nm 130.2=130.2, 150nm
+  98.45 vs 98.46; OPTICAL 505nm 193.0=193.0 UNCHANGED. tabcont WITH far-UV now median 6.4e-8 vs
+  kgpu (the far-UV cutoff gap CLOSED). ISOLATION: my far-UV continuum + pyk deposit -> abross[base]
+  ratio 0.998 == the ceiling (kgpu cont + pyk deposit 0.998). MY CONTINUUM IS NOW CORRECT.
+- Stage 7 REMAINING (molecular lines): my full from-scratch path -> abross[base] 0.936. DECISIVE
+  isolation: kgpu's OWN atomic-only deposit + kgpu continuum -> 0.9362 == my 0.9361 (my path is
+  BIT-FAITHFUL to kgpu's atomic deposit). The remaining 6.4% is the MOLECULAR line records (439654
+  in 300-400nm) that pyk deposits separately (folding to 0.998) but BOTH kgpu and my path drop
+  (xnfdop molecular slots 841-940 = 0). At the base the 300-400nm molecular records carry ~6% of
+  the deep-base kappa_R (more than the cleanroom's surface-only estimate). REMEDIATION (next):
+  compute molecular populations via the book's L13 NMOLEC -> fill xnfdop/dopple slots 841-940 ->
+  deposit the molecular line records (separate molecular deposit path) -> re-fold to ~1.0. [2026-06-28]
