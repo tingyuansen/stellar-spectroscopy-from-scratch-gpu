@@ -298,6 +298,29 @@ md(r"""## Summary
 - The kGPU-style tensor state is fp32-safe on significant slots; the only documented fp32 caveat is trace `xnfdop` underflow far below opacity relevance.
 - Residual limits are explicit: molecular populations sit at the Lecture-13 floor; `TABCONT` has a continuum-bridge residual reported separately; full convergence is summarized as the NumPy twin's comparison artifact, not claimed as a notebook rerun.""")
 
+md(r"""## Synthesis
+
+Lecture 16 closes the bookkeeping gap that earlier atmosphere lectures deliberately exposed. A line-blanketed iteration is not only a temperature correction and a hydrostatic march; every iteration also needs a coherent EOS state: ion populations in `POPSALL` order, Doppler widths, population-per-Doppler opacity normalizers, neutral perturber densities, and the finite-difference heat-capacity samples used by convection. This GPU lecture now builds that state before comparing it.
+
+The important boundary is also explicit. The tensor state that kGPU consumes is computed here and checked at the fp32 floor on significant slots. The molecular slots and continuum cutoff bridge are computed and reported with their residual limits. The full convergence trajectory remains a comparison artifact from the NumPy twin, not a hidden claim that this notebook reran the entire warm-start loop. That separation is what makes the passdown clean: the reusable GPU ingredients are real, and the remaining integration target is named rather than disguised.""")
+
+md(r"""## Practice exercises
+
+1. **Trace-slot underflow.** The significant `xnfdop` slots pass at the fp32 floor, while the unmasked maximum is dominated by trace populations far below opacity relevance. Recompute the check with two different relevance floors and explain which slots can affect line opacity.
+
+2. **Perturber sensitivity.** In `txnxn`, change the helium coefficient from `0.42` to `0.50` and rerun the check. Which depths move most, and why does that identify the layers where van der Waals damping matters?
+
+3. **Finite-difference heat capacity.** Repeat the EOS finite-difference sample with a `0.2%` perturbation instead of `0.1%`. Compare the asserted densities and energy samples. What part of the convection calculation would be most sensitive to this choice?
+
+4. **Passdown boundary.** List which arrays in this lecture are now computed inputs to kGPU and which outputs remain comparison-only. This is the checklist a production handoff needs before replacing a reference fixture with a runtime kernel.""")
+
+md(r"""## Further reading
+
+- Kurucz, R. L. (1970), *ATLAS: A Computer Program for Calculating Model Stellar Atmospheres*. The original ATLAS organization behind the EOS, opacity, temperature-correction, and hydrostatic state that this lecture packages.
+- Mihalas, D. (1978), *Stellar Atmospheres*. The standard reference for LTE populations, line broadening inputs, and radiative-equilibrium atmosphere structure.
+- Gray, D. F. (2005), *The Observation and Analysis of Stellar Photospheres*. Useful physical context for Doppler widths, damping perturbers, and why population bookkeeping matters for spectra.
+- The kGPU source tree. The immediate implementation target for this lecture's tensors: compact, reusable kernels that consume `POPSALL`, Doppler state, `xnfdop`, perturbers, and convection samples without dragging the textbook scaffolding with them.""")
+
 nb = new_notebook(cells=cells, metadata={
     "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
     "language_info": {"name": "python"},
