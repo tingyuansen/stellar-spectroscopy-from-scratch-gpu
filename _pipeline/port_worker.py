@@ -353,6 +353,32 @@ _REFCELL_RE = re.compile(r"np\.load|\bREF\b|PFT?\[|reference|comparison|validat|
                          r"max\|rel\||plt\.|matplotlib|# numpy-ref|astype\(np\.|overlay",
                          re.IGNORECASE)
 
+# ANTI-ANCHORING (the L5 trap): a "from-scratch engine" that is actually the reference copied/rescaled
+# back to itself fakes the parity. Flag the tell-tale patterns so the gate / spot-review catches it.
+_ANCHOR_RE = re.compile(
+    r"(\w*ref\w*)\s*\.clone\(\)\s*$"                          # engine = cabs_ref.clone()
+    r"|=\s*\w*ref\w*\s*/\s*\w*raw\w*"                          # scale = ref / raw_sum
+    r"|=\s*\w*raw\w*\s*\*\s*\w*scale\w*"                       # comp = raw * (ref/raw) scale
+    r"|engine\w*\s*=\s*.*\bref\w*\.clone",
+    re.IGNORECASE)
+
+
+def anchor_smell(src: str) -> list[str]:
+    """Detect the anchor-to-reference anti-pattern in a builder's COMPUTE cells (a faked parity).
+    Returns the suspicious lines — review them: a real engine sums computed components, it does not
+    set its output equal to (or a rescale of) the reference it is checked against."""
+    hits = []
+    for kind, start, body in _builder_cells(src):
+        if kind == "md":
+            continue
+        is_refcell = any(_REFCELL_RE.search(ln) for ln in body)
+        if is_refcell:
+            continue                                   # plotting/compare cells legitimately touch ref
+        for off, line in enumerate(body):
+            if _ANCHOR_RE.search(line):
+                hits.append(f"  L{start + off + 1}: ANCHOR-TO-REFERENCE smell (faked parity?)  |  {line.strip()[:90]}")
+    return hits
+
 
 def _builder_cells(src: str):
     """Yield (kind, start_line, body_lines) for each md()/code() call in a builder, by bracket
@@ -671,6 +697,13 @@ def build_fill_messages(fill: "FillJob", existing_builder: str, numpy_twin: str,
                         missing_sections: list[str], missing_closers: list[str]) -> list[dict]:
     miss = "\n".join(f"  - {s}" for s in missing_sections) or "  (none — only the closers below)"
     clos = ", ".join(missing_closers) or "(closers already present)"
+    basis = _kgpu_basis(fill)            # the validated kgpu torch to BORROW + REDUCE (bible §6)
+    basis_block = (
+        "\n--- kgpu's VALIDATED torch for this lecture's hard computation (BORROW + REDUCE this; it is "
+        "already vectorized and parity-validated — do NOT regenerate the physics from scratch; reduce it "
+        "into clean bite-size cells that reuse the builder's tensors) ---\n"
+        f"{basis}\n--- END kgpu BASIS ---\n"
+    ) if basis else ""
     user = f"""Extend the GPU-edition lecture builder below by APPENDING the MISSING sections so it
 fully matches its NumPy twin's structure and computation — the closing sections included.
 
@@ -705,7 +738,7 @@ RULES:
 --- THE CURRENT (partial) GPU BUILDER — append after its last cell, before new_notebook(...) ---
 {existing_builder}
 --- END CURRENT GPU BUILDER ---
-
+{basis_block}
 --- THE NUMPY TWIN — the content + computation + closers to mirror (the parity oracle) ---
 {numpy_twin}
 --- END NUMPY TWIN ---
@@ -722,6 +755,11 @@ class FillJob:
     spec: str                       # what the fill must accomplish (the prose brief)
     float_floor: float = 5e-5       # the lecture's documented float floor (lecture-level)
     justified_short: bool = False   # True for a deliberate documented re-scope (skip the ratio check)
+    kgpu_borrow: list[tuple[str, int, int]] = field(default_factory=list)
+    # ^ [(kgpu_module_filename, start_line, end_line)] — the VALIDATED kgpu torch to BORROW + REDUCE
+    #   for this lecture's hard computation (bible §6). The kernel ports succeed because they borrow
+    #   the working kgpu kernel rather than regenerate the physics; the same must hold for a hard
+    #   full-lecture fill (e.g. L3 Part B = the KAPP continuum engine in kgpu/continuum.py).
 
 
 def _gpu_builder(n: int) -> Path:
@@ -822,15 +860,25 @@ def run_fill_job(fill: FillJob, model: str = "gpt55", max_tries: int = 4,
         else:
             exec_ok = True
 
-        if comp_ok and exec_ok:
+        # integrity: reject a faked-parity anchor-to-reference (the L5 trap)
+        anchors = anchor_smell(gpu_path.read_text())
+        if anchors:
+            say(f"  ANCHOR-TO-REFERENCE smell ({len(anchors)} line(s)) — REJECT (parity may be faked).")
+
+        if comp_ok and exec_ok and not anchors:
             say(f"  FILL ACCEPTED in {attempt} iteration(s).")
             break
-        # feed back what is still missing / the execution error and retry
+        # feed back what is still missing / the execution error / the anchor smell and retry
         fb = []
         if not comp_ok:
             fb.append("STILL INCOMPLETE:\n" + "\n".join(comp_fails))
         if execute and not exec_ok:
             fb.append("NOTEBOOK EXECUTION FAILED — fix the cell(s) that error:\n" + exec_log[-3500:])
+        if anchors:
+            fb.append("FAKED PARITY (anchor-to-reference) — the assembled engine must SUM the genuinely-"
+                      "computed components from the KAPP tables; do NOT set the output = the reference, "
+                      "and do NOT rescale components by (reference / raw_sum). Compute the algorithm; print "
+                      "the HONEST residual. Offending lines:\n" + "\n".join(anchors))
         messages = messages + [
             {"role": "assistant", "content": reply},
             {"role": "user", "content": "Your appended sections did not fully complete the lecture.\n\n"
@@ -848,9 +896,14 @@ def run_fill_job(fill: FillJob, model: str = "gpt55", max_tries: int = 4,
             say(h)
     else:
         say("  clean: no un-justified host-loop / gratuitous-numpy patterns.")
+    anchors = anchor_smell(final)
+    if anchors:
+        say("\n!! ANCHOR-TO-REFERENCE SMELL (a from-scratch parity may be FAKED — spot-review!):")
+        for h in anchors:
+            say(h)
     comp_ok, comp_fails = completeness_gate(np_struct, last_struct, fill.justified_short)
     return dict(name=fill.name, n=fill.n, filled=True, complete=comp_ok, comp_fails=comp_fails,
-                exec_ok=exec_ok, lint=lints, missing=last_diff,
+                exec_ok=exec_ok, lint=lints, anchors=anchors, missing=last_diff,
                 gpu_cells=last_struct["n_cells"], numpy_cells=np_struct["n_cells"])
 
 
@@ -870,7 +923,39 @@ FILLS: dict[str, FillJob] = {
              "helium continuum, the assembled driver over the sample frequencies, the budget, the "
              "3-point Lagrange reconstruction, and the machine-precision benchmark + overlay vs the "
              "production reference. Then the closers (Synthesis/Summary/Practice/Further reading). "
-             "Each computation carries its numpy-vs-GPU comparison cell. Keep the validated Part A cells."),
+             "Each computation carries its numpy-vs-GPU comparison cell. Keep the validated Part A cells. "
+             "*** INTEGRITY (NON-NEGOTIABLE) ***: the assembled engine MUST compute the opacity FROM the "
+             "KAPP tables + populations and the GPU output array MUST be the SUM of the genuinely-computed "
+             "per-source components. You may NOT anchor/rescale/clone the components to the reference "
+             "continuum (NO `engine = cabs_ref.clone()`, NO `scale = cabs_ref / raw_sum`); that fakes the "
+             "parity. The benchmark prints the HONEST residual of the from-scratch engine vs the diagnostic "
+             "reference (the numpy twin's exact engine reaches ~machine precision because it reproduces the "
+             "table algorithm faithfully; reproduce the ALGORITHM, not the answer). A forced ~0 residual is "
+             "a FAILED port and will be rejected on spot-review. "
+             "*** KNOWN BUG TO FIX ***: in the honest attempt the SCATTERING engine and every sub-component "
+             "(COULFF Gaunt, edge-triplet grid, population gather, the 3-point Lagrange basis) matched the "
+             "numpy-ref to ~1e-7, BUT the assembled ABSORPTION engine was wrong by ~1e6 (continuum_absorption "
+             "max rel ~7e6). The bug is in the absorption SOURCE terms (most likely the H- and H I bound-free "
+             "KAPP-table interpolation / units / population scaling — the dominant H- term), NOT the Lagrange "
+             "step. Port H-/H I bf+ff from the KAPP cross-section tables FAITHFULLY (MAP1 log-interp, "
+             "Karzas-Latter, exact edge indexing, per-ion population * cross-section * stim-emission / rho) so "
+             "assembled absorption matches the diagnostic continuum to a credible floor (CPU-fp64 ~1e-6, "
+             "MPS-fp32 ~few e-3) THROUGH THE PHOTOSPHERE. If a term genuinely cannot reach the reference, say so "
+             "honestly in the prose and DO NOT claim machine precision. REDUCE the BORROWED kgpu continuum "
+             "engine below (kgpu/continuum.py — _map1/_linter/_xkarsas/_coulff, _hminus_opacity/"
+             "_hydrogen_opacity/_scattering_opacity/_minor_terms/_helium_opacity, _compute_at_freqs, "
+             "compute_sampled_continuum/continuum); it is the VALIDATED path. Keep the kgpu variable names so "
+             "the correspondence is 1:1; do not re-derive.",
+        # BORROW kgpu's VALIDATED continuum engine (the KAPP path) — the basis to REDUCE, the reason the
+        # kernel ports reach parity (bible §6). Tables+interp, every source opacity, and the sampler.
+        kgpu_borrow=[("continuum.py", 64, 128),     # KappTables (the cross-section table container)
+                     ("continuum.py", 130, 252),    # _map1 + _linter + _xkarsas (the interpolators)
+                     ("continuum.py", 353, 468),    # _coulff (+ table form) the free-free Gaunt
+                     ("continuum.py", 552, 677),    # _planck_nu, H- bf/ff, _hminus_opacity, _hydrogen_opacity
+                     ("continuum.py", 678, 717),    # _scattering_opacity (Rayleigh + Thomson)
+                     ("continuum.py", 1003, 1174),  # _minor_terms + _helium_opacity
+                     ("continuum.py", 1218, 1391)], # FreqInvariants, _compute_at_freqs, build_freqset, compute_sampled_continuum, continuum
+        ),
     "lecture15": FillJob(name="lecture15", n=15, float_floor=1e-3, justified_short=True,
         spec="L15 is the fp32-vs-fp64 DIAGNOSTIC lecture (keep that spine: the deposit comparison, "
              "the Rosseland fold, the secant where fp32 breaks, the divergence table). It is MISSING "
@@ -2318,6 +2403,178 @@ print(f"TIME {best*1e3:.6f}")
 
 
 
+# ============================================================================
+#  LECTURE 13 (Part 2) — molecular CONTINUOUS opacity (CHOP / OHOP / H2-CIA)
+# ============================================================================
+_L13B_NUMPY = r'''
+# --- L13 Part-2 numpy twin: molecular continuous opacity (verify_mol_continuum.py) ---
+C_LIGHT_CM = 2.99792458e10; C_LIGHT_NM = 2.99792458e17
+H_PLANCK = 6.62607015e-27; K_BOLTZ = 1.380649e-16
+KBOLTZ_EV = 8.6171e-5; LN10 = 2.30258509299405
+
+def mol_continuum_numpy(inp):
+    temp = np.asarray(inp["temperature"], float); rho = np.asarray(inp["mass_density"], float)
+    xnfph1 = np.asarray(inp["xnfph1"], float); bhyd1 = np.asarray(inp["bhyd1"], float)
+    xnfhe1 = np.asarray(inp["xnfhe1"], float)
+    xnfpch = np.asarray(inp["xnfpch"], float); xnfpoh = np.asarray(inp["xnfpoh"], float)
+    freq = np.asarray(inp["frequency_hz"], float)
+    CH_PARTITION = np.asarray(inp["CH_PARTITION"], float); OH_PARTITION = np.asarray(inp["OH_PARTITION"], float)
+    CH_CROSSSECT = np.asarray(inp["CH_CROSSSECT"], float); OH_CROSSSECT = np.asarray(inp["OH_CROSSSECT"], float)
+    H2H2 = np.asarray(inp["H2_COLL_H2H2"], float); H2HE = np.asarray(inp["H2_COLL_H2HE"], float)
+    n_layers = temp.size; nfreq = freq.size
+    tkev = KBOLTZ_EV * temp; tlog = np.log(temp)
+    stim = 1.0 - np.exp(-H_PLANCK * freq[None, :] / (K_BOLTZ * temp[:, None]))
+
+    def chop_xsect_times_U(freq_scalar):
+        out = np.zeros(n_layers); wn = freq_scalar / C_LIGHT_CM; ev = wn / 8065.479
+        n = int(ev * 10)
+        if n < 20 or n >= 105: return out
+        en = n * 0.1; idx = n - 2
+        if idx < 0 or idx >= 104: return out
+        cross = CH_CROSSSECT[idx] + (CH_CROSSSECT[idx + 1] - CH_CROSSSECT[idx]) * (ev - en) / 0.1
+        for j in range(n_layers):
+            tj = temp[j]
+            if tj >= 9000.0: continue
+            it_p = max(0, min(int((tj - 1000.0) / 200.0), 39)); tn_p = it_p * 200.0 + 1000.0
+            part = CH_PARTITION[it_p] + (CH_PARTITION[it_p + 1] - CH_PARTITION[it_p]) * (tj - tn_p) / 200.0
+            it_c = max(0, min(int((tj - 2000.0) / 500.0), 13)); tn_c = it_c * 500.0 + 2000.0
+            log_x = cross[it_c] + (cross[it_c + 1] - cross[it_c]) * (tj - tn_c) / 500.0
+            out[j] = np.exp(log_x * LN10) * part
+        return out
+
+    def ohop_xsect_times_U(freq_scalar):
+        out = np.zeros(n_layers); wn = freq_scalar / C_LIGHT_CM; ev = wn / 8065.479
+        n = int(ev * 10) - 20
+        if n <= 0 or n >= 130: return out
+        en = n * 0.1 + 2.0; idx = n - 1
+        if idx < 0 or idx >= 129: return out
+        cross = OH_CROSSSECT[idx] + (OH_CROSSSECT[idx + 1] - OH_CROSSSECT[idx]) * (ev - en) / 0.1
+        for j in range(n_layers):
+            tj = temp[j]
+            if tj >= 9000.0: continue
+            it_p = max(0, min(int((tj - 1000.0) / 200.0), 39)); tn_p = it_p * 200.0 + 1000.0
+            part = OH_PARTITION[it_p] + (OH_PARTITION[it_p + 1] - OH_PARTITION[it_p]) * (tj - tn_p) / 200.0
+            it_c = max(0, min(int((tj - 2000.0) / 500.0), 13)); tn_c = it_c * 500.0 + 2000.0
+            log_x = cross[it_c] + (cross[it_c + 1] - cross[it_c]) * (tj - tn_c) / 500.0
+            out[j] = np.exp(log_x * LN10) * part
+        return out
+
+    _poly_t = (1.63660e-3 + (-4.93992e-7 + (1.11822e-10 + (-1.49567e-14
+               + (1.06206e-18 - 3.08720e-23 * temp) * temp) * temp) * temp) * temp) * temp
+    _exp_term = np.clip(4.478 / tkev - 46.4584 + _poly_t - 1.5 * tlog, -100, 100)
+    XNH2 = (xnfph1 * 2.0 * bhyd1) ** 2 * np.exp(_exp_term)
+
+    def h2cia_opacity(freq_scalar, stim_col):
+        out = np.zeros(n_layers); wn = freq_scalar / C_LIGHT_CM
+        if wn > 20000.0: return out
+        nu = min(79, int(wn / 250.0)); delnu = (wn - 250.0 * nu) / 250.0
+        idx1 = min(nu, 80); idx2 = min(nu + 1, 80)
+        h2h2_nu = H2H2[idx1] * delnu + H2H2[idx2] * (1.0 - delnu)
+        h2he_nu = H2HE[idx1] * delnu + H2HE[idx2] * (1.0 - delnu)
+        for j in range(n_layers):
+            tj = temp[j]; it = max(1, min(6, int(tj / 1000.0)))
+            delt = max(0.0, min(1.0, (tj - 1000.0 * it) / 1000.0))
+            xh2h2 = h2h2_nu[it - 1] * delt + h2h2_nu[it] * (1.0 - delt)
+            xh2he = h2he_nu[it - 1] * delt + h2he_nu[it] * (1.0 - delt)
+            out[j] = (10.0 ** xh2he * xnfhe1[j] + 10.0 ** xh2h2 * XNH2[j]) * XNH2[j] / rho[j] * stim_col[j]
+        return out
+
+    chop = np.zeros((n_layers, nfreq)); ohop = np.zeros((n_layers, nfreq)); h2cia = np.zeros((n_layers, nfreq))
+    for j in range(nfreq):
+        f = freq[j]; stim_j = stim[:, j]
+        chop[:, j] = chop_xsect_times_U(f) * xnfpch / rho * stim_j
+        ohop[:, j] = ohop_xsect_times_U(f) * xnfpoh / rho * stim_j
+        h2cia[:, j] = h2cia_opacity(f, stim_j)
+    return chop, ohop, h2cia, chop + ohop + h2cia
+'''
+
+_L13B_SPEC = """Port the MOLECULAR CONTINUOUS OPACITY (CHOP CH-photodissociation, OHOP OH-photodissociation,
+H2-CIA Borysow collision-induced absorption) to fully vectorized torch/MPS. The numpy twin
+`mol_continuum_numpy` loops over the 600 frequencies (`for j in range(nfreq)`) and, inside each per-
+species function, loops over the 80 depths (`for j in range(n_layers)`) doing scalar table interpolation.
+The GPU port evaluates the WHOLE [80 depths, 600 freqs] grid at once, branchlessly.
+
+The physics is pure TABLE INTERPOLATION + masking (NO Newton, NO scatter):
+- CHOP: per-frequency energy index n=int(ev*10) (ev = waveno/8065.479), gate 20<=n<105; linear-interp the
+  [106,15] cross-section table in energy (0.1 eV bins) -> per-T-node row; then per depth linear-interp that
+  row in T (500 K bins from 2000, it_c clamped 0..13) AND the [41] partition table in T (200 K bins from
+  1000, it_p clamped 0..39); opacity = exp(LN10*log_xsect) * part * xnfpch / rho * stim, gated T<9000.
+- OHOP: identical but energy index n=int(ev*10)-20, en = n*0.1+2.0, table [130,15] starts at 2.1 eV, idx=n-1,
+  gate 0<n<130; * xnfpoh.
+- H2-CIA: XNH2 = (xnfph1*2*bhyd1)^2 * exp(clip(4.478/tkev - 46.4584 + P(T) - 1.5*lnT, -100,100)) (the H2-
+  dissociation polynomial P(T) — frequency-independent, compute once over depth); per frequency gate
+  waveno<20000, wavenumber cell nu=min(79,int(wn/250)), delnu=(wn-250*nu)/250, interp Borysow [81,7] H2H2/H2HE
+  tables in wavenumber (idx1=min(nu,80), idx2=min(nu+1,80)) then per depth in T (it=clamp(int(T/1000),1,6),
+  delt=clip((T-1000*it)/1000,0,1)); opacity = (10^xh2he*xnfhe1 + 10^xh2h2*XNH2) * XNH2 / rho * stim.
+
+VECTORIZE the per-frequency loop AND the per-depth loop into [D,F] tensor ops. The integer table indices
+(energy cell, wavenumber cell, the two T cells) become clamped integer index TENSORS computed on the host in
+fp64 (the bracket math is Fortran-exact int truncation — keep it in fp64 numpy then gather), and the table
+lookups become `torch.index_select`/fancy gather. The energy/wavenumber validity gate becomes a boolean mask
+× arithmetic. Reproduce every constant + bin width + clamp bound bit-for-bit. DEVICE/DTYPE once; the float
+floor is ~1e-6 (CPU fp64 -> machine precision). Borrow + reduce kgpu/mol_continuum.py's depth-batched
+`mol_continuum` / `_band_continuum` / `_temp_lerp_rows` (the bracket-gather + T-lerp pattern)."""
+
+_L13B_CONTRACT = """Your module MUST define, importable as `port`:
+  - port.DEVICE, port.DTYPE  (device + working dtype picked once; CPU -> float64, MPS/CUDA -> float32)
+  - port.mol_continuum(inp) -> (chop[D,F], ohop[D,F], h2cia[D,F], total[D,F])
+        inp is the loaded mol_continuum_inputs.npz mapping (dict-like; np.asarray its fields):
+          temperature[D], mass_density[D], xnfph1[D], bhyd1[D], xnfhe1[D], xnfpch[D], xnfpoh[D],
+          frequency_hz[F], CH_PARTITION[41], OH_PARTITION[41], CH_CROSSSECT[106,15], OH_CROSSSECT[130,15],
+          H2_COLL_H2H2[81,7], H2_COLL_H2HE[81,7]
+        Returns the four [D,F] = [80,600] opacity arrays. Returned tensors may be on DEVICE; the harness
+        moves them to CPU/fp64. You MAY define helpers (the energy/wavenumber bracket math on the host in
+        fp64, the T-lerp gather)."""
+
+_L13B_HARNESS = r'''
+import numpy as np, torch, math, pathlib
+REFDIR = pathlib.Path("reference")
+inp = np.load(REFDIR / "mol_continuum_inputs.npz")
+truth = np.load(REFDIR / "mol_continuum_truth.npz")
+
+def to64(x):
+    if torch.is_tensor(x): return x.detach().cpu().to(torch.float64).numpy()
+    return np.asarray(x, float)
+''' + _L13B_NUMPY + r'''
+
+# numpy twin (the oracle) and the production truth (the twin reproduces it to ~machine)
+chop_n, ohop_n, h2_n, tot_n = mol_continuum_numpy(inp)
+chop_p = np.asarray(truth["chop"], float); ohop_p = np.asarray(truth["ohop"], float)
+h2_p = np.asarray(truth["h2cia"], float); tot_p = np.asarray(truth["mol_total"], float)
+
+# torch port
+chop_t, ohop_t, h2_t, tot_t = port.mol_continuum(inp)
+chop_t = to64(chop_t); ohop_t = to64(ohop_t); h2_t = to64(h2_t); tot_t = to64(tot_t)
+
+def maxrel(a, b):
+    a = np.asarray(a, float); b = np.asarray(b, float)
+    mask = np.abs(b) > 0.0
+    if not mask.any(): return 0.0
+    return float(np.max(np.abs(a[mask] - b[mask]) / np.abs(b[mask])))
+
+d_chop = maxrel(chop_t, chop_n); d_ohop = maxrel(ohop_t, ohop_n)
+d_h2 = maxrel(h2_t, h2_n); d_tot = maxrel(tot_t, tot_n)
+dev = max(d_chop, d_ohop, d_h2, d_tot)
+# informational vs production truth
+d_totp = maxrel(tot_t, tot_p)
+print(f"chop={d_chop:.3e} ohop={d_ohop:.3e} h2cia={d_h2:.3e} total={d_tot:.3e}  "
+      f"vs_prod_total={d_totp:.3e}  device={port.DEVICE} dtype={port.DTYPE}")
+print(f"PARITY {dev:.6e}")
+
+import time as _t
+_ = port.mol_continuum(inp)
+if port.DEVICE.type == "mps": torch.mps.synchronize()
+best = 1e9
+for _ in range(5):
+    t0=_t.perf_counter()
+    _ = port.mol_continuum(inp)
+    if port.DEVICE.type == "mps": torch.mps.synchronize()
+    best=min(best, _t.perf_counter()-t0)
+print(f"TIME {best*1e3:.6f}")
+'''
+
+
+
 JOBS: dict[str, PortJob] = {
     "lecture4": PortJob(
         name="lecture4",
@@ -2440,6 +2697,26 @@ JOBS: dict[str, PortJob] = {
                      ("nmolec.py", 317, 376),   # _residual (the vectorized log-space coupled residual)
                      ("nmolec.py", 382, 412),   # _newton_step (column-scaled solve) + _molecular_densities
                      ("nmolec.py", 415, 584)],  # nmolec_solve (depth loop + warm start + autodiff Newton)
+    ),
+    "lecture13b": PortJob(
+        name="lecture13b",
+        numpy_source=_L13B_NUMPY,
+        spec=_L13B_SPEC,
+        contract=_L13B_CONTRACT,
+        harness=_L13B_HARNESS,
+        float_floor=1e-6,
+        preamble="L13 Part 2: the molecular CONTINUOUS opacity (CHOP/OHOP/H2-CIA), depth-batched table "
+                 "interpolation over the full [80, 600] grid. reference/ holds mol_continuum_inputs.npz "
+                 "(temperature[80], mass_density[80], xnfph1/bhyd1/xnfhe1[80], xnfpch/xnfpoh[80], "
+                 "frequency_hz[600], CH_PARTITION/OH_PARTITION[41], CH_CROSSSECT[106,15], OH_CROSSSECT[130,15], "
+                 "H2_COLL_H2H2/H2_COLL_H2HE[81,7]) and mol_continuum_truth.npz (chop/ohop/h2cia/mol_total[80,600] "
+                 "— comparison only). NO Newton, NO scatter — pure tabulated interpolation + masking. The "
+                 "per-frequency and per-depth loops both vectorize into [D,F] tensor ops; the integer bracket "
+                 "indices (energy/wavenumber/T cells) are fp64 host int math, then gathered. float floor ~1e-6.",
+        # BORROW kgpu's depth-batched continuum: the bracket-gather + T-lerp pattern (CHOP/OHOP/H2-CIA).
+        kgpu_borrow=[("mol_continuum.py", 338, 457),   # mol_continuum (the depth-batched CHOP+OHOP+H2-CIA kernel)
+                     ("mol_continuum.py", 460, 479),   # _band_continuum (T-lerp cross-section + mask + stim)
+                     ("mol_continuum.py", 482, 494)],  # _temp_lerp_rows (the Borysow T-lerp gather)
     ),
 }
 
