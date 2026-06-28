@@ -989,6 +989,220 @@ FILLS: dict[str, FillJob] = {
         spec="VERIFY ONLY: L5 already has all four closers and is a deliberate metals-only re-scope "
              "(helium + hydrogen-bridge + autoionizing extension intentionally deferred). The fill "
              "driver should report it complete; only fill if a genuine truncation is detected."),
+    "lecture11": FillJob(name="lecture11", n=11, float_floor=5e-5,
+        spec="L11 is the convection + converged-atmosphere lecture. The seed builder has the title, "
+             "objectives, introduction, setup (device/dtype + the converged_ref/josh_tables/"
+             "convec_gaps_inputs loads + the back()/reldev()/tt() helpers), and the convergence-history "
+             "table. APPEND every remaining numpy-twin section, each as fully-vectorized depth-batched "
+             "torch with its own numpy-vs-GPU comparison cell printing max|rel|, in order:\n"
+             "  (1) The numerical toolbox (Lecture 8): parcoe/integ/deriv/map1 as BATCHED torch over "
+             "the depth axis (no python loop over depths).\n"
+             "  (2) Constants and the converged model: SIGMA etc. + unpack T_conv/rhox/P/xne/abross/"
+             "flxcnv from REF as device tensors.\n"
+             "  (3) The per-frequency flux (JOSH + Rosseland mean), incl. the frequency sweep: the "
+             "depth-AND-frequency-batched continuum-opacity sweep, the per-frequency JOSH H/J moments, "
+             "the Rosseland harmonic fold (sum of 1/kappa weighted by dB/dT). VECTORIZE over freq.\n"
+             "  (4) The Rosseland optical-depth scale and its lookup table (abross -> tau_Ross integral).\n"
+             "  (5) Closing the radiation-pressure moment + the surface K-moment (the josh_ck.npz "
+             "K-weights; compute RADIAP depth-moment AND the surface K-integral, check vs prad_conv).\n"
+             "  (6) Why the deep photosphere convects (the Schwarzschild intuition; markdown + plot).\n"
+             "  (7) The thermodynamic derivatives, from re-running the equation of state: re-run the "
+             "Saha/Boltzmann + charge-balance EOS of Lecture 2 at T,P +-0.1% (4 perturbed points), central-"
+             "difference the four derivatives. Depth-batched torch; the parity-critical per-layer arithmetic "
+             "runs fp64-on-host for the mixing-length cubic.\n"
+             "  (8) The mixing-length kernel (CONVEC): grdadb, superadiabaticity, convective velocity + flux, "
+             "the tau_b^2/(2+tau_b^2) efficiency. REDUCE the BORROWED kgpu convec()/_depth_thermodynamics "
+             "below; keep kgpu names (dltdlp/heatcp/grdadb/hscale/velsnd/flxcnv). Validate FLXCNV ~2e-10.\n"
+             "  (9) Convective overshoot (the OVERWT/overshoot_blend smear; reduce overshoot_blend).\n"
+             "  (10) Seeing the Schwarzschild criterion (a plot of nabla vs nabla_ad with depth).\n"
+             "  (11) The temperature correction, now with convection: the TCORR step including the "
+             "convective flux. THE SECANT (ptot2-ptot1)/ptot1 IS CATASTROPHIC CANCELLATION IN fp32 — "
+             "fp64-PROMOTE JUST THAT PER-DEPTH REDUCTION ON THE HOST (tensor.cpu().to(torch.float64), never "
+             "tensor.to('cpu', torch.float64)); the bulk stays GPU-resident. Teach this explicitly.\n"
+             "  (12) Closing the iteration + the fixed-point benchmark + the converged model and its flux "
+             "constancy: ONE from-scratch iteration {KAPP given, JOSH flux, Rosseland, CONVEC, TCORR} from the "
+             "converged model reproduces converged_ref to the precision floor; print the HONEST residual. "
+             "*** HONESTY: the from-scratch converged atmosphere reaches RHOX ~12.32 at the deep base (the "
+             "documented coarse-OS deposit value, optically invisible vs the production 12.14) — present THAT "
+             "honestly; do NOT claim the production 12.14. ***\n"
+             "  (13) The milestone: from (Teff, logg) to a model atmosphere + What comes next (markdown).\n"
+             "  (14) The closers: Synthesis, Summary, Practice exercises, Further reading — GPU-adapted "
+             "(the loop->tensor narrative, the one fp64-promoted secant, tie forward to L12-16).\n"
+             "Preserve the numpy twin's pedagogical voice; weave the GPU/vectorization + precision story in. "
+             "Do NOT touch the validated seed cells.",
+        kgpu_borrow=[("atlas_convec.py", 658, 718),
+                     ("atlas_convec.py", 719, 852),
+                     ("atlas_convec.py", 853, 914),
+                     ("atlas_rosseland.py", 97, 211),
+                     ("atlas_tcorr.py", 303, 486)],
+        ),
+    "lecture14": FillJob(name="lecture14", n=14, float_floor=5e-3,
+        spec="L14 is the CAPSTONE — the end-to-end synthesis half: assemble the book's GPU engines into "
+             "one lean torch synthesiser and reproduce four stars' (hot/sun/giant/mdwarf) emergent spectra "
+             "from scratch. The seed builder has the title, objectives, introduction, coverage table, "
+             "schematic, scope map, and setup (device/dtype + the four STARS + leankurucz_{slug}/"
+             "leankurucz_tables/josh_tables loads + back()/reldev()/tt() helpers). APPEND every remaining "
+             "numpy-twin section, each as fully-vectorized depth+wavelength-batched torch with its own "
+             "numpy-vs-GPU comparison cell printing max|rel|, in order (mirror the twin's structure):\n"
+             "  - The four temperature structures + The Sun from a grey start (the convergence trace plot).\n"
+             "  - Step 1 — the radiative-transfer engine (constants + optical depth; the Eddington grid; the "
+             "scattering iteration; one wavelength opacity->emergent flux). REDUCE the BORROWED kgpu josh.py "
+             "(planck_bnu/source_and_alpha/parcoe/integ/map1 batched/iterate_source/solve_josh_batched) below; "
+             "keep kgpu names. The scattering iteration is fp32-safe (contractive).\n"
+             "  - Step 2 — the equation of state (take population_per_ion as the verified L2 reference ships "
+             "it, like Lecture 2's PoC).\n"
+             "  - Step 3 — the continuous opacity (KAPP), evaluated at continuum-edge triplets, interpolated "
+             "onto each window. Reduce the already-ported L3 continuum engine; batch over wavelength.\n"
+             "  - Step 3 (continued) — the molecular continuum (cool stars).\n"
+             "  - Step 4 — the atomic line forest (ASYNTH): every metal line as a SCATTER-ADD over the "
+             "wavelength axis (the GPU win; index_add_, no python loop over lines).\n"
+             "  - Step 5 — the hydrogen lines (HPROF4 linear-Stark).\n"
+             "  - Step 6 — the helium wings (Voigt-batch + the Inglis-Teller taper recomputed from scratch).\n"
+             "  - Step 7 — the molecular bands (TiO ASYNTH).\n"
+             "  - Step 8 — assembling the opacity from scratch (sum the components) + A check on the opacity "
+             "itself + The residuals (at the float floor, bar one documented far-UV continuum term).\n"
+             "  - Running the four stars + The four-star gallery (the spectrum overlays) — the headline "
+             "result: each star's from-scratch GPU spectrum vs the production reference.\n"
+             "  - Step 9 — the atmosphere operator: the from-scratch temperature-correction step. THE SECANT "
+             "(ptot2-ptot1)/ptot1 IS CATASTROPHIC CANCELLATION IN fp32 — fp64-PROMOTE JUST THAT REDUCTION ON "
+             "THE HOST; reproduce the production single step. *** the Sun's atmosphere is the L11 converged "
+             "continuum-only model; present the RHOX ~12.32 deep-base honestly, do NOT claim 12.14. ***\n"
+             "  - The end-to-end precision table + The tamper check (negative control) + An honest map of the "
+             "simplifications + The LTE-NLTE horizon.\n"
+             "  - The closers: Synthesis, Summary, Practice exercises, Further reading — GPU-adapted (the "
+             "assemble-the-engines + wavelength-batch narrative, the one fp64-promoted secant, tie forward to "
+             "Part VI L15/L16).\n"
+             "INTEGRITY: the opacity MUST be COMPUTED from the populations + line data; do NOT anchor/clone the "
+             "GPU output to the reference spectrum. Print the HONEST residual. A forced ~0 residual is a FAILED "
+             "port. The windows are short representative bands per star; the parity floor is the fp32-MPS "
+             "spectrum floor (~few e-3), set by the JOSH float32 inner sweep. Preserve the numpy twin's voice; "
+             "weave the GPU/vectorization story in. Do NOT touch the validated seed cells.",
+        kgpu_borrow=[("josh.py", 164, 215),
+                     ("josh.py", 216, 426),
+                     ("josh.py", 427, 570),
+                     ("josh.py", 571, 631)],
+        ),
+    "lecture1": FillJob(name="lecture1", n=1, float_floor=1e-6,
+        spec="L1 is the seed (title + device/dtype preamble + objectives + the compare() helper "
+             "loading reference/L1.npz). FILL the WHOLE body + closers from the numpy twin, GPU-"
+             "adapted: (1) the pipeline-overview prose (## The plan: from parameters to photons, with "
+             "the s1_pipeline.png figure); (2) ## Units and constants (define H, C, K as torch-usable "
+             "literals + the sample-energy printout); (3) ## Blackbody radiation and the Planck "
+             "function: port planck_nu to a BRANCHLESS torch fn evaluated on the whole frequency/grid "
+             "at once (Kurucz's overflow-safe e^{-x}/(1-e^{-x}) form, literal 1.47439e-2), the B_lambda "
+             "plot, and the comparison cell `compare('Planck B_nu(505 nm)', planck_nu(freq, T_ref), "
+             "REF['planck_B'])` to ~machine precision; (4) ## Local thermodynamic equilibrium (prose); "
+             "(5) ## Optical depth and the photosphere (prose + s1_optical_depth.png figure); (6) ## A "
+             "first model atmosphere: the grey atmosphere — port grey_temperature(teff, tau) to torch "
+             "(Kurucz-Hopf fit), build the 80-layer ATLAS log-tau grid `tau = 10**(-6.875+0.125*j)` as "
+             "a torch arange, T over all layers at once, the T(log tau) plot, and compare grey_tau / "
+             "grey_T to REF (exact); (7) ## Hydrostatic equilibrium: pressure and density — the cold-"
+             "start P_total = g*tau, RHOX = P_total/g, the Kurucz P_rad floor form, P_gas, XNE=zeros, "
+             "the structure printout, compare P_gas/RHOX to REF at tol=1e-4 (the one-line analytic "
+             "integral vs the predictor-corrector; note Lecture 9 closes it), and the two-panel "
+             "structure plot. Each computation is FULLY torch-native (even the trivial ones) with its "
+             "numpy-vs-GPU comparison; the figures reuse resources/figures/s1_*.png verbatim. Then the "
+             "closers: ## Synthesis: what you built and where it goes, ## Summary, ## Practice exercises, "
+             "## Further reading — GPU-adapted (tie back to the torch port + device/precision budget). "
+             "Reuse DEVICE/DTYPE/t()/compare()/REF from the seed; do NOT redefine them."),
+    "lecture9": FillJob(name="lecture9", n=9, float_floor=1e-6,
+        spec="L9 is the seed (title + device/dtype preamble + objectives + compare() loading "
+             "reference/L1.npz + TEFF/LOGG/g_cgs). FILL the WHOLE body + closers from the numpy twin, "
+             "GPU-adapted: (1) ## Hydrostatic equilibrium, in the form the codes integrate — the prose "
+             "recap of dP/dtau = g/kappa => P_total = g*m; (2) ## Recap: the grey/Hopf temperature — "
+             "port grey_temperature(teff, tau) to a torch elementwise fn (Kurucz-Hopf fit, clamp the "
+             "bracket >=tiny before the 1/4 power); (3) ## Recap: the optical-depth grid — build the "
+             "ATLAS 80-layer log-tau grid `tau = 10**(-6.875+0.125*arange(80))` as a torch tensor, T "
+             "over all layers at once, and a `check`/compare on grey_tau + grey_T vs REF (exact); (4) "
+             "## Radiation pressure — pradk = 2.521e-15 * max(T^4, Teff^4/2) (torch.clamp_min / "
+             "torch.maximum), prad = pradk - pradk[0], pturb = zeros; (5) ## Why the cold start uses "
+             "kappa==1 + ## Integrating in log pressure (prose) + dlg_tau = log(tau[1]/tau[0]); (6) the "
+             "TTAUP predictor-corrector ENGINE: port ttaup() faithfully. THIS MARCH IS GENUINELY "
+             "SEQUENTIAL — the 4-term Adams history (plog1..plog4, dplog1..dplog3) couples layer j to "
+             "j-1..j-4, so it CANNOT be vectorized over depth; keep it as a `for j in range(n)` depth "
+             "loop with a `# JUSTIFIED-LOOP: TTAUP Adams history couples layer j to j-1..j-4 (fixed "
+             "80-layer depth march, not vectorizable)` comment, exactly as kgpu/atlas_hydrostatic.py "
+             "ttaup() does. Do the per-layer scalar arithmetic torch-native on the device (a 0-dim "
+             "tensor or python float read once per layer is fine at this genuinely-scalar boundary). "
+             "Reproduce the predictor (j==0 boundary log(g/abstd[0]*tau[0]); j<=3 one-step; j>3 the "
+             "(3*plog4+8*dplog1-4*dplog2+8*dplog3)/3 multistep), the EVALUATE-THEN-CHECK corrector "
+             "(store ptotal/pgas/abstd/dplog from the trial plog, THEN test error<=5e-5 / itn>1000, "
+             "then the corrector estimate + plog=0.5*(pnew+plog) average), the exp-overflow guard at "
+             "709.78, the pgas<=0 clamp, and the history shift; (7) ## Running the integrator — call "
+             "ttaup, RHOX = ptotal/g_cgs; (8) ## Benchmark: machine precision — compare grey_tau, "
+             "grey_T, grey_pgas, grey_rhox vs REF (now bit-exact on fp64 / float floor on fp32, "
+             "sharpening Lecture 1's 1e-5 residual); (9) the structure plot; (10) ## What this "
+             "atmosphere is not yet: radiative equilibrium (prose, points to L10). Each computed array "
+             "carries its numpy-vs-GPU comparison. Then the closers: ## Synthesis, ## Summary, ## "
+             "Practice exercises, ## Further reading — GPU-adapted. Reuse DEVICE/DTYPE/t()/compare()/REF/"
+             "TEFF/LOGG/g_cgs from the seed; do NOT redefine them. BORROW + REDUCE kgpu's "
+             "grey_temperature + ttaup below (1:1 variable names).",
+        # BORROW kgpu's VALIDATED hydrostatic engine — grey_temperature + the TTAUP depth march.
+        kgpu_borrow=[("atlas_hydrostatic.py", 131, 139),   # grey_temperature (Hopf fit)
+                     ("atlas_hydrostatic.py", 241, 364)],   # ttaup (the sequential predictor-corrector march)
+        ),
+    "lecture10": FillJob(name="lecture10", n=10, float_floor=5e-6,
+        spec="L10 is the seed (title + device/dtype preamble + objectives + compare() loading "
+             "reference/tcorr_ref.npz + josh_tables.npz + the fp64_reduce helper + TEFF/GRAV/LOGG). "
+             "FILL the WHOLE body + closers from the numpy twin, GPU-adapted, depth-batched in torch. "
+             "This is the biggest, most numerically delicate lecture; preserve the twin's full "
+             "structure (~51 cells). Port, each with its numpy-vs-reference comparison cell: (1) ## "
+             "Constants and the depth grid (SIGMA/PLANCK/KBOLTZ literals, T/rhox/p_in from REF as torch "
+             "tensors, hkt = h/(k*T), the Eddington flux target H = SIGMA/12.5664*TEFF**4); (2) ## A "
+             "glossary of the main arrays (prose); (3) ## The numerical toolbox — port parcoe/integ/"
+             "deriv/map1 (the parabolic-coefficient, cumulative-integral, cubic-tangent-derivative, and "
+             "piecewise-quadratic-remap helpers) to vectorized torch (deriv/integ/map1 are the "
+             "branchless 1-D forms in kgpu/atlas_tcorr.py _deriv/_integ/_map1 — borrow them; deriv has "
+             "no per-depth loop in the kgpu form); (4) the JOSH per-depth profiles — port josh_optics / "
+             "josh_grid_setup / the float32 josh_lambda_iteration kernel / josh_thin_layers / "
+             "josh_deep_moments / josh_profiles, BATCHED over frequency (kgpu/atlas_rt.py "
+             "josh_depth_profiles + _deriv_batched + _map1_grid_to_target; the Gauss-Seidel kernel is "
+             "intrinsically float32 — keep it so); (5) ## Sweeping the spectrum — the per-frequency "
+             "accumulation of the Rosseland integrand + the four flux/correction integrals "
+             "(flxrad/rjmins/rdabh/rdiagj). The frequency sweep is BATCHED over the 30000-point grid in "
+             "torch (NOT a python `for inu` loop — that is the numpy twin's bottleneck this GPU port "
+             "removes); rdiagj is the E_3 Lambda-diagonal DEPTH scan (kgpu _rdiagj_accumulate + "
+             "_expi3_batched; use the cancellation-free s = term - 0.5 form so the deep `diagj-1` does "
+             "not lose bits); (6) ## The Rosseland optical-depth scale — abross = (4 sigma/pi)T^3 / "
+             "ross_acc as a HARMONIC fold, tauros = integ(rhox, abross); THE HARMONIC FOLD IS THE "
+             "fp32-DRIFT REDUCTION — wrap the wide-dynamic-range sum-of-1/kappa over 30000 frequencies "
+             "in fp64_reduce (CPU/float64 offload), as kgpu's reduce_fp64 ROSS gate does; (7) ## "
+             "Finishing the radiation-pressure moment (RADIAP, flux-limit cap, prad, remap); (8) ## The "
+             "temperature correction: three terms — the Avrett-Krook dtflux (deriv/integ chain + "
+             "exp(integral) + tau/3 clamp), the local-Lambda dtlamb (flxdrv/rdiagj with the per-layer "
+             "tau>=1 halving — vectorize via the kgpu _resolve_dtlamb branchless scan, NOT a host "
+             "loop), the surface dtsurf; (9) ## Applying the correction — tnew = max(T+T1,1) + the "
+             "monotonicity guard (kgpu _monotonic_clamp reverse cummin, NOT a reverse python loop); "
+             "(10) ## Re-integrating hydrostatic equilibrium: the density correction — the ROSSTAB "
+             "bilinear table + two ttaup() hydrostatic re-integrations (on T and T+T1; the ttaup march "
+             "is the same JUSTIFIED sequential depth loop as L9 — carry a `# JUSTIFIED-LOOP` comment) "
+             "and the SECANT frac = (ptot_new - ptot_old)/ptot_old. THE SECANT IS THE HEADLINE "
+             "fp32-CANCELLATION TRAP — a difference of two nearly-equal large pressures; wrap it in "
+             "fp64_reduce (CPU/float64), exactly as kgpu/atlas_tcorr.py _delta_rhox does; (11) ## "
+             "Closing the iteration — the MAP1 remap of T and rhox back onto the standard tau grid; "
+             "(12) ## The benchmark — compare T_out / rhox_out vs REF['T_out']/REF['rhox_out'] (the "
+             "pipeline floor; ~1e-7 fp64, the fp32 floor on MPS); (13) ## Seeing the correction (plot) "
+             "+ ## What comes next (prose). Then the closers: ## Synthesis, ## Summary, ## Practice "
+             "exercises, ## Further reading. *** HONESTY (NON-NEGOTIABLE) ***: present the secant + "
+             "harmonic-fold parity HONESTLY — the per-eval physics holds fp32 parity to the float floor "
+             "and the fp64-promoted reductions match the reference; where a pure-fp32 path would diverge "
+             "say so. If the lecture quotes a converged base column mass, it is RHOX ~12.32 (the "
+             "documented coarse-OS deposit value, optically invisible vs the production 12.14) — quote "
+             "the number actually computed; do NOT claim 12.14. Each computation carries its "
+             "numpy-vs-reference comparison cell. Reuse DEVICE/DTYPE/t()/fp64_reduce/compare()/REF/JT/"
+             "TEFF/GRAV/LOGG from the seed; do NOT redefine them. BORROW + REDUCE the kgpu engines below "
+             "(1:1 variable names); do not re-derive the physics.",
+        # BORROW kgpu's VALIDATED radiative-equilibrium engines (the basis to REDUCE, bible §6).
+        kgpu_borrow=[("atlas_tcorr.py", 90, 155),     # _deriv / _integ / _map1 (the 1-D numerical toolbox)
+                     ("atlas_rt.py", 286, 397),       # _deriv_batched / _map1_grid_to_target
+                     ("atlas_rt.py", 400, 537),       # josh_depth_profiles (the batched JOSH driver)
+                     ("atlas_rt.py", 563, 688),       # _rdiagj_accumulate (E_3 Lambda-diagonal) + _expi3_batched
+                     ("atlas_rt.py", 690, 820),       # rt_sweep (fold accumulators) + finalize_ross
+                     ("atlas_rosseland.py", 97, 206), # build_rosseland_weights + rosseland_mean (harmonic fold)
+                     ("atlas_tcorr.py", 256, 300),    # _monotonic_clamp + _damp_oldt1
+                     ("atlas_tcorr.py", 303, 479),    # tcorr_step (the three-term correction)
+                     ("atlas_tcorr.py", 502, 634)],   # _resolve_dtlamb + _delta_rhox (the secant)
+        ),
 }
 
 
@@ -2591,6 +2805,340 @@ print(f"TIME {best*1e3:.6f}")
 '''
 
 
+# ── Lecture 7 — the formal solution of radiative transfer (analytic, no kgpu borrow) ──
+_L7_NUMPY = r'''
+# constants (CGS): H_C, C, K = 6.62607015e-27, 2.99792458e10, 1.380649e-16
+# grid loaded from reference/L6.npz: wl[n_wl] (nm), T[80], rhox[80] (column mass g/cm^2),
+#   total_abs/total_scat/cont_abs/cont_scat each [80, n_wl] (cm^2/g)
+
+def optical_depth(kappa, rhox):
+    """Cumulative optical depth over column mass: tau[depth, wl]."""
+    dtau = 0.5 * (kappa[1:] + kappa[:-1]) * np.diff(rhox)[:, None]
+    tau = np.empty_like(kappa)
+    tau[0] = kappa[0] * rhox[0]                 # seed: top layer kappa * column above it
+    tau[1:] = tau[0] + np.cumsum(dtau, axis=0)  # accumulate inward, depth by depth
+    return tau
+
+def planck_nu(nu, T):
+    """Planck B_nu(T) [CGS], overflow-safe Kurucz form, 1.47439e-2 prefactor (= 2h/c^2 rescaled)."""
+    x = H_C * nu / (K * T)
+    return 1.47439e-2 * (nu/1e15)**3 * np.exp(-x) / (1.0 - np.exp(-x))
+
+def expint2(x):
+    """E2(x) = exp(-x) - x*E1(x); E1 via A&S 5.1.53 (x<=1), 5.1.56 (x>1); E2(0)=1."""
+    x = np.asarray(x, float)
+    xp = np.where(x > 0.0, x, 1.0)
+    a = (-0.57721566, 0.99999193, -0.24991055, 0.05519968, -0.00976004, 0.00107857)
+    e1_small = (a[0]+xp*(a[1]+xp*(a[2]+xp*(a[3]+xp*(a[4]+xp*a[5]))))) - np.log(xp)
+    a1,a2,b1,b2 = 2.334733, 0.250621, 3.330657, 1.681534
+    e1_large = np.exp(-xp)/xp * (xp*xp + a1*xp + a2) / (xp*xp + b1*xp + b2)
+    E1 = np.where(x <= 1.0, e1_small, e1_large)
+    return np.where(x > 0.0, np.exp(-x) - x*E1, 1.0)
+
+# source S = B_nu(T), broadcast (depth, wl):  nu = C/(wl*1e-7);  S = planck_nu(nu[None,:], T[:,None])
+def emergent_flux(tau, S):
+    """F_lambda = 2*pi * trapezoid(S * E2(tau), tau, axis=depth)."""
+    E2 = expint2(tau)
+    return 2*np.pi * np.trapezoid(S * E2, tau, axis=0)
+
+# spectrum:  flux_line = emergent_flux(tau_total, S);  flux_cont = emergent_flux(tau_cont, S)
+#   normalised spectrum = flux_line / flux_cont   (compared to REF flux_total/flux_continuum)
+# Eddington-Barbier:  T_at_23[k] = interp(2/3, tau_line[:,k], T) per wavelength; flux_EB = pi*B(T_at_23)
+'''
+
+_L7_SPEC = """Port the Lecture-7 FORMAL SOLUTION of radiative transfer to fully-vectorized torch/MPS,
+batched over the (depth, wavelength) grid. Define, on a DEVICE/DTYPE picked once at module top:
+
+(a) `optical_depth(kappa, rhox)` -> tau [D, n_wl]: cumulative column-mass integral
+    tau = int kappa dm by the trapezoid, seeded with kappa[0]*rhox[0], accumulated by a cumsum
+    over the DEPTH axis (the sequential prefix sum is native). No python loop over depth or wl.
+    If the long fp32 accumulation drifts past the floor, fp64-promote just the cumsum.
+
+(b) `planck_nu(nu, T)` -> B_nu [.. broadcast ..]: the overflow-safe Kurucz Planck, the 1.47439e-2
+    prefactor and e^{-x}/(1-e^{-x}) form, bit-for-bit with the numpy twin.
+
+(c) `expint2(x)` -> E2 [same shape as x]: the second exponential integral from the Abramowitz &
+    Stegun rational forms, computed BRANCHLESSLY over the whole [D, n_wl] grid — both the x<=1
+    polynomial branch and the x>1 rational branch evaluated and combined with torch.where, plus the
+    E2(0)=1 limit via torch.where. Match the numpy constants and the x<=1 threshold exactly.
+
+(d) `emergent_flux(tau, S)` -> F [n_wl]: F = 2*pi * trapezoid(S * E2(tau), tau, axis=depth), the
+    trapezoid taken over the (non-uniform) tau grid at each wavelength independently.
+
+(e) `eddington_barbier_T(tau, T)` -> T_at_23 [n_wl]: read T where tau_lambda = 2/3 at each
+    wavelength by a VECTORIZED linear interpolation (a batched searchsorted bracket + lerp) — NO
+    python loop over wavelengths.
+
+Move all inputs onto DEVICE/DTYPE inside each function. numpy appears ONLY in the comparison cell."""
+
+_L7_CONTRACT = """Your module MUST define, importable as `port`:
+  - port.DEVICE, port.DTYPE  (device + working dtype picked once at module top)
+  - port.optical_depth(kappa, rhox) -> tensor [D, n_wl]
+        kappa: [D, n_wl] array-like (cm^2/g);  rhox: [D] array-like (column mass).
+  - port.planck_nu(nu, T) -> tensor   (nu, T array-likes; broadcast as in the twin)
+  - port.expint2(x) -> tensor (same shape as x)
+  - port.emergent_flux(tau, S) -> tensor [n_wl]   (tau,S: [D, n_wl])
+  - port.eddington_barbier_T(tau, T) -> tensor [n_wl]   (tau: [D, n_wl], T: [D])
+All inputs are cast onto DEVICE/DTYPE inside; returned tensors may be on DEVICE (the harness moves
+them to CPU/fp64 itself)."""
+
+_L7_HARNESS = r'''
+import numpy as np, torch, pathlib
+H_C, C, K = 6.62607015e-27, 2.99792458e10, 1.380649e-16
+REF = np.load(pathlib.Path("reference") / "L6.npz")
+wl = REF["wl"].astype(float); T = REF["T"].astype(float); rhox = REF["rhox"].astype(float)
+total = REF["total_abs"].astype(float) + REF["total_scat"].astype(float)
+cont  = REF["cont_abs"].astype(float)  + REF["cont_scat"].astype(float)
+nu = C / (wl * 1e-7)
+
+# --- numpy oracle (the twin) ---
+def od(kappa):
+    dtau = 0.5*(kappa[1:]+kappa[:-1])*np.diff(rhox)[:,None]
+    tau = np.empty_like(kappa); tau[0]=kappa[0]*rhox[0]; tau[1:]=tau[0]+np.cumsum(dtau,axis=0); return tau
+def bnu(nuu,TT):
+    x=H_C*nuu/(K*TT); return 1.47439e-2*(nuu/1e15)**3*np.exp(-x)/(1.0-np.exp(-x))
+def e2(x):
+    x=np.asarray(x,float); xp=np.where(x>0,x,1.0)
+    a=(-0.57721566,0.99999193,-0.24991055,0.05519968,-0.00976004,0.00107857)
+    es=(a[0]+xp*(a[1]+xp*(a[2]+xp*(a[3]+xp*(a[4]+xp*a[5])))))-np.log(xp)
+    a1,a2,b1,b2=2.334733,0.250621,3.330657,1.681534
+    el=np.exp(-xp)/xp*(xp*xp+a1*xp+a2)/(xp*xp+b1*xp+b2)
+    E1=np.where(x<=1.0,es,el); return np.where(x>0,np.exp(-x)-x*E1,1.0)
+S_np = bnu(nu[None,:], T[:,None])
+tau_l_np = od(total); tau_c_np = od(cont)
+fl_np = 2*np.pi*np.trapezoid(S_np*e2(tau_l_np), tau_l_np, axis=0)
+fc_np = 2*np.pi*np.trapezoid(S_np*e2(tau_c_np), tau_c_np, axis=0)
+spec_np = fl_np/fc_np
+ref = REF["flux_total"]/REF["flux_continuum"]
+
+# --- torch port under test ---
+tau_l = port.optical_depth(total, rhox)
+tau_c = port.optical_depth(cont, rhox)
+S = port.planck_nu(torch.as_tensor(nu[None,:]), torch.as_tensor(T[:,None]))
+def npy(t): return t.detach().cpu().to(torch.float64).numpy()
+fl = npy(port.emergent_flux(tau_l, S)); fc = npy(port.emergent_flux(tau_c, S))
+spec = fl/fc
+T23 = npy(port.eddington_barbier_T(tau_l, torch.as_tensor(T)))
+T23_np = np.array([np.interp(2/3, tau_l_np[:,k], T) for k in range(wl.size)])
+
+def relmax(a,b):
+    b=np.asarray(b,float); d=np.where(b!=0,np.abs(b),1.0); return float(np.max(np.abs(np.asarray(a,float)-b)/d))
+
+r_tau = relmax(npy(tau_l), tau_l_np)
+r_e2  = relmax(npy(port.expint2(tau_l)), e2(tau_l_np))
+r_S   = relmax(npy(S), S_np)
+r_sp  = relmax(spec, spec_np)
+r_eb  = relmax(T23, T23_np)
+r_ref = float(np.median(np.abs(spec-ref)/ref))
+print(f"tau {r_tau:.2e}  E2 {r_e2:.2e}  S {r_S:.2e}  spectrum {r_sp:.2e}  EB-T {r_eb:.2e}  (med vs pyk-ref {r_ref:.2e})")
+print(f"PARITY {max(r_tau, r_e2, r_S, r_sp, r_eb):.6e}")
+'''
+
+
+# ── Lecture 8 — the JOSH moment solver (BORROW kgpu's validated batched josh, REDUCE it) ──
+_L8_NUMPY = r'''
+# The numpy twin's per-wavelength JOSH solver (build_lecture8.py). The torch port BATCHES this
+# over the whole wavelength axis (each routine becomes a [B, D]/[B, G] tensor op) — see the kgpu
+# basis. Tables from reference/josh_tables.npz: XTAU[51], CH[51], COEFJ[51,51], RHOX[80].
+# Opacities from reference/diag.npz [80, n_wl]; temperatures from reference/atmosphere.npz.
+# EPS = 1e-38. Source S = B_nu(T) (LTE: slinec = line_source = B_nu, proven exact in the twin).
+
+def source_and_alpha(acont, scont, aline, sline, sigmac, sigmal):
+    abtot = np.maximum(acont + aline + sigmac + sigmal, EPS)        # total extinction
+    alpha = np.clip((sigmac + sigmal) / abtot, 0.0, 1.0)            # scattering fraction
+    denom = acont + aline
+    sbar = np.where(denom > 0, (acont*scont + aline*sline)/denom, scont)
+    return abtot, alpha, sbar
+
+# parcoe(f,x): per-interval parabola a,b,c (3-pt interior; pts 2,3 forced linear; curvature blend)
+# integ(x,f,start): cumulative int of each interval's left-point parabola, seeded with `start`
+# map1(xold,fold,xnew): Kurucz MAP1 parabolic interp onto xnew (forward/backward/blended/linear)
+# iterate_source(sbar_g, alpha_g): backward Gauss-Seidel S=(1-a)sbar+a(COEFJ@S), FLOAT32, in place
+#   dS_k = (a_k (COEFJ@S)_k + (1-a_k) sbar_k - S_k) / (1 - a_k COEFJ_kk);  S_k = max(S_k+dS_k, EPS)
+#   backward sweep (deepest grid point first), tol 1e-5, up to 51 iters
+
+def solve_josh(acont, scont, aline, sline, sigmac, sigmal):
+    abtot, alpha, sbar = source_and_alpha(acont, scont, aline, sline, sigmac, sigmal)
+    tau = integ(RHOX, abtot, abtot[0]*RHOX[0])               # step 1: optical depth
+    sbar_g  = np.maximum(map1(tau, sbar,  XTAU), EPS)         # step 2: map onto the grid
+    alpha_g = np.clip(   map1(tau, alpha, XTAU), 0.0, 1.0)
+    above = XTAU < tau[0]                                     # grid pts above the atmosphere top
+    if above.any():
+        sbar_g[above] = max(sbar[0], EPS); alpha_g[above] = np.clip(alpha[0], 0.0, 1.0)
+    S = iterate_source(sbar_g, alpha_g)                       # step 3: scattering iteration (fp32)
+    return float(CH @ S)                                     # step 4: CH-weighted surface flux H(0)
+
+# solve_continuum: solve_josh with the line terms (aline, sigmal) zeroed.
+# spectrum = [solve_josh(...) for each wl] / [solve_continuum(...) for each wl]
+#   compared to REF flux_total/flux_continuum -> median ~1e-12 (fp32 iteration's last bit).
+'''
+
+_L8_SPEC = """Port the JOSH moment solver to fully-vectorized torch/MPS, BATCHED over the whole
+wavelength axis. REDUCE kgpu's VALIDATED batched josh (the basis below) into clean bite-size
+form — keep its variable names so the correspondence is 1:1; do NOT regenerate the moment physics.
+
+Define, on a DEVICE/DTYPE picked once at module top:
+  - `planck_bnu(wl_nm, temperature)` -> B_nu [D, n_wl] (overflow-safe Kurucz form; LTE source).
+  - `source_and_alpha(acont, scont, aline, sline, sigmac, sigmal)` -> (abtot, alpha, sbar), each
+    [B, D] (B = wavelength batch). Exactly the twin's per-depth assembly, vectorized.
+  - `integ_batched(x, f, start)` -> tau [B, D]: the PARCOE/INTEG parabolic quadrature, the per-
+    interval parabola coefficients as a single batched stencil over depth (no per-element control
+    flow; the index-fixed overwrites — points 2,3 linear, copy-back — as slice assignments), then
+    the cumulative integral as a cumsum.
+  - `map1_batched(taunu, fold, xnew)` -> [B, G]: the BIT-EXACT batched MAP1 — find the bracket per
+    (wavelength, grid point) with one batched searchsorted, compute the canonical linear/backward/
+    blended-forward parabola for that bracket, and select branchlessly with torch.where. NO loop
+    over wavelengths or grid points.
+  - `iterate_source(xsbar, xalpha, coefj, coefj_diag, sweeps=8)` -> [B, G]: the BACKWARD
+    GAUSS-SEIDEL scattering source in FLOAT32 (the Fortran REAL*4 reference arithmetic). The sweep
+    over the 51 GRID POINTS is a GENUINE sequential data dependence (S_k uses freshly-updated
+    deeper S) -> a JUSTIFIED fixed-length loop over the 51 points, each step ONE batched mat.vec
+    over ALL wavelengths (carry a `# JUSTIFIED-LOOP:` comment). A FIXED outer sweep count replaces
+    the per-row convergence test (branchless, no per-wavelength early-stop). Work in the [G, B] SoA
+    layout so co[k] @ xs_t is a coalesced mat.vec; transpose back to [B, G] at the end.
+  - `solve_josh_batched(acont, scont, aline, sline, sigmac, sigmal, rhox, tables, sweeps=8)` -> [B]:
+    the assembled five steps; the final H(0) = CH @ S dot taken in the highest device float
+    (fp64 on CPU/CUDA, fp32 on MPS).
+  - `solve_spectrum(cont_abs, cont_scat, line_abs, line_scat, b_nu, rhox, tables, sweeps=8)` ->
+    (flux_total[n_wl], flux_continuum[n_wl], spectrum[n_wl]): stack the total + continuum solves on
+    the batch axis, call solve_josh_batched once, split the rows.
+  - a `JoshTables` container (xtau, coefj, coefj_diag, ch) built from the npz on DEVICE/DTYPE.
+
+The opacity slabs arrive [D, n_wl]; transpose to [n_wl, D] so wavelength is the batch axis. fp32 IS
+the spec for the Gauss-Seidel; only the final CH dot promotes. numpy appears ONLY in the comparison
+cell."""
+
+_L8_CONTRACT = """Your module MUST define, importable as `port`:
+  - port.DEVICE, port.DTYPE  (picked once at module top)
+  - port.EPS, port.DEFAULT_SWEEPS
+  - port.JoshTables  with classmethod/factory  port.JoshTables.from_npz(path_or_dict, device, dtype)
+        carrying .xtau [51], .coefj [51,51], .coefj_diag [51], .ch [51]  (all on DEVICE/DTYPE)
+  - port.planck_bnu(wl_nm, temperature) -> tensor [D, n_wl]
+  - port.source_and_alpha(acont, scont, aline, sline, sigmac, sigmal) -> (abtot, alpha, sbar)  each [B, D]
+  - port.integ_batched(x, f, start) -> tensor [B, D]
+  - port.map1_batched(taunu, fold, xnew) -> tensor [B, G]
+  - port.iterate_source(xsbar, xalpha, coefj, coefj_diag, sweeps=8) -> tensor [B, G]
+  - port.solve_josh_batched(acont, scont, aline, sline, sigmac, sigmal, rhox, tables, sweeps=8) -> tensor [B]
+  - port.solve_spectrum(cont_abs, cont_scat, line_abs, line_scat, b_nu, rhox, tables, sweeps=8)
+        -> (flux_total[n_wl], flux_continuum[n_wl], spectrum[n_wl])
+All array-like inputs are cast onto DEVICE/DTYPE inside; returned tensors may be on DEVICE (the
+harness moves them to CPU/fp64). The kgpu basis may name the MAP1 routine `_map1_batched`; expose it
+also as `port.map1_batched` (an alias is fine)."""
+
+_L8_HARNESS = r'''
+import numpy as np, torch, pathlib
+REFD = pathlib.Path("reference")
+JT = np.load(REFD / "josh_tables.npz")
+XTAU = JT["xtau"].astype(float); CH = JT["ch"].astype(float); COEFJ = JT["coefj"].astype(float)
+RHOX = JT["rhox"].astype(float); NXTAU = XTAU.size; EPS = 1e-38
+D = np.load(REFD / "diag.npz")
+cont_abs=D["continuum_absorption"].astype(float); cont_scat=D["continuum_scattering"].astype(float)
+line_abs=D["line_opacity"].astype(float); line_scat=D["line_scattering"].astype(float)
+wl=D["wavelength"].astype(float)
+Tdepth=np.load(REFD/"atmosphere.npz")["temperature"].astype(float)
+ref = D["flux_total"]/D["flux_continuum"]
+
+H_PLANCK,K_BOLTZ,C_NM = 6.62607015e-27,1.380649e-16,2.99792458e17
+def bnu(f,T): x=H_PLANCK*f/(K_BOLTZ*np.asarray(T,float)); e=np.exp(-x); return 1.47439e-2*(f/1e15)**3*e/(1-e)
+nu=C_NM/wl; B_nu=bnu(nu[None,:],Tdepth[:,None])
+def s_and_a(ac,sc,al_,sl,sgc,sgl):
+    ab=np.maximum(ac+al_+sgc+sgl,EPS); a=np.clip((sgc+sgl)/ab,0,1); dn=ac+al_
+    sb=np.where(dn>0,(ac*sc+al_*sl)/dn,sc); return ab,a,sb
+def parcoe(f,x):
+    n=f.size; a=np.zeros(n); b=np.zeros(n); c=np.zeros(n)
+    if n==1: a[0]=f[0]; return a,b,c
+    b[0]=(f[1]-f[0])/(x[1]-x[0]); a[0]=f[0]-x[0]*b[0]; n1=n-1
+    b[-1]=(f[-1]-f[n1-1])/(x[-1]-x[n1-1]); a[-1]=f[-1]-x[-1]*b[-1]
+    if n==2: return a,b,c
+    for j in range(1,n1):
+        j1=j-1; d=(f[j]-f[j1])/(x[j]-x[j1])
+        c[j]=f[j+1]/((x[j+1]-x[j])*(x[j+1]-x[j1]))+(f[j1]/(x[j+1]-x[j1])-f[j]/(x[j+1]-x[j]))/(x[j]-x[j1])
+        b[j]=d-(x[j]+x[j1])*c[j]; a[j]=f[j1]-x[j1]*d+x[j]*x[j1]*c[j]
+    c[1]=0.0; b[1]=(f[2]-f[1])/(x[2]-x[1]); a[1]=f[1]-x[1]*b[1]
+    if n>3: c[2]=0.0; b[2]=(f[3]-f[2])/(x[3]-x[2]); a[2]=f[2]-x[2]*b[2]
+    for j in range(1,n1):
+        if c[j]==0.0: continue
+        j1=min(j+1,n-1); dn=abs(c[j1])+abs(c[j]); wt=abs(c[j1])/dn if dn>0 else 0.0
+        a[j]=a[j1]+wt*(a[j]-a[j1]); b[j]=b[j1]+wt*(b[j]-b[j1]); c[j]=c[j1]+wt*(c[j]-c[j1])
+    a[n1-1]=a[-1]; b[n1-1]=b[-1]; c[n1-1]=c[-1]; return a,b,c
+def integ(x,f,start):
+    a,b,c=parcoe(f,x); out=np.zeros(f.size); out[0]=start
+    for i in range(f.size-1):
+        dx=x[i+1]-x[i]; term=a[i]+0.5*b[i]*(x[i+1]+x[i])+(c[i]/3.0)*((x[i+1]+x[i])*x[i+1]+x[i]*x[i])
+        out[i+1]=out[i]+term*dx
+    return out
+def map1(xold,fold,xnew):
+    nold,nnew=xold.size,xnew.size; fnew=np.zeros(nnew)
+    if nold==0 or nnew==0: return fnew
+    xo=np.empty(nold+1); fo=np.empty(nold+1); xo[1:]=xold; fo[1:]=fold
+    l=2; ll=0; cfor=bfor=afor=cbac=bbac=abac=a=b=c=0.0
+    for k in range(1,nnew+1):
+        xk=xnew[k-1]
+        while True:
+            if xk<xo[l]:
+                if l==ll: break
+                if l==2 or l==3:
+                    l=min(nold,l); c=0.0; b=(fo[l]-fo[l-1])/(xo[l]-xo[l-1]); a=fo[l]-xo[l]*b; ll=l; break
+                l1=l-1
+                if l>ll+1 or l==3 or l==4:
+                    l2=l-2; d=(fo[l1]-fo[l2])/(xo[l1]-xo[l2])
+                    cbac=fo[l]/((xo[l]-xo[l1])*(xo[l]-xo[l2]))+(fo[l2]/(xo[l]-xo[l2])-fo[l1]/(xo[l]-xo[l1]))/(xo[l1]-xo[l2])
+                    bbac=d-(xo[l1]+xo[l2])*cbac; abac=fo[l2]-xo[l2]*d+xo[l1]*xo[l2]*cbac
+                    if l>=nold: c,b,a,ll=cbac,bbac,abac,l; break
+                else:
+                    cbac,bbac,abac=cfor,bfor,afor
+                    if l==nold: c,b,a,ll=cbac,bbac,abac,l; break
+                d=(fo[l]-fo[l1])/(xo[l]-xo[l1])
+                cfor=fo[l+1]/((xo[l+1]-xo[l])*(xo[l+1]-xo[l1]))+(fo[l1]/(xo[l+1]-xo[l1])-fo[l]/(xo[l+1]-xo[l]))/(xo[l]-xo[l1])
+                bfor=d-(xo[l]+xo[l1])*cfor; afor=fo[l1]-xo[l1]*d+xo[l]*xo[l1]*cfor
+                wt=abs(cfor)/(abs(cfor)+abs(cbac)) if abs(cfor)!=0 else 0.0
+                a=afor+wt*(abac-afor); b=bfor+wt*(bbac-bfor); c=cfor+wt*(cbac-cfor); ll=l; break
+            l+=1
+            if l>nold:
+                l=min(nold,l); c=0.0; b=(fo[l]-fo[l-1])/(xo[l]-xo[l-1]); a=fo[l]-xo[l]*b; ll=l; break
+        fnew[k-1]=a+(b+c*xk)*xk
+    return fnew
+CDG=np.diag(COEFJ).copy()
+def iterate(sbar_g,alpha_g):
+    co=COEFJ.astype(np.float32); xs=sbar_g.astype(np.float32); al=alpha_g.astype(np.float32)
+    sm=(sbar_g*(1.0-alpha_g)).astype(np.float32); dg=(1.0-alpha_g*CDG).astype(np.float32)
+    tol=np.float32(1e-5); eps=np.float32(EPS)
+    for _ in range(51):
+        conv=True
+        for k in range(NXTAU-1,-1,-1):
+            jk=np.float32(np.dot(co[k],xs)); dl=(jk*al[k]+sm[k]-xs[k])/dg[k]
+            if (abs(dl/xs[k]) if xs[k]!=0 else np.inf)>tol: conv=False
+            xs[k]=max(xs[k]+dl,eps)
+        if conv: break
+    return xs.astype(np.float64)
+def josh1(ac,sc,al_,sl,sgc,sgl):
+    ab,a,sb=s_and_a(ac,sc,al_,sl,sgc,sgl); tau=integ(RHOX,ab,ab[0]*RHOX[0])
+    sg=np.maximum(map1(tau,sb,XTAU),EPS); ag=np.clip(map1(tau,a,XTAU),0,1)
+    above=XTAU<tau[0]
+    if above.any(): sg[above]=max(sb[0],EPS); ag[above]=np.clip(a[0],0,1)
+    return float(CH@iterate(sg,ag))
+zero=np.zeros(cont_abs.shape[0])
+fl_np=np.array([josh1(cont_abs[:,k],B_nu[:,k],line_abs[:,k],B_nu[:,k],cont_scat[:,k],line_scat[:,k]) for k in range(wl.size)])
+fc_np=np.array([josh1(cont_abs[:,k],B_nu[:,k],zero,B_nu[:,k],cont_scat[:,k],zero) for k in range(wl.size)])
+spec_np=fl_np/fc_np
+
+# --- torch port under test ---
+tables = port.JoshTables.from_npz(REFD/"josh_tables.npz", port.DEVICE, port.DTYPE)
+b_nu_t = port.planck_bnu(torch.as_tensor(wl), torch.as_tensor(Tdepth))
+ft,fc,spec = port.solve_spectrum(torch.as_tensor(cont_abs), torch.as_tensor(cont_scat),
+                                 torch.as_tensor(line_abs), torch.as_tensor(line_scat),
+                                 b_nu_t, torch.as_tensor(RHOX), tables)
+def npy(t): return np.asarray(t.detach().cpu().to(torch.float64).numpy() if torch.is_tensor(t) else t, float)
+spec = npy(spec)
+def relmed(a,b): b=np.asarray(b,float); return float(np.median(np.abs(np.asarray(a,float)-b)/np.abs(b)))
+def relmax(a,b): b=np.asarray(b,float); d=np.where(b!=0,np.abs(b),1.0); return float(np.max(np.abs(np.asarray(a,float)-b)/d))
+r_oracle = relmax(spec, spec_np)
+r_ref    = relmed(spec, ref)
+r_planck = relmax(npy(b_nu_t), B_nu)
+print(f"spectrum-vs-twin {r_oracle:.2e}  planck {r_planck:.2e}  (med vs pyk-ref {r_ref:.2e})")
+print(f"PARITY {max(r_oracle, r_planck):.6e}")
+'''
+
 
 JOBS: dict[str, PortJob] = {
     "lecture4": PortJob(
@@ -2734,6 +3282,56 @@ JOBS: dict[str, PortJob] = {
         kgpu_borrow=[("mol_continuum.py", 338, 457),   # mol_continuum (the depth-batched CHOP+OHOP+H2-CIA kernel)
                      ("mol_continuum.py", 460, 479),   # _band_continuum (T-lerp cross-section + mask + stim)
                      ("mol_continuum.py", 482, 494)],  # _temp_lerp_rows (the Borysow T-lerp gather)
+    ),
+    "lecture7": PortJob(
+        name="lecture7",
+        numpy_source=_L7_NUMPY,
+        spec=_L7_SPEC,
+        contract=_L7_CONTRACT,
+        harness=_L7_HARNESS,
+        float_floor=5e-6,
+        preamble="The Lecture-7 FORMAL SOLUTION of radiative transfer, vectorized over the [depth, wavelength] "
+                 "grid. reference/L6.npz holds wl[n_wl], T[80], rhox[80], tau[80], and the opacity slabs "
+                 "total_abs/total_scat/cont_abs/cont_scat each [80, n_wl] (cm^2/g). The port builds, on the "
+                 "device: (1) the cumulative optical depth tau_lambda(m) = int kappa dm over the column mass "
+                 "rhox (trapezoid, seeded with kappa[0]*rhox[0], cumsum over depth) for the total and continuum "
+                 "extinction; (2) the per-frequency Planck source S = B_nu(T) (the overflow-safe Kurucz form, "
+                 "1.47439e-2 prefactor, identical to L1/L8); (3) the second exponential integral E2(x) from the "
+                 "Abramowitz & Stegun rational forms (E1 5.1.53 for x<=1, 5.1.56 for x>1; E2 = exp(-x) - x*E1; "
+                 "E2(0)=1) BRANCHLESS via torch.where over the whole [depth, wl] grid; (4) the emergent flux "
+                 "F = 2*pi * trapezoid(S*E2(tau), tau, axis=depth) for both opacities; their ratio is the "
+                 "normalised spectrum. ALSO the Eddington-Barbier T(tau=2/3) interpolation per wavelength "
+                 "(vectorized searchsorted + linear interp, NO python loop over wl). float floor ~few e-6 on "
+                 "MPS fp32; the cumulative tau integral is a long fp32 accumulation — if the spectrum drifts, "
+                 "fp64-promote the cumsum (per-depth vectors stay tiny). No kgpu borrow: this is the analytic "
+                 "formal solution the numpy twin builds itself; reduce IT into torch.",
+    ),
+    "lecture8": PortJob(
+        name="lecture8",
+        numpy_source=_L8_NUMPY,
+        spec=_L8_SPEC,
+        contract=_L8_CONTRACT,
+        harness=_L8_HARNESS,
+        float_floor=5e-6,
+        preamble="The JOSH moment solver — production radiative transfer, BATCHED over the whole wavelength axis. "
+                 "reference/ holds josh_tables.npz (xtau[51] fixed optical-depth grid, ch[51] surface-flux "
+                 "weights, coefj[51,51] discrete Lambda operator J=COEFJ@S, rhox[80] column mass), diag.npz "
+                 "(wavelength[n_wl], continuum_absorption/continuum_scattering/line_opacity/line_scattering "
+                 "[80,n_wl], slinec/line_source[80,n_wl], flux_total/flux_continuum[n_wl]), atmosphere.npz "
+                 "(temperature[80]). The Gauss-Seidel inner scan over the 51 GRID POINTS is a GENUINE sequential "
+                 "data dependence (S_k uses freshly-updated S_{k+1..}) -> it is a JUSTIFIED fixed-length loop "
+                 "over 51 points, but EACH step is one batched mat.vec over ALL wavelengths (work in [G,B] SoA "
+                 "layout so co[k]@xs_t is coalesced). NO loop over wavelengths anywhere. fp32 IS the spec for the "
+                 "iteration (Fortran REAL*4); the final CH dot is fp64 on CPU/CUDA, fp32 on MPS. Reduce kgpu's "
+                 "VALIDATED batched josh below 1:1 (keep its variable names); do NOT regenerate the moment physics.",
+        # BORROW kgpu's VALIDATED batched JOSH — the basis to REDUCE (bible §6). The whole solver:
+        # planck_bnu + source_and_alpha, the batched PARCOE/INTEG, the bit-exact batched MAP1, the
+        # batched fp32 backward Gauss-Seidel, and the assembled solve_josh_batched + solve_spectrum.
+        kgpu_borrow=[("josh.py", 164, 209),    # planck_bnu + source_and_alpha
+                     ("josh.py", 216, 320),    # _parcoe_batched + integ_batched
+                     ("josh.py", 337, 420),    # _map1_batched (bit-exact batched MAP1)
+                     ("josh.py", 427, 487),    # iterate_source (batched backward Gauss-Seidel, fp32)
+                     ("josh.py", 493, 631)],   # solve_josh_batched + solve_spectrum
     ),
 }
 
