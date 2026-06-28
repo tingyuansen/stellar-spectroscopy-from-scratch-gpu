@@ -1,9 +1,14 @@
 #!/usr/bin/env python
 """Build lectures: execute the notebook, then render it to a content/*.html fragment.
 
+GPU EDITION: the per-lecture notebook is assembled by _pipeline/build_lecture<N>_gpu.py
+(the GPU/torch source of truth); this script then EXECUTES it (on MPS/CUDA if present,
+else CPU/fp64) and renders the HTML fragment. The notebooks select the device themselves.
+
+  python _pipeline/build_lecture2_gpu.py  # assemble content/Lecture2.ipynb (the GPU PoC)
   python _pipeline/build.py            # build all registered lectures
-  python _pipeline/build.py 1          # build lecture 1
-  python _pipeline/build.py 1 --no-exec  # re-render only (skip execution)
+  python _pipeline/build.py 2          # execute + render lecture 2
+  python _pipeline/build.py 2 --no-exec  # re-render only (skip execution)
 
 The lecture registry below mirrors assets/book-data.js (keep them in sync).
 """

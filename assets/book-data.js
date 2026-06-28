@@ -3,8 +3,8 @@
    planned arc lives in README.md; entries are appended as each lecture clears
    its accuracy + pedagogy audit. */
 window.BOOK = {
-  title: "Stellar Spectroscopy from Scratch",
-  series: "rebuilding a synthetic stellar spectrum",
+  title: "Stellar Spectroscopy from Scratch — GPU Edition",
+  series: "the torch/MPS vectorized companion, validated against the NumPy edition",
   subtitle: "",
   parts: [
     {

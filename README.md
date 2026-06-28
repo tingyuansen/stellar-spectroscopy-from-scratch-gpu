@@ -1,25 +1,37 @@
-# Stellar Spectroscopy from Scratch
+# Stellar Spectroscopy from Scratch — GPU Edition
 
-A build-from-scratch course that reconstructs a synthetic stellar spectrum from first
-principles — model atmosphere, equation of state, opacity, and radiative transfer — in short,
-readable NumPy. Every step is **benchmarked to machine precision** against
-[**pykurucz**](https://arxiv.org/abs/2603.11693), a pure-Python implementation of Kurucz's
-ATLAS12 and SYNTHE — the equation of state, every opacity source, the model-atmosphere build, and the radiative transfer.
+The **torch/MPS vectorized companion** to
+[*Stellar Spectroscopy from Scratch*](https://github.com/tingyuansen/stellar-spectroscopy-from-scratch)
+(the NumPy edition). The same build-from-scratch course — model atmosphere, equation of state,
+opacity, and radiative transfer, all the way to a synthetic stellar spectrum — but each lecture's
+NumPy code is swapped for a clean, pedagogical `torch` version that is **vectorized over the depth
+axis and runs on the GPU** (Apple **MPS** or **CUDA**, with a CPU fallback that stays the
+high-precision reference). The physics, the constants, and the lecture arc are identical to the
+NumPy edition; only the array library and the device change.
 
-A stellar-atmosphere code has **two halves**, and the book builds both, each end to end, each
-benchmarked to pykurucz. The **spectrum half** (Part V, Lecture 14) takes a model atmosphere and
-assembles the whole opacity-and-transfer stack into a lean synthesiser, run across the HR diagram
-(a hot dwarf, the Sun, a giant, an M dwarf) with every spectrum computed from scratch. The
+This edition keeps the same goal as its twin — reproduce a real stellar spectrum from first
+principles — and adds a second discipline on top. The NumPy edition is benchmarked to
+[**pykurucz**](https://arxiv.org/abs/2603.11693), a pure-Python implementation of Kurucz's ATLAS12
+and SYNTHE, at its documented floor. Here, **each lecture additionally validates the GPU result
+against the NumPy edition's reference** with a per-lecture comparison cell that reports the maximum
+relative deviation, asserting parity to the documented float floor (the fp32 GPU path against the
+fp64 NumPy result). That gives two things at once: an **independent, per-part check** of the GPU
+code, and a **cleaner GPU-native textbook**.
+
+A stellar-atmosphere code has **two halves**, and the book builds both. The **spectrum half**
+(Part V, Lecture 14) takes a model atmosphere and assembles the whole opacity-and-transfer stack
+into a lean synthesiser, run across the HR diagram (a hot dwarf, the Sun, a giant, an M dwarf). The
 **atmosphere half** (Part VI, Lectures 15–16) — the book's finale — switches on the millions of
 spectral lines and builds the per-iteration equation of state from scratch, so the line-blanketed
-convergence reaches the *real* Sun's model atmosphere with no pykurucz in the computed path. Chain
-the two and a star's parameters $(T_{\rm eff}, \log g, [{\rm M/H}])$ become its converged
-line-blanketed structure and, from it, its emergent spectrum: the complete from-scratch Sun.
+convergence reaches the *real* Sun's model atmosphere. Chain the two and a star's parameters
+$(T_{\rm eff}, \log g, [{\rm M/H}])$ become its converged line-blanketed structure and, from it,
+its emergent spectrum: the complete from-scratch Sun — now on the GPU.
 
-The notebooks are **self-contained**: each imports only `numpy`, `matplotlib`, and `pathlib` and loads
-small reference data files shipped beside it (`reference/*.npz`). They never import pykurucz —
-the reference values are precomputed once and travel with the book, so a reader needs only
-NumPy to run and verify every result.
+The notebooks are **self-contained**: each imports `torch`, `numpy`, `matplotlib`, and `pathlib`
+and loads small reference data files shipped beside it (`reference/*.npz`, identical to the NumPy
+edition's). They never import pykurucz, and they never import the production `kgpu` engine — the
+reference values are precomputed once and travel with the book, so a reader needs only `torch` +
+`numpy` to run, and to *validate*, every result.
 
 *Yuan-Sen Ting — Max Planck Institute for Astronomy & The Ohio State University. Written in
 collaboration with Claude Opus 4.8 under the author's supervision; schematics generated with
@@ -27,18 +39,21 @@ Gemini 3 Pro.*
 
 ## The discipline
 
-The from-scratch code is a **pedagogical reduction** of pykurucz: the same formulas, the same
-constants, the same numerical steps, and the same output — but stripped of the hardening a
-production code needs and a lecture does not (Numba `@jit`/`fastmath`, caching, defensive
-guards, CLI plumbing). Where a plain Python loop would be too slow for a notebook cell, the
-code is **vectorized in NumPy**, never accelerated with a compiler. The physics and the
-numbers are identical; only the packaging changes.
+The GPU code is a **pedagogical reduction** of the production torch/MPS engine (`kgpu`), exactly as
+the NumPy edition is a pedagogical reduction of pykurucz: the same formulas, the same constants, the
+same numerical steps, and the same output — but stripped of the hardening a production code needs
+and a lecture does not (custom kernels, residency bookkeeping, caching, defensive guards, CLI
+plumbing). It is **plain, readable `torch`** in bite-size cells, vectorized over depth so each
+tensor op processes all atmospheric layers at once. The physics and the numbers are identical to the
+NumPy edition; only the packaging — and the device — changes.
 
-Each lecture ends by comparing its from-scratch arrays to the shipped reference values and
-reporting the maximum deviation. The bar is **machine precision** — a relative difference at
-the level of floating-point round-off (≈1e-12…1e-15); the only tolerated residual is the last
-bit of a single-precision iteration the production code itself carries, and it is quantified
-rather than hidden. pykurucz is the gold standard and is never modified.
+Each lecture ends with a **comparison cell**: it runs the GPU computation and loads the NumPy
+edition's shipped reference values, then reports the maximum relative deviation. The bar is the
+**documented float floor** — for the fp32 GPU path against the fp64 NumPy reference, a relative
+difference at the level of single-precision round-off (typically a few ×10⁻⁶ for the equation of
+state and the opacities, tighter where the computation is a single reduction). On a CPU fallback the
+same code runs in fp64 and recovers machine precision. The deviation is **quantified, not hidden**,
+and the NumPy edition — itself the gold standard here — is never modified.
 
 ## The lectures
 
@@ -81,11 +96,11 @@ halves of "end to end," and the documented out-of-scope boundaries — is in
   opacity, transfer) treating the atmosphere as given; Part IV builds the atmosphere's structure;
   Part V adds cool-star chemistry and then assembles the **spectrum end to end**; Part VI is the
   **finale** — the line-blanketed atmosphere from scratch.
-- **Each lecture is self-contained and stands alone.** Every notebook imports only `numpy`,
-  `matplotlib`, and `pathlib`, loads its own `reference/*.npz`, runs top to bottom, and ends by
-  benchmarking its from-scratch arrays to the shipped reference. You can open any one lecture and
-  understand what it achieves without flipping back; the cross-references are light signposts, not
-  prerequisites you must chase.
+- **Each lecture is self-contained and stands alone.** Every notebook imports `torch`, `numpy`,
+  `matplotlib`, and `pathlib`, loads its own `reference/*.npz`, runs top to bottom on the GPU, and
+  ends by benchmarking its GPU arrays to the NumPy edition's shipped reference. You can open any one
+  lecture and understand what it achieves without flipping back; the cross-references are light
+  signposts, not prerequisites you must chase.
 - **The two halves of "end to end."** A stellar-atmosphere code is two halves. **Lecture 14** is the
   *spectrum* half — atmosphere in, spectrum out — assembled and run from scratch across the HR
   diagram. **Part VI (Lectures 15–16)** is the *atmosphere* half — parameters in, line-blanketed
@@ -113,31 +128,39 @@ displays without running anything.
 
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.txt               # numpy + matplotlib + torch + nbformat/nbconvert
 npm install                                   # marked / katex / highlight.js for rendering
-python _pipeline/build_lecture4.py            # assemble one notebook (content/Lecture4.ipynb)
-python _pipeline/build.py 4                    # execute it + render to content/Lecture4.html
+python _pipeline/build_lecture2_gpu.py         # assemble one notebook (content/Lecture2.ipynb)
+python _pipeline/build.py 2                     # execute it (MPS if available, else CPU) + render
 # or rebuild all:  python _pipeline/build.py 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
 ```
 
-The `reference/*.npz` data files were generated once by `_pipeline/make_references.py` (the
-only script that imports pykurucz) and by the verifier scripts `_pipeline/verify_*.py`, which
-reproduce each production engine from scratch and confirm machine precision.
+The notebooks select the device automatically: Apple **MPS** or **CUDA** if present, otherwise
+**CPU** (where the same code runs in fp64 and recovers machine precision). The `reference/*.npz`
+data files are the **NumPy edition's** shipped references, copied here unchanged — they are the
+gold standard each GPU lecture validates against. They were generated once (in the NumPy edition) by
+the only script that imports pykurucz; this edition never regenerates them and never imports
+pykurucz or the production `kgpu` engine.
+
+See **[PLAN.md](PLAN.md)** for the GPU-substitution roadmap — the per-lecture pattern, and which
+lectures are ported now vs. deferred.
 
 ## Layout
 
 ```
 content/        executed notebooks (.ipynb) + rendered fragments (.html) — the chapters
-_pipeline/      build_lecture*.py (assemble), build.py (execute+render), verify_*.py, gen_schematics.py
-reference/      shipped benchmark data (*.npz) — the book is self-contained
-resources/      figures (Gemini schematics)
+_pipeline/      build_lecture*_gpu.py (assemble), build.py (execute+render), gen_schematics.py
+reference/      shipped benchmark data (*.npz) — copied from the NumPy edition (the gold standard)
+resources/      figures (Gemini schematics — synced from the NumPy edition)
 assets/         render.js / style.css / book-data.js — the reader
+PLAN.md         the GPU-substitution roadmap (per-lecture pattern; now vs. deferred)
 index.html      table of contents      reader.html  the lecture reader
 ```
 
 ## Credits
 
-Physics and benchmark code after Kurucz's ATLAS12 & SYNTHE, via
-[Kim & Ting (2026), pykurucz](https://arxiv.org/abs/2603.11693). Written in collaboration with
-Claude Opus 4.8 under the author's supervision; schematics by Gemini 3 Pro (Nano Banana).
-Dedicated to the memory of Robert L. Kurucz (1944–2025).
+The GPU port is a pedagogical reduction of the production `kgpu` torch/MPS engine; the physics and
+the benchmark references follow the [NumPy edition](https://github.com/tingyuansen/stellar-spectroscopy-from-scratch)
+and Kurucz's ATLAS12 & SYNTHE via [Kim & Ting (2026), pykurucz](https://arxiv.org/abs/2603.11693).
+Written in collaboration with Claude Opus 4.8 under the author's supervision; schematics by Gemini 3
+Pro (Nano Banana). Dedicated to the memory of Robert L. Kurucz (1944–2025).

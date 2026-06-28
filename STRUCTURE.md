@@ -1,9 +1,18 @@
-# STRUCTURE — the organizing map of *Stellar Spectroscopy from Scratch*
+# STRUCTURE — the organizing map of *Stellar Spectroscopy from Scratch — GPU Edition*
 
 This is the book's directory bible: the coherent, holistic view of the four-part arc, what each
 lecture builds, how the two halves of "end to end" fit together, and where the documented
 boundaries lie. It is the companion to the per-lecture notebooks and the README's "How to read this
 book" section.
+
+**This is the GPU edition.** The lecture structure, the physics, and the four-part arc below are
+identical to the [NumPy edition](https://github.com/tingyuansen/stellar-spectroscopy-from-scratch);
+what changes is the implementation: each lecture's computation is a clean, depth-batched `torch`
+port (a pedagogical reduction of the production `kgpu` engine, just as the NumPy edition is a
+reduction of pykurucz) that runs on the GPU (MPS/CUDA, CPU fallback), and each lecture ends with a
+**comparison cell** validating the GPU result against the NumPy edition's `reference/*.npz` to the
+documented float floor. The substitution roadmap — which lectures are ported now vs. deferred — is
+in **[PLAN.md](PLAN.md)**.
 
 The README has the prose; this file has the map.
 
@@ -53,10 +62,11 @@ last borrowed intermediate removed). Neither half claims the other's achievement
 
 ## The four-part arc, lecture by lecture
 
-Each lecture is **self-contained**: it imports only `numpy`, `matplotlib`, and `pathlib`, loads its
-own `reference/*.npz`, runs top to bottom, and ends by benchmarking its from-scratch arrays to the
-shipped reference. The "builds" column is what the lecture *constructs*; the "leans on" column is the
-light conceptual thread to earlier work (a signpost, not a prerequisite you must chase).
+Each lecture is **self-contained**: it imports `torch`, `numpy`, `matplotlib`, and `pathlib`, loads
+its own `reference/*.npz`, runs top to bottom on the GPU, and ends by benchmarking its GPU arrays to
+the NumPy edition's shipped reference (the comparison cell). The "builds" column is what the lecture
+*constructs*; the "leans on" column is the light conceptual thread to earlier work (a signpost, not a
+prerequisite you must chase).
 
 ### Part I — Foundations & Microphysics  *(atmosphere treated as given)*
 
@@ -150,16 +160,17 @@ These are named in the lectures, not hidden. They do not enter the benchmarks.
 
 ```
 content/        executed notebooks (.ipynb) + rendered fragments (.html) — the chapters
-_pipeline/      build_lecture*.py (assemble each notebook), build.py (execute + render),
-                verify_*.py (reproduce each production engine from scratch + confirm precision)
-reference/      shipped benchmark data (*.npz) — the book is self-contained
-resources/      figures (Gemini schematics)
+_pipeline/      build_lecture*_gpu.py (assemble each GPU notebook), build.py (execute + render)
+reference/      benchmark data (*.npz) — copied from the NumPy edition (the gold standard)
+resources/      figures (Gemini schematics — synced from the NumPy edition)
 assets/         render.js / style.css / book-data.js — the reader (parts + lecture manifest)
+PLAN.md         the GPU-substitution roadmap (per-lecture pattern; lectures now vs. deferred)
 README.md       overview + the lecture list + "How to read this book"
 STRUCTURE.md    this file — the organizing map
 index.html      table of contents      reader.html  the lecture reader
 ```
 
-The source of truth for each notebook is `_pipeline/build_lecture*.py` (it assembles the `.ipynb`);
-`build.py` executes and renders it. `assets/book-data.js` is the reader's manifest of parts and
-lectures and is kept in sync with the README and `build.py`.
+The source of truth for each GPU notebook is `_pipeline/build_lecture*_gpu.py` (it assembles the
+`.ipynb`); `build.py` executes it (on MPS/CUDA if present, else CPU) and renders it.
+`assets/book-data.js` is the reader's manifest of parts and lectures and is kept in sync with the
+README and `build.py`. The lecture-by-lecture substitution status lives in `PLAN.md`.

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script>(function(){try{var t=localStorage.getItem('stig-theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
-<title>Stellar Spectroscopy from Scratch</title>
+<title>Stellar Spectroscopy from Scratch — GPU Edition</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
@@ -96,14 +96,14 @@
 <div class="cover">
 
   <section class="hero">
-    <p class="hero-eyebrow"><span class="line"></span>A build-from-scratch course</p>
-    <h1>Stellar Spectroscopy from Scratch</h1>
-    <p class="lede">Rebuild a synthetic stellar spectrum from first principles — equation of state, opacity, and radiative transfer — in short, readable NumPy. Every step is benchmarked against <a href="https://github.com/tingyuansen/pykurucz" target="_blank" rel="noopener">pykurucz</a>, a pure-Python ATLAS12 &amp; SYNTHE, until the from-scratch flux matches the production code to machine precision. Written for physical scientists who code.</p>
+    <p class="hero-eyebrow"><span class="line"></span>The GPU companion edition</p>
+    <h1>Stellar Spectroscopy from Scratch — GPU Edition</h1>
+    <p class="lede">The torch/MPS vectorized companion to the <a href="https://github.com/tingyuansen/stellar-spectroscopy-from-scratch" target="_blank" rel="noopener">NumPy edition</a>. The same from-scratch physics — equation of state, opacity, and radiative transfer — rebuilt as clean, depth-batched <code>torch</code> that runs on the GPU (Apple MPS / CUDA, CPU fallback). Every part ships a comparison cell that validates the GPU result against the NumPy edition's reference to its documented float floor. Written for physical scientists who code.</p>
     <div class="hero-meta">
-      <div class="stat"><div class="v">From scratch</div><div class="k">Plain NumPy</div></div>
-      <div class="stat"><div class="v">Benchmarked</div><div class="k">Bit-for-bit vs pykurucz</div></div>
+      <div class="stat"><div class="v">GPU-native</div><div class="k">torch / MPS, depth-batched</div></div>
+      <div class="stat"><div class="v">Validated</div><div class="k">Per part vs the NumPy edition</div></div>
       <div class="stat"><div class="v">Runnable</div><div class="k">Code &amp; Outputs</div></div>
-      <div class="stat"><div class="v">Equation-complete</div><div class="k">The physics in full</div></div>
+      <div class="stat"><div class="v">Float-floor parity</div><div class="k">fp32 GPU ↔ fp64 NumPy</div></div>
     </div>
     <div class="hero-cta">
       <a class="btn btn-primary" href="reader.html?ch=1">Start reading
@@ -116,8 +116,8 @@
   <section class="about">
     <div class="about-label">About this book</div>
     <div>
-      <p>A synthetic stellar spectrum is the bridge between a star's physical parameters and the light we record. Production codes that compute it — Kurucz's ATLAS12 and SYNTHE, and their modern Python reimplementation <a href="https://github.com/tingyuansen/pykurucz" target="_blank" rel="noopener">pykurucz</a> — are decades of hardened physics wrapped in performance machinery. This book strips that machinery away and rebuilds the physics one layer at a time, in code short enough to read in a sitting.</p>
-      <p>The discipline that keeps it honest: at the end of every step we check our from-scratch number against the corresponding pykurucz routine. A stellar-atmosphere code has two halves, and the book builds both. The synthesis half goes from atmosphere to spectrum — the microphysics (equation of state, continuous and line opacity, hydrogen and molecular bands) and the radiative transfer, assembled into a lean synthesiser run across the HR diagram. The atmosphere half goes from stellar parameters to structure — and the finale switches on the millions of spectral lines and builds the per-iteration equation of state from scratch, so the line-blanketed convergence reaches the real Sun's model atmosphere with no pykurucz in the computed path. By the end you will have reproduced a real stellar spectrum, line by line, and understood every term that went into it.</p>
+      <p>This is the <strong>GPU companion</strong> to <a href="https://github.com/tingyuansen/stellar-spectroscopy-from-scratch" target="_blank" rel="noopener"><em>Stellar Spectroscopy from Scratch</em></a>. The NumPy edition rebuilds a synthetic stellar spectrum from first principles, benchmarked to <a href="https://github.com/tingyuansen/pykurucz" target="_blank" rel="noopener">pykurucz</a> (Kurucz's ATLAS12 &amp; SYNTHE) to machine precision. This edition keeps the same physics, the same constants, and the same lecture arc, but swaps each lecture's NumPy code for a clean, pedagogical <code>torch</code> version that is <em>vectorized over the depth axis and runs on the GPU</em> — Apple MPS or CUDA, with a CPU fallback that stays the high-precision reference.</p>
+      <p>The discipline that keeps it honest carries over, with a second layer added. Just as the NumPy edition is a clean reduction of pykurucz, these lectures are a clean reduction of the production <code>kgpu</code> torch/MPS engine — plain, readable <code>torch</code> in bite-size cells, not raw imports. And every lecture ends with a <strong>comparison cell</strong>: it runs the GPU computation and the NumPy reference side by side and reports the maximum relative deviation, asserting parity to the documented float floor (the fp32 GPU path against the fp64 NumPy result). That gives two things at once — an independent, per-part check of the GPU code, and a cleaner GPU-native textbook.</p>
     </div>
   </section>
 
@@ -137,7 +137,7 @@
   </section>
 
   <footer>
-    <p><em>Stellar Spectroscopy from Scratch</em> — rebuilding a synthetic stellar spectrum from first principles, benchmarked against pykurucz. By Yuan-Sen Ting (Max Planck Institute for Astronomy &amp; The Ohio State University). Rendered with runnable code and outputs. Written in collaboration with Claude Opus 4.8, under the author's supervision; schematics by Gemini 3 Pro (Nano Banana). Dedicated to the memory of Robert L. Kurucz (1944–2025).</p>
+    <p><em>Stellar Spectroscopy from Scratch — GPU Edition</em> — the torch/MPS vectorized companion to the <a href="https://github.com/tingyuansen/stellar-spectroscopy-from-scratch" target="_blank" rel="noopener">NumPy edition</a>, each part validated against it to the documented float floor. By Yuan-Sen Ting (Max Planck Institute for Astronomy &amp; The Ohio State University). Rendered with runnable code and outputs. Written in collaboration with Claude Opus 4.8, under the author's supervision; schematics by Gemini 3 Pro (Nano Banana). Dedicated to the memory of Robert L. Kurucz (1944–2025).</p>
   </footer>
 
 </div>

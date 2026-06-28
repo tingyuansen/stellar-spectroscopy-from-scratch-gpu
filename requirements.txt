@@ -1,6 +1,8 @@
-# Runtime for the lecture notebooks — they are self-contained: they import only
-# numpy + matplotlib and load the shipped reference/*.npz data files. No pykurucz.
-numpy
+# Runtime for the GPU-edition lecture notebooks — they are self-contained: they import
+# torch + numpy + matplotlib and load the shipped reference/*.npz data files (the NumPy
+# edition's references). No pykurucz, no production kgpu import.
+torch          # the GPU array library: Apple MPS / CUDA, with a CPU fp64 fallback
+numpy          # the reference array library + the validation comparisons
 matplotlib
 
 # Building the book (assembling notebooks with nbformat, executing with nbconvert):
