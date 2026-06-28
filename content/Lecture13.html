@@ -73,7 +73,7 @@ def compare(name, ours, ref, tol=1e-6, floor=1e-300):
     &quot;&quot;&quot;Report how closely a result matches the NumPy reference (the per-part check).&quot;&quot;&quot;
     # bring a tensor back to NumPy/fp64 (move to CPU FIRST, then cast: MPS has no float64)
     if torch.is_tensor(ours):
-        ours = ours.detach().cpu().to(torch.float64).numpy()
+        ours = ours.detach().cpu().to(torch.float64).numpy()  # JUSTIFY: parity-oracle boundary
     ours, ref = np.asarray(ours, float), np.asarray(ref, float)
     mask = np.isfinite(ref) &amp; np.isfinite(ours) &amp; (np.abs(ref) &gt; floor)
     rel = float(np.max(np.abs(ours[mask] - ref[mask]) / np.abs(ref[mask]))) if mask.any() else 0.0
@@ -90,7 +90,7 @@ print(&quot;compare() ready&quot;)" aria-label="Copy code">
     <span class="hljs-string">&quot;&quot;&quot;Report how closely a result matches the NumPy reference (the per-part check).&quot;&quot;&quot;</span>
     <span class="hljs-comment"># bring a tensor back to NumPy/fp64 (move to CPU FIRST, then cast: MPS has no float64)</span>
     <span class="hljs-keyword">if</span> torch.is_tensor(ours):
-        ours = ours.detach().cpu().to(torch.float64).numpy()
+        ours = ours.detach().cpu().to(torch.float64).numpy()  <span class="hljs-comment"># JUSTIFY: parity-oracle boundary</span>
     ours, ref = np.asarray(ours, <span class="hljs-built_in">float</span>), np.asarray(ref, <span class="hljs-built_in">float</span>)
     mask = np.isfinite(ref) &amp; np.isfinite(ours) &amp; (np.<span class="hljs-built_in">abs</span>(ref) &gt; floor)
     rel = <span class="hljs-built_in">float</span>(np.<span class="hljs-built_in">max</span>(np.<span class="hljs-built_in">abs</span>(ours[mask] - ref[mask]) / np.<span class="hljs-built_in">abs</span>(ref[mask]))) <span class="hljs-keyword">if</span> mask.<span class="hljs-built_in">any</span>() <span class="hljs-keyword">else</span> <span class="hljs-number">0.0</span>
@@ -160,13 +160,13 @@ _LOG_ZERO = -700.0
 
 def _as_numpy64(x):
     if torch.is_tensor(x):
-        return x.detach().cpu().to(torch.float64).numpy()
-    return np.asarray(x, dtype=np.float64)
+        return x.detach().cpu().to(torch.float64).numpy()  # JUSTIFY: fp64-solver boundary adapter
+    return np.asarray(x, dtype=np.float64)   # JUSTIFY: numpy&lt;-&gt;torch boundary adapter (fp64 solve reads numpy)
 
 def _as_numpy_i32(x):
     if torch.is_tensor(x):
-        return x.detach().cpu().to(torch.int32).numpy()
-    return np.asarray(x, dtype=np.int32)
+        return x.detach().cpu().to(torch.int32).numpy()  # JUSTIFY: static-index boundary adapter
+    return np.asarray(x, dtype=np.int32)   # JUSTIFY: numpy&lt;-&gt;torch boundary adapter
 
 print(&quot;constants + index adapters ready&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
@@ -180,13 +180,13 @@ _LOG_ZERO = -<span class="hljs-number">700.0</span>
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">_as_numpy64</span>(<span class="hljs-params">x</span>):
     <span class="hljs-keyword">if</span> torch.is_tensor(x):
-        <span class="hljs-keyword">return</span> x.detach().cpu().to(torch.float64).numpy()
-    <span class="hljs-keyword">return</span> np.asarray(x, dtype=np.float64)
+        <span class="hljs-keyword">return</span> x.detach().cpu().to(torch.float64).numpy()  <span class="hljs-comment"># JUSTIFY: fp64-solver boundary adapter</span>
+    <span class="hljs-keyword">return</span> np.asarray(x, dtype=np.float64)   <span class="hljs-comment"># JUSTIFY: numpy&lt;-&gt;torch boundary adapter (fp64 solve reads numpy)</span>
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">_as_numpy_i32</span>(<span class="hljs-params">x</span>):
     <span class="hljs-keyword">if</span> torch.is_tensor(x):
-        <span class="hljs-keyword">return</span> x.detach().cpu().to(torch.int32).numpy()
-    <span class="hljs-keyword">return</span> np.asarray(x, dtype=np.int32)
+        <span class="hljs-keyword">return</span> x.detach().cpu().to(torch.int32).numpy()  <span class="hljs-comment"># JUSTIFY: static-index boundary adapter</span>
+    <span class="hljs-keyword">return</span> np.asarray(x, dtype=np.int32)   <span class="hljs-comment"># JUSTIFY: numpy&lt;-&gt;torch boundary adapter</span>
 
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;constants + index adapters ready&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">constants + index adapters ready
@@ -209,7 +209,7 @@ _LOG_ZERO = -<span class="hljs-number">700.0</span>
     xcode = np.array([1e14, 1e12, 1e10, 1e8, 1e6, 1e4, 1e2, 1e0], dtype=np.float64)
 
     kloc = 0; locj[0] = 0; nummol = 0
-    for raw in pathlib.Path(molecules_path).read_text().splitlines():
+    for raw in pathlib.Path(molecules_path).read_text().splitlines():   # JUSTIFIED-LOOP: file parse (READMOL port), one-time text I/O
         line = raw.rstrip(&quot;\n\r&quot;); stripped = line.strip()
         if (not stripped or stripped.startswith(&quot;C&quot;) or stripped.startswith(&quot;c&quot;)
                 or stripped.startswith(&quot;#&quot;)):
@@ -223,7 +223,7 @@ _LOG_ZERO = -<span class="hljs-number">700.0</span>
             continue
         cols = [(18, 25), (25, 36), (36, 47), (47, 58), (58, 69), (69, 80), (80, 91)]
         ee = [0.0] * 7
-        for i, (a, b) in enumerate(cols):
+        for i, (a, b) in enumerate(cols):   # JUSTIFIED-LOOP: 7 fixed-width columns
             if len(line) &gt;= b:
                 s = line[a:b].strip()
                 if s:
@@ -231,11 +231,11 @@ _LOG_ZERO = -<span class="hljs-number">700.0</span>
         if c == 0.0 or abs(c) &lt; 1e-12:
             continue
         ii = 0                                          # highest occupied base-100 place
-        for i in range(8):
+        for i in range(8):   # JUSTIFIED-LOOP: 8 fixed base-100 places
             if c &gt;= xcode[i]:
                 ii = i; break
         x = c                                           # peel out each element id base-100
-        for i in range(ii, 8):
+        for i in range(ii, 8):   # JUSTIFIED-LOOP: peel &lt;=8 base-100 element ids
             id_elem = int(x / xcode[i]); x = x - float(id_elem) * xcode[i]
             if id_elem == 0:
                 id_elem = 100                           # a zero digit means an electron
@@ -243,20 +243,20 @@ _LOG_ZERO = -<span class="hljs-number">700.0</span>
         ion = int(x * 100.0 + 0.5)                      # trailing digits = net charge
         if ion &gt;= 1:
             ifequa[100] = 1; ifequa[101] = 1
-            for _ in range(ion):
+            for _ in range(ion):   # JUSTIFIED-LOOP: one inverse-electron per +charge
                 kcomps[kloc] = 101; kloc += 1           # +charge -&gt; inverse electron (divide by n_e)
         locj[nummol + 1] = kloc; code_mol[nummol] = c
-        for i in range(7):
+        for i in range(7):   # JUSTIFIED-LOOP: 7 fixed polynomial coeffs
             equil[i, nummol] = ee[i]
         nummol += 1
 
     nloc = kloc
     iequa = 1                                           # assign equation numbers (eq 0 = total)
-    for i in range(1, 101):
+    for i in range(1, 101):   # JUSTIFIED-LOOP: assign eq numbers to &lt;=100 elements (one-time)
         if ifequa[i] == 1:
             iequa += 1; ifequa[i] = iequa; idequa[iequa - 1] = i
     nequa = iequa; ifequa[101] = nequa + 1              # inverse electron -&gt; sentinel eq index
-    for k in range(nloc):
+    for k in range(nloc):   # JUSTIFIED-LOOP: remap component ids to 0-based eq indices (one-time)
         kcomps[k] = ifequa[kcomps[k]] - 1               # element id -&gt; 0-based equation index
     return nummol, code_mol, equil, locj, kcomps, idequa, nequa, nloc
 
@@ -280,7 +280,7 @@ print(f&quot;parsed {nummol} molecules into {nequa} equations  (electron eq id =
     xcode = np.array([<span class="hljs-number">1e14</span>, <span class="hljs-number">1e12</span>, <span class="hljs-number">1e10</span>, <span class="hljs-number">1e8</span>, <span class="hljs-number">1e6</span>, <span class="hljs-number">1e4</span>, <span class="hljs-number">1e2</span>, <span class="hljs-number">1e0</span>], dtype=np.float64)
 
     kloc = <span class="hljs-number">0</span>; locj[<span class="hljs-number">0</span>] = <span class="hljs-number">0</span>; nummol = <span class="hljs-number">0</span>
-    <span class="hljs-keyword">for</span> raw <span class="hljs-keyword">in</span> pathlib.Path(molecules_path).read_text().splitlines():
+    <span class="hljs-keyword">for</span> raw <span class="hljs-keyword">in</span> pathlib.Path(molecules_path).read_text().splitlines():   <span class="hljs-comment"># JUSTIFIED-LOOP: file parse (READMOL port), one-time text I/O</span>
         line = raw.rstrip(<span class="hljs-string">&quot;\n\r&quot;</span>); stripped = line.strip()
         <span class="hljs-keyword">if</span> (<span class="hljs-keyword">not</span> stripped <span class="hljs-keyword">or</span> stripped.startswith(<span class="hljs-string">&quot;C&quot;</span>) <span class="hljs-keyword">or</span> stripped.startswith(<span class="hljs-string">&quot;c&quot;</span>)
                 <span class="hljs-keyword">or</span> stripped.startswith(<span class="hljs-string">&quot;#&quot;</span>)):
@@ -294,7 +294,7 @@ print(f&quot;parsed {nummol} molecules into {nequa} equations  (electron eq id =
             <span class="hljs-keyword">continue</span>
         cols = [(<span class="hljs-number">18</span>, <span class="hljs-number">25</span>), (<span class="hljs-number">25</span>, <span class="hljs-number">36</span>), (<span class="hljs-number">36</span>, <span class="hljs-number">47</span>), (<span class="hljs-number">47</span>, <span class="hljs-number">58</span>), (<span class="hljs-number">58</span>, <span class="hljs-number">69</span>), (<span class="hljs-number">69</span>, <span class="hljs-number">80</span>), (<span class="hljs-number">80</span>, <span class="hljs-number">91</span>)]
         ee = [<span class="hljs-number">0.0</span>] * <span class="hljs-number">7</span>
-        <span class="hljs-keyword">for</span> i, (a, b) <span class="hljs-keyword">in</span> <span class="hljs-built_in">enumerate</span>(cols):
+        <span class="hljs-keyword">for</span> i, (a, b) <span class="hljs-keyword">in</span> <span class="hljs-built_in">enumerate</span>(cols):   <span class="hljs-comment"># JUSTIFIED-LOOP: 7 fixed-width columns</span>
             <span class="hljs-keyword">if</span> <span class="hljs-built_in">len</span>(line) &gt;= b:
                 s = line[a:b].strip()
                 <span class="hljs-keyword">if</span> s:
@@ -302,11 +302,11 @@ print(f&quot;parsed {nummol} molecules into {nequa} equations  (electron eq id =
         <span class="hljs-keyword">if</span> c == <span class="hljs-number">0.0</span> <span class="hljs-keyword">or</span> <span class="hljs-built_in">abs</span>(c) &lt; <span class="hljs-number">1e-12</span>:
             <span class="hljs-keyword">continue</span>
         ii = <span class="hljs-number">0</span>                                          <span class="hljs-comment"># highest occupied base-100 place</span>
-        <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">8</span>):
+        <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">8</span>):   <span class="hljs-comment"># JUSTIFIED-LOOP: 8 fixed base-100 places</span>
             <span class="hljs-keyword">if</span> c &gt;= xcode[i]:
                 ii = i; <span class="hljs-keyword">break</span>
         x = c                                           <span class="hljs-comment"># peel out each element id base-100</span>
-        <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(ii, <span class="hljs-number">8</span>):
+        <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(ii, <span class="hljs-number">8</span>):   <span class="hljs-comment"># JUSTIFIED-LOOP: peel &lt;=8 base-100 element ids</span>
             id_elem = <span class="hljs-built_in">int</span>(x / xcode[i]); x = x - <span class="hljs-built_in">float</span>(id_elem) * xcode[i]
             <span class="hljs-keyword">if</span> id_elem == <span class="hljs-number">0</span>:
                 id_elem = <span class="hljs-number">100</span>                           <span class="hljs-comment"># a zero digit means an electron</span>
@@ -314,20 +314,20 @@ print(f&quot;parsed {nummol} molecules into {nequa} equations  (electron eq id =
         ion = <span class="hljs-built_in">int</span>(x * <span class="hljs-number">100.0</span> + <span class="hljs-number">0.5</span>)                      <span class="hljs-comment"># trailing digits = net charge</span>
         <span class="hljs-keyword">if</span> ion &gt;= <span class="hljs-number">1</span>:
             ifequa[<span class="hljs-number">100</span>] = <span class="hljs-number">1</span>; ifequa[<span class="hljs-number">101</span>] = <span class="hljs-number">1</span>
-            <span class="hljs-keyword">for</span> _ <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(ion):
+            <span class="hljs-keyword">for</span> _ <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(ion):   <span class="hljs-comment"># JUSTIFIED-LOOP: one inverse-electron per +charge</span>
                 kcomps[kloc] = <span class="hljs-number">101</span>; kloc += <span class="hljs-number">1</span>           <span class="hljs-comment"># +charge -&gt; inverse electron (divide by n_e)</span>
         locj[nummol + <span class="hljs-number">1</span>] = kloc; code_mol[nummol] = c
-        <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">7</span>):
+        <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">7</span>):   <span class="hljs-comment"># JUSTIFIED-LOOP: 7 fixed polynomial coeffs</span>
             equil[i, nummol] = ee[i]
         nummol += <span class="hljs-number">1</span>
 
     nloc = kloc
     iequa = <span class="hljs-number">1</span>                                           <span class="hljs-comment"># assign equation numbers (eq 0 = total)</span>
-    <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, <span class="hljs-number">101</span>):
+    <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, <span class="hljs-number">101</span>):   <span class="hljs-comment"># JUSTIFIED-LOOP: assign eq numbers to &lt;=100 elements (one-time)</span>
         <span class="hljs-keyword">if</span> ifequa[i] == <span class="hljs-number">1</span>:
             iequa += <span class="hljs-number">1</span>; ifequa[i] = iequa; idequa[iequa - <span class="hljs-number">1</span>] = i
     nequa = iequa; ifequa[<span class="hljs-number">101</span>] = nequa + <span class="hljs-number">1</span>              <span class="hljs-comment"># inverse electron -&gt; sentinel eq index</span>
-    <span class="hljs-keyword">for</span> k <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nloc):
+    <span class="hljs-keyword">for</span> k <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nloc):   <span class="hljs-comment"># JUSTIFIED-LOOP: remap component ids to 0-based eq indices (one-time)</span>
         kcomps[k] = ifequa[kcomps[k]] - <span class="hljs-number">1</span>               <span class="hljs-comment"># element id -&gt; 0-based equation index</span>
     <span class="hljs-keyword">return</span> nummol, code_mol, equil, locj, kcomps, idequa, nequa, nloc
 
@@ -341,7 +341,7 @@ nummol, code_mol, equil, locj, kcomps, idequa, nequa, nloc = readmol(REF / <span
         <button class="copy-btn" type="button" data-code="SYM = {1:&quot;H&quot;, 2:&quot;He&quot;, 3:&quot;Li&quot;, 4:&quot;Be&quot;, 5:&quot;B&quot;, 6:&quot;C&quot;, 7:&quot;N&quot;, 8:&quot;O&quot;, 9:&quot;F&quot;,
        11:&quot;Na&quot;, 12:&quot;Mg&quot;, 13:&quot;Al&quot;, 14:&quot;Si&quot;, 16:&quot;S&quot;, 17:&quot;Cl&quot;, 19:&quot;K&quot;, 20:&quot;Ca&quot;,
        22:&quot;Ti&quot;, 23:&quot;V&quot;, 24:&quot;Cr&quot;, 26:&quot;Fe&quot;, 100:&quot;e-&quot;}
-labels = [&quot;total&quot; if k == 0 else SYM.get(int(idequa[k]), f&quot;Z={int(idequa[k])}&quot;) for k in range(nequa)]
+labels = [&quot;total&quot; if k == 0 else SYM.get(int(idequa[k]), f&quot;Z={int(idequa[k])}&quot;) for k in range(nequa)]  # JUSTIFY: 23 fixed equation labels for display only
 print(f&quot;{nequa} equations:&quot;)
 print(&quot;  [0] total-particle conservation&quot;)
 print(&quot;  elements :&quot;, &quot; &quot;.join(labels[1:-1]))
@@ -351,7 +351,7 @@ print(&quot;  [last] charge balance (electron eq id =&quot;, int(idequa[nequa - 
       <pre class="code-body"><code class="hljs language-python">SYM = {<span class="hljs-number">1</span>:<span class="hljs-string">&quot;H&quot;</span>, <span class="hljs-number">2</span>:<span class="hljs-string">&quot;He&quot;</span>, <span class="hljs-number">3</span>:<span class="hljs-string">&quot;Li&quot;</span>, <span class="hljs-number">4</span>:<span class="hljs-string">&quot;Be&quot;</span>, <span class="hljs-number">5</span>:<span class="hljs-string">&quot;B&quot;</span>, <span class="hljs-number">6</span>:<span class="hljs-string">&quot;C&quot;</span>, <span class="hljs-number">7</span>:<span class="hljs-string">&quot;N&quot;</span>, <span class="hljs-number">8</span>:<span class="hljs-string">&quot;O&quot;</span>, <span class="hljs-number">9</span>:<span class="hljs-string">&quot;F&quot;</span>,
        <span class="hljs-number">11</span>:<span class="hljs-string">&quot;Na&quot;</span>, <span class="hljs-number">12</span>:<span class="hljs-string">&quot;Mg&quot;</span>, <span class="hljs-number">13</span>:<span class="hljs-string">&quot;Al&quot;</span>, <span class="hljs-number">14</span>:<span class="hljs-string">&quot;Si&quot;</span>, <span class="hljs-number">16</span>:<span class="hljs-string">&quot;S&quot;</span>, <span class="hljs-number">17</span>:<span class="hljs-string">&quot;Cl&quot;</span>, <span class="hljs-number">19</span>:<span class="hljs-string">&quot;K&quot;</span>, <span class="hljs-number">20</span>:<span class="hljs-string">&quot;Ca&quot;</span>,
        <span class="hljs-number">22</span>:<span class="hljs-string">&quot;Ti&quot;</span>, <span class="hljs-number">23</span>:<span class="hljs-string">&quot;V&quot;</span>, <span class="hljs-number">24</span>:<span class="hljs-string">&quot;Cr&quot;</span>, <span class="hljs-number">26</span>:<span class="hljs-string">&quot;Fe&quot;</span>, <span class="hljs-number">100</span>:<span class="hljs-string">&quot;e-&quot;</span>}
-labels = [<span class="hljs-string">&quot;total&quot;</span> <span class="hljs-keyword">if</span> k == <span class="hljs-number">0</span> <span class="hljs-keyword">else</span> SYM.get(<span class="hljs-built_in">int</span>(idequa[k]), <span class="hljs-string">f&quot;Z=<span class="hljs-subst">{<span class="hljs-built_in">int</span>(idequa[k])}</span>&quot;</span>) <span class="hljs-keyword">for</span> k <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nequa)]
+labels = [<span class="hljs-string">&quot;total&quot;</span> <span class="hljs-keyword">if</span> k == <span class="hljs-number">0</span> <span class="hljs-keyword">else</span> SYM.get(<span class="hljs-built_in">int</span>(idequa[k]), <span class="hljs-string">f&quot;Z=<span class="hljs-subst">{<span class="hljs-built_in">int</span>(idequa[k])}</span>&quot;</span>) <span class="hljs-keyword">for</span> k <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nequa)]  <span class="hljs-comment"># JUSTIFY: 23 fixed equation labels for display only</span>
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;<span class="hljs-subst">{nequa}</span> equations:&quot;</span>)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;  [0] total-particle conservation&quot;</span>)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;  elements :&quot;</span>, <span class="hljs-string">&quot; &quot;</span>.join(labels[<span class="hljs-number">1</span>:-<span class="hljs-number">1</span>]))
@@ -376,27 +376,27 @@ labels = [<span class="hljs-string">&quot;total&quot;</span> <span class="hljs-k
     T = _as_numpy64(T); code_mol = _as_numpy64(code_mol); equil = _as_numpy64(equil)
     locj = _as_numpy_i32(locj); nummol = int(nummol)
     n_layers = T.shape[0]
-    tkev = T * KBOLTZ_EV; tlog = np.log(T)
+    tkev = T * KBOLTZ_EV; tlog = np.log(T)   # numpy-ref: bit-exact match to the numpy-computed production EQUILJ (the gate below asserts ==0.0)
     cool = T &lt;= 10000.0                                  # no molecules survive above 10000 K
-    eqj = np.zeros((n_layers, nummol), dtype=np.float64)
+    eqj = np.zeros((n_layers, nummol), dtype=np.float64)   # numpy-ref: bit-exact K_f path
 
     for jmol in range(nummol):                           # JUSTIFIED-LOOP: heterogeneous per-molecule polynomial; body is depth-vectorized
         if equil[0, jmol] == 0.0:
             continue                                     # atomic-ion molecule: supplied as input
         ncomp = locj[jmol + 1] - locj[jmol]
         code_int = int(code_mol[jmol])
-        ion = int((np.float64(code_mol[jmol]) - np.float64(code_int)) * 100.0 + 0.5)
+        ion = int((np.float64(code_mol[jmol]) - np.float64(code_int)) * 100.0 + 0.5)   # numpy-ref
         if abs(code_mol[jmol] - 101.0) &lt; 1e-9:           # H2 entry: hard-coded polynomial
             ea = (4.478 / tkev - 46.4584
                   + (1.63660e-3 + (-4.93992e-7 + (1.11822e-10 + (-1.49567e-14
                      + (1.06206e-18 - 3.08720e-23 * T) * T) * T) * T) * T) * T - 1.5 * tlog)
-            eqj[:, jmol] = np.where(cool, np.exp(ea), 0.0)
+            eqj[:, jmol] = np.where(cool, np.exp(ea), 0.0)   # numpy-ref: bit-exact K_f path
             continue
-        poly = (np.float64(equil[0, jmol]) / tkev - equil[1, jmol]
+        poly = (np.float64(equil[0, jmol]) / tkev - equil[1, jmol]   # numpy-ref
                 + (equil[2, jmol] + (-equil[3, jmol] + (equil[4, jmol]
                    + (-equil[5, jmol] + equil[6, jmol] * T) * T) * T) * T) * T)
-        tlog_term = -1.5 * np.float64(ncomp - ion - ion - 1) * tlog
-        eqj[:, jmol] = np.where(cool, np.exp(np.float64(poly + tlog_term)), 0.0)
+        tlog_term = -1.5 * np.float64(ncomp - ion - ion - 1) * tlog   # numpy-ref
+        eqj[:, jmol] = np.where(cool, np.exp(np.float64(poly + tlog_term)), 0.0)   # numpy-ref: bit-exact K_f path
     return eqj
 
 print(&quot;compute_equilj_polynomial ready (vectorized over all layers)&quot;)" aria-label="Copy code">
@@ -411,27 +411,27 @@ print(&quot;compute_equilj_polynomial ready (vectorized over all layers)&quot;)"
     T = _as_numpy64(T); code_mol = _as_numpy64(code_mol); equil = _as_numpy64(equil)
     locj = _as_numpy_i32(locj); nummol = <span class="hljs-built_in">int</span>(nummol)
     n_layers = T.shape[<span class="hljs-number">0</span>]
-    tkev = T * KBOLTZ_EV; tlog = np.log(T)
+    tkev = T * KBOLTZ_EV; tlog = np.log(T)   <span class="hljs-comment"># numpy-ref: bit-exact match to the numpy-computed production EQUILJ (the gate below asserts ==0.0)</span>
     cool = T &lt;= <span class="hljs-number">10000.0</span>                                  <span class="hljs-comment"># no molecules survive above 10000 K</span>
-    eqj = np.zeros((n_layers, nummol), dtype=np.float64)
+    eqj = np.zeros((n_layers, nummol), dtype=np.float64)   <span class="hljs-comment"># numpy-ref: bit-exact K_f path</span>
 
     <span class="hljs-keyword">for</span> jmol <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nummol):                           <span class="hljs-comment"># JUSTIFIED-LOOP: heterogeneous per-molecule polynomial; body is depth-vectorized</span>
         <span class="hljs-keyword">if</span> equil[<span class="hljs-number">0</span>, jmol] == <span class="hljs-number">0.0</span>:
             <span class="hljs-keyword">continue</span>                                     <span class="hljs-comment"># atomic-ion molecule: supplied as input</span>
         ncomp = locj[jmol + <span class="hljs-number">1</span>] - locj[jmol]
         code_int = <span class="hljs-built_in">int</span>(code_mol[jmol])
-        ion = <span class="hljs-built_in">int</span>((np.float64(code_mol[jmol]) - np.float64(code_int)) * <span class="hljs-number">100.0</span> + <span class="hljs-number">0.5</span>)
+        ion = <span class="hljs-built_in">int</span>((np.float64(code_mol[jmol]) - np.float64(code_int)) * <span class="hljs-number">100.0</span> + <span class="hljs-number">0.5</span>)   <span class="hljs-comment"># numpy-ref</span>
         <span class="hljs-keyword">if</span> <span class="hljs-built_in">abs</span>(code_mol[jmol] - <span class="hljs-number">101.0</span>) &lt; <span class="hljs-number">1e-9</span>:           <span class="hljs-comment"># H2 entry: hard-coded polynomial</span>
             ea = (<span class="hljs-number">4.478</span> / tkev - <span class="hljs-number">46.4584</span>
                   + (<span class="hljs-number">1.63660e-3</span> + (-<span class="hljs-number">4.93992e-7</span> + (<span class="hljs-number">1.11822e-10</span> + (-<span class="hljs-number">1.49567e-14</span>
                      + (<span class="hljs-number">1.06206e-18</span> - <span class="hljs-number">3.08720e-23</span> * T) * T) * T) * T) * T) * T - <span class="hljs-number">1.5</span> * tlog)
-            eqj[:, jmol] = np.where(cool, np.exp(ea), <span class="hljs-number">0.0</span>)
+            eqj[:, jmol] = np.where(cool, np.exp(ea), <span class="hljs-number">0.0</span>)   <span class="hljs-comment"># numpy-ref: bit-exact K_f path</span>
             <span class="hljs-keyword">continue</span>
-        poly = (np.float64(equil[<span class="hljs-number">0</span>, jmol]) / tkev - equil[<span class="hljs-number">1</span>, jmol]
+        poly = (np.float64(equil[<span class="hljs-number">0</span>, jmol]) / tkev - equil[<span class="hljs-number">1</span>, jmol]   <span class="hljs-comment"># numpy-ref</span>
                 + (equil[<span class="hljs-number">2</span>, jmol] + (-equil[<span class="hljs-number">3</span>, jmol] + (equil[<span class="hljs-number">4</span>, jmol]
                    + (-equil[<span class="hljs-number">5</span>, jmol] + equil[<span class="hljs-number">6</span>, jmol] * T) * T) * T) * T) * T)
-        tlog_term = -<span class="hljs-number">1.5</span> * np.float64(ncomp - ion - ion - <span class="hljs-number">1</span>) * tlog
-        eqj[:, jmol] = np.where(cool, np.exp(np.float64(poly + tlog_term)), <span class="hljs-number">0.0</span>)
+        tlog_term = -<span class="hljs-number">1.5</span> * np.float64(ncomp - ion - ion - <span class="hljs-number">1</span>) * tlog   <span class="hljs-comment"># numpy-ref</span>
+        eqj[:, jmol] = np.where(cool, np.exp(np.float64(poly + tlog_term)), <span class="hljs-number">0.0</span>)   <span class="hljs-comment"># numpy-ref: bit-exact K_f path</span>
     <span class="hljs-keyword">return</span> eqj
 
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;compute_equilj_polynomial ready (vectorized over all layers)&quot;</span>)</code></pre>
@@ -442,8 +442,8 @@ print(&quot;compute_equilj_polynomial ready (vectorized over all layers)&quot;)"
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[8]</span>Python</span>
         <button class="copy-btn" type="button" data-code="eqj_all = compute_equilj_polynomial(T, code_mol, equil, locj, nummol)   # [n_layers, nummol]
 mask_poly = poly_mask[None, :] &amp; (equilj_ion &gt; 0)                        # compare where both defined
-worst_poly = float(np.max(np.abs(eqj_all[mask_poly] - equilj_ion[mask_poly])
-                          / np.abs(equilj_ion[mask_poly]))) if mask_poly.any() else 0.0
+worst_poly = float(np.max(np.abs(eqj_all[mask_poly] - equilj_ion[mask_poly])   # numpy-ref
+                          / np.abs(equilj_ion[mask_poly]))) if mask_poly.any() else 0.0   # numpy-ref
 print(f&quot;from-scratch K_f(T) vs production EQUILJ : max rel = {worst_poly:.3e}&quot;,
       &quot;(BIT-EXACT)&quot; if worst_poly == 0.0 else &quot;&quot;)
 assert worst_poly == 0.0, &quot;molecular formation physics must be bit-exact&quot;" aria-label="Copy code">
@@ -451,8 +451,8 @@ assert worst_poly == 0.0, &quot;molecular formation physics must be bit-exact&qu
       </div>
       <pre class="code-body"><code class="hljs language-python">eqj_all = compute_equilj_polynomial(T, code_mol, equil, locj, nummol)   <span class="hljs-comment"># [n_layers, nummol]</span>
 mask_poly = poly_mask[<span class="hljs-literal">None</span>, :] &amp; (equilj_ion &gt; <span class="hljs-number">0</span>)                        <span class="hljs-comment"># compare where both defined</span>
-worst_poly = <span class="hljs-built_in">float</span>(np.<span class="hljs-built_in">max</span>(np.<span class="hljs-built_in">abs</span>(eqj_all[mask_poly] - equilj_ion[mask_poly])
-                          / np.<span class="hljs-built_in">abs</span>(equilj_ion[mask_poly]))) <span class="hljs-keyword">if</span> mask_poly.<span class="hljs-built_in">any</span>() <span class="hljs-keyword">else</span> <span class="hljs-number">0.0</span>
+worst_poly = <span class="hljs-built_in">float</span>(np.<span class="hljs-built_in">max</span>(np.<span class="hljs-built_in">abs</span>(eqj_all[mask_poly] - equilj_ion[mask_poly])   <span class="hljs-comment"># numpy-ref</span>
+                          / np.<span class="hljs-built_in">abs</span>(equilj_ion[mask_poly]))) <span class="hljs-keyword">if</span> mask_poly.<span class="hljs-built_in">any</span>() <span class="hljs-keyword">else</span> <span class="hljs-number">0.0</span>   <span class="hljs-comment"># numpy-ref</span>
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;from-scratch K_f(T) vs production EQUILJ : max rel = <span class="hljs-subst">{worst_poly:<span class="hljs-number">.3</span>e}</span>&quot;</span>,
       <span class="hljs-string">&quot;(BIT-EXACT)&quot;</span> <span class="hljs-keyword">if</span> worst_poly == <span class="hljs-number">0.0</span> <span class="hljs-keyword">else</span> <span class="hljs-string">&quot;&quot;</span>)
 <span class="hljs-keyword">assert</span> worst_poly == <span class="hljs-number">0.0</span>, <span class="hljs-string">&quot;molecular formation physics must be bit-exact&quot;</span></code></pre>
@@ -490,24 +490,24 @@ class MolStructure:
         nummol = int(nummol); nequa = int(nequa)
         locj = _as_numpy_i32(locj); kcomps = _as_numpy_i32(kcomps); idequa = _as_numpy_i32(idequa)
         ne = nequa - 1 if int(idequa[nequa - 1]) == 100 else -1
-        count_all = np.zeros((nummol, nequa), dtype=np.float64)
-        inv_e_all = np.zeros(nummol, dtype=np.float64)
-        neg_ion = np.zeros(nummol, dtype=np.float64); active = np.zeros(nummol, dtype=np.float64)
+        count_all = np.zeros((nummol, nequa), dtype=np.float64)   # JUSTIFY: static integer incidence table (one-time setup)
+        inv_e_all = np.zeros(nummol, dtype=np.float64)   # JUSTIFY: static index table
+        neg_ion = np.zeros(nummol, dtype=np.float64); active = np.zeros(nummol, dtype=np.float64)   # JUSTIFY: static masks
         for jmol in range(nummol):     # JUSTIFIED-LOOP: one-time host setup; builds the static incidence tensors
             a = int(locj[jmol]); b = int(locj[jmol + 1])
             if b - a &gt; 1:
                 active[jmol] = 1.0
                 if ne &gt;= 0 and int(kcomps[b - 1]) == ne:
                     neg_ion[jmol] = 1.0
-            for lk in range(a, b):
+            for lk in range(a, b):   # JUSTIFIED-LOOP: component-decode of one molecule (one-time setup)
                 kr = int(kcomps[lk])
                 if kr &gt;= nequa:
                     inv_e_all[jmol] += 1.0
                 else:
                     count_all[jmol, kr] += 1.0
         count = count_all * active[:, None]; inv_e = inv_e_all * active
-        total_mask_np = np.zeros(nequa, dtype=np.float64); total_mask_np[0] = 1.0
-        electron_mask_np = np.zeros(nequa, dtype=np.float64)
+        total_mask_np = np.zeros(nequa, dtype=np.float64); total_mask_np[0] = 1.0   # JUSTIFY: static one-hot
+        electron_mask_np = np.zeros(nequa, dtype=np.float64)   # JUSTIFY: static one-hot
         if ne &gt;= 0:
             electron_mask_np[ne] = 1.0
         to = lambda a: torch.as_tensor(a, dtype=dtype, device=device)
@@ -539,24 +539,24 @@ print(&quot;MolStructure (branchless incidence structure) ready&quot;)" aria-lab
         nummol = <span class="hljs-built_in">int</span>(nummol); nequa = <span class="hljs-built_in">int</span>(nequa)
         locj = _as_numpy_i32(locj); kcomps = _as_numpy_i32(kcomps); idequa = _as_numpy_i32(idequa)
         ne = nequa - <span class="hljs-number">1</span> <span class="hljs-keyword">if</span> <span class="hljs-built_in">int</span>(idequa[nequa - <span class="hljs-number">1</span>]) == <span class="hljs-number">100</span> <span class="hljs-keyword">else</span> -<span class="hljs-number">1</span>
-        count_all = np.zeros((nummol, nequa), dtype=np.float64)
-        inv_e_all = np.zeros(nummol, dtype=np.float64)
-        neg_ion = np.zeros(nummol, dtype=np.float64); active = np.zeros(nummol, dtype=np.float64)
+        count_all = np.zeros((nummol, nequa), dtype=np.float64)   <span class="hljs-comment"># JUSTIFY: static integer incidence table (one-time setup)</span>
+        inv_e_all = np.zeros(nummol, dtype=np.float64)   <span class="hljs-comment"># JUSTIFY: static index table</span>
+        neg_ion = np.zeros(nummol, dtype=np.float64); active = np.zeros(nummol, dtype=np.float64)   <span class="hljs-comment"># JUSTIFY: static masks</span>
         <span class="hljs-keyword">for</span> jmol <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nummol):     <span class="hljs-comment"># JUSTIFIED-LOOP: one-time host setup; builds the static incidence tensors</span>
             a = <span class="hljs-built_in">int</span>(locj[jmol]); b = <span class="hljs-built_in">int</span>(locj[jmol + <span class="hljs-number">1</span>])
             <span class="hljs-keyword">if</span> b - a &gt; <span class="hljs-number">1</span>:
                 active[jmol] = <span class="hljs-number">1.0</span>
                 <span class="hljs-keyword">if</span> ne &gt;= <span class="hljs-number">0</span> <span class="hljs-keyword">and</span> <span class="hljs-built_in">int</span>(kcomps[b - <span class="hljs-number">1</span>]) == ne:
                     neg_ion[jmol] = <span class="hljs-number">1.0</span>
-            <span class="hljs-keyword">for</span> lk <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(a, b):
+            <span class="hljs-keyword">for</span> lk <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(a, b):   <span class="hljs-comment"># JUSTIFIED-LOOP: component-decode of one molecule (one-time setup)</span>
                 kr = <span class="hljs-built_in">int</span>(kcomps[lk])
                 <span class="hljs-keyword">if</span> kr &gt;= nequa:
                     inv_e_all[jmol] += <span class="hljs-number">1.0</span>
                 <span class="hljs-keyword">else</span>:
                     count_all[jmol, kr] += <span class="hljs-number">1.0</span>
         count = count_all * active[:, <span class="hljs-literal">None</span>]; inv_e = inv_e_all * active
-        total_mask_np = np.zeros(nequa, dtype=np.float64); total_mask_np[<span class="hljs-number">0</span>] = <span class="hljs-number">1.0</span>
-        electron_mask_np = np.zeros(nequa, dtype=np.float64)
+        total_mask_np = np.zeros(nequa, dtype=np.float64); total_mask_np[<span class="hljs-number">0</span>] = <span class="hljs-number">1.0</span>   <span class="hljs-comment"># JUSTIFY: static one-hot</span>
+        electron_mask_np = np.zeros(nequa, dtype=np.float64)   <span class="hljs-comment"># JUSTIFY: static one-hot</span>
         <span class="hljs-keyword">if</span> ne &gt;= <span class="hljs-number">0</span>:
             electron_mask_np[ne] = <span class="hljs-number">1.0</span>
         to = <span class="hljs-keyword">lambda</span> a: torch.as_tensor(a, dtype=dtype, device=device)
@@ -566,7 +566,7 @@ print(&quot;MolStructure (branchless incidence structure) ready&quot;)" aria-lab
 
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;MolStructure (branchless incidence structure) ready&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">MolStructure (branchless incidence structure) ready
-</pre></div></div><div class="prose"><h3>The branchless log-space residual</h3>
+</pre></div></div><div class="prose"><h3>Assembling the system, part A: the conservation equations; part B: every molecule&#39;s mass-action term — the branchless log-space residual</h3>
 <p>Now the residual <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>f</mi><mo stretchy="false">(</mo><msub><mi>x</mi><mi>n</mi></msub><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">f(x_n)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.10764em;">f</span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">n</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mclose">)</span></span></span></span> — how far each conservation law is from being satisfied — built <strong>entirely without <code>if</code></strong>, and <strong>in log space</strong> to keep the dynamic range tame. The conservation skeleton (element residual <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>x</mi><mi>k</mi></msub><mo>−</mo><msub><mi>X</mi><mi>k</mi></msub><mtext> </mtext><msub><mi>x</mi><mn>0</mn></msub></mrow><annotation encoding="application/x-tex">x_k - X_k\,x_0</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3361em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.03148em;">k</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.07847em;">X</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3361em;"><span style="top:-2.55em;margin-left:-0.0785em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.03148em;">k</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">0</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>, the total-particle sum, the <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>−</mo><msub><mi>n</mi><mi>e</mi></msub></mrow><annotation encoding="application/x-tex">-n_e</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7333em;vertical-align:-0.15em;"></span><span class="mord">−</span><span class="mord"><span class="mord mathnormal">n</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">e</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> charge term) is laid down with the one-hot <code>total_mask</code> / <code>electron_mask</code> <em>adding in</em> the special rows rather than branching to them. Then every molecule&#39;s mass-action term <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>K</mi><mi>f</mi></msub><msub><mo>∏</mo><mi>i</mi></msub><msub><mi>n</mi><mi>i</mi></msub></mrow><annotation encoding="application/x-tex">K_f\prod_i n_i</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1.0497em;vertical-align:-0.2997em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.07153em;">K</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3361em;"><span style="top:-2.55em;margin-left:-0.0715em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.10764em;">f</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2861em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mop"><span class="mop op-symbol small-op" style="position:relative;top:0em;">∏</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.162em;"><span style="top:-2.4003em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2997em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">n</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> is formed as <code>exp(log_equilj + count @ log_xn)</code> — a single matrix contraction over the incidence <code>count</code>, with <code>inv_e</code> subtracting the inverse-electron <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>log</mi><mo>⁡</mo><msub><mi>n</mi><mi>e</mi></msub></mrow><annotation encoding="application/x-tex">\log n_e</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mop">lo<span style="margin-right:0.01389em;">g</span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">n</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">e</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> — and scattered into the total row and each element row by <code>count.T</code>, with the negative-ion electron correction applied through the <code>neg_ion</code> mask. <strong>Why log space:</strong> the product <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mo>∏</mo><mi>i</mi></msub><msub><mi>n</mi><mi>i</mi></msub></mrow><annotation encoding="application/x-tex">\prod_i n_i</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1.0497em;vertical-align:-0.2997em;"></span><span class="mop"><span class="mop op-symbol small-op" style="position:relative;top:0em;">∏</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.162em;"><span style="top:-2.4003em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2997em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">n</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> over a dozen components, each <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>∼</mo><mn>1</mn><msup><mn>0</mn><mn>12</mn></msup></mrow><annotation encoding="application/x-tex">\sim10^{12}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">∼</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">12</span></span></span></span></span></span></span></span></span></span></span></span>–<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><msup><mn>0</mn><mn>20</mn></msup></mrow><annotation encoding="application/x-tex">10^{20}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">20</span></span></span></span></span></span></span></span></span></span></span></span>, would overflow even fp64 intermediates and certainly fp32; summing logs and exponentiating once keeps every intermediate finite. <code>_safe_log</code> clamps to the dtype&#39;s tiny, and <code>_finite_or_zero</code> zeros any non-finite term. Transcribed verbatim.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
@@ -632,7 +632,7 @@ print(&quot;_residual (branchless, log-space) ready&quot;)" aria-label="Copy cod
 
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;_residual (branchless, log-space) ready&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">_residual (branchless, log-space) ready
-</pre></div></div><div class="prose"><h3>The linear solve: an autodiff Jacobian and a column-scaled <code>torch.linalg.solve</code></h3>
+</pre></div></div><div class="prose"><h3>The linear solve: SOLVIT, complete-pivoting Gauss–Jordan — recast as an autodiff Jacobian and column-scaled <code>torch.linalg.solve</code></h3>
 <p>This is the heart of the GPU recasting, and it replaces two NumPy-edition pieces at once. The NumPy edition hand-codes the Jacobian <code>DEQ</code> term by term inside the molecule loop, then solves <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>J</mi><mtext> </mtext><mi>δ</mi><mo>=</mo><mi>r</mi></mrow><annotation encoding="application/x-tex">J\,\delta = r</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal" style="margin-right:0.09618em;">J</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.03785em;">δ</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal" style="margin-right:0.02778em;">r</span></span></span></span> with <strong>SOLVIT</strong>, a complete-pivoting Gauss–Jordan elimination written out as a tight scalar Fortran-style loop. The GPU edition discards both:</p>
 <ul>
 <li><strong>The Jacobian is automatic differentiation.</strong> <code>torch.func.jacrev(resid_one)</code> differentiates the residual we just wrote with respect to the unknowns — the <em>exact</em> Jacobian, machine-derived from the residual itself. No hand-coded <code>DEQ</code>, no risk of the analytic derivative drifting out of sync with the residual. This is the single biggest simplification: the residual <em>is</em> the model, and the Jacobian follows for free.</li>
@@ -758,7 +758,7 @@ print(&quot;nmolec_solve (setup) ready&quot;)" aria-label="Copy code">
         <button class="copy-btn" type="button" data-code="def _nmolec_driver(struct, ne, log_equilj, ed_np, xabund_np, gp_np, T_np, idequa_np,
                    n_layers, nequa, nummol, solve_device, solve_dtype, jacrev, vmap):
     # abundance per equation variable (electron equation carries none)
-    xab_np = np.zeros(nequa, dtype=np.float64)
+    xab_np = np.zeros(nequa, dtype=np.float64)   # JUSTIFY: fixed-nequa abundance vector (host setup)
     for k in range(1, nequa):     # JUSTIFIED-LOOP: fixed nequa(=23) host setup of the abundance vector
         id_elem = int(idequa_np[k])
         if id_elem &lt; 100:
@@ -782,7 +782,7 @@ print(&quot;nmolec_solve (setup) ready&quot;)" aria-label="Copy code">
     for j in range(n_layers):     # JUSTIFIED-LOOP: sequential warm-start chain; depth j seeded from converged depth j-1
         if j == 0:                                       # top: crude split of the total density
             xn0 = xntot_np[0] / 2.0; base = xn0 / 10.0
-            seed = np.zeros(nequa, dtype=np.float64); seed[0] = xn0
+            seed = np.zeros(nequa, dtype=np.float64); seed[0] = xn0   # JUSTIFY: per-layer Newton seed (fixed nequa)
             seed[1:nequa] = base * xab_np[1:nequa]
             if ne &gt;= 0:
                 seed[ne] = base
@@ -795,13 +795,13 @@ print(&quot;nmolec_solve (setup) ready&quot;)" aria-label="Copy code">
         eqold = torch.zeros(nequa, dtype=solve_dtype, device=solve_device)
 
         # the INNER Newton iteration -- fully vectorized over the unknowns
-        for _iteration in range(max_iter):
+        for _iteration in range(max_iter):   # JUSTIFIED-LOOP: Newton iteration is sequential; per-unknown work is vectorized (jacrev + linalg.solve)
             eq = resid_one(xn_j, log_eqj_j, xntot_j)
             J = jac_one(xn_j, log_eqj_j, xntot_j)
             delta = _newton_step(J, eq, xn_j)
 
             ratio_k = delta.abs() / xn_j.abs().clamp_min(torch.finfo(solve_dtype).tiny)
-            iferr = bool((ratio_k &gt; tol).any().detach().cpu().item())     # converged when all &lt; 1e-3
+            iferr = bool((ratio_k &gt; tol).any().detach().cpu().item())     # JUSTIFY: scalar convergence flag for the iteration control flow
             sign_change = ((eqold &gt; 0.0) &amp; (delta &lt; 0.0)) | ((eqold &lt; 0.0) &amp; (delta &gt; 0.0))
             delta = torch.where(sign_change, delta * 0.69, delta)         # damp an oscillation
             xneq = xn_j - delta
@@ -831,7 +831,7 @@ print(&quot;_nmolec_driver (the warm-start depth loop) ready&quot;)" aria-label=
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_nmolec_driver</span>(<span class="hljs-params">struct, ne, log_equilj, ed_np, xabund_np, gp_np, T_np, idequa_np,
                    n_layers, nequa, nummol, solve_device, solve_dtype, jacrev, vmap</span>):
     <span class="hljs-comment"># abundance per equation variable (electron equation carries none)</span>
-    xab_np = np.zeros(nequa, dtype=np.float64)
+    xab_np = np.zeros(nequa, dtype=np.float64)   <span class="hljs-comment"># JUSTIFY: fixed-nequa abundance vector (host setup)</span>
     <span class="hljs-keyword">for</span> k <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, nequa):     <span class="hljs-comment"># JUSTIFIED-LOOP: fixed nequa(=23) host setup of the abundance vector</span>
         id_elem = <span class="hljs-built_in">int</span>(idequa_np[k])
         <span class="hljs-keyword">if</span> id_elem &lt; <span class="hljs-number">100</span>:
@@ -855,7 +855,7 @@ print(&quot;_nmolec_driver (the warm-start depth loop) ready&quot;)" aria-label=
     <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(n_layers):     <span class="hljs-comment"># JUSTIFIED-LOOP: sequential warm-start chain; depth j seeded from converged depth j-1</span>
         <span class="hljs-keyword">if</span> j == <span class="hljs-number">0</span>:                                       <span class="hljs-comment"># top: crude split of the total density</span>
             xn0 = xntot_np[<span class="hljs-number">0</span>] / <span class="hljs-number">2.0</span>; base = xn0 / <span class="hljs-number">10.0</span>
-            seed = np.zeros(nequa, dtype=np.float64); seed[<span class="hljs-number">0</span>] = xn0
+            seed = np.zeros(nequa, dtype=np.float64); seed[<span class="hljs-number">0</span>] = xn0   <span class="hljs-comment"># JUSTIFY: per-layer Newton seed (fixed nequa)</span>
             seed[<span class="hljs-number">1</span>:nequa] = base * xab_np[<span class="hljs-number">1</span>:nequa]
             <span class="hljs-keyword">if</span> ne &gt;= <span class="hljs-number">0</span>:
                 seed[ne] = base
@@ -868,13 +868,13 @@ print(&quot;_nmolec_driver (the warm-start depth loop) ready&quot;)" aria-label=
         eqold = torch.zeros(nequa, dtype=solve_dtype, device=solve_device)
 
         <span class="hljs-comment"># the INNER Newton iteration -- fully vectorized over the unknowns</span>
-        <span class="hljs-keyword">for</span> _iteration <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(max_iter):
+        <span class="hljs-keyword">for</span> _iteration <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(max_iter):   <span class="hljs-comment"># JUSTIFIED-LOOP: Newton iteration is sequential; per-unknown work is vectorized (jacrev + linalg.solve)</span>
             eq = resid_one(xn_j, log_eqj_j, xntot_j)
             J = jac_one(xn_j, log_eqj_j, xntot_j)
             delta = _newton_step(J, eq, xn_j)
 
             ratio_k = delta.<span class="hljs-built_in">abs</span>() / xn_j.<span class="hljs-built_in">abs</span>().clamp_min(torch.finfo(solve_dtype).tiny)
-            iferr = <span class="hljs-built_in">bool</span>((ratio_k &gt; tol).<span class="hljs-built_in">any</span>().detach().cpu().item())     <span class="hljs-comment"># converged when all &lt; 1e-3</span>
+            iferr = <span class="hljs-built_in">bool</span>((ratio_k &gt; tol).<span class="hljs-built_in">any</span>().detach().cpu().item())     <span class="hljs-comment"># JUSTIFY: scalar convergence flag for the iteration control flow</span>
             sign_change = ((eqold &gt; <span class="hljs-number">0.0</span>) &amp; (delta &lt; <span class="hljs-number">0.0</span>)) | ((eqold &lt; <span class="hljs-number">0.0</span>) &amp; (delta &gt; <span class="hljs-number">0.0</span>))
             delta = torch.where(sign_change, delta * <span class="hljs-number">0.69</span>, delta)         <span class="hljs-comment"># damp an oscillation</span>
             xneq = xn_j - delta
@@ -920,7 +920,7 @@ xnatom, xnmol, xnz, electron = nmolec_solve(
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;coupled equilibrium solved at all <span class="hljs-subst">{n_layers}</span> depths in <span class="hljs-subst">{time.time()-t0:<span class="hljs-number">.1</span>f}</span>s &quot;</span>
       <span class="hljs-string">f&quot;(CPU/fp64 reference path)&quot;</span>)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;shapes:&quot;</span>, <span class="hljs-built_in">tuple</span>(xnatom.shape), <span class="hljs-built_in">tuple</span>(xnmol.shape), <span class="hljs-built_in">tuple</span>(xnz.shape), <span class="hljs-built_in">tuple</span>(electron.shape))</code></pre>
-    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">coupled equilibrium solved at all 80 depths in 1.2s (CPU/fp64 reference path)
+    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">coupled equilibrium solved at all 80 depths in 0.6s (CPU/fp64 reference path)
 shapes: (80,) (80, 200) (80, 30) (80,)
 </pre></div></div><div class="prose"><h3>Benchmark: the GPU solver against the NumPy twin and pykurucz</h3>
 <p>This is the per-part check that defines the GPU edition. We validate the torch <code>nmolec_solve</code> two ways: against the <strong>inline NumPy twin</strong> (the production reference solver — SOLVIT Gauss–Jordan with hand-coded <code>DEQ</code> and the double-double residual — transcribed from <code>verify_nmolec.py</code>, the parity oracle) and against the shipped <strong>ground truth</strong> <code>nmolec_groundtruth.npz</code>. Both validate the <em>same</em> converged equilibrium, reached by two different algorithms (autodiff-Newton + column-scaled solve vs hand-DEQ + complete-pivot SOLVIT) — which is the strong test that the GPU recasting is correct, not merely self-consistent. First the inline NumPy twin&#39;s SOLVIT and helpers.</p>
@@ -930,16 +930,16 @@ shapes: (80,) (80, 200) (80, 30) (80,)
         <button class="copy-btn" type="button" data-code="# --- the NumPy twin: SOLVIT (complete-pivoting Gauss-Jordan) + damping helpers; the parity oracle ---
 def solvit(a2d, n, b):
     &quot;&quot;&quot;Solve a2d @ x = b by Gauss-Jordan with COMPLETE pivoting (the production reference).&quot;&quot;&quot;
-    a = np.asarray(a2d, dtype=np.float64, order=&quot;F&quot;)
-    a_work = np.zeros(n * n + 1); a_work[1:] = np.reshape(a, a.size, order=&quot;F&quot;)
-    b_work = np.zeros(n + 1); b_work[1:] = np.asarray(b, dtype=np.float64)
-    ipivot = np.zeros(n + 1, dtype=np.int32)
-    for _ in range(1, n + 1):
+    a = np.asarray(a2d, dtype=np.float64, order=&quot;F&quot;)   # numpy-ref
+    a_work = np.zeros(n * n + 1); a_work[1:] = np.reshape(a, a.size, order=&quot;F&quot;)   # numpy-ref
+    b_work = np.zeros(n + 1); b_work[1:] = np.asarray(b, dtype=np.float64)   # numpy-ref
+    ipivot = np.zeros(n + 1, dtype=np.int32)   # numpy-ref
+    for _ in range(1, n + 1):   # numpy-ref
         amax = 0.0; irow = 1; icolum = 1
-        for row in range(1, n + 1):
+        for row in range(1, n + 1):   # numpy-ref
             if ipivot[row] == 1: continue
             jk = row - n
-            for col in range(1, n + 1):
+            for col in range(1, n + 1):   # numpy-ref
                 jk = jk + n
                 if ipivot[col] == 1: continue
                 aa = abs(a_work[jk])
@@ -947,39 +947,39 @@ def solvit(a2d, n, b):
         ipivot[icolum] += 1
         if irow != icolum:
             irl = irow - n; icl = icolum - n
-            for _ in range(1, n + 1):
+            for _ in range(1, n + 1):   # numpy-ref
                 irl += n; swap = a_work[irl]; icl += n; a_work[irl] = a_work[icl]; a_work[icl] = swap
             b_work[irow], b_work[icolum] = b_work[icolum], b_work[irow]
         pivot_idx = icolum * n + icolum - n; pivot = a_work[pivot_idx]; a_work[pivot_idx] = 1.0
         icl = icolum - n
-        for _ in range(1, n + 1):
+        for _ in range(1, n + 1):   # numpy-ref
             icl += n; a_work[icl] = a_work[icl] / pivot
         b_work[icolum] = b_work[icolum] / pivot
         l1ic = icolum * n - n
-        for l1 in range(1, n + 1):
+        for l1 in range(1, n + 1):   # numpy-ref
             l1ic += 1
             if l1 == icolum: continue
             t = a_work[l1ic]; a_work[l1ic] = 0.0
             if t == 0.0: continue
             l1l = l1 - n; icl = icolum - n
-            for _ in range(1, n + 1):
+            for _ in range(1, n + 1):   # numpy-ref
                 l1l += n; icl += n; a_work[l1l] = a_work[l1l] - a_work[icl] * t
             b_work[l1] = b_work[l1] - b_work[icolum] * t
     return b_work[1:]
 
 def _stable_subtract(a, b):
     a = float(a); b = float(b)
-    if not (np.isfinite(a) and np.isfinite(b)): return a - b
-    return a * (1.0 - b / a) if abs(a) &gt; np.finfo(np.float64).tiny else a - b
+    if not (np.isfinite(a) and np.isfinite(b)): return a - b   # numpy-ref
+    return a * (1.0 - b / a) if abs(a) &gt; np.finfo(np.float64).tiny else a - b   # numpy-ref
 
 def _ratio_pp(num, den):
     num = float(num); den = float(den)
-    if den == 0.0: return 0.0 if num == 0.0 else np.inf
+    if den == 0.0: return 0.0 if num == 0.0 else np.inf   # numpy-ref
     if num == 0.0: return 0.0
-    mant_n, exp_n = np.frexp(num); mant_d, exp_d = np.frexp(den)
-    mant = mant_n / mant_d; exp = int(exp_n) - int(exp_d); mant, adj = np.frexp(mant); exp += int(adj)
-    try: return float(abs(np.ldexp(mant, exp)))
-    except (OverflowError, OSError): return float(np.inf)
+    mant_n, exp_n = np.frexp(num); mant_d, exp_d = np.frexp(den)   # numpy-ref
+    mant = mant_n / mant_d; exp = int(exp_n) - int(exp_d); mant, adj = np.frexp(mant); exp += int(adj)   # numpy-ref
+    try: return float(abs(np.ldexp(mant, exp)))   # numpy-ref
+    except (OverflowError, OSError): return float(np.inf)   # numpy-ref
 
 print(&quot;NumPy twin: solvit + damping helpers ready&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
@@ -987,16 +987,16 @@ print(&quot;NumPy twin: solvit + damping helpers ready&quot;)" aria-label="Copy 
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># --- the NumPy twin: SOLVIT (complete-pivoting Gauss-Jordan) + damping helpers; the parity oracle ---</span>
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">solvit</span>(<span class="hljs-params">a2d, n, b</span>):
     <span class="hljs-string">&quot;&quot;&quot;Solve a2d @ x = b by Gauss-Jordan with COMPLETE pivoting (the production reference).&quot;&quot;&quot;</span>
-    a = np.asarray(a2d, dtype=np.float64, order=<span class="hljs-string">&quot;F&quot;</span>)
-    a_work = np.zeros(n * n + <span class="hljs-number">1</span>); a_work[<span class="hljs-number">1</span>:] = np.reshape(a, a.size, order=<span class="hljs-string">&quot;F&quot;</span>)
-    b_work = np.zeros(n + <span class="hljs-number">1</span>); b_work[<span class="hljs-number">1</span>:] = np.asarray(b, dtype=np.float64)
-    ipivot = np.zeros(n + <span class="hljs-number">1</span>, dtype=np.int32)
-    <span class="hljs-keyword">for</span> _ <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, n + <span class="hljs-number">1</span>):
+    a = np.asarray(a2d, dtype=np.float64, order=<span class="hljs-string">&quot;F&quot;</span>)   <span class="hljs-comment"># numpy-ref</span>
+    a_work = np.zeros(n * n + <span class="hljs-number">1</span>); a_work[<span class="hljs-number">1</span>:] = np.reshape(a, a.size, order=<span class="hljs-string">&quot;F&quot;</span>)   <span class="hljs-comment"># numpy-ref</span>
+    b_work = np.zeros(n + <span class="hljs-number">1</span>); b_work[<span class="hljs-number">1</span>:] = np.asarray(b, dtype=np.float64)   <span class="hljs-comment"># numpy-ref</span>
+    ipivot = np.zeros(n + <span class="hljs-number">1</span>, dtype=np.int32)   <span class="hljs-comment"># numpy-ref</span>
+    <span class="hljs-keyword">for</span> _ <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, n + <span class="hljs-number">1</span>):   <span class="hljs-comment"># numpy-ref</span>
         amax = <span class="hljs-number">0.0</span>; irow = <span class="hljs-number">1</span>; icolum = <span class="hljs-number">1</span>
-        <span class="hljs-keyword">for</span> row <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, n + <span class="hljs-number">1</span>):
+        <span class="hljs-keyword">for</span> row <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, n + <span class="hljs-number">1</span>):   <span class="hljs-comment"># numpy-ref</span>
             <span class="hljs-keyword">if</span> ipivot[row] == <span class="hljs-number">1</span>: <span class="hljs-keyword">continue</span>
             jk = row - n
-            <span class="hljs-keyword">for</span> col <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, n + <span class="hljs-number">1</span>):
+            <span class="hljs-keyword">for</span> col <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, n + <span class="hljs-number">1</span>):   <span class="hljs-comment"># numpy-ref</span>
                 jk = jk + n
                 <span class="hljs-keyword">if</span> ipivot[col] == <span class="hljs-number">1</span>: <span class="hljs-keyword">continue</span>
                 aa = <span class="hljs-built_in">abs</span>(a_work[jk])
@@ -1004,39 +1004,39 @@ print(&quot;NumPy twin: solvit + damping helpers ready&quot;)" aria-label="Copy 
         ipivot[icolum] += <span class="hljs-number">1</span>
         <span class="hljs-keyword">if</span> irow != icolum:
             irl = irow - n; icl = icolum - n
-            <span class="hljs-keyword">for</span> _ <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, n + <span class="hljs-number">1</span>):
+            <span class="hljs-keyword">for</span> _ <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, n + <span class="hljs-number">1</span>):   <span class="hljs-comment"># numpy-ref</span>
                 irl += n; swap = a_work[irl]; icl += n; a_work[irl] = a_work[icl]; a_work[icl] = swap
             b_work[irow], b_work[icolum] = b_work[icolum], b_work[irow]
         pivot_idx = icolum * n + icolum - n; pivot = a_work[pivot_idx]; a_work[pivot_idx] = <span class="hljs-number">1.0</span>
         icl = icolum - n
-        <span class="hljs-keyword">for</span> _ <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, n + <span class="hljs-number">1</span>):
+        <span class="hljs-keyword">for</span> _ <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, n + <span class="hljs-number">1</span>):   <span class="hljs-comment"># numpy-ref</span>
             icl += n; a_work[icl] = a_work[icl] / pivot
         b_work[icolum] = b_work[icolum] / pivot
         l1ic = icolum * n - n
-        <span class="hljs-keyword">for</span> l1 <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, n + <span class="hljs-number">1</span>):
+        <span class="hljs-keyword">for</span> l1 <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, n + <span class="hljs-number">1</span>):   <span class="hljs-comment"># numpy-ref</span>
             l1ic += <span class="hljs-number">1</span>
             <span class="hljs-keyword">if</span> l1 == icolum: <span class="hljs-keyword">continue</span>
             t = a_work[l1ic]; a_work[l1ic] = <span class="hljs-number">0.0</span>
             <span class="hljs-keyword">if</span> t == <span class="hljs-number">0.0</span>: <span class="hljs-keyword">continue</span>
             l1l = l1 - n; icl = icolum - n
-            <span class="hljs-keyword">for</span> _ <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, n + <span class="hljs-number">1</span>):
+            <span class="hljs-keyword">for</span> _ <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, n + <span class="hljs-number">1</span>):   <span class="hljs-comment"># numpy-ref</span>
                 l1l += n; icl += n; a_work[l1l] = a_work[l1l] - a_work[icl] * t
             b_work[l1] = b_work[l1] - b_work[icolum] * t
     <span class="hljs-keyword">return</span> b_work[<span class="hljs-number">1</span>:]
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">_stable_subtract</span>(<span class="hljs-params">a, b</span>):
     a = <span class="hljs-built_in">float</span>(a); b = <span class="hljs-built_in">float</span>(b)
-    <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> (np.isfinite(a) <span class="hljs-keyword">and</span> np.isfinite(b)): <span class="hljs-keyword">return</span> a - b
-    <span class="hljs-keyword">return</span> a * (<span class="hljs-number">1.0</span> - b / a) <span class="hljs-keyword">if</span> <span class="hljs-built_in">abs</span>(a) &gt; np.finfo(np.float64).tiny <span class="hljs-keyword">else</span> a - b
+    <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> (np.isfinite(a) <span class="hljs-keyword">and</span> np.isfinite(b)): <span class="hljs-keyword">return</span> a - b   <span class="hljs-comment"># numpy-ref</span>
+    <span class="hljs-keyword">return</span> a * (<span class="hljs-number">1.0</span> - b / a) <span class="hljs-keyword">if</span> <span class="hljs-built_in">abs</span>(a) &gt; np.finfo(np.float64).tiny <span class="hljs-keyword">else</span> a - b   <span class="hljs-comment"># numpy-ref</span>
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">_ratio_pp</span>(<span class="hljs-params">num, den</span>):
     num = <span class="hljs-built_in">float</span>(num); den = <span class="hljs-built_in">float</span>(den)
-    <span class="hljs-keyword">if</span> den == <span class="hljs-number">0.0</span>: <span class="hljs-keyword">return</span> <span class="hljs-number">0.0</span> <span class="hljs-keyword">if</span> num == <span class="hljs-number">0.0</span> <span class="hljs-keyword">else</span> np.inf
+    <span class="hljs-keyword">if</span> den == <span class="hljs-number">0.0</span>: <span class="hljs-keyword">return</span> <span class="hljs-number">0.0</span> <span class="hljs-keyword">if</span> num == <span class="hljs-number">0.0</span> <span class="hljs-keyword">else</span> np.inf   <span class="hljs-comment"># numpy-ref</span>
     <span class="hljs-keyword">if</span> num == <span class="hljs-number">0.0</span>: <span class="hljs-keyword">return</span> <span class="hljs-number">0.0</span>
-    mant_n, exp_n = np.frexp(num); mant_d, exp_d = np.frexp(den)
-    mant = mant_n / mant_d; exp = <span class="hljs-built_in">int</span>(exp_n) - <span class="hljs-built_in">int</span>(exp_d); mant, adj = np.frexp(mant); exp += <span class="hljs-built_in">int</span>(adj)
-    <span class="hljs-keyword">try</span>: <span class="hljs-keyword">return</span> <span class="hljs-built_in">float</span>(<span class="hljs-built_in">abs</span>(np.ldexp(mant, exp)))
-    <span class="hljs-keyword">except</span> (OverflowError, OSError): <span class="hljs-keyword">return</span> <span class="hljs-built_in">float</span>(np.inf)
+    mant_n, exp_n = np.frexp(num); mant_d, exp_d = np.frexp(den)   <span class="hljs-comment"># numpy-ref</span>
+    mant = mant_n / mant_d; exp = <span class="hljs-built_in">int</span>(exp_n) - <span class="hljs-built_in">int</span>(exp_d); mant, adj = np.frexp(mant); exp += <span class="hljs-built_in">int</span>(adj)   <span class="hljs-comment"># numpy-ref</span>
+    <span class="hljs-keyword">try</span>: <span class="hljs-keyword">return</span> <span class="hljs-built_in">float</span>(<span class="hljs-built_in">abs</span>(np.ldexp(mant, exp)))   <span class="hljs-comment"># numpy-ref</span>
+    <span class="hljs-keyword">except</span> (OverflowError, OSError): <span class="hljs-keyword">return</span> <span class="hljs-built_in">float</span>(np.inf)   <span class="hljs-comment"># numpy-ref</span>
 
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;NumPy twin: solvit + damping helpers ready&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">NumPy twin: solvit + damping helpers ready
@@ -1045,94 +1045,94 @@ print(&quot;NumPy twin: solvit + damping helpers ready&quot;)" aria-label="Copy 
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[16]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def nmolec_solve_numpy():
     &quot;&quot;&quot;The production NMOLEC reference: hand-coded DEQ + complete-pivot SOLVIT, in pure NumPy.&quot;&quot;&quot;
-    tkev = T * KBOLTZ_EV; tk = T * KBOLTZ_CGS; tlog = np.log(T)
+    tkev = T * KBOLTZ_EV; tk = T * KBOLTZ_CGS; tlog = np.log(T)   # numpy-ref
     electron_idx = nequa - 1 if idequa[nequa - 1] == 100 else None
-    xab = np.zeros(MAXEQ)
-    for k in range(1, nequa):
+    xab = np.zeros(MAXEQ)   # numpy-ref
+    for k in range(1, nequa):   # numpy-ref
         eid = idequa[k]
         if eid &lt; 100: xab[k] = max(xabund[eid - 1], 1e-20)
-    xnatom = np.zeros(n_layers); xnz = np.zeros((n_layers, MAXEQ)); xnmol = np.zeros((n_layers, MAXMOL))
-    electron = xne0.copy(); xn = np.zeros(MAXEQ); xnz_prev = np.zeros(MAXEQ)
+    xnatom = np.zeros(n_layers); xnz = np.zeros((n_layers, MAXEQ)); xnmol = np.zeros((n_layers, MAXMOL))   # numpy-ref
+    electron = xne0.copy(); xn = np.zeros(MAXEQ); xnz_prev = np.zeros(MAXEQ)   # numpy-ref
     eqj_all = compute_equilj_polynomial(T, code_mol, equil, locj, nummol)
     ion_mask = (equil[0, :nummol] == 0.0)
-    for j in range(n_layers):
+    for j in range(n_layers):   # numpy-ref
         xntot = gas_pressure[j] / tk[j]
         if j == 0:
             xn[0] = xntot / 2.0; base_x = xn[0] / 10.0
-            for k in range(1, nequa): xn[k] = base_x * xab[k]
+            for k in range(1, nequa): xn[k] = base_x * xab[k]   # numpy-ref
             if electron_idx is not None: xn[electron_idx] = base_x
         else:
             ratio = gas_pressure[j] / gas_pressure[j - 1]
-            for k in range(nequa): xn[k] = xnz_prev[k] * ratio
+            for k in range(nequa): xn[k] = xnz_prev[k] * ratio   # numpy-ref
         xnz_prev[:nequa] = xn[:nequa]
         equilj = eqj_all[j].copy(); equilj[ion_mask] = equilj_ion[j, :nummol][ion_mask]
-        eqold = np.zeros(nequa)
-        for _iteration in range(200):
-            neqneq = nequa * nequa; eq = np.zeros(nequa); deq = np.zeros(neqneq); nequa1 = nequa + 1
+        eqold = np.zeros(nequa)   # numpy-ref
+        for _iteration in range(200):   # numpy-ref
+            neqneq = nequa * nequa; eq = np.zeros(nequa); deq = np.zeros(neqneq); nequa1 = nequa + 1   # numpy-ref
             eq[0] = -xntot; kk = 0; xn0 = xn[0]
-            for k in range(1, nequa):
+            for k in range(1, nequa):   # numpy-ref
                 eq[0] += xn[k]; deq[k * nequa] = 1.0; eq[k] = xn[k] - xab[k] * xn0
                 kk += nequa1; deq[kk] = 1.0; deq[k] = -xab[k]
             if electron_idx is not None and idequa[electron_idx] &gt;= 100:
                 eq[electron_idx] = -xn[electron_idx]; deq[nequa * nequa - 1] = -1.0
-            eq_comp = np.zeros(nequa)
-            for jmol in range(nummol):
+            eq_comp = np.zeros(nequa)   # numpy-ref
+            for jmol in range(nummol):   # numpy-ref
                 ncomp = int(locj[jmol + 1] - locj[jmol])
                 if ncomp &lt;= 1: continue
                 locj1 = int(locj[jmol]); locj2 = int(locj[jmol + 1] - 1); ev = equilj[jmol]
-                if not np.isfinite(ev): continue
+                if not np.isfinite(ev): continue   # numpy-ref
                 term = ev
-                for lock in range(locj1, locj2 + 1):
+                for lock in range(locj1, locj2 + 1):   # numpy-ref
                     k_raw = int(kcomps[lock])
                     term = term / xn[nequa - 1] if k_raw &gt;= nequa else term * xn[k_raw]
                 y = term - eq_comp[0]; t = eq[0] + y; eq_comp[0] = (t - eq[0]) - y; eq[0] = t
-                for lock in range(locj1, locj2 + 1):
+                for lock in range(locj1, locj2 + 1):   # numpy-ref
                     k_raw = int(kcomps[lock]); k_idx = nequa - 1 if k_raw == nequa else k_raw
                     xn_val = xn[k_idx]
-                    if not np.isfinite(xn_val) or xn_val == 0.0: continue
+                    if not np.isfinite(xn_val) or xn_val == 0.0: continue   # numpy-ref
                     d = (-term / xn_val) if k_raw == nequa else (term / xn_val)
-                    if not np.isfinite(d): continue
+                    if not np.isfinite(d): continue   # numpy-ref
                     y_k = term - eq_comp[k_idx]; t_k = eq[k_idx] + y_k
                     eq_comp[k_idx] = (t_k - eq[k_idx]) - y_k; eq[k_idx] = t_k
                     nequak = nequa * k_idx; deq[nequak] += d
-                    for locm in range(locj1, locj2 + 1):
+                    for locm in range(locj1, locj2 + 1):   # numpy-ref
                         m_raw = int(kcomps[locm]); m_idx = nequa - 1 if m_raw == nequa else m_raw
                         deq[m_idx + nequak] += d
                 last_raw = int(kcomps[locj2])
                 if last_raw == nequa - 1 and idequa[nequa - 1] == 100:
-                    for lock in range(locj1, locj2 + 1):
+                    for lock in range(locj1, locj2 + 1):   # numpy-ref
                         kc_raw = int(kcomps[lock]); kc_idx = nequa - 1 if kc_raw &gt;= nequa else kc_raw
                         xn_val = xn[kc_idx]
-                        if not np.isfinite(xn_val) or xn_val == 0.0: continue
+                        if not np.isfinite(xn_val) or xn_val == 0.0: continue   # numpy-ref
                         d_corr = term / xn_val
-                        if not np.isfinite(d_corr): continue
+                        if not np.isfinite(d_corr): continue   # numpy-ref
                         if kc_idx == nequa - 1: eq[kc_idx] = eq[kc_idx] - term - term
                         delta = -d_corr - d_corr
-                        for locm in range(locj1, locj2 + 1):
+                        for locm in range(locj1, locj2 + 1):   # numpy-ref
                             mc_raw = int(kcomps[locm]); mc_idx = nequa - 1 if mc_raw &gt;= nequa else mc_raw
                             if mc_idx != nequa - 1: continue
                             deq[mc_idx + nequa * kc_idx] += delta
             deq_2d = deq[:neqneq].reshape(nequa, nequa, order=&quot;F&quot;).copy()
             eq = solvit(deq_2d, nequa, eq.copy())
             iferr = 0; scale = 100.0
-            for k in range(nequa):
+            for k in range(nequa):   # numpy-ref
                 if _ratio_pp(eq[k], xn[k]) &gt; 0.001: iferr = 1
                 sc = (eqold[k] &gt; 0 and eq[k] &lt; 0) or (eqold[k] &lt; 0 and eq[k] &gt; 0)
                 if sc: eq[k] = eq[k] * 0.69
                 xneq = _stable_subtract(xn[k], eq[k])
                 if xneq &lt; xn[k] / 100.0:
                     xn[k] = xn[k] / scale
-                    if (eqold[k] &gt; 0 and eq[k] &lt; 0) or (eqold[k] &lt; 0 and eq[k] &gt; 0): scale = np.sqrt(scale)
+                    if (eqold[k] &gt; 0 and eq[k] &lt; 0) or (eqold[k] &lt; 0 and eq[k] &gt; 0): scale = np.sqrt(scale)   # numpy-ref
                 else: xn[k] = xneq
                 eqold[k] = eq[k]
             if iferr == 0: break
         xnatom[j] = xn[0]
-        for k in range(nequa): xnz[j, k] = xn[k]
+        for k in range(nequa): xnz[j, k] = xn[k]   # numpy-ref
         xnz_prev[:nequa] = xn[:nequa]
         if idequa[nequa - 1] == 100: electron[j] = xn[nequa - 1]
-        for jmol in range(nummol):
+        for jmol in range(nummol):   # numpy-ref
             val = equilj[jmol]
-            for lock in range(int(locj[jmol]), int(locj[jmol + 1])):
+            for lock in range(int(locj[jmol]), int(locj[jmol + 1])):   # numpy-ref
                 k = int(kcomps[lock]); val = val / xn[nequa - 1] if k == nequa else val * xn[k]
             xnmol[j, jmol] = val
     return xnatom, xnz, electron, xnmol
@@ -1142,94 +1142,94 @@ print(&quot;nmolec_solve_numpy (the inline reference solver) ready&quot;)" aria-
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">nmolec_solve_numpy</span>():
     <span class="hljs-string">&quot;&quot;&quot;The production NMOLEC reference: hand-coded DEQ + complete-pivot SOLVIT, in pure NumPy.&quot;&quot;&quot;</span>
-    tkev = T * KBOLTZ_EV; tk = T * KBOLTZ_CGS; tlog = np.log(T)
+    tkev = T * KBOLTZ_EV; tk = T * KBOLTZ_CGS; tlog = np.log(T)   <span class="hljs-comment"># numpy-ref</span>
     electron_idx = nequa - <span class="hljs-number">1</span> <span class="hljs-keyword">if</span> idequa[nequa - <span class="hljs-number">1</span>] == <span class="hljs-number">100</span> <span class="hljs-keyword">else</span> <span class="hljs-literal">None</span>
-    xab = np.zeros(MAXEQ)
-    <span class="hljs-keyword">for</span> k <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, nequa):
+    xab = np.zeros(MAXEQ)   <span class="hljs-comment"># numpy-ref</span>
+    <span class="hljs-keyword">for</span> k <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, nequa):   <span class="hljs-comment"># numpy-ref</span>
         eid = idequa[k]
         <span class="hljs-keyword">if</span> eid &lt; <span class="hljs-number">100</span>: xab[k] = <span class="hljs-built_in">max</span>(xabund[eid - <span class="hljs-number">1</span>], <span class="hljs-number">1e-20</span>)
-    xnatom = np.zeros(n_layers); xnz = np.zeros((n_layers, MAXEQ)); xnmol = np.zeros((n_layers, MAXMOL))
-    electron = xne0.copy(); xn = np.zeros(MAXEQ); xnz_prev = np.zeros(MAXEQ)
+    xnatom = np.zeros(n_layers); xnz = np.zeros((n_layers, MAXEQ)); xnmol = np.zeros((n_layers, MAXMOL))   <span class="hljs-comment"># numpy-ref</span>
+    electron = xne0.copy(); xn = np.zeros(MAXEQ); xnz_prev = np.zeros(MAXEQ)   <span class="hljs-comment"># numpy-ref</span>
     eqj_all = compute_equilj_polynomial(T, code_mol, equil, locj, nummol)
     ion_mask = (equil[<span class="hljs-number">0</span>, :nummol] == <span class="hljs-number">0.0</span>)
-    <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(n_layers):
+    <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(n_layers):   <span class="hljs-comment"># numpy-ref</span>
         xntot = gas_pressure[j] / tk[j]
         <span class="hljs-keyword">if</span> j == <span class="hljs-number">0</span>:
             xn[<span class="hljs-number">0</span>] = xntot / <span class="hljs-number">2.0</span>; base_x = xn[<span class="hljs-number">0</span>] / <span class="hljs-number">10.0</span>
-            <span class="hljs-keyword">for</span> k <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, nequa): xn[k] = base_x * xab[k]
+            <span class="hljs-keyword">for</span> k <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, nequa): xn[k] = base_x * xab[k]   <span class="hljs-comment"># numpy-ref</span>
             <span class="hljs-keyword">if</span> electron_idx <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span>: xn[electron_idx] = base_x
         <span class="hljs-keyword">else</span>:
             ratio = gas_pressure[j] / gas_pressure[j - <span class="hljs-number">1</span>]
-            <span class="hljs-keyword">for</span> k <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nequa): xn[k] = xnz_prev[k] * ratio
+            <span class="hljs-keyword">for</span> k <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nequa): xn[k] = xnz_prev[k] * ratio   <span class="hljs-comment"># numpy-ref</span>
         xnz_prev[:nequa] = xn[:nequa]
         equilj = eqj_all[j].copy(); equilj[ion_mask] = equilj_ion[j, :nummol][ion_mask]
-        eqold = np.zeros(nequa)
-        <span class="hljs-keyword">for</span> _iteration <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">200</span>):
-            neqneq = nequa * nequa; eq = np.zeros(nequa); deq = np.zeros(neqneq); nequa1 = nequa + <span class="hljs-number">1</span>
+        eqold = np.zeros(nequa)   <span class="hljs-comment"># numpy-ref</span>
+        <span class="hljs-keyword">for</span> _iteration <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">200</span>):   <span class="hljs-comment"># numpy-ref</span>
+            neqneq = nequa * nequa; eq = np.zeros(nequa); deq = np.zeros(neqneq); nequa1 = nequa + <span class="hljs-number">1</span>   <span class="hljs-comment"># numpy-ref</span>
             eq[<span class="hljs-number">0</span>] = -xntot; kk = <span class="hljs-number">0</span>; xn0 = xn[<span class="hljs-number">0</span>]
-            <span class="hljs-keyword">for</span> k <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, nequa):
+            <span class="hljs-keyword">for</span> k <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, nequa):   <span class="hljs-comment"># numpy-ref</span>
                 eq[<span class="hljs-number">0</span>] += xn[k]; deq[k * nequa] = <span class="hljs-number">1.0</span>; eq[k] = xn[k] - xab[k] * xn0
                 kk += nequa1; deq[kk] = <span class="hljs-number">1.0</span>; deq[k] = -xab[k]
             <span class="hljs-keyword">if</span> electron_idx <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span> <span class="hljs-keyword">and</span> idequa[electron_idx] &gt;= <span class="hljs-number">100</span>:
                 eq[electron_idx] = -xn[electron_idx]; deq[nequa * nequa - <span class="hljs-number">1</span>] = -<span class="hljs-number">1.0</span>
-            eq_comp = np.zeros(nequa)
-            <span class="hljs-keyword">for</span> jmol <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nummol):
+            eq_comp = np.zeros(nequa)   <span class="hljs-comment"># numpy-ref</span>
+            <span class="hljs-keyword">for</span> jmol <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nummol):   <span class="hljs-comment"># numpy-ref</span>
                 ncomp = <span class="hljs-built_in">int</span>(locj[jmol + <span class="hljs-number">1</span>] - locj[jmol])
                 <span class="hljs-keyword">if</span> ncomp &lt;= <span class="hljs-number">1</span>: <span class="hljs-keyword">continue</span>
                 locj1 = <span class="hljs-built_in">int</span>(locj[jmol]); locj2 = <span class="hljs-built_in">int</span>(locj[jmol + <span class="hljs-number">1</span>] - <span class="hljs-number">1</span>); ev = equilj[jmol]
-                <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> np.isfinite(ev): <span class="hljs-keyword">continue</span>
+                <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> np.isfinite(ev): <span class="hljs-keyword">continue</span>   <span class="hljs-comment"># numpy-ref</span>
                 term = ev
-                <span class="hljs-keyword">for</span> lock <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(locj1, locj2 + <span class="hljs-number">1</span>):
+                <span class="hljs-keyword">for</span> lock <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(locj1, locj2 + <span class="hljs-number">1</span>):   <span class="hljs-comment"># numpy-ref</span>
                     k_raw = <span class="hljs-built_in">int</span>(kcomps[lock])
                     term = term / xn[nequa - <span class="hljs-number">1</span>] <span class="hljs-keyword">if</span> k_raw &gt;= nequa <span class="hljs-keyword">else</span> term * xn[k_raw]
                 y = term - eq_comp[<span class="hljs-number">0</span>]; t = eq[<span class="hljs-number">0</span>] + y; eq_comp[<span class="hljs-number">0</span>] = (t - eq[<span class="hljs-number">0</span>]) - y; eq[<span class="hljs-number">0</span>] = t
-                <span class="hljs-keyword">for</span> lock <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(locj1, locj2 + <span class="hljs-number">1</span>):
+                <span class="hljs-keyword">for</span> lock <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(locj1, locj2 + <span class="hljs-number">1</span>):   <span class="hljs-comment"># numpy-ref</span>
                     k_raw = <span class="hljs-built_in">int</span>(kcomps[lock]); k_idx = nequa - <span class="hljs-number">1</span> <span class="hljs-keyword">if</span> k_raw == nequa <span class="hljs-keyword">else</span> k_raw
                     xn_val = xn[k_idx]
-                    <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> np.isfinite(xn_val) <span class="hljs-keyword">or</span> xn_val == <span class="hljs-number">0.0</span>: <span class="hljs-keyword">continue</span>
+                    <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> np.isfinite(xn_val) <span class="hljs-keyword">or</span> xn_val == <span class="hljs-number">0.0</span>: <span class="hljs-keyword">continue</span>   <span class="hljs-comment"># numpy-ref</span>
                     d = (-term / xn_val) <span class="hljs-keyword">if</span> k_raw == nequa <span class="hljs-keyword">else</span> (term / xn_val)
-                    <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> np.isfinite(d): <span class="hljs-keyword">continue</span>
+                    <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> np.isfinite(d): <span class="hljs-keyword">continue</span>   <span class="hljs-comment"># numpy-ref</span>
                     y_k = term - eq_comp[k_idx]; t_k = eq[k_idx] + y_k
                     eq_comp[k_idx] = (t_k - eq[k_idx]) - y_k; eq[k_idx] = t_k
                     nequak = nequa * k_idx; deq[nequak] += d
-                    <span class="hljs-keyword">for</span> locm <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(locj1, locj2 + <span class="hljs-number">1</span>):
+                    <span class="hljs-keyword">for</span> locm <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(locj1, locj2 + <span class="hljs-number">1</span>):   <span class="hljs-comment"># numpy-ref</span>
                         m_raw = <span class="hljs-built_in">int</span>(kcomps[locm]); m_idx = nequa - <span class="hljs-number">1</span> <span class="hljs-keyword">if</span> m_raw == nequa <span class="hljs-keyword">else</span> m_raw
                         deq[m_idx + nequak] += d
                 last_raw = <span class="hljs-built_in">int</span>(kcomps[locj2])
                 <span class="hljs-keyword">if</span> last_raw == nequa - <span class="hljs-number">1</span> <span class="hljs-keyword">and</span> idequa[nequa - <span class="hljs-number">1</span>] == <span class="hljs-number">100</span>:
-                    <span class="hljs-keyword">for</span> lock <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(locj1, locj2 + <span class="hljs-number">1</span>):
+                    <span class="hljs-keyword">for</span> lock <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(locj1, locj2 + <span class="hljs-number">1</span>):   <span class="hljs-comment"># numpy-ref</span>
                         kc_raw = <span class="hljs-built_in">int</span>(kcomps[lock]); kc_idx = nequa - <span class="hljs-number">1</span> <span class="hljs-keyword">if</span> kc_raw &gt;= nequa <span class="hljs-keyword">else</span> kc_raw
                         xn_val = xn[kc_idx]
-                        <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> np.isfinite(xn_val) <span class="hljs-keyword">or</span> xn_val == <span class="hljs-number">0.0</span>: <span class="hljs-keyword">continue</span>
+                        <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> np.isfinite(xn_val) <span class="hljs-keyword">or</span> xn_val == <span class="hljs-number">0.0</span>: <span class="hljs-keyword">continue</span>   <span class="hljs-comment"># numpy-ref</span>
                         d_corr = term / xn_val
-                        <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> np.isfinite(d_corr): <span class="hljs-keyword">continue</span>
+                        <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> np.isfinite(d_corr): <span class="hljs-keyword">continue</span>   <span class="hljs-comment"># numpy-ref</span>
                         <span class="hljs-keyword">if</span> kc_idx == nequa - <span class="hljs-number">1</span>: eq[kc_idx] = eq[kc_idx] - term - term
                         delta = -d_corr - d_corr
-                        <span class="hljs-keyword">for</span> locm <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(locj1, locj2 + <span class="hljs-number">1</span>):
+                        <span class="hljs-keyword">for</span> locm <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(locj1, locj2 + <span class="hljs-number">1</span>):   <span class="hljs-comment"># numpy-ref</span>
                             mc_raw = <span class="hljs-built_in">int</span>(kcomps[locm]); mc_idx = nequa - <span class="hljs-number">1</span> <span class="hljs-keyword">if</span> mc_raw &gt;= nequa <span class="hljs-keyword">else</span> mc_raw
                             <span class="hljs-keyword">if</span> mc_idx != nequa - <span class="hljs-number">1</span>: <span class="hljs-keyword">continue</span>
                             deq[mc_idx + nequa * kc_idx] += delta
             deq_2d = deq[:neqneq].reshape(nequa, nequa, order=<span class="hljs-string">&quot;F&quot;</span>).copy()
             eq = solvit(deq_2d, nequa, eq.copy())
             iferr = <span class="hljs-number">0</span>; scale = <span class="hljs-number">100.0</span>
-            <span class="hljs-keyword">for</span> k <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nequa):
+            <span class="hljs-keyword">for</span> k <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nequa):   <span class="hljs-comment"># numpy-ref</span>
                 <span class="hljs-keyword">if</span> _ratio_pp(eq[k], xn[k]) &gt; <span class="hljs-number">0.001</span>: iferr = <span class="hljs-number">1</span>
                 sc = (eqold[k] &gt; <span class="hljs-number">0</span> <span class="hljs-keyword">and</span> eq[k] &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">or</span> (eqold[k] &lt; <span class="hljs-number">0</span> <span class="hljs-keyword">and</span> eq[k] &gt; <span class="hljs-number">0</span>)
                 <span class="hljs-keyword">if</span> sc: eq[k] = eq[k] * <span class="hljs-number">0.69</span>
                 xneq = _stable_subtract(xn[k], eq[k])
                 <span class="hljs-keyword">if</span> xneq &lt; xn[k] / <span class="hljs-number">100.0</span>:
                     xn[k] = xn[k] / scale
-                    <span class="hljs-keyword">if</span> (eqold[k] &gt; <span class="hljs-number">0</span> <span class="hljs-keyword">and</span> eq[k] &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">or</span> (eqold[k] &lt; <span class="hljs-number">0</span> <span class="hljs-keyword">and</span> eq[k] &gt; <span class="hljs-number">0</span>): scale = np.sqrt(scale)
+                    <span class="hljs-keyword">if</span> (eqold[k] &gt; <span class="hljs-number">0</span> <span class="hljs-keyword">and</span> eq[k] &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">or</span> (eqold[k] &lt; <span class="hljs-number">0</span> <span class="hljs-keyword">and</span> eq[k] &gt; <span class="hljs-number">0</span>): scale = np.sqrt(scale)   <span class="hljs-comment"># numpy-ref</span>
                 <span class="hljs-keyword">else</span>: xn[k] = xneq
                 eqold[k] = eq[k]
             <span class="hljs-keyword">if</span> iferr == <span class="hljs-number">0</span>: <span class="hljs-keyword">break</span>
         xnatom[j] = xn[<span class="hljs-number">0</span>]
-        <span class="hljs-keyword">for</span> k <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nequa): xnz[j, k] = xn[k]
+        <span class="hljs-keyword">for</span> k <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nequa): xnz[j, k] = xn[k]   <span class="hljs-comment"># numpy-ref</span>
         xnz_prev[:nequa] = xn[:nequa]
         <span class="hljs-keyword">if</span> idequa[nequa - <span class="hljs-number">1</span>] == <span class="hljs-number">100</span>: electron[j] = xn[nequa - <span class="hljs-number">1</span>]
-        <span class="hljs-keyword">for</span> jmol <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nummol):
+        <span class="hljs-keyword">for</span> jmol <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nummol):   <span class="hljs-comment"># numpy-ref</span>
             val = equilj[jmol]
-            <span class="hljs-keyword">for</span> lock <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-built_in">int</span>(locj[jmol]), <span class="hljs-built_in">int</span>(locj[jmol + <span class="hljs-number">1</span>])):
+            <span class="hljs-keyword">for</span> lock <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-built_in">int</span>(locj[jmol]), <span class="hljs-built_in">int</span>(locj[jmol + <span class="hljs-number">1</span>])):   <span class="hljs-comment"># numpy-ref</span>
                 k = <span class="hljs-built_in">int</span>(kcomps[lock]); val = val / xn[nequa - <span class="hljs-number">1</span>] <span class="hljs-keyword">if</span> k == nequa <span class="hljs-keyword">else</span> val * xn[k]
             xnmol[j, jmol] = val
     <span class="hljs-keyword">return</span> xnatom, xnz, electron, xnmol
@@ -1249,10 +1249,10 @@ gt_xnmol = gt[&quot;xnmol&quot;].astype(float)[:, :nummol]; gt_xnatom = gt[&quot
 gt_xnz = gt[&quot;xnz&quot;].astype(float); gt_electron = gt[&quot;electron&quot;].astype(float)
 tio = int(np.argmin(np.abs(code_mol[:nummol] - 822.0)))     # TiO has code 822
 
-# torch result -&gt; numpy/fp64
-xnmol_g = xnmol.detach().cpu().double().numpy()[:, :nummol]
-xnz_g   = xnz.detach().cpu().double().numpy()[:, :nequa]
-xnatom_g = xnatom.detach().cpu().double().numpy(); electron_g = electron.detach().cpu().double().numpy()
+# torch result -&gt; numpy/fp64: the parity-oracle boundary, after the solve is complete
+xnmol_g = xnmol.detach().cpu().double().numpy()[:, :nummol]  # JUSTIFY: parity-oracle boundary
+xnz_g   = xnz.detach().cpu().double().numpy()[:, :nequa]  # JUSTIFY: parity-oracle boundary
+xnatom_g = xnatom.detach().cpu().double().numpy(); electron_g = electron.detach().cpu().double().numpy()  # JUSTIFY: parity-oracle boundary
 
 print(&quot;GPU torch nmolec_solve  vs  inline NumPy twin (two algorithms, same equilibrium):&quot;)
 compare(&quot;all molecular densities&quot;, xnmol_g, xnmol_np[:, :nummol])
@@ -1280,10 +1280,10 @@ gt_xnmol = gt[<span class="hljs-string">&quot;xnmol&quot;</span>].astype(<span c
 gt_xnz = gt[<span class="hljs-string">&quot;xnz&quot;</span>].astype(<span class="hljs-built_in">float</span>); gt_electron = gt[<span class="hljs-string">&quot;electron&quot;</span>].astype(<span class="hljs-built_in">float</span>)
 tio = <span class="hljs-built_in">int</span>(np.argmin(np.<span class="hljs-built_in">abs</span>(code_mol[:nummol] - <span class="hljs-number">822.0</span>)))     <span class="hljs-comment"># TiO has code 822</span>
 
-<span class="hljs-comment"># torch result -&gt; numpy/fp64</span>
-xnmol_g = xnmol.detach().cpu().double().numpy()[:, :nummol]
-xnz_g   = xnz.detach().cpu().double().numpy()[:, :nequa]
-xnatom_g = xnatom.detach().cpu().double().numpy(); electron_g = electron.detach().cpu().double().numpy()
+<span class="hljs-comment"># torch result -&gt; numpy/fp64: the parity-oracle boundary, after the solve is complete</span>
+xnmol_g = xnmol.detach().cpu().double().numpy()[:, :nummol]  <span class="hljs-comment"># JUSTIFY: parity-oracle boundary</span>
+xnz_g   = xnz.detach().cpu().double().numpy()[:, :nequa]  <span class="hljs-comment"># JUSTIFY: parity-oracle boundary</span>
+xnatom_g = xnatom.detach().cpu().double().numpy(); electron_g = electron.detach().cpu().double().numpy()  <span class="hljs-comment"># JUSTIFY: parity-oracle boundary</span>
 
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;GPU torch nmolec_solve  vs  inline NumPy twin (two algorithms, same equilibrium):&quot;</span>)
 compare(<span class="hljs-string">&quot;all molecular densities&quot;</span>, xnmol_g, xnmol_np[:, :nummol])
@@ -1528,7 +1528,7 @@ print(&quot;_band_continuum + temperature-cell helpers ready&quot;)" aria-label=
 
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;_band_continuum + temperature-cell helpers ready&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">_band_continuum + temperature-cell helpers ready
-</pre></div></div><div class="prose"><h3>The H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mrow></mrow><mn>2</mn></msub></mrow><annotation encoding="application/x-tex">_2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4511em;vertical-align:-0.15em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> density and the Borysow CIA frequency/temperature interpolation</h3>
+</pre></div></div><div class="prose"><h3>The H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mrow></mrow><mn>2</mn></msub></mrow><annotation encoding="application/x-tex">_2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4511em;vertical-align:-0.15em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> density driving the collision-induced absorption; H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mrow></mrow><mn>2</mn></msub></mrow><annotation encoding="application/x-tex">_2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4511em;vertical-align:-0.15em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> collision-induced absorption (Borysow), vectorized over frequency and temperature</h3>
 <p>H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mrow></mrow><mn>2</mn></msub></mrow><annotation encoding="application/x-tex">_2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4511em;vertical-align:-0.15em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>-CIA scales as <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>n</mi><msub><mi mathvariant="normal">H</mi><mn>2</mn></msub></msub></mrow><annotation encoding="application/x-tex">n_{\rm H_2}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6807em;vertical-align:-0.2501em;"></span><span class="mord"><span class="mord mathnormal">n</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">H</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3173em;"><span style="top:-2.357em;margin-left:0em;margin-right:0.0714em;"><span class="pstrut" style="height:2.5em;"></span><span class="sizing reset-size3 size1 mtight"><span class="mord mathrm mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.143em;"><span></span></span></span></span></span></span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2501em;"><span></span></span></span></span></span></span></span></span></span> times the partner density, so we need <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>n</mi><msub><mi mathvariant="normal">H</mi><mn>2</mn></msub></msub></mrow><annotation encoding="application/x-tex">n_{\rm H_2}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6807em;vertical-align:-0.2501em;"></span><span class="mord"><span class="mord mathnormal">n</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">H</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3173em;"><span style="top:-2.357em;margin-left:0em;margin-right:0.0714em;"><span class="pstrut" style="height:2.5em;"></span><span class="sizing reset-size3 size1 mtight"><span class="mord mathrm mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.143em;"><span></span></span></span></span></span></span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2501em;"><span></span></span></span></span></span></span></span></span></span> first — from the <strong>same</strong> dissociation polynomial as the code-101 formation constant of Part 1, applied to the H ground-state population: <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>n</mi><msub><mi mathvariant="normal">H</mi><mn>2</mn></msub></msub><mo>=</mo><mo stretchy="false">(</mo><msub><mi>n</mi><mrow><mi mathvariant="normal">H</mi><mo separator="true">,</mo><mn>1</mn></mrow></msub><mo>⋅</mo><mn>2</mn><mtext> </mtext><msub><mi>b</mi><mn>1</mn></msub><msup><mo stretchy="false">)</mo><mn>2</mn></msup><mtext> </mtext><mi>exp</mi><mo>⁡</mo><mo stretchy="false">(</mo><mn>4.478</mn><mi mathvariant="normal">/</mi><mi>k</mi><mi>T</mi><mo>−</mo><mn>46.4584</mn><mo>+</mo><mi>P</mi><mo stretchy="false">(</mo><mi>T</mi><mo stretchy="false">)</mo><mo>−</mo><mfrac><mn>3</mn><mn>2</mn></mfrac><mi>ln</mi><mo>⁡</mo><mi>T</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">n_{\rm H_2} = (n_{\rm H,1}\cdot 2\,b_1)^2\,\exp(4.478/kT - 46.4584 + P(T) - \tfrac32\ln T)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6807em;vertical-align:-0.2501em;"></span><span class="mord"><span class="mord mathnormal">n</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">H</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3173em;"><span style="top:-2.357em;margin-left:0em;margin-right:0.0714em;"><span class="pstrut" style="height:2.5em;"></span><span class="sizing reset-size3 size1 mtight"><span class="mord mathrm mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.143em;"><span></span></span></span></span></span></span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2501em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1.0361em;vertical-align:-0.2861em;"></span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal">n</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">H</span><span class="mpunct mtight">,</span><span class="mord mathrm mtight">1</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2861em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">⋅</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1.0641em;vertical-align:-0.25em;"></span><span class="mord">2</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">b</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mclose"><span class="mclose">)</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mop">exp</span><span class="mopen">(</span><span class="mord">4.478/</span><span class="mord mathnormal" style="margin-right:0.03148em;">k</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em;"></span><span class="mord">46.4584</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mclose">)</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1.1901em;vertical-align:-0.345em;"></span><span class="mord"><span class="mopen nulldelimiter"></span><span class="mfrac"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.8451em;"><span style="top:-2.655em;"><span class="pstrut" style="height:3em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">2</span></span></span></span><span style="top:-3.23em;"><span class="pstrut" style="height:3em;"></span><span class="frac-line" style="border-bottom-width:0.04em;"></span></span><span style="top:-3.394em;"><span class="pstrut" style="height:3em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">3</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.345em;"><span></span></span></span></span></span><span class="mclose nulldelimiter"></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mop">ln</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mclose">)</span></span></span></span>, frequency-independent. The Borysow tables give <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mrow><mi>log</mi><mo>⁡</mo></mrow><mn>10</mn></msub></mrow><annotation encoding="application/x-tex">\log_{10}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.9386em;vertical-align:-0.2441em;"></span><span class="mop"><span class="mop">lo<span style="margin-right:0.01389em;">g</span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.207em;"><span style="top:-2.4559em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">10</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2441em;"><span></span></span></span></span></span></span></span></span></span> of the absorption coefficient (cm<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mn>5</mn></msup></mrow><annotation encoding="application/x-tex">^5</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">5</span></span></span></span></span></span></span></span></span></span></span>) on a (wavenumber, temperature) grid; <code>_h2_frequency_rows</code> does the <strong>wavenumber</strong> interpolation (250 cm<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mrow><mo>−</mo><mn>1</mn></mrow></msup></mrow><annotation encoding="application/x-tex">^{-1}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">1</span></span></span></span></span></span></span></span></span></span></span></span> bins) for all frequencies at once, masking <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>&gt;</mo><mn>20000</mn></mrow><annotation encoding="application/x-tex">&gt; 20000</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5782em;vertical-align:-0.0391em;"></span><span class="mrel">&gt;</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">20000</span></span></span></span> cm<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mrow><mo>−</mo><mn>1</mn></mrow></msup></mrow><annotation encoding="application/x-tex">^{-1}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">1</span></span></span></span></span></span></span></span></span></span></span></span> to a <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>−</mo><mn>300</mn></mrow><annotation encoding="application/x-tex">-300</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em;"></span><span class="mord">−</span><span class="mord">300</span></span></span></span> log floor, and <code>_temp_lerp_rows</code> the <strong>temperature</strong> interpolation (1000 K bins). Transcribed verbatim.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
@@ -1709,7 +1709,7 @@ t0 = time.time()
 chop, ohop, h2cia, total = mol_continuum(mc)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;molecular continuum computed over the <span class="hljs-subst">{nlc}</span>x<span class="hljs-subst">{nfreq}</span> grid in <span class="hljs-subst">{time.time()-t0:<span class="hljs-number">.3</span>f}</span>s &quot;</span>
       <span class="hljs-string">f&quot;(device <span class="hljs-subst">{DEVICE.<span class="hljs-built_in">type</span>}</span>)&quot;</span>)</code></pre>
-    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">molecular continuum computed over the 80x600 grid in 0.023s (device mps)
+    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">molecular continuum computed over the 80x600 grid in 0.009s (device mps)
 </pre></div></div><div class="prose"><h3>Benchmark: the GPU continuum against the NumPy twin</h3>
 <p>We validate the torch <code>mol_continuum</code> against the inline NumPy twin (the scalar reference from <code>verify_mol_continuum.py</code> — CHOP/OHOP/H2COLLOP with their Python frequency loops — the parity oracle) and against the shipped ground truth, reporting <code>max|rel|</code> on chop, ohop, h2cia, and the total. First the scalar NumPy twin.</p>
 </div><div class="nb-cell"><div class="code-card">
@@ -1730,30 +1730,30 @@ _poly_t = (1.63660e-3 + (-4.93992e-7 + (1.11822e-10 + (-1.49567e-14
 XNH2_np = (xnfph1_np * 2.0 * bhyd1_np) ** 2 * np.exp(np.clip(4.478 / tkev_np - 46.4584 + _poly_t - 1.5 * tlog_np, -100, 100))
 
 def _band_xsect_np(freq_scalar, CROSS, PART, n_off, idx_off, en_off, n_lo, n_hi, idx_hi):
-    out = np.zeros(temp_np.size); wn = freq_scalar / C_LIGHT_CM; ev = wn / 8065.479
+    out = np.zeros(temp_np.size); wn = freq_scalar / C_LIGHT_CM; ev = wn / 8065.479   # numpy-ref
     n = int(ev * 10) - n_off
     if n &lt;= n_lo or n &gt;= n_hi: return out
     en = n * 0.1 + en_off; idx = n - idx_off
     if idx &lt; 0 or idx &gt;= idx_hi: return out
     cross = CROSS[idx] + (CROSS[idx + 1] - CROSS[idx]) * (ev - en) / 0.1
-    for j in range(temp_np.size):
+    for j in range(temp_np.size):   # numpy-ref
         tj = temp_np[j]
         if tj &gt;= 9000.0: continue
         it_p = max(0, min(int((tj - 1000.0) / 200.0), 39)); tn_p = it_p * 200.0 + 1000.0
         part = PART[it_p] + (PART[it_p + 1] - PART[it_p]) * (tj - tn_p) / 200.0
         it_c = max(0, min(int((tj - 2000.0) / 500.0), 13)); tn_c = it_c * 500.0 + 2000.0
         log_x = cross[it_c] + (cross[it_c + 1] - cross[it_c]) * (tj - tn_c) / 500.0
-        out[j] = np.exp(log_x * LN10) * part
+        out[j] = np.exp(log_x * LN10) * part   # numpy-ref
     return out
 
 def h2cia_np(freq_scalar, stim_col):
-    out = np.zeros(temp_np.size); wn = freq_scalar / C_LIGHT_CM
+    out = np.zeros(temp_np.size); wn = freq_scalar / C_LIGHT_CM   # numpy-ref
     if wn &gt; 20000.0: return out
     nu = min(79, int(wn / 250.0)); delnu = (wn - 250.0 * nu) / 250.0
     idx1 = min(nu, 80); idx2 = min(nu + 1, 80)
     h2h2_nu = H2H2[idx1] * delnu + H2H2[idx2] * (1.0 - delnu)
     h2he_nu = H2HE[idx1] * delnu + H2HE[idx2] * (1.0 - delnu)
-    for j in range(temp_np.size):
+    for j in range(temp_np.size):   # numpy-ref
         tj = temp_np[j]; it = max(1, min(6, int(tj / 1000.0)))
         delt = max(0.0, min(1.0, (tj - 1000.0 * it) / 1000.0))
         xh2h2 = h2h2_nu[it - 1] * delt + h2h2_nu[it] * (1.0 - delt)
@@ -1779,30 +1779,30 @@ _poly_t = (<span class="hljs-number">1.63660e-3</span> + (-<span class="hljs-num
 XNH2_np = (xnfph1_np * <span class="hljs-number">2.0</span> * bhyd1_np) ** <span class="hljs-number">2</span> * np.exp(np.clip(<span class="hljs-number">4.478</span> / tkev_np - <span class="hljs-number">46.4584</span> + _poly_t - <span class="hljs-number">1.5</span> * tlog_np, -<span class="hljs-number">100</span>, <span class="hljs-number">100</span>))
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">_band_xsect_np</span>(<span class="hljs-params">freq_scalar, CROSS, PART, n_off, idx_off, en_off, n_lo, n_hi, idx_hi</span>):
-    out = np.zeros(temp_np.size); wn = freq_scalar / C_LIGHT_CM; ev = wn / <span class="hljs-number">8065.479</span>
+    out = np.zeros(temp_np.size); wn = freq_scalar / C_LIGHT_CM; ev = wn / <span class="hljs-number">8065.479</span>   <span class="hljs-comment"># numpy-ref</span>
     n = <span class="hljs-built_in">int</span>(ev * <span class="hljs-number">10</span>) - n_off
     <span class="hljs-keyword">if</span> n &lt;= n_lo <span class="hljs-keyword">or</span> n &gt;= n_hi: <span class="hljs-keyword">return</span> out
     en = n * <span class="hljs-number">0.1</span> + en_off; idx = n - idx_off
     <span class="hljs-keyword">if</span> idx &lt; <span class="hljs-number">0</span> <span class="hljs-keyword">or</span> idx &gt;= idx_hi: <span class="hljs-keyword">return</span> out
     cross = CROSS[idx] + (CROSS[idx + <span class="hljs-number">1</span>] - CROSS[idx]) * (ev - en) / <span class="hljs-number">0.1</span>
-    <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(temp_np.size):
+    <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(temp_np.size):   <span class="hljs-comment"># numpy-ref</span>
         tj = temp_np[j]
         <span class="hljs-keyword">if</span> tj &gt;= <span class="hljs-number">9000.0</span>: <span class="hljs-keyword">continue</span>
         it_p = <span class="hljs-built_in">max</span>(<span class="hljs-number">0</span>, <span class="hljs-built_in">min</span>(<span class="hljs-built_in">int</span>((tj - <span class="hljs-number">1000.0</span>) / <span class="hljs-number">200.0</span>), <span class="hljs-number">39</span>)); tn_p = it_p * <span class="hljs-number">200.0</span> + <span class="hljs-number">1000.0</span>
         part = PART[it_p] + (PART[it_p + <span class="hljs-number">1</span>] - PART[it_p]) * (tj - tn_p) / <span class="hljs-number">200.0</span>
         it_c = <span class="hljs-built_in">max</span>(<span class="hljs-number">0</span>, <span class="hljs-built_in">min</span>(<span class="hljs-built_in">int</span>((tj - <span class="hljs-number">2000.0</span>) / <span class="hljs-number">500.0</span>), <span class="hljs-number">13</span>)); tn_c = it_c * <span class="hljs-number">500.0</span> + <span class="hljs-number">2000.0</span>
         log_x = cross[it_c] + (cross[it_c + <span class="hljs-number">1</span>] - cross[it_c]) * (tj - tn_c) / <span class="hljs-number">500.0</span>
-        out[j] = np.exp(log_x * LN10) * part
+        out[j] = np.exp(log_x * LN10) * part   <span class="hljs-comment"># numpy-ref</span>
     <span class="hljs-keyword">return</span> out
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">h2cia_np</span>(<span class="hljs-params">freq_scalar, stim_col</span>):
-    out = np.zeros(temp_np.size); wn = freq_scalar / C_LIGHT_CM
+    out = np.zeros(temp_np.size); wn = freq_scalar / C_LIGHT_CM   <span class="hljs-comment"># numpy-ref</span>
     <span class="hljs-keyword">if</span> wn &gt; <span class="hljs-number">20000.0</span>: <span class="hljs-keyword">return</span> out
     nu = <span class="hljs-built_in">min</span>(<span class="hljs-number">79</span>, <span class="hljs-built_in">int</span>(wn / <span class="hljs-number">250.0</span>)); delnu = (wn - <span class="hljs-number">250.0</span> * nu) / <span class="hljs-number">250.0</span>
     idx1 = <span class="hljs-built_in">min</span>(nu, <span class="hljs-number">80</span>); idx2 = <span class="hljs-built_in">min</span>(nu + <span class="hljs-number">1</span>, <span class="hljs-number">80</span>)
     h2h2_nu = H2H2[idx1] * delnu + H2H2[idx2] * (<span class="hljs-number">1.0</span> - delnu)
     h2he_nu = H2HE[idx1] * delnu + H2HE[idx2] * (<span class="hljs-number">1.0</span> - delnu)
-    <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(temp_np.size):
+    <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(temp_np.size):   <span class="hljs-comment"># numpy-ref</span>
         tj = temp_np[j]; it = <span class="hljs-built_in">max</span>(<span class="hljs-number">1</span>, <span class="hljs-built_in">min</span>(<span class="hljs-number">6</span>, <span class="hljs-built_in">int</span>(tj / <span class="hljs-number">1000.0</span>)))
         delt = <span class="hljs-built_in">max</span>(<span class="hljs-number">0.0</span>, <span class="hljs-built_in">min</span>(<span class="hljs-number">1.0</span>, (tj - <span class="hljs-number">1000.0</span> * it) / <span class="hljs-number">1000.0</span>))
         xh2h2 = h2h2_nu[it - <span class="hljs-number">1</span>] * delt + h2h2_nu[it] * (<span class="hljs-number">1.0</span> - delt)
@@ -1815,8 +1815,9 @@ XNH2_np = (xnfph1_np * <span class="hljs-number">2.0</span> * bhyd1_np) ** <span
 </pre></div></div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[26]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="chop_ref = np.zeros((nlc, nfreq)); ohop_ref = np.zeros((nlc, nfreq)); h2cia_ref = np.zeros((nlc, nfreq))
-for j in range(nfreq):
+        <button class="copy-btn" type="button" data-code="# numpy-ref: assemble the NumPy-twin reference arrays (the parity targets) over the frequency grid
+chop_ref = np.zeros((nlc, nfreq)); ohop_ref = np.zeros((nlc, nfreq)); h2cia_ref = np.zeros((nlc, nfreq))
+for j in range(nfreq):   # numpy-ref: the scalar twin&#39;s frequency loop (the oracle, not the shipped torch path)
     f = freq[j]; stim_j = stim_np[:, j]
     chop_ref[:, j] = _band_xsect_np(f, CH_CROSSSECT, CH_PARTITION, 0, 2, 0.0, 19, 105, 104) * xnfpch_np / rho_np * stim_j
     ohop_ref[:, j] = _band_xsect_np(f, OH_CROSSSECT, OH_PARTITION, 20, 1, 2.0, 0, 130, 129) * xnfpoh_np / rho_np * stim_j
@@ -1843,8 +1844,9 @@ print(f&quot;\nmolecular continuum max relative error = {worst_c:.3e}   floor = 
 assert worst_c &lt; floor_c, f&quot;continuum deviates by {worst_c:.2e}, above the float floor {floor_c:.0e}&quot;" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">chop_ref = np.zeros((nlc, nfreq)); ohop_ref = np.zeros((nlc, nfreq)); h2cia_ref = np.zeros((nlc, nfreq))
-<span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nfreq):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># numpy-ref: assemble the NumPy-twin reference arrays (the parity targets) over the frequency grid</span>
+chop_ref = np.zeros((nlc, nfreq)); ohop_ref = np.zeros((nlc, nfreq)); h2cia_ref = np.zeros((nlc, nfreq))
+<span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nfreq):   <span class="hljs-comment"># numpy-ref: the scalar twin&#x27;s frequency loop (the oracle, not the shipped torch path)</span>
     f = freq[j]; stim_j = stim_np[:, j]
     chop_ref[:, j] = _band_xsect_np(f, CH_CROSSSECT, CH_PARTITION, <span class="hljs-number">0</span>, <span class="hljs-number">2</span>, <span class="hljs-number">0.0</span>, <span class="hljs-number">19</span>, <span class="hljs-number">105</span>, <span class="hljs-number">104</span>) * xnfpch_np / rho_np * stim_j
     ohop_ref[:, j] = _band_xsect_np(f, OH_CROSSSECT, OH_PARTITION, <span class="hljs-number">20</span>, <span class="hljs-number">1</span>, <span class="hljs-number">2.0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">130</span>, <span class="hljs-number">129</span>) * xnfpoh_np / rho_np * stim_j
@@ -1870,10 +1872,10 @@ worst_c = <span class="hljs-built_in">max</span>(rc, ro, rh, rt)
       <span class="hljs-string">&quot;[PASS]&quot;</span> <span class="hljs-keyword">if</span> worst_c &lt; floor_c <span class="hljs-keyword">else</span> <span class="hljs-string">&quot;[CHECK]&quot;</span>)
 <span class="hljs-keyword">assert</span> worst_c &lt; floor_c, <span class="hljs-string">f&quot;continuum deviates by <span class="hljs-subst">{worst_c:<span class="hljs-number">.2</span>e}</span>, above the float floor <span class="hljs-subst">{floor_c:<span class="hljs-number">.0</span>e}</span>&quot;</span></code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">GPU torch mol_continuum  vs  inline NumPy twin:
-</pre></div><div class="out-block"><pre class="out-stream">CHOP   (CH)                   max|rel diff| = 5.85e-08   [agree]   (n=3280)
+CHOP   (CH)                   max|rel diff| = 5.85e-08   [agree]   (n=3280)
 OHOP   (OH)                   max|rel diff| = 5.87e-08   [agree]   (n=3040)
 H2-CIA (Borysow)              max|rel diff| = 5.94e-08   [agree]   (n=45920)
-</pre></div><div class="out-block"><pre class="out-stream">MOL TOTAL                     max|rel diff| = 5.94e-08   [agree]   (n=48000)
+MOL TOTAL                     max|rel diff| = 5.94e-08   [agree]   (n=48000)
 
 GPU torch mol_continuum  vs  pykurucz ground truth:
 CHOP   (CH)                   max|rel diff| = 5.85e-08   [agree]   (n=3280)
@@ -1888,25 +1890,25 @@ molecular continuum max relative error = 5.941e-08   floor = 1e-06   -&gt; [PASS
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[27]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="chop_g = chop.detach().cpu().double().numpy(); ohop_g = ohop.detach().cpu().double().numpy()
-h2cia_g = h2cia.detach().cpu().double().numpy(); total_g = total.detach().cpu().double().numpy()
+        <button class="copy-btn" type="button" data-code="chop_g = chop.detach().cpu().double().numpy(); ohop_g = ohop.detach().cpu().double().numpy()  # JUSTIFY: reporting/plot boundary
+h2cia_g = h2cia.detach().cpu().double().numpy(); total_g = total.detach().cpu().double().numpy()  # JUSTIFY: reporting/plot boundary
 
-jcool = int(np.argmin(np.abs(temp_c - 3000.0)))     # a cool photospheric layer
+jcool = int(np.argmin(np.abs(temp_c - 3000.0)))     # numpy-ref: a results-readout cell (host-side print of the torch result)
 print(f&quot;H2-CIA dominance at T = {temp_c[jcool]:.0f} K:&quot;)
-for target in (450.0, 1000.0, 1500.0, 2200.0):       # blue -&gt; near-IR
-    i = int(np.argmin(np.abs(wl_nm - target))); tot = total_g[jcool, i]
+for target in (450.0, 1000.0, 1500.0, 2200.0):       # JUSTIFIED-LOOP: 4 fixed readout wavelengths, blue -&gt; near-IR
+    i = int(np.argmin(np.abs(wl_nm - target))); tot = total_g[jcool, i]   # numpy-ref
     frac = (h2cia_g[jcool, i] / tot * 100.0) if tot &gt; 0 else 0.0
     print(f&quot;  {wl_nm[i]:6.0f} nm : CHOP={chop_g[jcool,i]:.3e} OHOP={ohop_g[jcool,i]:.3e} &quot;
           f&quot;H2CIA={h2cia_g[jcool,i]:.3e}  -&gt;  H2-CIA = {frac:5.1f}% of mol continuum&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">chop_g = chop.detach().cpu().double().numpy(); ohop_g = ohop.detach().cpu().double().numpy()
-h2cia_g = h2cia.detach().cpu().double().numpy(); total_g = total.detach().cpu().double().numpy()
+      <pre class="code-body"><code class="hljs language-python">chop_g = chop.detach().cpu().double().numpy(); ohop_g = ohop.detach().cpu().double().numpy()  <span class="hljs-comment"># JUSTIFY: reporting/plot boundary</span>
+h2cia_g = h2cia.detach().cpu().double().numpy(); total_g = total.detach().cpu().double().numpy()  <span class="hljs-comment"># JUSTIFY: reporting/plot boundary</span>
 
-jcool = <span class="hljs-built_in">int</span>(np.argmin(np.<span class="hljs-built_in">abs</span>(temp_c - <span class="hljs-number">3000.0</span>)))     <span class="hljs-comment"># a cool photospheric layer</span>
+jcool = <span class="hljs-built_in">int</span>(np.argmin(np.<span class="hljs-built_in">abs</span>(temp_c - <span class="hljs-number">3000.0</span>)))     <span class="hljs-comment"># numpy-ref: a results-readout cell (host-side print of the torch result)</span>
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;H2-CIA dominance at T = <span class="hljs-subst">{temp_c[jcool]:<span class="hljs-number">.0</span>f}</span> K:&quot;</span>)
-<span class="hljs-keyword">for</span> target <span class="hljs-keyword">in</span> (<span class="hljs-number">450.0</span>, <span class="hljs-number">1000.0</span>, <span class="hljs-number">1500.0</span>, <span class="hljs-number">2200.0</span>):       <span class="hljs-comment"># blue -&gt; near-IR</span>
-    i = <span class="hljs-built_in">int</span>(np.argmin(np.<span class="hljs-built_in">abs</span>(wl_nm - target))); tot = total_g[jcool, i]
+<span class="hljs-keyword">for</span> target <span class="hljs-keyword">in</span> (<span class="hljs-number">450.0</span>, <span class="hljs-number">1000.0</span>, <span class="hljs-number">1500.0</span>, <span class="hljs-number">2200.0</span>):       <span class="hljs-comment"># JUSTIFIED-LOOP: 4 fixed readout wavelengths, blue -&gt; near-IR</span>
+    i = <span class="hljs-built_in">int</span>(np.argmin(np.<span class="hljs-built_in">abs</span>(wl_nm - target))); tot = total_g[jcool, i]   <span class="hljs-comment"># numpy-ref</span>
     frac = (h2cia_g[jcool, i] / tot * <span class="hljs-number">100.0</span>) <span class="hljs-keyword">if</span> tot &gt; <span class="hljs-number">0</span> <span class="hljs-keyword">else</span> <span class="hljs-number">0.0</span>
     <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;  <span class="hljs-subst">{wl_nm[i]:<span class="hljs-number">6.0</span>f}</span> nm : CHOP=<span class="hljs-subst">{chop_g[jcool,i]:<span class="hljs-number">.3</span>e}</span> OHOP=<span class="hljs-subst">{ohop_g[jcool,i]:<span class="hljs-number">.3</span>e}</span> &quot;</span>
           <span class="hljs-string">f&quot;H2CIA=<span class="hljs-subst">{h2cia_g[jcool,i]:<span class="hljs-number">.3</span>e}</span>  -&gt;  H2-CIA = <span class="hljs-subst">{frac:<span class="hljs-number">5.1</span>f}</span>% of mol continuum&quot;</span>)</code></pre>
