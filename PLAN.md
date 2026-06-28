@@ -158,14 +158,10 @@ and validates it against the NumPy edition's `reference/L2.npz`.
 
 ## Open TODOs / decisions
 
-- **TODO — sync `resources/figures/` from the NumPy edition.** A concurrent agent is adding the
-  L14/L15/L16 conceptual schematics to the NumPy book's working tree. This clone is the committed
-  snapshot and has the existing 14 schematics (`s1`–`s13` + capstone); once the new L14/L15/L16
-  schematics are pushed to the NumPy edition's origin, copy them into `resources/figures/` here.
-- **DECISION (flag to author):** whether the GPU edition should keep the identical *figure
-  filenames* (`sN_*.png`) and reuse the NumPy edition's schematics verbatim (recommended — the
-  physics they illustrate is unchanged), or eventually get GPU-specific schematics (e.g. a
-  depth-batched-tensor diagram). Defaulting to **reuse** for now.
+- **DONE — `resources/figures/` is synced with the NumPy edition for L14-L16.** This repo now
+  carries `s14_synthesis.png`, `s15_deposit.png`, and `s16_eos.png` alongside the earlier figures.
+  Default policy remains **reuse the NumPy schematic filenames and artwork** unless a future
+  GPU-specific figure is explicitly needed; the physics illustrated is unchanged.
 - **DEPENDENCY (read-only clue source):** continue reading `~/pykurucz_gpu/PASSDOWN.md` and
   `~/pykurucz_gpu/PLAN.md` before changing L14-L16. `kgpu` is stable and self-verified; this book
   should reflect its implementation pieces without importing it.
