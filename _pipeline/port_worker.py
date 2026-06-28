@@ -369,7 +369,13 @@ _ANCHOR_RE = re.compile(
     r"(\w*ref\w*)\s*\.clone\(\)\s*$"                          # engine = cabs_ref.clone()
     r"|=\s*\w*ref\w*\s*/\s*\w*raw\w*"                          # scale = ref / raw_sum
     r"|=\s*\w*raw\w*\s*\*\s*\w*scale\w*"                       # comp = raw * (ref/raw) scale
-    r"|engine\w*\s*=\s*.*\bref\w*\.clone",
+    r"|engine\w*\s*=\s*.*\bref\w*\.clone"
+    # A derived result copied straight from REF.  Inputs such as T_in/rhox_in and static
+    # tables are intentionally absent from this list; these names are outputs that the
+    # lecture contract requires the torch path to compute.
+    r"|\b(?:abross|flxrad|rjmins|rdabh|rdiagj|tauros|prad|pradk|dtflux|dtlamb|t1|"
+    r"rhox_out|T_out|T_step|rhox_step|flxcnv|flxcnv0|flxcnv1)\s*=\s*"
+    r"(?:t|tt|torch\.as_tensor)\s*\(\s*REF\s*\[",
     re.IGNORECASE)
 
 
@@ -381,9 +387,6 @@ def anchor_smell(src: str) -> list[str]:
     for kind, start, body in _builder_cells(src):
         if kind == "md":
             continue
-        is_refcell = any(_REFCELL_RE.search(ln) for ln in body)
-        if is_refcell:
-            continue                                   # plotting/compare cells legitimately touch ref
         for off, line in enumerate(body):
             if _ANCHOR_RE.search(line):
                 hits.append(f"  L{start + off + 1}: ANCHOR-TO-REFERENCE smell (faked parity?)  |  {line.strip()[:90]}")
@@ -748,7 +751,9 @@ RULES:
   necessary small heterogeneous loop (~≤30 fixed elements) must carry a `# JUSTIFIED-LOOP: <why>`
   comment; otherwise NO python loops over depth/wavelength/line.
 - Each ported computation must carry its numpy-vs-GPU COMPARISON cell printing `max|rel|`, so the
-  parity spans the WHOLE physics (not a subset).
+  parity spans the WHOLE physics (not a subset). Every comparison must include an executable
+  `assert max_rel < {fill.float_floor:.3e}` over the full output; printing PASS without asserting
+  is a failure. Never replace a computed tensor with `REF[...]` before that assertion.
 - Preserve the numpy twin's pedagogical text + voice (bible §5); weave in the GPU/vectorization
   story. Keep the book self-consistent.
 
@@ -841,11 +846,16 @@ def run_fill_job(fill: FillJob, model: str = "gpt55", max_tries: int = 4,
 
     pre_ok, pre_fails = completeness_gate(np_struct, gpu_struct0, fill.justified_short)
     if pre_ok:
-        say("  ALREADY COMPLETE — completeness gate passes; nothing to fill.")
-        # still run execute + lint gates for the report
+        say("  STRUCTURALLY COMPLETE — running execution, integrity, and lint gates.")
+        exec_ok, exec_log = _execute_notebook(fill.n) if execute else (True, "")
         lints = lint_builder(gpu_path.read_text())
-        return dict(name=fill.name, filled=False, complete=True, missing=d0,
-                    lint=lints, gpu_cells=gpu_struct0["n_cells"], numpy_cells=np_struct["n_cells"])
+        blocking_lints = [h for h in lints if "fine at the boundary" not in h]
+        anchors = anchor_smell(gpu_path.read_text())
+        accepted = exec_ok and not anchors and not blocking_lints
+        return dict(name=fill.name, filled=False, complete=accepted, structural_complete=True,
+                    exec_ok=exec_ok, exec_log=exec_log, missing=d0, lint=lints,
+                    blocking_lint=blocking_lints, anchors=anchors,
+                    gpu_cells=gpu_struct0["n_cells"], numpy_cells=np_struct["n_cells"])
 
     # snapshot for revert; keep generating until the completeness gate passes (or max_tries)
     original = gpu_path.read_text()
@@ -877,12 +887,16 @@ def run_fill_job(fill: FillJob, model: str = "gpt55", max_tries: int = 4,
         else:
             exec_ok = True
 
-        # integrity: reject a faked-parity anchor-to-reference (the L5 trap)
+        # Integrity: reject a faked-parity anchor-to-reference and enforce the lint gate.
         anchors = anchor_smell(gpu_path.read_text())
+        lints = lint_builder(gpu_path.read_text())
+        blocking_lints = [h for h in lints if "fine at the boundary" not in h]
         if anchors:
             say(f"  ANCHOR-TO-REFERENCE smell ({len(anchors)} line(s)) — REJECT (parity may be faked).")
+        if blocking_lints:
+            say(f"  BLOCKING VECTORIZATION LINT ({len(blocking_lints)} line(s)) — REJECT.")
 
-        if comp_ok and exec_ok and not anchors:
+        if comp_ok and exec_ok and not anchors and not blocking_lints:
             say(f"  FILL ACCEPTED in {attempt} iteration(s).")
             break
         # feed back what is still missing / the execution error / the anchor smell and retry
@@ -896,6 +910,11 @@ def run_fill_job(fill: FillJob, model: str = "gpt55", max_tries: int = 4,
                       "computed components from the KAPP tables; do NOT set the output = the reference, "
                       "and do NOT rescale components by (reference / raw_sum). Compute the algorithm; print "
                       "the HONEST residual. Offending lines:\n" + "\n".join(anchors))
+        if blocking_lints:
+            fb.append("HARD VECTORIZATION LINT FAILED — vectorize the shipped compute path or add a "
+                      "specific BIBLE-sanctioned JUSTIFIED-LOOP / numpy-ref marker only where the "
+                      "operation is genuinely fixed-size setup, sequential, or a comparison oracle:\n"
+                      + "\n".join(blocking_lints))
         messages = messages + [
             {"role": "assistant", "content": reply},
             {"role": "user", "content": "Your appended sections did not fully complete the lecture.\n\n"
@@ -919,8 +938,12 @@ def run_fill_job(fill: FillJob, model: str = "gpt55", max_tries: int = 4,
         for h in anchors:
             say(h)
     comp_ok, comp_fails = completeness_gate(np_struct, last_struct, fill.justified_short)
-    return dict(name=fill.name, n=fill.n, filled=True, complete=comp_ok, comp_fails=comp_fails,
-                exec_ok=exec_ok, lint=lints, anchors=anchors, missing=last_diff,
+    blocking_lints = [h for h in lints if "fine at the boundary" not in h]
+    accepted = comp_ok and exec_ok and not anchors and not blocking_lints
+    return dict(name=fill.name, n=fill.n, filled=True, complete=accepted,
+                structural_complete=comp_ok, comp_fails=comp_fails,
+                exec_ok=exec_ok, lint=lints, blocking_lint=blocking_lints,
+                anchors=anchors, missing=last_diff,
                 gpu_cells=last_struct["n_cells"], numpy_cells=np_struct["n_cells"])
 
 
@@ -931,7 +954,7 @@ FILLS: dict[str, FillJob] = {
              "closing sections — `## Synthesis: what you built and where it goes`, `## Summary`, "
              "`## Practice exercises`, `## Further reading` — GPU-adapted (tie back to the depth-"
              "batched torch EOS + the validated PFSAHA). Do NOT touch the validated early cells."),
-    "lecture3": FillJob(name="lecture3", n=3, float_floor=5e-5,
+    "lecture3": FillJob(name="lecture3", n=3, float_floor=1e-6,
         spec="L3 covers only Part A (the analytic continuum). Append Part B — the EXACT tabulated "
              "KAPP engine — fully torch-native + vectorized over depth AND wavelength: the cross-"
              "section tables, the edge-triplet frequency grid + 3-point interpolation, MAP1 / the "
@@ -1013,7 +1036,18 @@ FILLS: dict[str, FillJob] = {
              "  (8) The mixing-length kernel (CONVEC): grdadb, superadiabaticity, convective velocity + flux, "
              "the tau_b^2/(2+tau_b^2) efficiency. REDUCE the BORROWED kgpu convec()/_depth_thermodynamics "
              "below; keep kgpu names (dltdlp/heatcp/grdadb/hscale/velsnd/flxcnv). Validate FLXCNV ~2e-10.\n"
-             "  (9) Convective overshoot (the OVERWT/overshoot_blend smear; reduce overshoot_blend).\n"
+             "  (9) Convective overshoot (the OVERWT/overshoot_blend smear). *** REPRODUCE THE FULL "
+             "ALGORITHM, not a simplification: form the smear half-width delhgt = min(hscale*0.5e-5*wtcnv, "
+             "z_N - z, z - z_0) with wtcnv = min(max(flxcnv0/flux),1)*overwt; build the RUNNING INTEGRAL of "
+             "the flux cnvint = integ(height, flxcnv0, 0); then for each layer j from the midpoint (n//2-1) "
+             "down, window-average via TWO map1 look-ups into cnvint at height[j]-delhgt[j] and "
+             "height[j]+delhgt[j]: flxcnv1[j] = (cnv2 - cnv1)/delhgt[j]/2; then flxcnv = max(flxcnv0, "
+             "flxcnv1) and re-zero the top NCONV layers. The per-layer window step is a small JUSTIFIED "
+             "loop over ~40 boundary layers (carry a # JUSTIFIED-LOOP comment) OR vectorize it as a batched "
+             "map1 over all j at once. Validate flxcnv1 AND the blended flxcnv vs OVT['flxcnv1_on']/"
+             "['flxcnv_on'] at OVERWT=1 AND OVERWT=2 — the numpy twin reaches MACHINE PRECISION (bit-exact) "
+             "here, so the GPU must reach the float floor, NOT ~1.0. A skipped window-average gives rel~1 "
+             "and is a FAILED port. ***\n"
              "  (10) Seeing the Schwarzschild criterion (a plot of nabla vs nabla_ad with depth).\n"
              "  (11) The temperature correction, now with convection: the TCORR step including the "
              "convective flux. THE SECANT (ptot2-ptot1)/ptot1 IS CATASTROPHIC CANCELLATION IN fp32 — "
@@ -1036,7 +1070,7 @@ FILLS: dict[str, FillJob] = {
                      ("atlas_rosseland.py", 97, 211),
                      ("atlas_tcorr.py", 303, 486)],
         ),
-    "lecture14": FillJob(name="lecture14", n=14, float_floor=5e-3,
+    "lecture14": FillJob(name="lecture14", n=14, float_floor=5e-6,
         spec="L14 is the CAPSTONE — the end-to-end synthesis half: assemble the book's GPU engines into "
              "one lean torch synthesiser and reproduce four stars' (hot/sun/giant/mdwarf) emergent spectra "
              "from scratch. The seed builder has the title, objectives, introduction, coverage table, "
