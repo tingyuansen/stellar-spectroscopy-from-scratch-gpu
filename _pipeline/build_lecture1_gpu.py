@@ -43,13 +43,13 @@ md(r"""# Lecture 1 — Overview & a First Model Atmosphere *(GPU Edition)*
 
 - State what a synthetic stellar spectrum is, and name the two stages — the **model atmosphere** and the **spectral synthesis** — that turn a star's parameters into a spectrum.
 - Pick a compute **device once** (MPS / CUDA / CPU) and a working **dtype** (fp32 on the GPU, fp64 on the CPU), and explain the precision budget that follows.
-- Write the **Planck function** in the overflow-safe form a real synthesis code uses, as a branchless `torch` expression evaluated on the whole grid at once, and check it against the reference to machine precision.
-- Define the **optical depth** $\tau$ and explain why the visible photosphere forms near $\tau \approx 2/3$.
+- Write the **Planck function** in the overflow-safe form a real synthesis code uses, as a branchless `torch` expression evaluated on the whole grid at once, and check it against the reference to the dtype floor.
+- Define the **optical depth** $\tau$ and explain why grey continuum flux is often associated with layers near $\tau \approx 2/3$, while monochromatic intensities and lines sample their own optical-depth surfaces.
 - Build a **grey model atmosphere** — the run of temperature, gas pressure, and column mass with depth — from nothing but $T_{\rm eff}$ and $\log g$, vectorized over the 80 depth layers as tensor ops, and check it against the reference layer by layer.
 - Reimplement a piece of physics in plain `torch` and verify it against precomputed reference data — the working rhythm of every GPU-edition lecture that follows.""")
 
 # ── Device + precision preamble (the GPU edition's opening cell) ──────────
-md(r"""**Setup — the device and the precision budget.** Before any physics, we make the one choice that defines the GPU edition: the **compute device**, picked once at the top, and a working **dtype** to match. On Apple Silicon we use **MPS**; on an NVIDIA box, **CUDA**; otherwise we fall back to **CPU**. MPS and CUDA have no float64, so on the GPU the working dtype is **fp32** and the parity bar is the documented float floor (machine precision for the analytic pieces of this lecture, a few $\times 10^{-6}$ where fp32 round-off enters); on CPU we use **fp64** and recover machine precision. We carry NumPy and Matplotlib alongside `torch` — NumPy holds the reference values we validate against (and does the plotting), and the comparison at the end of each computation is done by moving the GPU result to the CPU as NumPy. Every other line of physics is **torch on the device**.""")
+md(r"""**Setup — the device and the precision budget.** Before any physics, we make the one choice that defines the GPU edition: the **compute device**, picked once at the top, and a working **dtype** to match. On Apple Silicon we use **MPS**; on an NVIDIA box, **CUDA**; otherwise we fall back to **CPU**. MPS lacks practical fp64 support, and this edition deliberately uses **fp32** on both MPS and CUDA so the accelerator path has one uniform precision budget; CUDA can support fp64 on suitable hardware, but that is not the default teaching path here. On the GPU the parity bar is therefore the documented fp32 float floor (machine precision for the analytic pieces of this lecture when they are run on CPU, a few $\times 10^{-6}$ where fp32 round-off enters); on CPU we use **fp64** and recover machine precision. We carry NumPy and Matplotlib alongside `torch` — NumPy holds the reference values we validate against (and does the plotting), and the comparison at the end of each computation is done by moving the GPU result to the CPU as NumPy. Every other line of physics is **torch on the device**.""")
 
 code(r'''import pathlib
 import numpy as np
@@ -122,7 +122,7 @@ $$
 Each arrow is one or two lectures:
 
 - **Lecture 1 (here):** the foundations — units, the Planck function, optical depth — and a first model atmosphere, $T(\tau)$ and $P(\tau)$.
-- **Lecture 2:** the equation of state — Saha and Boltzmann give the ionization and the electron density $n_e$.
+- **Lecture 2:** the equation of state — Saha plus charge conservation gives the ionization balance and electron density $n_e$; Boltzmann gives the level populations within an ion.
 - **Lecture 3:** the continuous opacity — H$^-$, hydrogen, scattering — the smooth background, from the physics to the production tables that reproduce it to the bit.
 - **Lectures 4–5:** line opacity — one spectral line, then the million-line list.
 - **Lecture 6:** hydrogen lines — the linear Stark broadening that needs its own engine.
@@ -218,7 +218,7 @@ code(r'''def planck_nu(freq_hz, temperature):
 
 md(r"""Let us look at it: $B_\lambda(T)$ for three temperatures bracketing the Sun. As $T$ rises the curve lifts at every wavelength and its peak slides blueward (Wien's displacement law, $\lambda_{\rm peak}T = \text{const}$). For $T\approx5770$ K the $B_\lambda$ peak falls near $500\ \mathrm{nm}$, so our $500$–$510\ \mathrm{nm}$ window lies essentially right on the solar blackbody peak.
 
-The plot calculation is also vectorized: the wavelength grid is one tensor axis and the three temperatures are another, so one call to `planck_nu` produces the full $3\times400$ array.""")
+The plot calculation is also vectorized: reshaping the three temperatures to `(3, 1)` and the wavelength grid to `(1, 400)` makes `torch` broadcast one call to `planck_nu` into the full `(3, 400)` array. The statement about the peak refers to $B_\lambda$ plotted against wavelength; $B_\nu$ peaks at a different wavelength when re-expressed on the wavelength axis.""")
 
 code(r'''# a near-UV to near-IR wavelength grid [nm], and the same grid in cm
 lam_nm = torch.linspace(200.0, 2000.0, 400, dtype=DTYPE, device=DEVICE)
@@ -276,7 +276,7 @@ $$
 \tau \approx 2/3.
 $$
 
-This is why "the photosphere" is a layer, not a surface: at each wavelength we see down to where $\tau_\lambda \approx 2/3$, and because $\kappa_\lambda$ spikes inside a spectral line, lines let us see only the high layers — which, in a photosphere whose temperature falls outward, are the cool ones, so the lines appear in absorption. (Where the temperature instead rises outward, as in a chromosphere, the same lines can appear in emission.) Holding onto "$\tau=2/3$ is roughly where we see" will carry you through the rest of the course.
+This is why "the photosphere" is a layer, not a surface. Eddington--Barbier gives the useful rule $I_\lambda(0,\mu)\approx S_\lambda(\tau_\lambda=\mu)$ for emergent intensity; disk-center intensity therefore samples $\tau_\lambda\sim1$, while the flux-weighted grey continuum rule leads to the familiar $\tau\sim2/3$ scale. Line cores generally form higher than the continuum because $\kappa_\lambda$ spikes inside a spectral line; weak lines and wings can form closer to continuum depths. In an LTE photosphere whose temperature falls outward this usually produces absorption, while a temperature rise as in a chromosphere can produce emission. Holding onto "$\tau$ tells us which layer each wavelength samples" will carry you through the rest of the course.
 
 ![Optical depth: at each wavelength we see down to where $\tau \approx 2/3$; photons born deeper are reabsorbed before reaching the surface.](resources/figures/s1_optical_depth.png)""")
 
@@ -284,13 +284,13 @@ md(r"""## A first model atmosphere: the grey atmosphere
 
 To compute a spectrum we need the atmosphere's structure as a function of depth: temperature, pressure, and density. (In this lecture we build the temperature, the gas pressure, and the column mass; the *local* mass density $\rho$ follows only once the equation of state in Lecture 2 supplies the mean molecular weight and electron density.) Where does that structure come from? The full answer — solving for radiative and hydrostatic equilibrium with the real, wavelength-dependent opacity — is Part IV of this course. But there is a classic closed-form starting point that needs none of that machinery: the **grey atmosphere**, in which the opacity is assumed independent of wavelength ($\kappa_\lambda \to \kappa$). It is crude, but it is self-contained, it requires only $T_{\rm eff}$ and $\log g$, and — as we will see — it is exactly the model ATLAS12 starts its own iteration from. It is a natural first atmosphere to build the rest of the course on.
 
-For a grey atmosphere in radiative equilibrium, the transfer equation can be solved for the temperature structure exactly. The result is
+Under the standard plane-parallel, semi-infinite, grey radiative-equilibrium assumptions, the transfer solution can be written in terms of a Hopf function. The temperature structure is
 
 $$
 T^4(\tau) = \tfrac{3}{4}\,T_{\rm eff}^4\,\big[\tau + q(\tau)\big],
 $$
 
-where $q(\tau)$ is the **Hopf function**, slowly rising from $q(0)=1/\sqrt{3}\approx0.577$ to $q(\infty)\approx0.710$. Replacing it with the constant $q=2/3$ is the textbook **Eddington approximation**, $T^4=\tfrac34 T_{\rm eff}^4(\tau+\tfrac23)$. Under that approximation the boundary value is *exact*: at $\tau=2/3$, $T^4=\tfrac34 T_{\rm eff}^4(\tfrac23+\tfrac23)=T_{\rm eff}^4$, so $T(2/3)=T_{\rm eff}$. With Kurucz's exact-Hopf fit instead of the constant $2/3$, $q(2/3)\approx0.70$ and $T(2/3)$ lands a fraction of a percent above $T_{\rm eff}$.
+where $q(\tau)$ is the **Hopf function**, slowly rising from $q(0)=1/\sqrt{3}\approx0.577$ to $q(\infty)\approx0.710$. Replacing it with the constant $q=2/3$ is the textbook **Eddington approximation**, $T^4=\tfrac34 T_{\rm eff}^4(\tau+\tfrac23)$. Within that approximation the relation gives $T(2/3)=T_{\rm eff}$ by construction. With Kurucz's analytic Hopf-function fit instead of the constant $2/3$, $q(2/3)\approx0.70$ and $T(2/3)$ lands a fraction of a percent above $T_{\rm eff}$.
 
 Kurucz uses a compact analytic fit to the Hopf function,
 
@@ -369,9 +369,9 @@ $$
 \frac{dP_{\rm total}}{d\tau} = \frac{g}{\kappa} .
 $$
 
-The total pressure has a gas part and a radiation part, $P_{\rm total} = P_{\rm gas} + P_{\rm rad}$, with $P_{\rm rad} = \tfrac{4\sigma}{3c}T^4$ (tiny in a cool dwarf, but the codes carry it). On the **grey cold start** there is not yet an opacity table, so $\kappa$ is set to a constant placeholder of unity — a deliberately crude bootstrap that ATLAS then refines over its iterations, and that we rebuild properly, with the real Rosseland-mean opacity, in Lecture 10. With $\kappa\equiv1$ the equation integrates trivially: $P_{\rm total} = g\,\tau$, and since the column mass is $m = P_{\rm total}/g$, we get the clean identity $m = \tau$. The electron density is left at zero for now — it is the first thing the equation of state computes in Lecture 2.
+The total pressure has a gas part and a radiation part, $P_{\rm total} = P_{\rm gas} + P_{\rm rad}$, with $P_{\rm rad} = \tfrac{4\sigma}{3c}T^4$ in the isotropic optically thick limit. In a solar-type photosphere its contribution to the hydrostatic gradient is small, but the codes carry it. On the **grey cold start** there is not yet an opacity table, so $\kappa$ is set to a constant placeholder of unity, meaning $1\ \mathrm{cm^2\,g^{-1}}$ — a deliberately crude bootstrap that ATLAS then refines over its iterations, and that we rebuild properly, with the real Rosseland-mean opacity, in Lecture 10. With this placeholder the equation integrates trivially as $P_{\rm total} = g\,\tau/\kappa$, which the code writes as $g\tau$ because $\kappa=1$ in CGS units. Since the column mass is $m = P_{\rm total}/g$, we get $m=\tau/\kappa$, numerically $m=\tau$ in $\mathrm{g\,cm^{-2}}$. The electron density is left at zero for now — it is the first thing the equation of state computes in Lecture 2.
 
-One implementation detail: the reference cold start does not use the bare $P_{\rm rad} = \tfrac{4\sigma}{3c}T^4$ but Kurucz's variant, which applies a temperature floor and then subtracts the top-boundary value, so only the *increase* of radiation pressure with depth is removed from the gas pressure. The cell below reproduces that form in tensor operations over all 80 layers at once.""")
+One implementation detail: the reference cold start does not use the bare $P_{\rm rad} = \tfrac{4\sigma}{3c}T^4$ but Kurucz's variant, which applies a temperature floor and then subtracts the top-boundary value, so only the *increase* of radiation pressure with depth is removed from the gas pressure. This is ATLAS cold-start bookkeeping rather than new physics. The cell below reproduces that form in tensor operations over all 80 layers at once.""")
 
 code(r'''# Hydrostatic equilibrium on the grey cold start: kappa_Ross == 1  =>  P_total = g * tau
 # total pressure [dyn cm^-2]
@@ -410,7 +410,7 @@ code(r'''# tol relaxed to 1e-4: the one-line analytic integral differs slightly 
 compare("P_gas", P_gas, REF["grey_pgas"], tol=1e-4)  # numpy-ref
 compare("RHOX",  RHOX,  REF["grey_rhox"], tol=1e-4)  # numpy-ref''')
 
-md(r"""The temperature matched to the working precision; the gas pressure and column mass agree to the expected $\sim10^{-5}$ level. That residual is not physics — it is the difference between our one-line analytic integral $P_{\rm total}=g\tau$ and the multi-step predictor–corrector the reference uses to integrate the same hydrostatic equation in log-pressure. When we rebuild hydrostatic equilibrium in full in Lecture 9, reproducing the exact predictor–corrector integrator, the last digits fall into place. For now we have a complete, self-consistent grey model atmosphere of the Sun, built from two numbers, agreeing with the reference to one part in $10^{5}$.""")
+md(r"""The temperature matched to the working precision; the gas pressure and column mass agree to the expected $\sim10^{-5}$ level. That residual is not physics — it is the difference between our one-line analytic integral $P_{\rm total}=g\tau/\kappa$ and the multi-step predictor–corrector the reference uses to integrate the same hydrostatic equation in log-pressure. When we rebuild hydrostatic equilibrium in full in Lecture 9, reproducing the exact predictor–corrector integrator, the last digits fall into place. For now we have a minimal grey cold-start pressure-temperature structure of the Sun, built from two numbers, agreeing with the reference to one part in $10^{5}$. The EOS in Lecture 2 makes it thermodynamically complete.""")
 
 code(r'''fig, ax = plt.subplots(1, 2, figsize=(10.5, 4.1))
 
@@ -447,8 +447,8 @@ md(r"""## Summary
 - A synthetic spectrum is the forward problem $(T_{\rm eff}, \log g, \text{abundances}) \to F_\lambda$, split into a **model atmosphere** and **spectral synthesis**.
 - We work in **CGS** with the reference's constants. In the GPU edition the working dtype is fp32 on MPS/CUDA and fp64 on CPU; comparisons are interpreted against that precision budget.
 - The **Planck function** $B_\nu = (2h/c^2)\nu^3/(e^{h\nu/kT}-1)$ is the LTE thermal source function; the overflow-safe Kurucz form is a single branchless tensor expression and reproduces the reference to the float floor.
-- **Optical depth** $d\tau=\kappa\rho\,dz$ is the depth coordinate; as a rule of thumb the emergent flux forms near $\tau\approx2/3$, where $T\approx T_{\rm eff}$.
-- The **grey atmosphere** gives $T(\tau)=T_{\rm eff}[\tfrac34(\tau+q(\tau))]^{1/4}$ and, with the cold-start $\kappa\equiv1$, $P_{\rm total}=g\tau$ and column mass $m=\tau$ — a complete first atmosphere, matched to the reference.
+- **Optical depth** is the depth coordinate: with $z$ increasing outward, $d\tau=-\kappa\rho\,dz$, or equivalently $d\tau=\kappa\,dm$ with column mass increasing inward. As a grey continuum flux rule of thumb the emergent flux forms near $\tau\approx2/3$, where $T\approx T_{\rm eff}$; monochromatic intensities and line cores have their own $\tau_\lambda$ sampling depths.
+- The **grey atmosphere** gives $T(\tau)=T_{\rm eff}[\tfrac34(\tau+q(\tau))]^{1/4}$ and, with the cold-start $\kappa=1\ \mathrm{cm^2\,g^{-1}}$, $P_{\rm total}=g\tau/\kappa$ and column mass $m=\tau/\kappa$ — a first pressure-temperature structure, matched to the reference.
 - The one deliberate shortcut in this lecture is the analytic cold-start pressure integral rather than the reference predictor–corrector integrator; the residual is quantified here and removed when hydrostatic equilibrium is rebuilt in full.""")
 
 md(r"""## Practice exercises

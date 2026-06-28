@@ -38,10 +38,10 @@ md(r"""# Lecture 2 — The Equation of State *(GPU Edition)*
 
 - Write the **Boltzmann** distribution and the **partition function**, and say what each enters the opacity calculation for.
 - Write the **Saha equation** and explain every factor — the statistical weight (including the free electron's spin factor), the thermal de Broglie volume, the ionization potential, and why $n_e$ sits in the denominator.
-- Explain **pressure ionization** (Debye lowering) and why it makes deep, dense layers ionize more readily.
+- Explain the Kurucz **Debye continuum-lowering** prescription, the pressure-ionization approximation used here, and why it makes deep, dense layers ionize more readily.
 - Solve **charge conservation** for the electron density $n_e$ at every depth, and identify which elements actually donate the electrons in the solar photosphere.
 - Express the whole equation of state as **depth-batched tensor operations** on the GPU — the 80 atmospheric layers are the batch axis, so every `torch` op processes all depths at once.
-- Assemble the full **PFSAHA** per-ion partition functions $U$ and per-ion populations $n_{Z,i}$ — the iron-group grid, the light-element level sums, the packed-table unpacking, and the high-temperature occupation correction — depth-batched on the GPU, the populations the continuous opacity will consume.
+- Assemble the full **PFSAHA** per-ion partition functions $U$, physical stage fractions $F_{Z,i}$, and Kurucz population factors $\Phi_{Z,i}=n_ZF_{Z,i}/U_{Z,i}$ — the Ca--Ni/PFIRON grid, the light-element level sums, the packed-table unpacking, and the high-temperature occupation correction — depth-batched on the GPU, in the form the continuous opacity will consume.
 - **Validate** both the charge-balance core and the full PFSAHA against the NumPy edition's references to the documented float floor (fp32 GPU $\leftrightarrow$ fp64 NumPy), the independent per-part check.""")
 
 md(r"""## Introduction
@@ -52,15 +52,15 @@ In local thermodynamic equilibrium the answer is fixed by the temperature, the p
 
 The physics is exactly that of the NumPy edition. What changes here is the *machine*: we build all three on the GPU, in `torch`, **vectorized over depth**. The atmosphere has 80 layers; we make depth the batch axis, so a single tensor expression evaluates the Saha balance at every layer at once — no per-depth Python loop. This is the same structure the production `kgpu` engine uses, written plainly. At the end we load the NumPy edition's reference and confirm the GPU numbers match it to the documented float floor.""")
 
-md(r"""**Setup — the device and the precision budget.** First we pick the compute device once, at the top, and a working dtype to match. On Apple Silicon we use **MPS**; on an NVIDIA box, **CUDA**; otherwise we fall back to **CPU**. MPS and CUDA have no float64, so on the GPU the working dtype is **fp32** and the parity bar is the documented float floor (a few $\times 10^{-6}$ for the equation of state). On CPU we use **fp64** and recover machine precision. We carry NumPy and Matplotlib alongside `torch` — NumPy holds the reference values we validate against, and the comparison at the end is done in NumPy.""")
+md(r"""**Setup — the device and the precision budget.** First we pick the compute device once, at the top, and a working dtype to match. On Apple Silicon we use **MPS**; on an NVIDIA box, **CUDA**; otherwise we fall back to **CPU**. MPS lacks practical fp64 support, and this edition deliberately uses **fp32** on both MPS and CUDA so the accelerator path has one uniform precision budget; CUDA can support fp64 on suitable hardware, but that is not the default teaching path here. On the GPU the parity bar is the documented fp32 float floor (a few $\times 10^{-6}$ for the equation of state). On CPU we use **fp64** and recover machine precision. We carry NumPy and Matplotlib alongside `torch` — NumPy holds the reference values we validate against, and the comparison at the end is done in NumPy.""")
 
 code(r'''import pathlib
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
 
-# pick the compute device ONCE; MPS (Apple) -> CUDA -> CPU. MPS/CUDA have no fp64,
-# so the GPU working dtype is fp32 (parity bar = the documented float floor);
+# pick the compute device ONCE; MPS (Apple) -> CUDA -> CPU. The accelerator teaching
+# path uses fp32 on both MPS and CUDA, so its parity bar is the documented float floor;
 # on CPU we use fp64 and recover machine precision.
 if torch.backends.mps.is_available():
     DEVICE, DTYPE = torch.device("mps"), torch.float32
@@ -164,7 +164,7 @@ def saha_ratio(U_lo, U_hi, chi_eV, T, n_e, dchi_eV=0.0):
     return (2.0 * U_hi / U_lo) * SAHA * T**1.5 * torch.exp(-(chi_eV - dchi_eV) / (KEV * T)) / n_e''')
 
 # ── Debye lowering ──────────────────────────────────────────────────────
-md(r"""## A simple pressure-ionization correction: Debye lowering
+md(r"""## The Kurucz pressure-ionization approximation: Debye lowering
 
 In a dense plasma each ion is screened by a cloud of nearby charges of characteristic **Debye radius** $\lambda_D = \sqrt{kT / (4\pi e^2\, n_{\rm charge})}$, which partially cancels the binding potential and **lowers** the effective ionization potential by
 
@@ -172,7 +172,7 @@ $$
 \Delta\chi_i = \frac{i\,e^2}{\lambda_D} \;\approx\; i \times \frac{1.44\times10^{-7}\ \mathrm{eV\,cm}}{\lambda_D},
 $$
 
-capped at $1\ \mathrm{eV}$, with the stage index $i$ the charge of the ion after the electron leaves. The screening charge is approximated as $n_{\rm charge} \approx 2n_e$ for a singly-charged plasma. The lowering depends on $n_e$ — the very quantity we are solving for — so it is recomputed each iteration from the current $n_e$; the array `potlow` below holds the converged reference value for reference.""")
+with the stage index $i$ equal to the charge of the ion after the electron leaves. In code-index language, `ion=0` is the neutral stage, spectroscopic stage I is neutral, and the transition from charge $q$ to $q+1$ uses the resulting charge $q+1$. In the Kurucz/pykurucz prescription used here the lowering is capped at $1\ \mathrm{eV}$; this is an implementation limiter, not a general law of pressure ionization. The screening charge is approximated as $n_{\rm charge} \approx 2n_e$ for a singly-charged plasma. The lowering depends on $n_e$ — the very quantity we are solving for — so it is recomputed each iteration from the current $n_e$; the array `potlow` below holds the converged reference value for reference.""")
 
 code(r'''# Debye lowering per unit charge [eV] at each layer (converged reference value) — onto the device
 potlow = dev(REF["potlow"])
@@ -199,7 +199,7 @@ md(r"""The maximum relative difference is at the part-per-million level: the GPU
 # ── Charge conservation ─────────────────────────────────────────────────
 md(r"""## Charge conservation: solving for the electron density on the GPU
 
-The electrons come from whichever elements ionize most easily — Na, Mg, Al, Si, K, Ca, Fe, with ionization potentials half that of hydrogen, nearly fully ionized in the cool layers. To find $n_e$ we impose **charge conservation**,
+Within this LTE, ideal-gas-plus-Debye atmosphere, the electrons come from whichever elements ionize most easily — Na, Mg, Al, Si, K, Ca, Fe, with first ionization potentials well below hydrogen's $13.6\ \mathrm{eV}$, roughly $4$--$8\ \mathrm{eV}$, and therefore large singly ionized fractions in the relevant photospheric layers. To find $n_e$ we impose **charge conservation**,
 
 $$
 n_e = \sum_{\text{elements } Z}\; n_Z \sum_{i} i\,f_{Z,i},
@@ -325,7 +325,7 @@ print(f"XNE filled: {XNE[0]:.3e} (top) -> {XNE[-1]:.3e} (bottom) cm^-3 — atmos
 # ── The validation cell — the per-part GPU check ─────────────────────────
 md(r"""## The comparison cell — validating the GPU result against the NumPy edition
 
-This is the per-part check that defines the GPU edition. We have just computed the equation of state in `torch`, on the GPU, in fp32 (or fp64 on a CPU fallback). Now we put **every** GPU result the lecture produced next to the NumPy edition's reference — the gold standard, itself proven bit-for-bit against pykurucz — and report the **maximum relative deviation**, asserting it is below the documented float floor. If this passes, the GPU port is correct; if it does not, the port has a bug. This is the independent validation the edition promises, lecture by lecture.""")
+This is the per-part check that defines the GPU edition. We have just computed the equation of state in `torch`, on the GPU, in fp32 (or fp64 on a CPU fallback). Now we put **every** GPU result the lecture produced next to the NumPy edition's reference — the reference implementation, itself checked against pykurucz — and report the **maximum relative deviation**, asserting it is below the documented float floor. Passing this gate establishes equivalence to that reference implementation and its LTE/Kurucz modeling choices; a failure points to a porting bug. This is the independent validation the edition promises, lecture by lecture.""")
 
 code(r'''print(f"Validating the GPU equation of state against reference/L2.npz")
 print(f"  device = {DEVICE.type}   dtype = {str(DTYPE).split('.')[-1]}\n")
@@ -350,32 +350,32 @@ print(f"documented float floor = {floor:.1e}   ->   [{status}]")
 assert max_dev < floor, f"GPU EOS deviates by {max_dev:.2e}, above the float floor {floor:.1e}"
 print("\nThe GPU equation of state matches the NumPy edition to the documented float floor.")''')
 
-md(r"""**What the number means.** The GPU equation of state reproduces the NumPy edition's electron density and hydrogen ionization to the float floor — a few $\times 10^{-6}$ in fp32 on the GPU, machine precision in fp64 on a CPU run. That residual is the single-precision round-off of the Saha ladder and the charge-balance reduction, *not* a physics difference: the formulas, the constants, and the atomic data are identical to the NumPy edition (and hence to pykurucz). The depth-batched `torch` port is correct.""")
+md(r"""**What the number means.** The GPU equation of state reproduces the NumPy edition's electron density and hydrogen ionization to the float floor — a few $\times 10^{-6}$ in fp32 on the GPU, machine precision in fp64 on a CPU run. That residual is the single-precision round-off of the Saha ladder and the charge-balance reduction, *not* a physics difference: the formulas, the constants, and the atomic data are identical to the NumPy edition (and hence to pykurucz). The depth-batched `torch` port is correct relative to the reference implementation.""")
 
 # ════════════════════════════════════════════════════════════════════════════
 #  PFSAHA — the full per-ion partition functions + per-ion populations on the GPU
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""---
 
-## PFSAHA: the full per-ion partition functions and populations
+## PFSAHA: per-ion partition functions and population factors
 
-The charge-balance core above gave us $n_e$ with two-stage Saha ratios and *tabulated* partition functions $U(T)$. But Lecture 3's continuous opacity needs more than $n_e$: it needs the **population of every ionization stage of every element**, $n_{Z,i}$, and the **partition function of each ion**, $U_{Z,i}$, built from atomic data rather than read from a table. This is the job of **PFSAHA** — the production engine (`pfsaha_exact` in the Kurucz codes) that assembles, at every depth and for every element/ion, the partition function $U$ and then runs the Saha ladder to give the per-ion population
+The charge-balance core above gave us $n_e$ with successive stage-to-stage Saha ratios and *tabulated* partition functions $U(T)$. But Lecture 3's continuous opacity needs more than $n_e$: it needs the physical stage fraction of every ionization stage, $F_{Z,i}$, and the **partition function of each ion**, $U_{Z,i}$, built from atomic data rather than read from a temperature-only table. The opacity routines do not store the raw ion population $n_ZF_{Z,i}$ directly. They store the Kurucz population factor
 
 $$
-n_{Z,i} = \frac{F_{Z,i}}{U_{Z,i}}\; n_Z, \qquad n_Z = A_Z\, n_{\rm atom},
+\Phi_{Z,i} = \frac{n_Z F_{Z,i}}{U_{Z,i}}, \qquad n_Z = A_Z\, n_{\rm atom},
 $$
 
-where $F_{Z,i}$ is the normalised Saha stage fraction. We port the whole engine to depth-batched `torch`, and validate the per-ion $U$ and populations against the NumPy edition's `pfsaha_truth.npz` — the genuine per-ion physics, computed bit-for-bit by pykurucz.
+because later opacity formulas multiply this stored factor by level weights and Boltzmann exponentials. This is the job of **PFSAHA** — the production engine (`pfsaha_exact` in the Kurucz codes) that assembles, at every depth and for every element/ion, the partition function $U$ and then runs the Saha ladder to give both $F/U$ and $\Phi$. We port the whole engine to depth-batched `torch`, and validate the per-ion $U$, $F/U$, and $\Phi$ against the NumPy edition's `pfsaha_truth.npz`.
 
 The partition function is no longer a single table lookup. Three different machines build it, dispatched by element:
 
-- **Iron-group** ($Z=20$–$28$, Ca–Ni): a measured $U(\log_{10}T,\ \log_{10}\Delta\chi)$ grid (PFIRON), bilinearly interpolated.
+- **Ca--Ni / PFIRON block** ($Z=20$--$28$, including the traditional iron-group elements): a measured $U(\log_{10}T,\ \log_{10}\Delta\chi)$ grid (PFIRON), bilinearly interpolated.
 - **Light elements** (H, He, C, O, Na, Mg, Al, Si, Ca, K, B): an explicit sum over measured energy levels $U = \sum_i g_i\,e^{-E_i/kT}$.
 - **Everything else**: a packed-integer table (NNN) of bracketed partition values, unpacked and interpolated in temperature.
 
-On top of $U$ sit two corrections: a low-$T$ **ground-state floor** (PFGROUND) and a high-$T$ **occupation-probability** term (Hummer–Mihalas style, the extra effective states from the truncated Rydberg series). Every element is processed over **all 80 depths at once**; the only Python loops are over the 99 elements and their $\le 9$ ion stages — tiny, fixed counts with genuinely different physics per element, exactly the structure the production `kgpu` engine uses.""")
+On top of $U$ sit two corrections: a low-$T$ **ground-state floor** (PFGROUND) and a high-$T$ Kurucz occupation/continuum-lowering correction, inspired by the Hummer--Mihalas treatment of dissolved high-lying states. Every element is processed over **all 80 depths at once**; the only Python loops are over the 99 elements and their $\le 9$ ion stages — tiny, fixed counts with genuinely different physics per element, exactly the structure the production `kgpu` engine uses.""")
 
-md(r"""**A note on what runs on the GPU and what runs on the host — and why.** Two adversarial code critics (GPT-5.5 and Gemini-3.1-pro, consulted on this port) both flagged the same subtlety and **approved** the design: the *continuous* arithmetic (the Boltzmann sums, the interpolation blends, the Saha ladder) runs **on-device, depth-batched**; but the *discrete* table decisions — which integer cell of the NNN/PFIRON grid a temperature falls in, and which side of the high-$T$ occupation gate a layer is on — are resolved on the **fp64 host**. The reason is that MPS has no fp64, and an fp32 boundary slip near a grid edge would jump to a *different* integer cell, a $\sim 1\%$ discontinuity in $U$. The host decision is made **once per element, vectorized over all 80 depths** (no Python loop over depth), so the sync cost is hidden. This is the honest way to keep a discrete-table engine bit-faithful on a no-fp64 GPU.""")
+md(r"""**A note on what runs on the GPU and what runs on the host — and why.** The *continuous* arithmetic (the Boltzmann sums, the interpolation blends, the Saha ladder) runs **on-device, depth-batched**; but the *discrete* table decisions — which integer cell of the NNN/PFIRON grid a temperature falls in, and which side of the high-$T$ occupation gate a layer is on — are resolved on the **fp64 host**. The reason is that MPS lacks practical fp64 support, and an fp32 boundary slip near a grid edge would jump to a *different* integer cell, a $\sim 1\%$ discontinuity in $U$. The host decision is made **once per element, vectorized over all 80 depths** (no Python loop over depth), so the sync cost is hidden. This is the honest way to keep a discrete-table engine bit-faithful on the accelerator path.""")
 
 md(r"""**Load the PFSAHA atomic-data tables.** The reference `pfsaha_inputs.npz` carries the depth state PFSAHA consumes (the same $T$, $P_e$, $P_g$, $n_{\rm atom}$, abundances Lecture 2 already treats as given) and the measured atomic-data tables — the packed NNN partition data, the POTION ionization potentials, the PFIRON iron-group grid, the explicit light-element level blocks, and the pre-tabulated PFGROUND ground-state correction. We move the continuous tables onto the device and keep fp64 host copies of the discrete ones (NNN, PFIRON, SCALE) for the integer-grid lookups.""")
 
@@ -407,7 +407,7 @@ pfg = dev(PF["pfground_tab"])                       # (605,80) ground-state floo
 SP = {k: dev(v) for k, v in PF.items() if k.startswith("sp_")}   # light-element level blocks
 print(f"PFSAHA tables on {DEVICE.type}: {ndp} layers, 99 elements, up to 6 ion stages stored")''')
 
-md(r"""**The Debye lowering, again — but the gate decision in fp64.** PFSAHA uses the same Debye pressure-ionization lowering as the charge-balance core, with one wrinkle: the high-$T$ occupation correction switches on only when the per-charge lowering $\Delta\chi \geq 0.1\ \mathrm{eV}$, a *discrete gate*. So we compute the lowering twice — once on the device (the continuous value that enters $U$) and once on the fp64 host (the value that decides the gate), exactly as the critics recommended.""")
+md(r"""**The Debye lowering, again — but the gate decision in fp64.** PFSAHA uses the same Kurucz Debye lowering as the charge-balance core, with one wrinkle: the high-$T$ occupation correction switches on only when the per-charge lowering $\Delta\chi \geq 0.1\ \mathrm{eV}$, a *discrete gate*. So we compute the lowering twice — once on the device (the continuous value that enters $U$) and once on the fp64 host (the value that decides the gate).""")
 
 code(r'''def debye_lowering(xne, tk, Pg):
     """Per-unit-charge Debye lowering Delta_chi [eV], depth-batched on the device."""
@@ -645,7 +645,7 @@ def build_part(iz, nion_track):
                     PART[k] = torch.where(gate, PART[k] + add, PART[k])
     return PART, IP, POTLO, nion2''')
 
-md(r"""**The Saha ladder, in log space.** Given $U$, $\chi$, and the lowering for every stage, the Saha ladder chains the stage-to-stage ratios and normalises them. We do this in **log space** — accumulate $\log F$ by cumulative sum, subtract the per-depth maximum, exponentiate, and normalise (a softmax). Both critics flagged this as the right call: the raw running product of Saha ratios reaches $\sim 10^{13}$ per stage and overflows fp32's $3.4\times 10^{38}$ ceiling in the deep, hot layers; clamping would silently break particle conservation, while the log-space softmax is overflow-free *and* exact to the float floor. The output is the per-ion fraction $F/U$.""")
+md(r"""**The Saha ladder, in log space.** Given $U$, $\chi$, and the lowering for every stage, the Saha ladder chains the stage-to-stage ratios and normalises them. We do this in **log space** — accumulate $\log F$ by cumulative sum, subtract the per-depth maximum, exponentiate, and normalise (a softmax). The raw running product of Saha ratios reaches $\sim 10^{13}$ per stage and overflows fp32's $3.4\times 10^{38}$ ceiling in the deep, hot layers; clamping would silently break particle conservation, while the log-space softmax is overflow-free and accurate to the float floor. The output is the stored stage factor $F/U$.""")
 
 code(r'''def saha_ladder(PART, IP, POTLO):
     """Saha stage fractions F/PART, depth-batched, in log space (overflow-safe softmax)."""
@@ -664,12 +664,12 @@ code(r'''def saha_ladder(PART, IP, POTLO):
     out = w / torch.sum(w, dim=0, keepdim=True)
     return torch.where(PART > 0.0, out / PART, torch.zeros_like(out))           # F/PART''')
 
-md(r"""**Drive PFSAHA over every element.** The only Python loop left is over the 99 elements (their physics dispatch is genuinely heterogeneous — the critics confirmed batching across elements would just evaluate all branches everywhere and mask, no cleaner and slower). Each element is one `build_part` + one `saha_ladder`, both fully depth-batched, stored into the $(\text{nd}, 99, 6)$ result tensors.""")
+md(r"""**Drive PFSAHA over every element.** The only Python loop left is over the 99 elements, because their table dispatch is genuinely heterogeneous: batching across elements would evaluate all branches everywhere and then mask. Each element is one `build_part` + one `saha_ladder`, both fully depth-batched, stored into the $(\text{nd}, 99, 6)$ result tensors.""")
 
 code(r'''NSTORE = 6
 U_pf    = torch.zeros(ndp, 99, NSTORE, dtype=DTYPE, device=DEVICE)   # per-ion partition functions
 popfrac = torch.zeros(ndp, 99, NSTORE, dtype=DTYPE, device=DEVICE)   # per-ion F/U fractions
-popion  = torch.zeros(ndp, 99, NSTORE, dtype=DTYPE, device=DEVICE)   # per-ion populations n_ion/U
+popion  = torch.zeros(ndp, 99, NSTORE, dtype=DTYPE, device=DEVICE)   # Kurucz population factors n_ion/U
 
 for Z in range(1, 100):
     PART, IP, POTLO, nion2 = build_part(Z, int(nion_per_Z[Z-1]))
@@ -679,7 +679,7 @@ for Z in range(1, 100):
     popfrac[:, Z-1, :ns] = fr[:ns].T
     popion[:, Z-1, :ns]  = (fr[:ns].T) * (xnatom[:, None] * xab_pf[Z-1])
 
-print(f"PFSAHA assembled on {DEVICE.type}: U, F/U, and per-ion populations for "
+print(f"PFSAHA assembled on {DEVICE.type}: U, F/U, and Kurucz population factors for "
       f"99 elements x {NSTORE} stages x {ndp} depths")
 # the physical stage fraction is F = (F/U)*U; popfrac stores F/U, so re-form F to read off ionization
 F_Fe = (popfrac[:, 25, :] * U_pf[:, 25, :])
@@ -689,7 +689,7 @@ print(f"at the photosphere, Fe is {100*float(F_Fe[jp,1]):.1f}% singly ionized "
 
 md(r"""## The PFSAHA comparison cell — validating the per-ion physics
 
-The per-part GPU check, now for the full PFSAHA engine. We put the GPU per-ion partition functions $U$, the stage fractions $F/U$, and the per-ion populations $n_{Z,i}/U$ next to the NumPy edition's `pfsaha_truth.npz` — pykurucz's own PFSAHA output, the gold standard. We report the maximum relative deviation **over the physically populated stages**. A subtlety the comparison must respect: the reference holds stage fractions down to the fp64 *subnormal* floor ($\sim 10^{-324}$) for utterly-depopulated ion stages, while fp32 underflows those to exactly zero. A population fraction of $10^{-39}$ means "this stage does not exist," with no physical or spectroscopic consequence — so we measure the parity over the stages that carry at least $10^{-12}$ of their element's dominant stage, the genuine fp32 float floor of the Saha ladder.""")
+The per-part GPU check, now for the full PFSAHA engine. We put the GPU per-ion partition functions $U$, the stored stage factors $F/U$, and the Kurucz population factors $\Phi=n_ZF/U$ next to the NumPy edition's `pfsaha_truth.npz`. We report the maximum relative deviation **over the physically populated stages**. A subtlety the comparison must respect: the reference holds stage factors down to the fp64 *subnormal* floor ($\sim 10^{-324}$) for utterly-depopulated ion stages, while fp32 underflows those to exactly zero. A population fraction of $10^{-39}$ is negligible for the opacity checks in this lecture, so we measure parity over the stages that carry at least $10^{-12}$ of their element's dominant stage, the genuine fp32 float floor of the Saha ladder.""")
 
 code(r'''def compare_pfsaha(name, ours, ref, floor=1e-12):
     """Max relative deviation over the PHYSICALLY POPULATED stages (>= floor of the dominant
@@ -724,17 +724,17 @@ print(f"\nmax relative deviation (GPU {DEVICE.type}/{str(DTYPE).split('.')[-1]} 
 status = "PASS" if max_dev < floor else "CHECK"
 print(f"documented PFSAHA float floor = {floor:.1e}   ->   [{status}]")
 assert max_dev < floor, f"PFSAHA deviates by {max_dev:.2e}, above the float floor {floor:.1e}"
-print("\nThe GPU PFSAHA per-ion partition functions and populations match pykurucz to the float floor.")''')
+print("\nThe GPU PFSAHA per-ion partition functions and population factors match the reference to the float floor.")''')
 
-md(r"""**What the PFSAHA numbers mean.** The per-ion partition functions $U$ reproduce pykurucz to $\sim 2\times10^{-6}$ — the fp32 floor of the interpolation blends and Boltzmann sums. The stage fractions and per-ion populations match to $\sim 1.5\times10^{-5}$ over every physically populated stage; the slightly larger residual is the chained Saha ratio accumulating single-precision round-off across up to nine ion stages. Stages with fractions below $10^{-12}$ — down to the fp64 subnormal floor — underflow fp32 to zero, a documented, spectroscopically invisible difference (a stage that holds one atom in $10^{12}$ never absorbs a photon). This is the full ionization state of the gas, on the GPU, validated bit-faithfully: **the per-ion populations Lecture 3's continuous opacity consumes.**
+md(r"""**What the PFSAHA numbers mean.** The per-ion partition functions $U$ reproduce the reference to $\sim 2\times10^{-6}$ — the fp32 floor of the interpolation blends and Boltzmann sums. The stored stage factors and population factors match to $\sim 1.5\times10^{-5}$ over every physically populated stage; the slightly larger residual is the chained Saha ratio accumulating single-precision round-off across up to nine ion stages. Stages with fractions below $10^{-12}$ — down to the fp64 subnormal floor — underflow fp32 to zero, a documented difference with negligible effect for the opacity checks in this lecture. This is the full ionization state of the gas, on the GPU, validated against the reference implementation: **the population factors Lecture 3's continuous opacity consumes.**
 
-**Where this goes next.** The equation of state is now complete on the GPU — both the charge-balance $n_e$ and the full per-ion $U$ and populations $n_{Z,i}$, all depth-batched in `torch`, all validated against the NumPy edition (hence against pykurucz). With these populations in hand, Lecture 3 builds the **continuous opacity** — H$^-$ bound-free and free-free, Rayleigh and Thomson scattering — fully vectorized over depth *and* wavelength on the GPU, and validated against its NumPy twin to the same float floor.""")
+**Where this goes next.** The equation of state is now complete on the GPU — both the charge-balance $n_e$ and the full per-ion $U$, physical stage fractions $F$, and population factors $\Phi=n_ZF/U$, all depth-batched in `torch`, all validated against the NumPy edition. With these factors in hand, Lecture 3 builds the **continuous opacity** — H$^-$ bound-free and free-free, Rayleigh and Thomson scattering — fully vectorized over depth *and* wavelength on the GPU, and validated against its NumPy twin to the same float floor.""")
 
 
 # ── CATCH-AND-FILL: appended sections (port_worker fill) ──
 md(r"""### Part 1 — the iron group reads a tabulated grid
 
-The Kurucz $Z=20$–$28$ block (calcium through nickel, spanning the iron-group elements) has such dense, tangled level structures that these partition functions are not summed level by level but **read from a pre-computed grid**, `PFTAB`, indexed by temperature and by how much the ionization potential has been lowered. In the GPU port this is the `pfiron` helper above: it brackets $\log_{10}T$ on the grid's three-piece temperature axis, brackets the Debye lowering in $\log_{10}(\Delta\chi)$ when the lowering is large enough to matter, and returns the bilinear interpolation as a depth tensor.
+The Kurucz $Z=20$--$28$ Ca--Ni/PFIRON block, which includes the traditional iron-group elements, has such dense, tangled level structures that these partition functions are not summed level by level but **read from a pre-computed grid**, `PFTAB`, indexed by temperature and by how much the ionization potential has been lowered. In the GPU port this is the `pfiron` helper above: it brackets $\log_{10}T$ on the grid's three-piece temperature axis, brackets the Debye lowering in $\log_{10}(\Delta\chi)$ when the lowering is large enough to matter, and returns the bilinear interpolation as a depth tensor.
 
 The important GPU lesson is not that the table is large — it is modest — but that the **integer cell choice is discontinuous**. A one-bit fp32 slip at a grid seam could choose the neighboring cell and produce a percent-level jump in $U$. We therefore make the discrete bracket decision on the fp64 host, vectorized over all depths, then cast the interpolated depth vector back to the device. The continuous arithmetic and the downstream Saha ladder remain torch-native and depth-batched; only the table seam decision is protected from MPS fp32 rounding.""")
 
@@ -756,9 +756,9 @@ You closed the atmosphere. Starting from the temperature and pressure of Lecture
 
 Along the way you found the quiet truth of the cool-star photosphere: hydrogen is almost entirely neutral there, and in the line-forming layers the free electrons come from a handful of low-ionization metals. This is not a minor bookkeeping point. H$^-$ opacity, the continuum opacity that dominates the optical Sun, is proportional to the supply of free electrons; changing the metal abundance changes the electron pressure and therefore changes the continuum.
 
-You then went one level deeper. The temperature-only partition functions that reproduce $n_e$ so well are not good enough for the *per-ion* populations the opacity engines consume, so you rebuilt **PFSAHA** on the GPU — assembling each ion's depth-correct $U$ on the fly from atomic data, applying the Debye and occupation corrections, and running the same Saha ladder in log space. The result matches pykurucz's per-ion partition functions and populations to the fp32 GPU float floor over all physically populated stages.
+You then went one level deeper. The temperature-only partition functions that reproduce $n_e$ so well are not good enough for the per-ion population factors the opacity engines consume, so you rebuilt **PFSAHA** on the GPU — assembling each ion's depth-correct $U$ on the fly from atomic data, applying the Debye and occupation corrections, and running the same Saha ladder in log space. The result matches the reference per-ion partition functions and population factors to the fp32 GPU float floor over all physically populated stages.
 
-Those electrons, and those per-ion populations, are exactly what the next lecture needs. Lecture 3 turns this equation of state into a **continuous opacity**: H$^-$ bound-free and free-free absorption, Rayleigh and Thomson scattering, all evaluated over depth and wavelength. The same pattern will recur throughout the GPU edition: write the physics as batched tensor algebra, identify the few places where fp64 table decisions matter, and validate against the NumPy twin cell by cell.""")
+Those electrons, and those per-ion factors, are exactly what the next lecture needs. Lecture 3 turns this equation of state into a **continuous opacity**: H$^-$ bound-free and free-free absorption, Rayleigh and Thomson scattering, all evaluated over depth and wavelength. The same pattern will recur throughout the GPU edition: write the physics as batched tensor algebra, identify the few places where fp64 table decisions matter, and validate against the NumPy twin cell by cell.""")
 
 md(r"""## Summary
 
@@ -767,9 +767,9 @@ md(r"""## Summary
 - The **Saha** equation balances ionization stages:
   $n_{i+1}n_e/n_i = 2(U_{i+1}/U_i)(2\pi m_e kT/h^2)^{3/2}e^{-\chi_i/kT}$,
   with the prefactor $2.4148\times10^{15}\,T^{3/2}$.
-- **Pressure ionization** lowers the ionization potential by the Debye term
+- The Kurucz **Debye continuum-lowering** prescription lowers the ionization potential by
   $\Delta\chi \approx 1.44\times10^{-7}/\lambda_D$ per unit charge — small at the surface,
-  growing with density.
+  growing with density, and capped at $1\ \mathrm{eV}$ in this reference implementation.
 - **Charge conservation**,
   $n_e = \sum_Z n_Z \sum_i i\,f_{Z,i}$,
   closes the system. The GPU depth-batched solve reproduces the NumPy reference electron
@@ -778,13 +778,13 @@ md(r"""## Summary
   **line-forming layers metals (Mg, Si, Fe, Na, Ca) supply the electrons**, while hydrogen
   takes over deeper and higher up.
 - Temperature-only partition functions are good for the *summed* electron density but not for
-  individual ion populations. **PFSAHA** assembles each ion's depth-correct $U$ on the fly:
-  an iron-group grid for Ca–Ni, hand-built level sums for important light elements, packed
+  individual opacity population factors. **PFSAHA** assembles each ion's depth-correct $U$ on the fly:
+  a Ca--Ni/PFIRON grid that includes the traditional iron-group elements, hand-built level sums for important light elements, packed
   table interpolation for ordinary ions, plus Debye lowering and a high-temperature occupation
   correction.
 - The GPU PFSAHA port keeps the continuous arithmetic on the device and depth-batched, protects
-  the discrete table-bracket decisions with fp64 host evaluation where MPS has no fp64, and
-  validates the per-ion $U$, $F/U$, and $n_{\rm ion}/U$ against pykurucz to the documented float floor.""")
+  the discrete table-bracket decisions with fp64 host evaluation where accelerator fp32 could cross a grid seam, and
+  validates the per-ion $U$, $F/U$, and $\Phi=n_ZF/U$ against the reference to the documented float floor.""")
 
 md(r"""## Practice exercises
 
@@ -794,7 +794,7 @@ md(r"""## Practice exercises
 
 **3. A metal-poor atmosphere.** The electron density depends on metal abundance. Make a copy of the abundance tensor and multiply all elements heavier than helium by $10^{-1}$ (that is, $[\mathrm{M/H}] = -1$), then re-solve for $n_e$ with the same depth-batched charge-conservation machinery. By how much does the photospheric electron density drop, and what does that imply for H$^-$ opacity in metal-poor stars?
 
-**4. Temperature-only $U$ versus PFSAHA.** Pick Na I and compare its neutral-stage population at the photosphere two ways: first with the simplified `ionization_fractions` calculation and the temperature-only `U` table, and second with the validated PFSAHA tensors `U_pf` and `popion`. Confirm that the temperature-only shortcut misses the per-ion population by a large amount while PFSAHA agrees with the reference to the float floor. Which PFSAHA ingredient — the hand-built level sum, the Debye lowering, the low-temperature ground-state floor, or the occupation correction — is most important for this cool, easily-ionized metal?
+**4. Temperature-only $U$ versus PFSAHA.** Pick Na I and compare its neutral-stage population factor at the photosphere two ways: first with the simplified `ionization_fractions` calculation and the temperature-only `U` table, and second with the validated PFSAHA tensors `U_pf` and `popion`. Confirm that the temperature-only shortcut misses the stored opacity factor by a large amount while PFSAHA agrees with the reference to the float floor. Which PFSAHA ingredient — the hand-built level sum, the Debye lowering, the low-temperature ground-state floor, or the occupation correction — is most important for this cool, easily-ionized metal?
 
 **5. Vectorization audit.** Inspect the PFSAHA cells and separate the computation into two categories: continuous tensor arithmetic that runs on the device, and discrete table decisions that are intentionally made on the fp64 host. Why would a fully fp32 table-bracket decision be dangerous near a grid seam? Why is the log-space Saha ladder safer than multiplying raw Saha ratios stage by stage?""")
 
