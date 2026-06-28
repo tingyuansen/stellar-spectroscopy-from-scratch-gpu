@@ -247,3 +247,10 @@ REMAINING (run 2+): Stage 5 LINOP1 full-grid (extend L15 window kernel), Stage 6
 type-1 H HPROF4 (the large deposit piece), Stage 7 matched-input kappa_R checkpoint @ sun, Stage 8
 from-grey convergence -> near-sun. Then wire into make_lineblanket_reference.py (remove oracle_state),
 author lectures (house style), run both critics.
+- Stage 5 (LINOP1 full-grid deposit driven by the from-scratch EOS, 18.2M records x 30000 freq x 80):
+  DEPOSIT KERNEL bit-exact: median per-pixel rel = 0.0 vs the kgpu-EOS deposit. Base-layer xlines
+  sum rel = 3.3e-3 (the only difference is the Stage-3 tabcont far-UV cutoff gap deciding a few
+  marginal pixels; max|rel| spikes are on near-zero cutoff-boundary pixels). The kernel is the L15
+  window kernel (already bit-exact on the window), driven over the full catalog by the book's OWN
+  EOS inputs. Confirms the deposit is correct from the book's own EOS; the residual is tabcont, to
+  be resolved at Stage 7 if it matters to the fold. [2026-06-28]
