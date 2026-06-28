@@ -254,3 +254,9 @@ author lectures (house style), run both critics.
   window kernel (already bit-exact on the window), driven over the full catalog by the book's OWN
   EOS inputs. Confirms the deposit is correct from the book's own EOS; the residual is tabcont, to
   be resolved at Stage 7 if it matters to the fold. [2026-06-28]
+- Stage 6 (XLINOP fort.19: type-0 metal + type-1 hydrogen HPROF4, from-scratch EOS):
+  Full deposit base-layer sum: LINOP1 2.32e6 -> +type-0 1.83e7 -> +type-1 H 2.52e10. The 1129
+  type-1 Lyman/Balmer/Paschen H records dominate the deep base (the documented ~99.9% of the
+  far-UV XLINOP fold). Deposit driven entirely by the book's OWN from-scratch EOS H-columns
+  (xnf_h/xnfph/xnf_he1/xnfdop[:,0]/dopple[:,0]) + tabcont. Kernel = kgpu/atmosphere_hlines (the
+  verified HPROF4 port, bit-exact vs pyk). [2026-06-28]
