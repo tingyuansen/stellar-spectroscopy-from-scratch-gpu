@@ -218,3 +218,12 @@ house style, and run the two critics (GPT-5.5 + Gemini-3.1-pro) on every new/cha
   BIT-EXACT PASS, max|reldiff| = 5.70e-14 (inherits Stage-1 population floor; dop3/dopple/txnxn
   exact 0.0). Honest input: reference/atomic_masses.npz (atmass[:99], the masses pyk reads from
   fortran_data.npz). [2026-06-28]
+- Stage 3 (tabcont/iwavetab from the book's OWN L3 KAPP continuum, continuum_fromscratch.py):
+  iwavetab BIT-EXACT (static grid). tabcont median|rel| = 2.2e-3 vs kgpu, BUT max|rel| ~1.0 in the
+  far-UV (92-150 nm: book L3 continuum is ~5% of kgpu's at 108 nm — the book's far-UV continuum is
+  incomplete below ~150 nm; L3 was validated at 500-510 nm). tabcont is a CUTOFF THRESHOLD (gates
+  how far the deposit walks wings), NOT the line magnitude (set by xnfdop, bit-exact). DECISION:
+  proceed; re-check at the Stage-7 matched-input kappa_R whether the far-UV tabcont gap matters to
+  the deep-base fold. If it does, extend the L3 continuum with the far-UV metal-bf forest (template
+  kgpu/continuum.py _c1op/_mg1op/_si1op/_fe1op/_minor_terms). Honest input: reference/wavetab_grid.npz
+  (static KAPCONT grid). [2026-06-28]
