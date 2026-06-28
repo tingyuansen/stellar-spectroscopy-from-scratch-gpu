@@ -6,6 +6,10 @@ Read this before touching the GPU textbook. The goal of this repository is not m
 these lectures: each lecture is a clean pedagogical torch/MPS block, validates against the
 NumPy textbook reference, and imports neither `kgpu` nor `pykurucz`.
 
+For the current ship-gate ledger, read `SHIP_GATES.md` after this file. It records the practical
+acceptance criteria: self-contained taught path, NumPy parity, kgpu coverage, and the named
+remaining boundaries.
+
 The final quality bar is the same as the NumPy textbook: reference files may provide physical
 data tables and comparison answers, but a lecture should not teach by loading a completed
 computed state that it claims to build. If a temporary bundle is used to keep a capstone honest,
