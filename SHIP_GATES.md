@@ -58,5 +58,7 @@ Generated from source inspection on 2026-06-29.
 - Promote L8 to a true torch/MPS builder.
 - Promote L14 to a true torch/MPS capstone and wire/inline the L15/L16 atmosphere + EOS-state path
   so the Sun state is regenerated rather than loaded.
+- Extend the non-solar capstone from SYNTHE on warm-started structures to full atmosphere+spectrum
+  once the corresponding kgpu four-star ATLAS12+SYNTHE gate exists.
 - Replace L15/L16 helper-backed accepted paths with final torch-native lecture cells where practical,
   while preserving the scalar clean-room verifier as a regression oracle.
