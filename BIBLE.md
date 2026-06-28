@@ -46,13 +46,13 @@ Every ported computation ships with a **comparison cell** against the numpy twin
 
 ## 6. References every port consumes
 - **The numpy twin** (the fp64 truth + parity target): `~/Stellar_Spectroscopy_From_Scratch/<lecture>`.
-- **The algorithm reference** (READ-ONLY): kgpu `~/pykurucz_gpu` torch implementation — for the algorithm, not verbatim copy.
+- **The torch starting point** (READ-ONLY, BORROW it): kgpu `~/pykurucz_gpu` already has a validated torch/MPS implementation of most components — *our partial success*. **Start from it** — pedagogically reduce/clean kgpu's working torch into bite-size readable cells; do NOT regenerate the physics from scratch. The numpy twin is the parity oracle; kgpu's torch is the working basis.
 - **This bible** + the per-lecture port spec.
 - Never modify `~/Stellar_Spectroscopy_From_Scratch`, `~/pykurucz_gpu`, or `~/pykurucz`.
 
 ## 7. Orchestration (how a port is produced)
 1. Claude (orchestrator) picks the lecture + writes the short port spec.
-2. `_pipeline/port_worker.py` sends **this bible + the numpy twin (prose + code) + the spec** to the external API (GPT-5.5 or Gemini-3.1-pro), which **generates the FULL GPU lecture** — the markdown prose rewritten to the GPU/vectorization narrative (§5), the vectorized torch code, and the comparison cell — all adhering to this bible.
+2. `_pipeline/port_worker.py` sends **this bible + the numpy twin (prose + code, the parity oracle) + kgpu's existing torch implementation of the component (the partial-success basis to borrow + reduce) + the spec** to the external API (GPT-5.5 or Gemini-3.1-pro), which **generates the FULL GPU lecture** — the markdown prose rewritten to the GPU/vectorization narrative (§5), the vectorized torch code (reduced from kgpu's working torch, not from scratch), and the comparison cell — all adhering to this bible.
 3. `port_worker` auto-runs the comparison vs the numpy twin; on failure it feeds the API the traceback/diff and **retries** until parity (or a max-tries cap → surface for review).
 4. Claude spot-reviews the accepted port (genuinely vectorized? correct generally?), then it is built into `content/LectureN.html` and committed.
 - **Port order:** ground-up — microphysics first (L2→L3→L4→L5→L6→L7→L8→L12→L13), atmosphere lectures (L11/L14/L15/L16) gated per §4. See `PLAN.md`.
