@@ -105,8 +105,9 @@ halves of "end to end," and the documented out-of-scope boundaries — is in
   *spectrum* half — atmosphere in, spectrum out — assembled and run from scratch across the HR
   diagram. **Part VI (Lectures 15–16)** is the *atmosphere* half — parameters in, line-blanketed
   model atmosphere out — the book's true finale. Lecture 11's converged model is the *continuum-only*
-  scaffold both build on; Part VI switches the blanket on and builds the per-iteration equation of
-  state Lecture 11 and Lecture 14 read from a reference, closing the last borrowed intermediate.
+  scaffold; Part VI switches the blanket on and builds the per-iteration equation of state that
+  closes the last borrowed intermediate. Lecture 14 now consumes that Part-VI line-blanketed solar
+  state for the Sun, while the hot dwarf, giant, and M dwarf remain documented emulator warm-starts.
 - **The boundaries are named, not hidden.** Out of scope, by design: full optical bandwidth (an
   engineering problem of compiled kernels and parallelism — the physics is all here), and NLTE
   statistical equilibrium (the real physics frontier). The geometry is 1D plane-parallel throughout,
@@ -142,8 +143,9 @@ gold standard each GPU lecture validates against. They were generated once (in t
 the only script that imports pykurucz; this edition never regenerates them and never imports
 pykurucz or the production `kgpu` engine.
 
-See **[PLAN.md](PLAN.md)** for the GPU-substitution roadmap — the per-lecture pattern, and which
-lectures are ported now vs. deferred.
+Read **[PASSDOWN.md](PASSDOWN.md)** first for the current handoff state, especially the L14
+line-blanketed Sun refresh and the no-`kgpu`/no-`pykurucz` self-containment rule. See
+**[PLAN.md](PLAN.md)** for the GPU-substitution roadmap.
 
 ## Layout
 
@@ -153,6 +155,7 @@ _pipeline/      build_lecture*_gpu.py (assemble), build.py (execute+render), gen
 reference/      shipped benchmark data (*.npz) — copied from the NumPy edition (the gold standard)
 resources/      figures (Gemini schematics — synced from the NumPy edition)
 assets/         render.js / style.css / book-data.js — the reader
+PASSDOWN.md     current handoff: relationship to kgpu, L14 state, checks, delegation policy
 PLAN.md         the GPU-substitution roadmap (per-lecture pattern; now vs. deferred)
 index.html      table of contents      reader.html  the lecture reader
 ```

@@ -53,10 +53,12 @@ Chain the two and a star's few numbers become its converged structure and, from 
 **the complete from-scratch Sun.**
 
 A note on "end to end": the phrase appears twice in the book, and the two uses are deliberately
-distinct. Lecture 14 is the spectrum end to end (it does **not** claim to build the atmosphere from
-scratch — three of its four atmospheres are warm-started, and the Sun's is the *continuum-only*
-converged model). Part VI is the atmosphere end to end (the genuinely line-blanketed model, with the
-last borrowed intermediate removed). Neither half claims the other's achievement.
+distinct. Lecture 14 is the spectrum end to end: it computes opacity and transfer from scratch on
+the atmosphere it is given. Three of its four atmospheres are warm-started because their grey starts
+fail; the Sun now consumes the Part-VI line-blanketed solar state (base `RHOX = 12.1439331`, not the
+old continuum-only `10.5357` bundle). Part VI is the atmosphere end to end (the genuinely
+line-blanketed model, with the last borrowed intermediate removed). Neither half claims the other's
+achievement.
 
 ---
 
@@ -127,9 +129,9 @@ The arc is cumulative but the heavy dependencies are few and specific. The ones 
   the one place the *later* lecture supplies what the *earlier* ones quietly assumed: L11 and L14
   read that state from a reference; L16 builds it from scratch and hands it back to L15's loop. That
   closes the book's last borrowed intermediate.
-- **L11's converged model is continuum-only by design.** L14 uses it as the Sun's atmosphere; Part VI
-  switches the blanket on and turns it into the real Sun. Wherever the text says "converged
-  atmosphere" in Parts IV–V, it means the *continuum* model; the line-blanketed finish is Part VI.
+- **L11's converged model is continuum-only by design.** Part VI switches the blanket on and turns
+  it into the real Sun. L14 now consumes that Part-VI line-blanketed solar state for the Sun while
+  retaining documented emulator warm-starts for the hot dwarf, giant, and M dwarf.
 - **L14 uses everything from L1–13** — it is the assembly point of the synthesis half, not a new
   engine.
 
@@ -151,8 +153,7 @@ These are named in the lectures, not hidden. They do not enter the benchmarks.
   does, so reproducing it is the correct target.
 - **Warm-started atmosphere *structures* in Lecture 14.** Three of the four stars (hot dwarf, giant,
   M dwarf) do not converge from a grey start and are warm-started from the production emulator,
-  documented per star. The Sun's structure is from scratch. (Part VI then builds the line-blanketed
-  atmosphere itself from scratch.)
+  documented per star. The Sun's structure is the Part-VI line-blanketed solar state.
 
 ---
 

@@ -2150,8 +2150,8 @@ floor = <span class="hljs-number">1.0e-6</span> <span class="hljs-keyword">if</s
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;max ABSOLUTE residual everywhere: <span class="hljs-subst">{abs_resid.<span class="hljs-built_in">max</span>():<span class="hljs-number">.2</span>e}</span>&quot;</span>)  <span class="hljs-comment"># numpy-ref</span>
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;device = <span class="hljs-subst">{DEVICE.<span class="hljs-built_in">type</span>}</span>; float floor = <span class="hljs-subst">{floor:<span class="hljs-number">.1</span>e}</span>&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">reference nonzero points: 392246 / 475280
-all nonzero points     : max rel = 5.018e-07   median = 3.148e-08
-atomic-dominated points: max rel = 5.018e-07   median = 3.148e-08
+all nonzero points     : max rel = 5.018e-07   median = 3.147e-08
+atomic-dominated points: max rel = 5.018e-07   median = 3.147e-08
 max ABSOLUTE residual everywhere: 8.02e-05
 device = mps; float floor = 1.0e-06
 </pre></div></div><div class="prose"><h3>The per-component split</h3>
@@ -2191,7 +2191,7 @@ rel_h = np.<span class="hljs-built_in">abs</span>(he_gpu[hdom] - gt_he[hdom]) / 
 <span class="hljs-keyword">assert</span> rel_m.<span class="hljs-built_in">max</span>() &lt;= floor, <span class="hljs-string">f&quot;metal component max rel <span class="hljs-subst">{rel_m.<span class="hljs-built_in">max</span>():<span class="hljs-number">.3</span>e}</span> above <span class="hljs-subst">{floor:<span class="hljs-number">.1</span>e}</span>&quot;</span>  <span class="hljs-comment"># numpy-ref</span>
 <span class="hljs-keyword">assert</span> rel_h.<span class="hljs-built_in">max</span>() &lt;= floor, <span class="hljs-string">f&quot;helium component max rel <span class="hljs-subst">{rel_h.<span class="hljs-built_in">max</span>():<span class="hljs-number">.3</span>e}</span> above <span class="hljs-subst">{floor:<span class="hljs-number">.1</span>e}</span>&quot;</span>  <span class="hljs-comment"># numpy-ref</span>
 <span class="hljs-keyword">assert</span> rel_all.<span class="hljs-built_in">max</span>() &lt;= floor, <span class="hljs-string">f&quot;combined atomic max rel <span class="hljs-subst">{rel_all.<span class="hljs-built_in">max</span>():<span class="hljs-number">.3</span>e}</span> above <span class="hljs-subst">{floor:<span class="hljs-number">.1</span>e}</span>&quot;</span>  <span class="hljs-comment"># numpy-ref</span></code></pre>
-    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">[metals, all Z] 295990 points : max rel = 5.018e-07   median = 3.375e-08
+    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">[metals, all Z] 295990 points : max rel = 5.018e-07   median = 3.374e-08
 [helium]         51493 points : max rel = 5.939e-08   median = 2.105e-08
 [combined]                     : max ABS residual = 8.02e-05
 </pre></div></div><div class="prose"><h2>The missing piece: hydrogen</h2>

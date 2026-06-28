@@ -5,14 +5,13 @@ This is the decisive proof that the book reproduces pykurucz end to end.  For fo
 stars spanning the HR diagram it COMPUTES THE WHOLE OPACITY FROM SCRATCH (pure NumPy,
 no pykurucz import) and carries it to the surface with the book's own transfer:
 
-  1. ATMOSPHERE.  Each star's model atmosphere was built the classical ATLAS way — a
-     grey start iterated by the production hydrostatic / temperature-correction /
-     convection loop to the deep-layer max|dT/T| < 1e-4 gate.  Where that converges
-     (the Sun) the atmosphere is genuinely from scratch; where the grey start diverges
-     (hot dwarf surface NELECT, molecular giant, cool M dwarf) the production EMULATOR
-     warm-start is used and the reason is recorded.  For the Sun we additionally RUN
-     the book's own atmosphere operator — one {JOSH per-frequency -> Rosseland mean ->
-     temperature correction} step from the grey start — vs pykurucz's same step.
+  1. ATMOSPHERE.  The Sun uses the line-blanketed Part-VI solar state (base
+     RHOX=12.1439331, T=11425 K), not the stale continuum-only RHOX=10.5357
+     capstone bundle.  The hot dwarf, giant, and M dwarf are production-emulator
+     warm-start structures because their grey starts fail, and the reason is
+     recorded.  For the Sun we additionally RUN the book's own atmosphere operator
+     — one {JOSH per-frequency -> Rosseland mean -> temperature correction} step
+     from the grey reference state — vs pykurucz's same step.
 
   2. OPACITY — COMPUTED FROM SCRATCH (the point of this lecture).  On that atmosphere,
      from the EOS populations (PFSAHA x NMOLEC molecular depletion — reproduced
@@ -1380,15 +1379,17 @@ def main():
     results = []
     allpass = True
 
-    # ---- the atmosphere provenance story (from-scratch vs emulator) ----
-    print("\n-- ATMOSPHERE provenance (classical grey->converged attempt per star) --")
-    print(f"  {'star':<11}{'Teff':>6}{'logg':>6}  {'source':<46}{'iters':>6}  final dlnt")
-    print("  " + "-" * 84)
+    # ---- the atmosphere provenance story (line-blanketed Sun vs emulator fallbacks) ----
+    print("\n-- ATMOSPHERE provenance (line-blanketed Sun; emulator fallbacks where grey fails) --")
+    print(f"  {'star':<11}{'Teff':>6}{'logg':>6}  {'source':<48}{'iters':>6}{'base RHOX':>12}{'base T':>10}  final dlnt")
+    print("  " + "-" * 108)
     for slug, label, teff, logg, window, physics in STARS:
         d = np.load(REF / f"leankurucz_{slug}.npz", allow_pickle=False)
         src = str(d["atm_source"]); ni = int(d["atm_n_iter"]); fd = float(d["atm_final_dlnt"])
         tag = "FROM SCRATCH" if bool(d["atm_converged_from_scratch"]) else "emulator"
-        print(f"  {label:<11}{teff:>6}{logg:>6.2f}  {src:<46}{ni:>6}  {fd:.2e}  [{tag}]")
+        print(f"  {label:<11}{teff:>6}{logg:>6.2f}  {src:<48}{ni:>6}"
+              f"{float(d['atm_depth'][-1]):>12.4f}{float(d['atm_temperature'][-1]):>10.1f}"
+              f"  {fd:.2e}  [{tag}]")
     print("\n  reasons for emulator fallback (grey start did not converge):")
     for slug, label, *_ in STARS:
         d = np.load(REF / f"leankurucz_{slug}.npz", allow_pickle=False)
@@ -1448,8 +1449,8 @@ def main():
 
     print("\n" + "=" * 86)
     print("RESULT: lean-kurucz capstone PASS — opacity COMPUTED from scratch, end-to-end spectra\n"
-          "        reproduced to the JOSH float floor; the Sun's atmosphere is genuinely from\n"
-          "        scratch, the rest emulator-warm-started (documented)." if allpass
+          "        reproduced to the JOSH float floor; the Sun uses the Part-VI line-blanketed\n"
+          "        solar atmosphere, the rest are emulator-warm-started (documented)." if allpass
           else "RESULT: lean-kurucz capstone FAIL — see the tables above")
     print("=" * 86)
     return 0 if allpass else 1

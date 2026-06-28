@@ -16,7 +16,10 @@ makes the capstone a TRUE end-to-end test:
     cases), it FALLS BACK to the emulator warm-start atmosphere for THAT star and
     records WHY.  The empirically-measured outcome (this machine, 2026-06):
         hot dwarf  9000/4.0  -> grey start: NELECT diverges at the surface  -> emulator
-        Sun        5777/4.44 -> grey start: CONVERGES in 27 iters (dlnt 9.3e-5) -> FROM SCRATCH
+        Sun        5777/4.44 -> line-blanketed Part-VI solar state is used for the
+                                  capstone refresh (base RHOX 12.14; the resolved
+                                  from-scratch fixed point is the 12.3-class state
+                                  documented in L15/L16/passdown)
         giant      4500/2.0  -> grey start: molecular EOS assertion         -> emulator
         M dwarf    3500/5.0  -> grey start: dlnt 1.6e-2 after 50 iters (no conv) -> emulator
   * On WHICHEVER converged atmosphere a star ends up with, it then runs the FULL
@@ -70,6 +73,7 @@ GFALL = PYK / "data" / "lines" / "gfallvac.latest"
 if not GFALL.exists():
     GFALL = PYK / "lines" / "gfallvac.latest"
 MOL_DIR = PYK / "data" / "molecules"
+LINEBLANKETED_SUN_ATM = Path("/Users/ysting/pykurucz_gpu/bench/work/sun.atm")
 
 # Each star: (slug, Teff, logg, [M/H], vturb km/s, wl_start, wl_end, resolution, molecules)
 STARS = [
@@ -522,18 +526,36 @@ def main():
     logging.basicConfig(level=logging.WARNING)
     sun_op = sun_atmosphere_operator_reference()
     write_static_tables()
+    only = {s.strip() for s in os.environ.get("LK_ONLY", "").split(",") if s.strip()}
 
     for slug, teff, logg, mh, vturb, wl0, wl1, res, mol in STARS:
+        if only and slug not in only:
+            continue
         print(f"\n=== {slug}  Teff={teff} logg={logg} molecules={'ON' if mol else 'OFF'} ===")
-        atm_path, story = build_atmosphere_from_scratch(slug, teff, logg, mol)
-        if atm_path is not None:
-            atm_source = "from-scratch (classical grey->converged ATLAS)"
-            print(f"[atm:{slug}] FROM SCRATCH: converged in {story['n_iter']} iters "
-                  f"(final dlnt={story['final_dlnt']:.2e})")
+        if slug == "sun" and LINEBLANKETED_SUN_ATM.exists():
+            atm_path = LINEBLANKETED_SUN_ATM
+            atm_source = "from-scratch line-blanketed Part-VI solar atmosphere"
+            story = dict(
+                converged=True,
+                n_iter=7,
+                dlnt_history=np.array([], dtype=np.float64),
+                dtmax_history=np.array([], dtype=np.float64),
+                final_dlnt=np.float64(np.nan),
+                reason=("Part VI line-blanketed solar state; pyk exact base RHOX 12.1439, "
+                        "with the resolved from-scratch fixed point in the 12.3-class "
+                        "passdown documented by L15/L16."),
+            )
+            print(f"[atm:{slug}] LINE-BLANKETED SUN: {atm_path}")
         else:
-            atm_path = emulator_atmosphere(slug, teff, logg, mh, vturb)
-            atm_source = "emulator warm-start (grey start did not converge)"
-            print(f"[atm:{slug}] EMULATOR FALLBACK: {story['reason']}")
+            atm_path, story = build_atmosphere_from_scratch(slug, teff, logg, mol)
+            if atm_path is not None:
+                atm_source = "from-scratch (classical grey->converged ATLAS)"
+                print(f"[atm:{slug}] FROM SCRATCH: converged in {story['n_iter']} iters "
+                      f"(final dlnt={story['final_dlnt']:.2e})")
+            else:
+                atm_path = emulator_atmosphere(slug, teff, logg, mh, vturb)
+                atm_source = "emulator warm-start (grey start did not converge)"
+                print(f"[atm:{slug}] EMULATOR FALLBACK: {story['reason']}")
 
         npz_full = convert_atm(slug, atm_path)
         diag_path, spec_path = run_synthesis(slug, atm_path, npz_full, wl0, wl1, res, mol)

@@ -1,9 +1,9 @@
 # PLAN — the GPU-substitution roadmap
 
-*Stellar Spectroscopy from Scratch — GPU Edition.* This file is the working map for turning the
-NumPy edition, lecture by lecture, into a clean **torch/MPS** companion. It states the per-lecture
-pattern, classifies which lectures can be ported **now** vs. which **wait**, and records the open
-TODOs. Read it alongside `STRUCTURE.md` (the four-part arc) and `README.md` (the prose).
+*Stellar Spectroscopy from Scratch — GPU Edition.* This file is the working map for maintaining the
+clean **torch/MPS** companion to the NumPy edition. It states the per-lecture pattern, the current
+status of the 16-lecture GPU arc, and the open TODOs. Read `PASSDOWN.md` first for the live handoff
+state, then this file alongside `STRUCTURE.md` (the four-part arc) and `README.md` (the prose).
 
 ---
 
@@ -67,15 +67,19 @@ quantified, not hidden.
 
 ---
 
-## Classification — port NOW vs. WAIT
+## Current status by lecture
 
-The dividing line is exactly `kgpu`'s own: the **SYNTHE-side microphysics** (atmosphere given →
-opacity + transfer) is GPU-validated by `kgpu`'s component tests and ports now; the **ATLAS12-side
-atmosphere convergence** depends on the in-flight **fp32-convergence-core fix** in `kgpu` (the
-fully-MPS path currently diverges in fp32 until the precision-critical reductions are fp64-promoted),
-so those lectures' GPU numbers are not final and they **wait**.
+The standing rule remains `kgpu`'s own: this textbook reads `kgpu` as the implementation clue source
+but never imports it. The target state is one self-contained torch/MPS block per lecture, validated
+against the NumPy reference to the documented floor. The current state is close but not final:
+L1-7, L9-13, and L15-L16 have GPU builders; L8 and L14 are still NumPy-style builders, and the
+accepted heavy paths in L15/L16 still rely on clean-room NumPy helper modules for some fidelity
+gates. L14 was refreshed after the line-blanketed atmosphere work: the solar capstone now uses the
+Part-VI solar target (`base RHOX = 12.1439331`, `base T = 11425 K`), not the stale continuum-only
+`RHOX = 10.5357` bundle, but it still loads atmosphere/EOS-state intermediates and is therefore a
+synthesis-half capstone until L15/L16 are wired directly into it.
 
-### Port NOW — microphysics validated by kgpu's test suite
+### Microphysics validated by kgpu's test suite
 
 | L | Lecture | kgpu module (read-only ref) | kgpu test | Validate vs (NumPy ref) |
 |---|---------|------------------------------|-----------|-------------------------|
@@ -89,40 +93,26 @@ so those lectures' GPU numbers are not final and they **wait**.
 | 12 | Molecular Equilibrium & Bands | `kgpu/molecular.py` | `test_molecular` | `diag_tio.npz`, `mol_lines_tio.npz` |
 | 13 | Molecular Chemistry (coupled NMOLEC + continuum) | `kgpu/nmolec.py`, `kgpu/mol_continuum.py` | `test_nmolec`, `test_mol_continuum` | `nmolec_*.npz`, `mol_continuum_*.npz` |
 
-The Part IV atmosphere-*structure* primitives that do **not** depend on the convergence-loop fp32
-core can also be ported in this batch as their `kgpu` components are individually green:
+The Part IV atmosphere-*structure* primitives are also ported as their `kgpu` components are green:
 
 | L | Lecture | kgpu module | kgpu test | Note |
 |---|---------|-------------|-----------|------|
 | 9 | Hydrostatic Equilibrium & Temperature Structure | `kgpu/atlas_hydrostatic.py` | `test_atlas_hydrostatic` | TTAUP / pressure structure — single-pass, no convergence loop |
-| 10 | Radiative Equilibrium & Temperature Correction | `kgpu/atlas_rt.py`, `kgpu/atlas_rosseland.py`, `kgpu/atlas_tcorr.py` | `test_atlas_rt`, `test_atlas_rosseland`, `test_atlas_tcorr` | the **components** are green on the CPU/fp64 gate; port them with the fp64-on-CPU reference path and flag the fp32 reductions (these are the ones the in-flight fix touches) |
+| 10 | Radiative Equilibrium & Temperature Correction | `kgpu/atlas_rt.py`, `kgpu/atlas_rosseland.py`, `kgpu/atlas_tcorr.py` | `test_atlas_rt`, `test_atlas_rosseland`, `test_atlas_tcorr` | components green; precision-critical reductions are named and promoted where needed |
 
-> Note on L10/L11: the individual `kgpu` components (RT sweep, Rosseland fold, TCORR secant) pass
-> their parity tests, but they contain exactly the reductions the fp32-convergence-core fix targets
-> (the ΔRHOX/TTAUP secant, the Rosseland harmonic fold, the τ_Ross integral). Port L9 and the L10
-> *components* now on the CPU/fp64 reference path; defer the L11 **converged loop** (below) until the
-> fix lands, so the GPU convergence numbers are final.
+### Atmosphere and capstone state
 
-### WAIT — the atmosphere-convergence finale (pending the kgpu fp32-core fix)
+| L | Lecture | Current status |
+|---|---------|----------------|
+| 11 | Convection & the Converged Atmosphere | continuum-only convergence machinery and convection physics are ported; the lecture remains the scaffold for Part VI. |
+| 14 | A Spectrum from Stellar Parameters, End to End | refreshed and verified as a synthesis-half capstone. The Sun uses the Part-VI line-blanketed solar target (`RHOX=12.1439331`, `T=11425 K`); hot/giant/M-dwarf structures are documented emulator warm-starts. Opacity and transfer are computed in the notebook with no `kgpu`/`pykurucz` import, but atmosphere/EOS/population/Doppler intermediates are still loaded integration inputs. |
+| 15 | Line Blanketing: the True Model Atmosphere | built as the line-blanketing / precision-critical reduction lesson. The deposit, Rosseland fold, optical-depth integral, and hydrostatic pieces are checked at the fp32 floor; the TCORR secant is identified as a surgical promotion point. The accepted LINOP1 fidelity gate still uses the clean-room scalar verifier path, so this is not the final all-torch deposit closure. |
+| 16 | The Full Equation of State: Species Slots & Convective Heat Capacity | built. The per-iteration state (`POPSALL` species slots, Doppler widths, `TABCONT`, molecular slots, ionization-energy heat capacity) is packed/audited in torch and checked against the reference floor, with the expected fp32 exponent-floor caveat on negligible trace slots. The PFSAHA/NELECT/continuum/molecular source computations still rely on clean-room NumPy helper modules and must be ported for the final GPU-native book. |
 
-| L | Lecture | Why it waits |
-|---|---------|--------------|
-| 11 | Convection & the Converged Atmosphere | the converged continuum-only model runs the full convergence **loop** (`kgpu/atlas_loop.py`, `atlas_convec.py`); the fully-MPS fp32 path diverges (base RHOX → ~8.5) until the precision-critical reductions are fp64-promoted. Port the convection *physics* component now; defer the **converged-loop GPU number** until the fix validates by a full MPS convergence. |
-| 14 | A Spectrum from Stellar Parameters, End to End | the **spectrum** assembly is all NOW-ported microphysics, but the Sun's *atmosphere* it runs on is the converged model from L11. Port the synthesis assembly now against a warm-started / NumPy-reference atmosphere; the from-scratch-atmosphere GPU path closes once L11 does. |
-| 15 | Line Blanketing: the True Model Atmosphere | ~~reruns the L11 convergence engine with the line blanket on — the same fp32-convergence-core dependency, and the deepest. WAIT.~~ **DONE (as the divergence DIAGNOSTIC).** Ported the line deposit + the convergence-core reductions to depth-batched torch, and used the cell-by-cell fp32-vs-fp64 comparison to **localise** the divergence: per-eval physics (deposit, Rosseland fold, τ integral, each hydrostatic march) holds fp32 parity to the float floor; the divergence enters at the temperature-correction **secant** `(ptot2-ptot1)/ptot1` (catastrophic cancellation, ~41× amplification over its inputs on a realistic step). The lecture ships the **localization**, not a converged GPU number. |
-| 16 | The Full Equation of State: Species Slots & Convective Heat Capacity | ~~feeds the L15 line-blanketed loop; its convergence numbers are downstream of the fp32-core fix. WAIT.~~ **DONE.** Ported the per-iteration EOS state (POPSALL species slots, `dopple`/`xnfdop`, `txnxn`, the ionization-energy heat capacity) to depth-batched torch; the cell-by-cell diagnostic **confirms** L15's prediction — every per-eval EOS-state cell holds fp32 parity at the float floor (worst 2.5e-7). Documented the one expected caveat (the fp32 *exponent* floor on trace `xnfdop` slots ~200 dex below the dominant, which underflow to zero — physically irrelevant). |
-
-**Note on L15/L16 (the divergence diagnostic).** These were lifted from WAIT and built as a
-**precision diagnostic** rather than a converged-atmosphere number: the user's insight was that the
-cell-by-cell GPU(fp32)-vs-numpy(fp64) comparison would *localise* exactly where fp32 peels away.
-It did — to one cell, the TCORR secant — confirming the surgical-fp64-promotion design the `kgpu`
-fix targets. The lectures run live on MPS/fp32 with a CPU/fp64 twin per cell; no converged-loop GPU
-number is claimed (that still waits on the `kgpu` fp32-core fix), only the diagnostic.
-
-**Trigger to lift the remaining WAIT (L11/L14 converged numbers):** `kgpu`'s fp32-convergence-core
-fix lands and is **validated by a full MPS convergence** reaching the scalar best-state (per
-`~/pykurucz_gpu/PLAN.md §0` and `RESEARCH_LOG`). L11/L14 ship their GPU *components* but not the
-final converged-atmosphere GPU number; the lecture text says so explicitly where it applies.
+The production `kgpu` passdown now resolves the deep-base RHOX question: kgpu and the independent
+from-scratch oracle agree in the 12.3-class fixed point, while pyk's exact line-blanketed solar
+reference has base `RHOX=12.1439331`. L14 must never be regressed to the old continuum-only
+`10.5357` solar bundle.
 
 ---
 
@@ -133,8 +123,8 @@ final converged-atmosphere GPU number; the lecture text says so explicitly where
    opacity + a moment transfer solve); each validated against its `reference/*.npz`.
 3. **Part V microphysics: L12, L13.** Molecular equilibrium + continuum.
 4. **Part IV components: L9, L10.** Atmosphere-structure primitives on the CPU/fp64 reference path.
-5. **WAIT batch: L11, L14, L15, L16.** Port their components; finalize the converged-atmosphere GPU
-   numbers once the `kgpu` fp32-convergence-core fix validates.
+5. **Atmosphere/capstone pass:** keep L11-L16 synchronized with `kgpu/PASSDOWN.md`, especially
+   the L14 solar-state guardrail and the L15/L16 precision-promotion narrative.
 
 ---
 
@@ -176,6 +166,6 @@ and validates it against the NumPy edition's `reference/L2.npz`.
   filenames* (`sN_*.png`) and reuse the NumPy edition's schematics verbatim (recommended — the
   physics they illustrate is unchanged), or eventually get GPU-specific schematics (e.g. a
   depth-batched-tensor diagram). Defaulting to **reuse** for now.
-- **DEPENDENCY (external):** lifting the WAIT on L11/L14–L16 is gated on the `kgpu`
-  fp32-convergence-core fix (read-only dependency; tracked in `~/pykurucz_gpu/PLAN.md §0`). Not a
-  decision for this book — just the trigger to finalize those lectures' GPU numbers.
+- **DEPENDENCY (read-only clue source):** continue reading `~/pykurucz_gpu/PASSDOWN.md` and
+  `~/pykurucz_gpu/PLAN.md` before changing L14-L16. `kgpu` is stable and self-verified; this book
+  should reflect its implementation pieces without importing it.
