@@ -858,6 +858,525 @@ md(r"""## Further reading
 # ════════════════════════════════════════════════════════════════════════════
 #  Write the notebook
 # ════════════════════════════════════════════════════════════════════════════
+
+# ── CATCH-AND-FILL: appended sections (port_worker fill) ──
+md(r"""## Setup and the reference data
+
+The GPU notebook has already chosen the device and loaded the same three reference files (`full_lines_data.npz`, `atmosphere.npz`, `diag.npz`) used by the NumPy twin. This short section restores the NumPy lecture's structure explicitly: the data are the line catalog, the depth-state atmosphere, and the production diagnostic arrays. The shipped computation below stays torch-native; NumPy appears only in the explicit comparison-reference cells.""")
+
+code(r'''# Torch views of the already-loaded reference arrays.  The host files were loaded above;
+# from here on the shipped path works on DEVICE in DTYPE.
+grid_t = dev(grid)
+cont_t = dev(cont)
+
+lt_t   = torch.as_tensor(lt, dtype=torch.int64, device=DEVICE)
+Z_t    = torch.as_tensor(Zc, dtype=torch.int64, device=DEVICE)
+ion_t  = torch.as_tensor(ion, dtype=torch.int64, device=DEVICE)
+
+lam_t   = dev(lam)
+gf_t    = dev(gf)
+loggf_t = dev(loggf)
+Elow_t  = dev(Elow)
+
+pop3_t = dev(atm["population_per_ion"])
+dop3_t = dev(atm["doppler_per_ion"])
+rho_t  = dev(atm["mass_density"])
+xne_t  = dev(atm["electron_density"])
+T_t    = dev(atm["temperature"])
+hckt_t = dev(atm["hckt"])
+txnxn_t = dev(txnxn)
+
+print(f"reference tensors on {DEVICE.type}: grid={tuple(grid_t.shape)}, continuum={tuple(cont_t.shape)}")
+print(f"catalog lines={lam_t.numel()}, depths={T_t.numel()}, population table={tuple(pop3_t.shape)}")''')
+
+md(r"""## Anatomy of a line record
+
+Each Kurucz record supplies the wavelength, `log gf`, species code, lower excitation energy, damping constants, and line-type code. In the GPU edition the same columns become one-dimensional tensors; the **line axis is a batch axis**. The code below mirrors the NumPy lecture's quick catalog inspection without a Python loop over the catalog: it ranks ordinary metal lines by `log gf` with `torch.topk` and prints the strongest few as tensors.""")
+
+code(r'''metal_t = (lt_t == 0)
+he_t = (lt_t == -3) | (lt_t == -4) | (lt_t == -6)
+hy_t = (lt_t == -1) | (lt_t == -2)
+
+score = torch.where(metal_t, loggf_t, torch.full_like(loggf_t, -torch.inf))
+top_loggf, top_idx = torch.topk(score, k=6)
+
+strong_table = torch.stack([
+    lam_t[top_idx],
+    Z_t[top_idx].to(DTYPE),
+    ion_t[top_idx].to(DTYPE),
+    top_loggf,
+    (Elow_t[top_idx] / 8065.54),
+], dim=1)
+
+print("strongest type-0 metal lines: columns = wavelength[nm], Z, ion, loggf, chi_l[eV]")
+print(strong_table.detach().cpu())
+print(f"metal lines: {int(metal_t.sum().detach().cpu())}; helium lines: {int(he_t.sum().detach().cpu())}; "
+      f"hydrogen lines: {int(hy_t.sum().detach().cpu())} -> next lecture")''')
+
+md(r"""## The exact lower-level population
+
+The exact population normalization is the same one emphasized in the NumPy twin:
+
+\[
+\frac{n_\ell}{g_\ell}
+=
+\frac{n_{\rm ion}}{U}\,
+\exp(-\chi_\ell hc/kT).
+\]
+
+The atmosphere file already stores \(n_{\rm ion}/U\) as `population_per_ion`; the Boltzmann factor is the production code's tabulated FASTEX exponential. In torch this is a broadcasted gather over the whole `(depth, line)` grid: no line loop, no scalar table lookup.""")
+
+code(r'''extab_t, extabf_t = gpu_fastex_tables()
+
+elem_idx_t = Z_t - 1
+ion_idx_t = ion_t - 1
+in_pop_table_t = (
+    (elem_idx_t >= 0) & (elem_idx_t < pop3_t.shape[2]) &
+    (ion_idx_t >= 0) & (ion_idx_t < pop3_t.shape[1])
+)
+
+safe_elem_t = torch.clamp(elem_idx_t, 0, pop3_t.shape[2] - 1)
+safe_ion_t  = torch.clamp(ion_idx_t, 0, pop3_t.shape[1] - 1)
+
+pop_per_line_t = pop3_t[:, safe_ion_t, safe_elem_t]
+boltz_all_t = gpu_fast_ex(Elow_t.view(1, -1) * hckt_t.view(-1, 1), extab_t, extabf_t)
+lower_pop_per_g_t = torch.where(
+    in_pop_table_t.view(1, -1),
+    pop_per_line_t * boltz_all_t,
+    torch.zeros_like(pop_per_line_t),
+)
+
+fe1 = (Z_t == 26) & (ion_t == 1)
+fe1_lower = torch.where(fe1.view(1, -1), lower_pop_per_g_t, torch.zeros_like(lower_pop_per_g_t))
+print("lower-level population per statistical weight is now a depth×line tensor")
+print(f"shape = {tuple(lower_pop_per_g_t.shape)}; max Fe I contribution = "
+      f"{fe1_lower.max().detach().cpu().to(torch.float64):.3e} cm^-3")''')
+
+md(r"""## The helium lines
+
+The deliberate early GPU rescope validated the metal scatter-add hot path first. We now add the helium path from the NumPy twin.
+
+Helium uses the same population, FASTEX, damping, and Harris-Voigt machinery, but its wing accumulation includes a **continuum-merge taper**. For each depth and helium line the taper is zero below \(w_{\rm con}\), ramps linearly between \(w_{\rm con}\) and \(w_{\rm tail}\), and is full strength beyond \(w_{\rm tail}\). The NumPy twin walks each helium wing pixel by pixel. Here the entire `(depth, helium-line, wavelength)` cube is evaluated at once, and the "stop at the first below-cutoff pixel" rule is represented by cumulative stop masks along the wavelength axis.""")
+
+code(r'''def helium_opacity_torch():
+    """Vectorized helium opacity with the continuum-merge taper.
+
+    The NumPy twin walks red and blue wings for each depth/line.  Here those walks become
+    prefix masks over the wavelength axis for the whole [depth, helium-line, wavelength] cube.
+    """
+    he_sel = torch.nonzero(he_t, as_tuple=False).squeeze(1)
+    if he_sel.numel() == 0:
+        return torch.zeros_like(cont_t)
+
+    h0t = dev(h0tab); h1t = dev(h1tab); h2t = dev(h2tab)
+
+    wl = lam_t[he_sel]
+    gf_he = gf_t[he_sel]
+    Elow_he = Elow_t[he_sel]
+    grad_he = dev(grad)[he_sel]
+    gstark_he = dev(gstark)[he_sel]
+    gvdw_he = dev(gvdw)[he_sel]
+
+    elem = torch.clamp(Z_t[he_sel] - 1, 0, pop3_t.shape[2] - 1)
+    ion0 = torch.clamp(ion_t[he_sel] - 1, 0, pop3_t.shape[1] - 1)
+
+    center_idx_all_t = torch.as_tensor(center_idx_np, dtype=torch.int64, device=DEVICE)
+    ci = torch.clamp(center_idx_all_t[he_sel], 0, grid_t.numel() - 1)
+
+    he_ltc_t = torch.as_tensor(cat["he_ltc"], dtype=torch.int64, device=DEVICE)
+    wcon_t = dev(cat["he_wcon_2d"])
+    wtail_t = dev(cat["he_wtail_2d"])
+    he_cut_t = torch.as_tensor(float(cat["he_cutoff"]), dtype=DTYPE, device=DEVICE)
+
+    pop = pop3_t[:, ion0, elem]
+    dop = dop3_t[:, ion0, elem]
+    cgf_he = CGF_CONSTANT * gf_he / (C_LIGHT_NM / wl)
+    boltz = gpu_fast_ex(Elow_he.view(1, -1) * hckt_t.view(-1, 1), extab_t, extabf_t)
+
+    dop_safe = torch.clamp(dop, min=1.0e-40)
+    valid = (pop > 0.0) & (dop > 0.0) & (rho_t.view(-1, 1) > 0.0)
+    xnfdop = torch.where(valid, pop / (rho_t.view(-1, 1) * dop_safe), torch.zeros_like(pop))
+
+    k0pre = cgf_he.view(1, -1) * xnfdop
+    kmin = cont_t[:, ci] * he_cut_t
+    valid = valid & (k0pre >= kmin)
+    k0 = k0pre * boltz
+    valid = valid & (k0 >= kmin) & (k0 > 0.0)
+
+    gtot = grad_he.view(1, -1) + gstark_he.view(1, -1) * xne_t.view(-1, 1) + gvdw_he.view(1, -1) * txnxn_t.view(-1, 1)
+    adamp = torch.where(dop_safe > 0.0, gtot / dop_safe, torch.zeros_like(gtot))
+    dopw = dop * wl.view(1, -1)
+
+    isotope = (he_ltc_t.view(1, -1) == -4)
+    k_eff = torch.where(isotope, k0 / 1.155, k0)
+    d_eff = torch.where(isotope, dopw * 1.155, dopw)
+    a_eff = torch.where(isotope, adamp / 1.155, adamp)
+    a_eff = torch.clamp(a_eff, min=1.0e-12)
+
+    wave = grid_t.view(1, 1, -1)
+    idx = torch.arange(grid_t.numel(), dtype=torch.int64, device=DEVICE).view(1, 1, -1)
+    ci3 = ci.view(1, -1, 1)
+
+    red_domain = idx >= ci3
+    blue_domain = idx < ci3
+    red_domain = red_domain & (wl.view(1, -1, 1) <= grid_t[-1])
+    blue_domain = blue_domain & (wl.view(1, -1, 1) >= grid_t[0]) & (ci3 > 0)
+
+    d_safe = torch.clamp(d_eff[:, :, None], min=1.0e-30)
+    x = torch.abs(wave - wl.view(1, -1, 1)) / d_safe
+    raw = k_eff[:, :, None] * voigt_H_grid(x, a_eff[:, :, None], h0t, h1t, h2t)
+
+    wcon = wcon_t[:, :, None]
+    wtail = wtail_t[:, :, None]
+    has_wcon = wcon > 0.0
+    has_wtail = wtail > 0.0
+    can_eval = ~(has_wcon & (wave <= wcon))
+
+    base = torch.where(has_wcon, wcon, wl.view(1, -1, 1))
+    denom = torch.clamp(wtail - base, min=1.0e-12)
+    taper = torch.where(has_wtail & (wave < wtail), (wave - base) / denom, torch.ones_like(raw))
+    value = raw * taper
+
+    cutoff_grid = cont_t[:, None, :] * he_cut_t
+    stop_red = red_domain & can_eval & (value < cutoff_grid)
+    stop_blue = blue_domain & can_eval & (value < cutoff_grid)
+
+    red_before_stop = torch.cumsum(stop_red.to(torch.int64), dim=2) == 0
+    blue_before_stop = torch.flip(
+        torch.cumsum(torch.flip(stop_blue.to(torch.int64), dims=(2,)), dim=2) == 0,
+        dims=(2,),
+    )
+
+    deposit = valid[:, :, None] & can_eval & (value >= cutoff_grid) & (
+        (red_domain & red_before_stop) | (blue_domain & blue_before_stop)
+    )
+
+    he_raw = torch.sum(torch.where(deposit, value, torch.zeros_like(value)), dim=1)
+
+    h_planck = torch.as_tensor(6.62607015e-27, dtype=DTYPE, device=DEVICE)
+    k_boltz = torch.as_tensor(1.380649e-16, dtype=DTYPE, device=DEVICE)
+    freq_grid_t = C_LIGHT_NM / grid_t
+    stim_t = 1.0 - torch.exp(-freq_grid_t.view(1, -1) * (h_planck / (k_boltz * T_t)).view(-1, 1))
+    return he_raw * stim_t
+
+he_opacity_t = helium_opacity_torch()
+print(f"helium opacity tensor ready: shape={tuple(he_opacity_t.shape)}, "
+      f"nonzero pixels={int((he_opacity_t > 0).sum().detach().cpu())}")''')
+
+md(r"""## The benchmark: machine precision
+
+The NumPy twin compares
+
+\[
+\kappa_\lambda^{\rm atomic}
+=
+\kappa_\lambda^{\rm metal}
++
+\kappa_\lambda^{\rm He}
+\]
+
+against the production diagnostic with the hydrogen component subtracted. In fp32 on MPS the expected floor is no longer NumPy's machine precision, but the comparison is the same physical benchmark: metals plus helium against `diag['line_opacity'] - gt_ahline`. This is an explicit comparison-reference cell; the NumPy lines are the parity oracle.""")
+
+code(r'''# Comparison-reference cell: NumPy appears only as the oracle/reference here.
+he_gpu = he_opacity_t.detach().cpu().to(torch.float64).numpy()  # numpy-ref
+gt_he = cat["gt_helium_wings"] * stim                           # numpy-ref
+
+# The existing metal_gpu was produced above from the validated metal scatter path.
+atomic_gpu = metal_gpu + he_gpu                                  # numpy-ref
+ref_atomic = diag["line_opacity"].astype(np.float64) - cat["gt_ahline"]  # numpy-ref
+
+nz = ref_atomic != 0.0                                           # numpy-ref
+abs_resid = np.abs(atomic_gpu - ref_atomic)                      # numpy-ref
+rel_all = abs_resid[nz] / np.abs(ref_atomic[nz])                 # numpy-ref
+
+dominant = (ref_atomic > 1e-10) & (ref_atomic > 1e-6 * cat["gt_ahline"])  # numpy-ref
+rel_dom = abs_resid[dominant] / np.abs(ref_atomic[dominant])     # numpy-ref
+
+floor = 1.0e-6 if DTYPE == torch.float32 else 1.0e-10
+print(f"reference nonzero points: {nz.sum()} / {ref_atomic.size}")  # numpy-ref
+print(f"all nonzero points     : max rel = {rel_all.max():.3e}   median = {np.median(rel_all):.3e}")  # numpy-ref
+print(f"atomic-dominated points: max rel = {rel_dom.max():.3e}   median = {np.median(rel_dom):.3e}")  # numpy-ref
+print(f"max ABSOLUTE residual everywhere: {abs_resid.max():.2e}")  # numpy-ref
+print(f"device = {DEVICE.type}; float floor = {floor:.1e}")''')
+
+md(r"""### The per-component split
+
+Separate the benchmark into metals and helium. The metal comparison is the validated scatter-add path from the earlier section; helium is the vectorized taper path above. The reference helium wings are stored pre-stimulated-emission in the catalog, so the comparison multiplies them by the same `stim` array used for the metals.""")
+
+code(r'''# Comparison-reference cell: per-component parity oracle.
+gt_metal = ref_atomic - gt_he                                    # numpy-ref
+
+mdom = (gt_metal > 1e-10) & (gt_metal > 10.0 * (cat["gt_ahline"] + gt_he))  # numpy-ref
+hdom = gt_he > 1e-10                                             # numpy-ref
+
+rel_m = np.abs(metal_gpu[mdom] - gt_metal[mdom]) / np.abs(gt_metal[mdom])  # numpy-ref
+rel_h = np.abs(he_gpu[hdom] - gt_he[hdom]) / np.abs(gt_he[hdom])           # numpy-ref
+
+print(f"[metals, all Z] {mdom.sum():6d} points : max rel = {rel_m.max():.3e}   median = {np.median(rel_m):.3e}")  # numpy-ref
+print(f"[helium]        {hdom.sum():6d} points : max rel = {rel_h.max():.3e}   median = {np.median(rel_h):.3e}")  # numpy-ref
+print(f"[combined]                     : max ABS residual = {np.abs(atomic_gpu - ref_atomic).max():.2e}")  # numpy-ref''')
+
+md(r"""## The missing piece: hydrogen
+
+Hydrogen is deliberately not part of this lecture's ordinary Voigt accumulation. Its Balmer wings are dominated by the **linear Stark effect**: because hydrogen's levels are nearly degenerate, charged-particle microfields shift them linearly and produce broad non-Voigt wings. SYNTHE therefore routes hydrogen through its HPROF/HLINOP broadening machinery, not through the metal/helium Voigt wing walk.
+
+The full line opacity is
+
+\[
+\kappa^{\rm line}_\lambda
+=
+\underbrace{\kappa^{\rm metal}_\lambda+\kappa^{\rm He}_\lambda}_{\text{this lecture}}
++
+\underbrace{\kappa^{\rm H}_\lambda}_{\text{next lecture}}.
+\]
+
+The benchmark above subtracts `gt_ahline` precisely so this lecture compares like with like.""")
+
+md(r"""## Beyond ordinary lines: autoionizing and merged-continuum profiles
+
+The ordinary metal and helium paths are Voigt-based. The line-type code can also route a transition to two non-Voigt shapes:
+
+- **Autoionizing lines** (type `1`): a Fano/shore profile, asymmetric because a bound transition interferes with a continuum channel.
+- **Merged-continuum lines** (type `81`, and codes `>3`): a flat pseudo-continuum contribution that ramps linearly to zero near a series limit.
+
+These do not affect the 500–510 nm solar-window opacity benchmark above, but the NumPy twin closes the lecture by validating the two leaf profile routines against a hot-star diagnostic. We do the same here, vectorized over padded record batches.""")
+
+md(r"""### The hot-star test window and the ground truth
+
+The diagnostic file `linetypes.npz` stores the exact inputs and recorded output deltas for every contributing special-profile record in a hot-star synthesis. The following comparison-reference setup packs those variable-length records into padded arrays; the profile arithmetic itself is torch-vectorized over `(record, padded-wavelength)` tensors.""")
+
+code(r'''# Comparison-reference/setup cell: variable-length archival records are packed once for the torch profile tests.
+lt_ref = np.load(REF / "linetypes.npz")  # numpy-ref
+teff, logg = lt_ref["teff_logg"]         # numpy-ref
+w0, w1, w_res = lt_ref["window"]         # numpy-ref
+n_auto = int(lt_ref["auto_n"])           # numpy-ref
+n_cont = int(lt_ref["cont_n"])           # numpy-ref
+
+print(f"hot star : Teff={teff:.0f} K  logg={logg:.2f}   window {w0:.0f}-{w1:.0f} nm  R={w_res:.0f}")  # numpy-ref
+print(f"records  : {n_auto} autoionizing, {n_cont} merged-continuum")  # numpy-ref
+
+def _pack_records(prefix, nrec):
+    # JUSTIFIED-LOOP: heterogeneous npz archive unpacking only; no profile arithmetic is done here.
+    lens = np.empty(nrec, dtype=np.int64)  # numpy-ref
+    for i in range(nrec):  # numpy-ref
+        lens[i] = lt_ref[f"{prefix}{i}_wl_slice"].size  # numpy-ref
+    L = int(lens.max())  # numpy-ref
+    wl = np.zeros((nrec, L), dtype=np.float64)           # numpy-ref
+    ct = np.zeros((nrec, L), dtype=np.float64)           # numpy-ref
+    rf = np.zeros((nrec, L), dtype=np.float64)           # numpy-ref
+    valid = np.zeros((nrec, L), dtype=bool)              # numpy-ref
+    for i in range(nrec):  # numpy-ref
+        m = lens[i]  # numpy-ref
+        wl[i, :m] = lt_ref[f"{prefix}{i}_wl_slice"]      # numpy-ref
+        ct[i, :m] = lt_ref[f"{prefix}{i}_cont_slice"]    # numpy-ref
+        rf[i, :m] = lt_ref[f"{prefix}{i}_delta_vals"]    # numpy-ref
+        valid[i, :m] = True                              # numpy-ref
+    return wl, ct, rf, valid, lens                       # numpy-ref
+
+auto_wl, auto_cont, auto_ref, auto_valid, auto_lens = _pack_records("auto", n_auto)  # numpy-ref
+cont_wl, cont_cont, cont_ref, cont_valid, cont_lens = _pack_records("cont", n_cont)  # numpy-ref''')
+
+md(r"""### The autoionizing (Fano/shore) profile
+
+For an autoionizing record the detuning is
+
+\[
+\varepsilon = \frac{2(\nu-\nu_0)}{\gamma},
+\qquad \nu=\frac{c}{\lambda},
+\]
+
+and the shore profile is
+
+\[
+\kappa(\varepsilon)
+=
+\kappa_0
+\frac{a_{\rm shore}\varepsilon+b_{\rm shore}}
+     {(\varepsilon^2+1)b_{\rm shore}}.
+\]
+
+The center deposits \(\kappa_0\) after the whole-line cutoff gate; each wing stops at the first non-positive or below-cutoff value. In torch, both wing walks become cumulative stop masks on the padded wavelength axis.""")
+
+code(r'''# Comparison-reference/setup values for the torch autoionizing profile.
+# JUSTIFIED-LOOP: archive keys are per-record scalars; this packs them, profile compute below is vectorized.
+auto_slice_lo = np.empty(n_auto, dtype=np.int64)          # numpy-ref
+auto_center = np.empty(n_auto, dtype=np.int64)            # numpy-ref
+auto_line_wl = np.empty(n_auto, dtype=np.float64)         # numpy-ref
+auto_kappa0 = np.empty(n_auto, dtype=np.float64)          # numpy-ref
+auto_grad = np.empty(n_auto, dtype=np.float64)            # numpy-ref
+auto_gstark = np.empty(n_auto, dtype=np.float64)          # numpy-ref
+auto_gvdw = np.empty(n_auto, dtype=np.float64)            # numpy-ref
+auto_cut = np.empty(n_auto, dtype=np.float64)             # numpy-ref
+for i in range(n_auto):  # numpy-ref
+    auto_slice_lo[i] = int(lt_ref[f"auto{i}_slice_lo"])   # numpy-ref
+    auto_center[i] = int(lt_ref[f"auto{i}_center_index"]) # numpy-ref
+    auto_line_wl[i] = float(lt_ref[f"auto{i}_line_wavelength"])  # numpy-ref
+    auto_kappa0[i] = float(lt_ref[f"auto{i}_kappa0"])     # numpy-ref
+    auto_grad[i] = float(lt_ref[f"auto{i}_gamma_rad"])    # numpy-ref
+    auto_gstark[i] = float(lt_ref[f"auto{i}_gamma_stark"])# numpy-ref
+    auto_gvdw[i] = float(lt_ref[f"auto{i}_gamma_vdw"])    # numpy-ref
+    auto_cut[i] = float(lt_ref[f"auto{i}_cutoff"])        # numpy-ref
+
+def autoionizing_delta_torch():
+    wl = dev(auto_wl)
+    cnt = dev(auto_cont)
+    valid = torch.as_tensor(auto_valid, dtype=torch.bool, device=DEVICE)
+
+    slice_lo = torch.as_tensor(auto_slice_lo, dtype=torch.int64, device=DEVICE)
+    center_g = torch.as_tensor(auto_center, dtype=torch.int64, device=DEVICE)
+    c = center_g - slice_lo
+
+    line_wl = dev(auto_line_wl)
+    kappa0 = dev(auto_kappa0)
+    gamma = torch.clamp(torch.abs(dev(auto_grad)), min=1.0e-30)
+    ashore = dev(auto_gstark)
+    bshore = torch.where(torch.abs(dev(auto_gvdw)) >= 1.0e-30, dev(auto_gvdw), torch.full_like(dev(auto_gvdw), 1.0e-30))
+    cutoff = dev(auto_cut)
+
+    rec = torch.arange(wl.shape[0], dtype=torch.int64, device=DEVICE)
+    cont_center = cnt[rec, c]
+    gate = (kappa0 >= cont_center * cutoff) & (kappa0 > 0.0)
+
+    C_LIGHT_CM_t = torch.as_tensor(2.99792458e10, dtype=DTYPE, device=DEVICE)
+    NM_TO_CM_t = torch.as_tensor(1.0e-7, dtype=DTYPE, device=DEVICE)
+
+    freq = C_LIGHT_CM_t / (torch.clamp(wl, min=1.0e-30) * NM_TO_CM_t)
+    freq0 = C_LIGHT_CM_t / (line_wl.view(-1, 1) * NM_TO_CM_t)
+    eps = 2.0 * (freq - freq0) / gamma.view(-1, 1)
+    value = kappa0.view(-1, 1) * (ashore.view(-1, 1) * eps + bshore.view(-1, 1)) / ((eps * eps + 1.0) * bshore.view(-1, 1))
+
+    j = torch.arange(wl.shape[1], dtype=torch.int64, device=DEVICE).view(1, -1)
+    c2 = c.view(-1, 1)
+
+    red = j > c2
+    blue = j < c2
+    bad = (~valid) | (value <= 0.0) | (value < cnt * cutoff.view(-1, 1))
+
+    stop_red = red & valid & bad
+    stop_blue = blue & valid & bad
+    red_before = torch.cumsum(stop_red.to(torch.int64), dim=1) == 0
+    blue_before = torch.flip(torch.cumsum(torch.flip(stop_blue.to(torch.int64), dims=(1,)), dim=1) == 0, dims=(1,))
+
+    wing_deposit = gate.view(-1, 1) & valid & (~bad) & ((red & red_before) | (blue & blue_before))
+    out = torch.where(wing_deposit, value, torch.zeros_like(value))
+
+    center_mask = torch.zeros_like(out, dtype=torch.bool)
+    center_mask[rec, c] = gate
+    out = torch.where(center_mask, kappa0.view(-1, 1), out)
+    return out
+
+auto_gpu_t = autoionizing_delta_torch()
+auto_gpu = auto_gpu_t.detach().cpu().to(torch.float64).numpy()  # numpy-ref
+auto_abs = np.max(np.abs(auto_gpu[auto_valid] - auto_ref[auto_valid]))  # numpy-ref
+auto_den = np.where(auto_ref[auto_valid] != 0.0, np.abs(auto_ref[auto_valid]), 1.0)  # numpy-ref
+auto_rel = np.max(np.abs(auto_gpu[auto_valid] - auto_ref[auto_valid]) / auto_den)  # numpy-ref
+auto_exact = np.array_equal(auto_gpu, auto_ref) if DTYPE == torch.float64 else False  # numpy-ref
+print(f"autoionizing profile: max abs = {auto_abs:.3e}, max|rel| = {auto_rel:.3e}, bit-exact(fp64 only) = {auto_exact}")  # numpy-ref''')
+
+md(r"""### The merged-continuum (ramp) profile
+
+The merged-continuum line type deposits a flat strength until the merge index, then ramps linearly to zero at the tail index. The scalar routine walks increasing global grid index and stops once the ramped value falls below the local cutoff; the torch version again uses a cumulative stop mask.""")
+
+code(r'''# Comparison-reference/setup values for the torch merged-continuum profile.
+# JUSTIFIED-LOOP: archive keys are per-record scalars; this packs them, profile compute below is vectorized.
+cont_slice_lo = np.empty(n_cont, dtype=np.int64)          # numpy-ref
+cont_line_wl = np.empty(n_cont, dtype=np.float64)         # numpy-ref
+cont_kappa = np.empty(n_cont, dtype=np.float64)           # numpy-ref
+cont_cut = np.empty(n_cont, dtype=np.float64)             # numpy-ref
+cont_idx_start = np.empty(n_cont, dtype=np.int64)         # numpy-ref
+cont_idx_merge = np.empty(n_cont, dtype=np.int64)         # numpy-ref
+cont_idx_tail = np.empty(n_cont, dtype=np.int64)          # numpy-ref
+for i in range(n_cont):  # numpy-ref
+    cont_slice_lo[i] = int(lt_ref[f"cont{i}_slice_lo"])   # numpy-ref
+    cont_line_wl[i] = float(lt_ref[f"cont{i}_line_wavelength"])  # numpy-ref
+    cont_kappa[i] = float(lt_ref[f"cont{i}_kappa"])       # numpy-ref
+    cont_cut[i] = float(lt_ref[f"cont{i}_cutoff"])        # numpy-ref
+    cont_idx_start[i] = int(lt_ref[f"cont{i}_idx_start_g"])  # numpy-ref
+    cont_idx_merge[i] = int(lt_ref[f"cont{i}_idx_merge_g"])  # numpy-ref
+    cont_idx_tail[i] = int(lt_ref[f"cont{i}_idx_tail_g"])    # numpy-ref
+
+def merged_continuum_delta_torch():
+    wl = dev(cont_wl)
+    cnt = dev(cont_cont)
+    valid = torch.as_tensor(cont_valid, dtype=torch.bool, device=DEVICE)
+
+    slice_lo = torch.as_tensor(cont_slice_lo, dtype=torch.int64, device=DEVICE)
+    idx_start = torch.as_tensor(cont_idx_start, dtype=torch.int64, device=DEVICE)
+    idx_merge = torch.as_tensor(cont_idx_merge, dtype=torch.int64, device=DEVICE)
+    idx_tail = torch.as_tensor(cont_idx_tail, dtype=torch.int64, device=DEVICE)
+
+    line_wl = dev(cont_line_wl)
+    kappa = dev(cont_kappa)
+    cutoff = dev(cont_cut)
+
+    loc = torch.arange(wl.shape[1], dtype=torch.int64, device=DEVICE).view(1, -1)
+    idx_g = slice_lo.view(-1, 1) + loc
+
+    denom_i = torch.clamp(idx_tail - torch.maximum(idx_merge, idx_start), min=1)
+    ramp = torch.where(
+        idx_g >= idx_merge.view(-1, 1),
+        (idx_tail.view(-1, 1) - idx_g).to(DTYPE) / denom_i.view(-1, 1).to(DTYPE),
+        torch.ones_like(wl),
+    )
+    ramp = torch.clamp(ramp, min=0.0)
+
+    value = kappa.view(-1, 1) * ramp
+    domain = (
+        valid &
+        (kappa.view(-1, 1) > 0.0) &
+        (idx_tail.view(-1, 1) > idx_start.view(-1, 1)) &
+        (idx_g >= idx_start.view(-1, 1)) &
+        (idx_g < idx_tail.view(-1, 1)) &
+        (wl >= line_wl.view(-1, 1))
+    )
+
+    stop = domain & (value < cnt * cutoff.view(-1, 1))
+    before_stop = torch.cumsum(stop.to(torch.int64), dim=1) == 0
+    deposit = domain & before_stop & (~stop)
+
+    return torch.where(deposit, value, torch.zeros_like(value))
+
+cont_gpu_t = merged_continuum_delta_torch()
+cont_gpu = cont_gpu_t.detach().cpu().to(torch.float64).numpy()  # numpy-ref
+cont_abs = np.max(np.abs(cont_gpu[cont_valid] - cont_ref[cont_valid]))  # numpy-ref
+cont_den = np.where(cont_ref[cont_valid] != 0.0, np.abs(cont_ref[cont_valid]), 1.0)  # numpy-ref
+cont_rel = np.max(np.abs(cont_gpu[cont_valid] - cont_ref[cont_valid]) / cont_den)  # numpy-ref
+cont_exact = np.array_equal(cont_gpu, cont_ref) if DTYPE == torch.float64 else False  # numpy-ref
+print(f"merged-continuum profile: max abs = {cont_abs:.3e}, max|rel| = {cont_rel:.3e}, bit-exact(fp64 only) = {cont_exact}")  # numpy-ref
+print(f"BOTH special line types reproduced at the device float floor: {max(auto_rel, cont_rel):.3e}")  # numpy-ref''')
+
+md(r"""### The two shapes, side by side
+
+The final figure overlays one representative autoionizing profile and one representative merged-continuum ramp on their recorded pykurucz deltas. The plot cell is a host/Matplotlib boundary, so converting the already-computed torch results back to NumPy is appropriate here.""")
+
+code(r'''# Plot cell: host-side Matplotlib boundary.
+ai = 0
+mi = 0
+
+fig, (axa, axm) = plt.subplots(1, 2, figsize=(12, 4.0))
+
+mask_a = auto_valid[ai]  # numpy-ref
+axa.plot(auto_wl[ai, mask_a], auto_ref[ai, mask_a], color="0.6", lw=3.0, label="pykurucz")  # numpy-ref
+axa.plot(auto_wl[ai, mask_a], auto_gpu[ai, mask_a], color="C3", lw=1.0, label="GPU torch")  # numpy-ref
+axa.axvline(auto_line_wl[ai], color="0.8", lw=0.8, zorder=0)  # numpy-ref
+axa.set_title(f"Autoionizing (Fano/shore) — {auto_line_wl[ai]:.3f} nm")  # numpy-ref
+axa.set_xlabel("wavelength  [nm]")
+axa.set_ylabel(r"line opacity  [cm$^2$/g]")
+axa.locator_params(axis="x", nbins=4)
+axa.legend(loc="upper right")
+
+mask_m = cont_valid[mi]  # numpy-ref
+axm.plot(cont_wl[mi, mask_m], cont_ref[mi, mask_m], color="0.6", lw=3.0, label="pykurucz")  # numpy-ref
+axm.plot(cont_wl[mi, mask_m], cont_gpu[mi, mask_m], color="C0", lw=1.0, label="GPU torch")  # numpy-ref
+axm.set_title(f"Merged continuum (ramp) — {cont_line_wl[mi]:.3f} nm")  # numpy-ref
+axm.set_xlabel("wavelength  [nm]")
+axm.set_ylabel(r"pseudo-continuum opacity  [cm$^2$/g]")
+axm.locator_params(axis="x", nbins=5)
+axm.legend(loc="upper right")
+
+fig.tight_layout()
+plt.show()''')
+
 nb = new_notebook(cells=cells, metadata={
     "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
     "language_info": {"name": "python"},
