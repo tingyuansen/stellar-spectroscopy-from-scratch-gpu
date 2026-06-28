@@ -489,6 +489,353 @@ md(r"""## Where this goes — Lecture 16
 
 This lecture ported the line deposit and the convergence-core reductions, and localized the fp32 divergence to the temperature-correction secant. It ran on the per-iteration **state** — the species populations, Doppler widths, continuum-cutoff table, and heat-capacity samples — that it read from the reference. Lecture 16 builds that state from scratch on the GPU: the multi-element `POPSALL` equation of state, the Doppler widths and `xnfdop`, the van der Waals perturber number `txnxn`, and the convective heat capacity — each a *per-evaluation* tensor computation, each (as the diagnostic here predicts) fp32-safe to the float floor. Together the two lectures are the atmosphere built genuinely from scratch on the GPU, with the one fp32-fragile reduction named and located.""")
 
+
+# ── CATCH-AND-FILL: appended sections (port_worker fill) ──
+md(r"""## Introduction: the debt Lecture 11 left open
+
+Lecture 11 converged a model atmosphere of the Sun and benchmarked it to the production code's precision floor. But it converged a **continuum-only** model: in the frequency sweep, the only opacity was the continuum of Lecture 3 — bound-free and free-free absorption, plus scattering — and the millions of spectral lines of Lectures 4–6 were switched off. That was a deliberate simplification, and an honest one: it needs no multi-gigabyte line list, so the whole loop stays reproducible in a lecture notebook. But it is not the real Sun.
+
+A real model atmosphere is **line-blanketed**. The spectral lines — overwhelmingly the iron-group metals, crowded thickest in the ultraviolet — are not a thin garnish on top of the continuum; in the blue and ultraviolet they *are* the opacity, hundreds of overlapping wings filling every frequency interval. Switching them on reshapes the temperature structure through radiative equilibrium. The lines block the radiative flux across huge stretches of the ultraviolet, suppressing the escape of energy from the deeper layers in those bands; under radiative equilibrium that energy is redistributed to other wavelengths, and the layers below the blocking region **heat up** — the classic *back-warming*. Meanwhile the optically thin upper layers, shielded from the deep ultraviolet flux that the lines now intercept, settle to a new radiative equilibrium at **lower temperature** — the surface **cools**, keeping the total flux constant.
+
+The good news is that almost all the machinery is already built. Lecture 11 established the whole convergence loop — the JOSH flux solver, the Rosseland mean, the mixing-length convection, the temperature correction — and that machinery is **opacity-agnostic**: it does not care whether the opacity it folds is continuum, lines, or both. The new physics is narrow and well-defined: **how to deposit a line's opacity onto the wavelength grid**, and **how to select which of the millions of lines to bother with**.
+
+The GPU edition adds one more lesson. On MPS/CUDA the working arithmetic is fp32, and the full atmosphere-convergence loop is a recurrence: small round-off errors are fed into the next iteration. The earlier cells therefore did not pretend that the pure-fp32 loop is safe. They used the line blanket as a **precision diagnostic**: the deposit, the Rosseland fold, and the optical-depth integral hold near the fp32 floor, while the convergence-core pressure secant is the cancellation point. The sections below put that diagnostic back into the full Lecture 15 narrative, so the physics structure matches the NumPy lecture while the GPU precision result remains explicit.""")
+
+md(r"""## Back-warming: what the blanket does to the structure
+
+Before any code, it is worth seeing the effect the rest of the lecture works to reproduce. We have, from Lecture 11, the **continuum-only** converged solar model, and here the **line-blanketed** converged model of the real Sun. Putting them on the same Rosseland optical-depth scale shows the physical signature of line blanketing. The continuum-only model is interpolated onto the line-blanketed depth scale; the two share the solar parameters, so the *shape* difference is the blanketing effect, not a parameter difference.
+
+In a GPU notebook this comparison is a plotting/reference boundary: the physical arrays are brought to the host for Matplotlib, but the numerical kernels above stayed in torch on the device.""")
+
+code(r'''# Plot/reference cell: compare the shipped continuum-only and line-blanketed structures.
+L11_ref = np.load(pathlib.Path("..") / "reference" / "converged_ref.npz")  # numpy-ref
+
+T_blanket_plot = R["T"]                                                    # numpy-ref
+rhox_plot = R["rhox"]                                                      # numpy-ref
+tauros_plot = R["tauros"] if "tauros" in R.files else R["tauros_raw"]       # numpy-ref
+T_cont_plot = np.interp(np.log(rhox_plot), np.log(L11_ref["rhox_conv"]),    # numpy-ref
+                        L11_ref["T_conv"])                                 # numpy-ref
+
+fig, ax = plt.subplots(1, 2, figsize=(11, 4.1))
+ax[0].plot(np.log10(tauros_plot), T_cont_plot,    color="0.55", lw=1.7, label="continuum only (Lecture 11)")
+ax[0].plot(np.log10(tauros_plot), T_blanket_plot, color="C3",   lw=1.9, label="line-blanketed (real Sun)")
+ax[0].set_xlabel(r"$\log_{10}\tau_{\rm Ross}$")
+ax[0].set_ylabel("temperature [K]")
+ax[0].set_title("Temperature structure")
+ax[0].legend(loc="upper left", fontsize=9)
+
+dT_plot = T_blanket_plot - T_cont_plot                                      # numpy-ref
+ax[1].axhline(0.0, color="0.7", lw=1.0)
+ax[1].plot(np.log10(tauros_plot), dT_plot, color="C0", lw=1.9)
+ax[1].set_xlabel(r"$\log_{10}\tau_{\rm Ross}$")
+ax[1].set_ylabel(r"$T_{\rm blanket} - T_{\rm cont}$ [K]")
+ax[1].set_title("The line-blanketing signature")
+fig.tight_layout()
+plt.show()
+
+deep_plot = tauros_plot > 1.0                                               # numpy-ref
+top_plot = tauros_plot < 0.1                                                # numpy-ref
+print(f"deep layers (tau>1):  blanketed warmer by up to {np.max(dT_plot[deep_plot]):+.0f} K  (back-warming)")  # numpy-ref
+print(f"top layers (tau<0.1): blanketed cooler by up to {np.min(dT_plot[top_plot]):+.0f} K  (surface cooling)") # numpy-ref
+''')
+
+md(r"""The deep layers are **warmer** in the line-blanketed model — the back-warming — and the outer layers are **cooler**. That is the structure the line opacity must support: a blanket that raises the Rosseland mean in the line-rich bands, an optical-depth scale that shifts upward in column mass, and a convergence engine that relaxes the atmosphere to flux constancy on that new opacity field.""")
+
+md(r"""## The line list and the strength cut (`SELECTLINES`)
+
+The opacity of a star's atmosphere in the blue and ultraviolet is set by an enormous forest of metal lines. Kurucz's **predicted** line list (`gfpred`) holds about **18 million** atomic and molecular transitions — every line whose wavelength and strength can be computed from atomic structure, far more than have ever been measured in the laboratory. The vast majority are iron-group transitions (Fe, Ti, Cr, V, Co, Ni...) packed thickest below 400 nm. This forest is genuine opacity: without it, the ultraviolet windows that dominate the Rosseland mean at the hot base of the photosphere are far too transparent, and the model never reaches the real Sun.
+
+Eighteen million lines is too many to deposit one by one for every atmosphere. The first job is to throw away the ones that cannot matter. That is **`SELECTLINES`**: a strength cut that keeps a line only if its opacity can rise **above the local continuum** somewhere in *this* atmosphere. A line that never rises above the continuum anywhere is invisible against it and is dropped — center and wings. The result for the Sun is the multi-million-line set the production deposit walks; the reference ships the small window subset we teach on.
+
+Each surviving line is a compact record. The wavelength is stored as an **integer** `iwl` on a logarithmic scale — the vacuum wavelength is
+\[
+\lambda = \exp(\texttt{iwl}\,\texttt{RATIOLG}),
+\]
+and the physical quantities ($gf$, the lower excitation potential, and the three damping constants) are each stored as an index into a precomputed logarithmic table. In the GPU port those table decodes are **gathers**, not loops: an integer index tensor selects the packed values for all lines at once.""")
+
+code(r'''# Torch-native decode of the selected line records in the teaching window.
+iwl_gpu = torch.as_tensor(iwl, dtype=torch.int64, device=DEVICE)
+ielion_gpu = torch.as_tensor(ielion, dtype=torch.int64, device=DEVICE)
+igflog_gpu = torch.as_tensor(igflog, dtype=torch.int64, device=DEVICE) - 1
+ielo_gpu = torch.as_tensor(ielo, dtype=torch.int64, device=DEVICE) - 1
+igr_gpu = torch.as_tensor(igr, dtype=torch.int64, device=DEVICE) - 1
+igs_gpu = torch.as_tensor(igs, dtype=torch.int64, device=DEVICE) - 1
+igw_gpu = torch.as_tensor(igw, dtype=torch.int64, device=DEVICE) - 1
+
+tablog_gpu = torch.pow(
+    torch.as_tensor(10.0, dtype=DTYPE, device=DEVICE),
+    (torch.arange(1, 32769, dtype=DTYPE, device=DEVICE) - 16384.0) * 0.001,
+)
+
+wlvac_gpu = torch.exp(iwl_gpu.to(DTYPE) * torch.as_tensor(RATIOLG, dtype=DTYPE, device=DEVICE))
+nelion_gpu = torch.div(torch.abs(ielion_gpu), 10, rounding_mode="floor")
+gf_gpu = tablog_gpu.index_select(0, igflog_gpu)
+
+atomic_gpu = torch.sum(nelion_gpu < 841)
+molecular_gpu = torch.sum(nelion_gpu >= 841)
+print("selected window line records decoded on", DEVICE.type, "/", DTAG)
+print("  line count:", iwl_gpu.numel(), " atomic:", atomic_gpu, " molecular:", molecular_gpu)
+print("  wavelength range [nm]:", torch.min(wlvac_gpu), torch.max(wlvac_gpu))
+print("  gf range:", torch.min(gf_gpu), torch.max(gf_gpu))
+''')
+
+md(r"""## From a line record to a profile: center opacity, Doppler width, damping
+
+To deposit a line we need three numbers at each depth: the **line-center opacity** $\kappa_0$, the **Doppler width** $\Delta\lambda_{\rm D}$, and the **damping parameter** $a$. These come from the line record and the equation-of-state state at that depth — the species populations, Doppler widths, electron density, and neutral-perturber number. Lecture 16 builds that state from scratch; here the reference bundle supplies it so Lecture 15 can focus on the line blanket itself.
+
+The line-center opacity is
+\[
+\kappa_0(j) =
+\underbrace{C_{gf}\,\lambda\,gf}_{\texttt{cgf}}
+\underbrace{\frac{n_{\rm sp}}{\Delta\nu_{\rm D}\rho}}_{\texttt{xnfdop}}
+\exp[-\chi_{\rm low}\,hc/kT(j)] ,
+\]
+and the damping parameter is
+\[
+a(j)=
+\frac{\Gamma_{\rm rad}+\Gamma_{\rm Stark}\,n_e(j)+\Gamma_{\rm vdW}\,\texttt{txnxn}(j)}
+     {\Delta\nu_{\rm D}(j)} .
+\]
+The important GPU shape is `(depth, line)`: all selected lines and all depths are decoded and evaluated by broadcasting. The line's species code is mapped into the compact population table by a boolean equality grid followed by `argmax`; no Python loop over lines is needed.""")
+
+code(r'''# Vectorized line-record -> per-depth profile ingredients, all torch on the working device.
+nelion_set_gpu = torch.as_tensor(nelion_set, dtype=torch.int64, device=DEVICE)
+species_match_gpu = nelion_gpu[:, None] == nelion_set_gpu[None, :]
+species_col_gpu = torch.argmax(species_match_gpu.to(torch.int64), dim=1)
+species_valid_gpu = torch.any(species_match_gpu, dim=1)
+
+xnfdop_gpu = torch.as_tensor(xnfdop_w, dtype=DTYPE, device=DEVICE)
+dopple_gpu = torch.as_tensor(dopple_w, dtype=DTYPE, device=DEVICE)
+xne_gpu = torch.as_tensor(xne_w, dtype=DTYPE, device=DEVICE)
+txnxn_gpu = torch.as_tensor(txnxn_w, dtype=DTYPE, device=DEVICE)
+hckt_gpu = torch.as_tensor(hckt_w, dtype=DTYPE, device=DEVICE)
+
+xnf_line_gpu = torch.index_select(xnfdop_gpu, 1, species_col_gpu)
+dop_line_gpu = torch.index_select(dopple_gpu, 1, species_col_gpu)
+
+elo_line_gpu = tablog_gpu.index_select(0, ielo_gpu)
+cgf_line_gpu = torch.as_tensor(CGF_SCALE, dtype=DTYPE, device=DEVICE) * wlvac_gpu * gf_gpu
+gr_line_gpu = tablog_gpu.index_select(0, igr_gpu) * wlvac_gpu * torch.as_tensor(GAMMA_SCALE, dtype=DTYPE, device=DEVICE)
+gs_line_gpu = tablog_gpu.index_select(0, igs_gpu) * wlvac_gpu * torch.as_tensor(GAMMA_SCALE, dtype=DTYPE, device=DEVICE)
+gw_line_gpu = tablog_gpu.index_select(0, igw_gpu) * wlvac_gpu * torch.as_tensor(GAMMA_SCALE, dtype=DTYPE, device=DEVICE)
+
+line_center_gpu = cgf_line_gpu[None, :] * xnf_line_gpu * torch.exp(-hckt_gpu[:, None] * elo_line_gpu[None, :])
+adamp_grid_gpu = (gr_line_gpu[None, :] + gs_line_gpu[None, :] * xne_gpu[:, None] +
+                  gw_line_gpu[None, :] * txnxn_gpu[:, None]) / torch.clamp(dop_line_gpu, min=1e-30)
+dopwave_grid_gpu = dop_line_gpu * wlvac_gpu[None, :]
+line_center_gpu = torch.where(species_valid_gpu[None, :], line_center_gpu, torch.zeros_like(line_center_gpu))
+adamp_grid_gpu = torch.where(species_valid_gpu[None, :], adamp_grid_gpu, torch.zeros_like(adamp_grid_gpu))
+
+print("profile ingredients computed as tensors with shape (depth, line):", tuple(line_center_gpu.shape))
+print("  center opacity range:", torch.min(line_center_gpu), torch.max(line_center_gpu))
+print("  damping a range:", torch.min(adamp_grid_gpu), torch.max(adamp_grid_gpu))
+''')
+
+code(r'''# Comparison-reference cell: the same vectorized line-record physics on CPU/fp64.
+def line_record_physics_torch(device, dtype):
+    tablog = torch.pow(
+        torch.as_tensor(10.0, dtype=dtype, device=device),
+        (torch.arange(1, 32769, dtype=dtype, device=device) - 16384.0) * 0.001,
+    )
+    iwl_t = torch.as_tensor(iwl, dtype=torch.int64, device=device)             # numpy-ref
+    ielion_t = torch.as_tensor(ielion, dtype=torch.int64, device=device)       # numpy-ref
+    igflog_t = torch.as_tensor(igflog, dtype=torch.int64, device=device) - 1   # numpy-ref
+    ielo_t = torch.as_tensor(ielo, dtype=torch.int64, device=device) - 1       # numpy-ref
+    igr_t = torch.as_tensor(igr, dtype=torch.int64, device=device) - 1         # numpy-ref
+    igs_t = torch.as_tensor(igs, dtype=torch.int64, device=device) - 1         # numpy-ref
+    igw_t = torch.as_tensor(igw, dtype=torch.int64, device=device) - 1         # numpy-ref
+    wl_t = torch.exp(iwl_t.to(dtype) * torch.as_tensor(RATIOLG, dtype=dtype, device=device))
+    nel_t = torch.div(torch.abs(ielion_t), 10, rounding_mode="floor")
+    nset_t = torch.as_tensor(nelion_set, dtype=torch.int64, device=device)     # numpy-ref
+    match_t = nel_t[:, None] == nset_t[None, :]
+    col_t = torch.argmax(match_t.to(torch.int64), dim=1)
+    valid_t = torch.any(match_t, dim=1)
+
+    xnf_t = torch.as_tensor(xnfdop_w, dtype=dtype, device=device)              # numpy-ref
+    dop_t = torch.as_tensor(dopple_w, dtype=dtype, device=device)              # numpy-ref
+    xne_t = torch.as_tensor(xne_w, dtype=dtype, device=device)                 # numpy-ref
+    txn_t = torch.as_tensor(txnxn_w, dtype=dtype, device=device)               # numpy-ref
+    hckt_t = torch.as_tensor(hckt_w, dtype=dtype, device=device)               # numpy-ref
+
+    xnf_line = torch.index_select(xnf_t, 1, col_t)
+    dop_line = torch.index_select(dop_t, 1, col_t)
+    gf_line = tablog.index_select(0, igflog_t)
+    elo_line = tablog.index_select(0, ielo_t)
+    cgf_line = torch.as_tensor(CGF_SCALE, dtype=dtype, device=device) * wl_t * gf_line
+    gr_line = tablog.index_select(0, igr_t) * wl_t * torch.as_tensor(GAMMA_SCALE, dtype=dtype, device=device)
+    gs_line = tablog.index_select(0, igs_t) * wl_t * torch.as_tensor(GAMMA_SCALE, dtype=dtype, device=device)
+    gw_line = tablog.index_select(0, igw_t) * wl_t * torch.as_tensor(GAMMA_SCALE, dtype=dtype, device=device)
+
+    center = cgf_line[None, :] * xnf_line * torch.exp(-hckt_t[:, None] * elo_line[None, :])
+    adamp = (gr_line[None, :] + gs_line[None, :] * xne_t[:, None] +
+             gw_line[None, :] * txn_t[:, None]) / torch.clamp(dop_line, min=1e-30)
+    dopwave = dop_line * wl_t[None, :]
+    center = torch.where(valid_t[None, :], center, torch.zeros_like(center))
+    adamp = torch.where(valid_t[None, :], adamp, torch.zeros_like(adamp))
+    return center, adamp, dopwave
+
+def maxrel_torch(a, b):
+    aa = a.detach().cpu().to(torch.float64)
+    bb = b.detach().cpu().to(torch.float64)
+    den = torch.where(torch.abs(bb) > 0.0, torch.abs(bb), torch.ones_like(bb))
+    return torch.max(torch.abs(aa - bb) / den)
+
+center64_gpucheck, adamp64_gpucheck, dopwave64_gpucheck = line_record_physics_torch(torch.device("cpu"), torch.float64)
+print("line-record physics vs CPU/fp64:")
+print("  center opacity max|rel| =", maxrel_torch(line_center_gpu, center64_gpucheck))
+print("  damping a      max|rel| =", maxrel_torch(adamp_grid_gpu, adamp64_gpucheck))
+print("  Doppler width  max|rel| =", maxrel_torch(dopwave_grid_gpu, dopwave64_gpucheck))
+''')
+
+md(r"""## Benchmark: the deposit matches to the float32 floor
+
+The live deposit above is the load-bearing new kernel. It deposits the window's selected lines onto the wavelength grid using the same physical ingredients just decoded: center opacity, Doppler width, damping, the full three-branch Voigt profile, and the adaptive continuum cutoff. In the NumPy lecture the scalar kernel was arranged to reproduce the production `LINOP1` deposit to the float32 accumulator floor. In this GPU diagnostic port the pedagogical deposit is deliberately written as a clean **depth-batched** tensor walk: it keeps all depths together and uses masks for the cutoff, which is the right MPS shape. That changes the exact addition order relative to production, so there are two useful benchmarks:
+
+1. **fp32 vs CPU/fp64 for the same torch kernel** — the precision diagnostic.
+2. **CPU/fp64 clean kernel vs production window deposit** — the algorithmic fidelity of the readable batched walk.
+
+The first is the precision question; the second is the cost of replacing the production depth-skip/addition order by a lecture-readable tensor form.""")
+
+code(r'''# Comparison-reference cell: deposit precision and production-window fidelity.
+dep_precision_rel = maxrel_torch(dep_work, dep_ref64)
+prod_window_ref_t = torch.as_tensor(R["xlines_window_ref"], dtype=torch.float64, device="cpu")  # numpy-ref
+dep_ref64_cpu_t = dep_ref64.detach().cpu().to(torch.float64)
+prod_mask_t = torch.abs(prod_window_ref_t) > 0.0
+prod_den_t = torch.where(prod_mask_t, torch.abs(prod_window_ref_t), torch.ones_like(prod_window_ref_t))
+prod_rel_map_t = torch.abs(dep_ref64_cpu_t - prod_window_ref_t) / prod_den_t
+prod_rel_t = torch.max(torch.where(prod_mask_t, prod_rel_map_t, torch.zeros_like(prod_rel_map_t)))
+
+print("deposit benchmark:")
+print("  same clean torch kernel, working precision vs CPU/fp64 max|rel| =", dep_precision_rel)
+print("  clean CPU/fp64 batched walk vs production LINOP1 window max|rel| =", prod_rel_t)
+print("  interpretation: precision is localized separately from production addition-order fidelity")
+''')
+
+md(r"""The deposit benchmark is therefore not the source of the fp32 convergence failure. The cores sit at the float floor, and the larger spread is confined to overlapping-wing pixels where many small fp32 additions are accumulated. That is a bounded per-evaluation effect. The catastrophic behaviour appears later, when a convergence update subtracts two nearly equal hydrostatic pressure structures.""")
+
+md(r"""## The convergence engine — Lecture 11, unchanged, with the blanket on
+
+Everything after the line deposit is the Lecture 11 atmosphere engine. The frequency sweep forms the total extinction
+\[
+\kappa^{\rm tot}_\nu =
+\kappa^{\rm cont}_\nu+\kappa^{\rm line}_\nu+\sigma_\nu ,
+\]
+passes it to the JOSH radiative-transfer solver, accumulates the Rosseland harmonic mean, computes the radiation-pressure and flux-error terms, runs the same mixing-length convection, and applies the same Avrett--Krook temperature correction. There is no special "line-blanketed" temperature-correction formula. The engine is opacity-agnostic; the line blanket is just the value of `aline` handed into the frequency sweep.
+
+The NumPy lecture inlines the full engine and demonstrates one line-blanketed iteration from the converged Sun. In this GPU diagnostic lecture we keep the same computational spine but do the precision audit cell by cell instead of pretending the pure-fp32 recurrence is safe. The earlier cells already covered the pieces that matter numerically:
+
+- the **line deposit**: a per-evaluation opacity calculation, fp32-safe to the float floor except for bounded wing accumulation;
+- the **Rosseland fold**: a positive 30000-frequency harmonic sum, fp32-safe;
+- the **Rosseland optical-depth integral**: a prefix reduction, mildly elevated but not divergent;
+- the **hydrostatic marches**: each march is fp32-safe;
+- the **pressure secant** $(p_2-p_1)/p_1$: the cancellation point, where fp32 loses the significant digits needed for the column-mass update.
+
+That is exactly the production lesson: the expensive opacity and transfer physics can stay on the GPU in fp32, while the tiny convergence-core reductions — especially the secant, and optionally the optical-depth prefix — deserve fp64 promotion on the CPU.""")
+
+code(r'''# A compact precision-promotion decision table, assembled from the diagnostic cells above.
+print("=" * 78)
+print("LINE-BLANKETED CONVERGENCE ENGINE: fp32 PRECISION LOCALISATION")
+print("=" * 78)
+print("  line deposit (wing-walk)       max|rel| =", DIVERGENCE["line deposit (wing-walk)"])
+print("  Rosseland harmonic fold        max|rel| =", DIVERGENCE["Rosseland harmonic fold"])
+print("  Rosseland mean abross          max|rel| =", DIVERGENCE["Rosseland mean abross"])
+print("  tau_Ross integral (INTEG)      max|rel| =", DIVERGENCE["tau_Ross integral (INTEG)"])
+print("  hydrostatic march ptot1        max|rel| =", DIVERGENCE["hydrostatic march ptot1"])
+print("  hydrostatic march ptot2        max|rel| =", DIVERGENCE["hydrostatic march ptot2"])
+print("  SECANT (ptot2-ptot1)/ptot1     max|rel| =", DIVERGENCE["SECANT (ptot2-ptot1)/ptot1"])
+print("  column mass rhox_new           max|rel| =", DIVERGENCE["column mass rhox_new"])
+print("=" * 78)
+print("GPU policy: keep deposit/Voigt/Rosseland bulk in fp32; promote the tiny secant reduction.")
+''')
+
+md(r"""## The benchmark: engine fidelity, and reaching the real Sun
+
+The NumPy lecture benchmarks the line-blanketed engine in two complementary ways. The **engine-fidelity** check compares one line-blanketed iteration against the production code's own single step. The **self-consistency** check compares the corrected structure to the converged line-blanketed solar model `sun.npz`: starting from the converged Sun, one step should remain at the fixed point.
+
+For the GPU edition, the scientifically important benchmark is sharpened into a precision statement. The reference bundle still carries the production single step and the converged Sun, so we can state the fixed-point residual. But the pure-MPS fp32 recurrence is **not** accepted as a converged atmosphere path; the diagnostic table above localises why. The benchmark is therefore: the line-blanketed physics and shipped reference state describe the real Sun, while the GPU convergence core must promote the secant before it is trusted to iterate there.""")
+
+code(r'''# Comparison-reference cell: shipped production single-step fixed point vs the real Sun structure.
+T_ref_t = torch.as_tensor(R["T"], dtype=DTYPE, device=DEVICE)                         # numpy-ref
+rhox_ref_t = torch.as_tensor(R["rhox"], dtype=DTYPE, device=DEVICE)                   # numpy-ref
+T_step_t = torch.as_tensor(R["T_step"], dtype=DTYPE, device=DEVICE)                   # numpy-ref
+rhox_step_t = torch.as_tensor(R["rhox_step"], dtype=DTYPE, device=DEVICE)             # numpy-ref
+
+T_ref64_t = torch.as_tensor(R["T"], dtype=torch.float64, device="cpu")                # numpy-ref
+rhox_ref64_t = torch.as_tensor(R["rhox"], dtype=torch.float64, device="cpu")          # numpy-ref
+T_step64_t = torch.as_tensor(R["T_step"], dtype=torch.float64, device="cpu")          # numpy-ref
+rhox_step64_t = torch.as_tensor(R["rhox_step"], dtype=torch.float64, device="cpu")    # numpy-ref
+
+def relmax_pair_torch(a, b):
+    aa = a.detach().cpu().to(torch.float64)
+    bb = b.detach().cpu().to(torch.float64)
+    den = torch.where(torch.abs(bb) > 0.0, torch.abs(bb), torch.ones_like(bb))
+    return torch.max(torch.abs(aa - bb) / den)
+
+print("production single-step fixed point carried in the reference bundle:")
+print("  T_step vs sun.npz      max|rel| =", relmax_pair_torch(T_step_t, T_ref64_t))
+print("  rhox_step vs sun.npz   max|rel| =", relmax_pair_torch(rhox_step_t, rhox_ref64_t))
+print("  torch load vs fp64 ref, T_step  max|rel| =", relmax_pair_torch(T_step_t, T_step64_t))
+print("  torch load vs fp64 ref, RHOX    max|rel| =", relmax_pair_torch(rhox_step_t, rhox_step64_t))
+print("  base RHOX target =", rhox_ref_t[-1], "g/cm^2")
+print("  convergence-core secant diagnostic max|rel| =", DIVERGENCE["SECANT (ptot2-ptot1)/ptot1"])
+''')
+
+md(r"""The reference step sits on the line-blanketed solar fixed point, but the fp32 diagnostic tells us not to iterate the GPU path naively. This is the cleanest possible conclusion: the line-blanketed physics is correct, the per-evaluation GPU kernels are safe, and the convergence recurrence has a named, tiny precision-critical operation that must be promoted.""")
+
+md(r"""## Synthesis
+
+Lecture 11 converged a *continuum-only* model atmosphere of the Sun and named the debt it left open: the millions of spectral lines, switched off to keep the loop small. This lecture pays that debt physically and, in the GPU edition, uses it as a precision diagnostic. Line blanketing is not a cosmetic addition to the emergent spectrum — it reshapes the *model atmosphere*: the metal-line forest, densest in the ultraviolet, blocks escaping radiation, back-warms the deep layers, and cools the surface until flux constancy is restored on a different temperature structure.
+
+We built the one genuinely new piece — the **line-deposit kernel** — in GPU-native form: the predicted line records and their packed table decodes; the per-line center opacity, Doppler width, and damping; the full three-branch Harris Voigt profile; and the asymmetric wing-walk with an adaptive continuum cutoff. The live deposit is depth-batched and mask-driven, the shape a GPU wants. Its precision comparison against a CPU/fp64 twin shows that the deposit is not the convergence failure: the line cores are at the float floor, and the remaining spread is bounded fp32 wing accumulation.
+
+We then folded the full-grid blanket into the **Rosseland mean** and integrated to the Rosseland optical-depth scale. These reductions also held near the expected floor: the Rosseland fold is a positive, well-conditioned harmonic sum; the optical-depth prefix integral is slightly more sensitive but still not catastrophic. The hydrostatic pressure marches likewise agree in fp32 when viewed one at a time.
+
+The failure enters only when the convergence engine forms the pressure **secant**
+\[
+(p_2-p_1)/p_1 .
+\]
+The two hydrostatic pressure structures are individually well conditioned, but they are close enough that their difference loses significant digits in fp32. That fractional pressure change updates the column mass, and the column mass is fed into the next iteration, so the error compounds. This is why a pure fp32 atmosphere convergence can diverge even though the expensive physics kernels are correct.
+
+The fix is surgical. Keep the bulk work — Voigt evaluation, line deposit, opacity sampling, Rosseland fold — on the GPU in fp32. Promote only the tiny convergence-core reductions, especially the secant and optionally the optical-depth prefix, to CPU/fp64. Lecture 16 carries this lesson forward: it builds the equation-of-state state that this lecture read from the reference and closes the atmosphere calculation with the precision-critical reductions named explicitly.""")
+
+md(r"""## Summary
+
+- **Line blanketing** is the blocking of radiation by the millions of metal lines, especially in the ultraviolet. It changes the *model atmosphere*, not just the spectrum: the trapped flux **back-warms** the deep layers while the surface **cools**.
+- **`SELECTLINES`** keeps only lines whose opacity can rise above the local continuum in the current atmosphere. Each surviving line is a compact record: integer log-wavelength plus table-indexed $gf$, excitation, and damping constants.
+- The GPU port decodes the line list with tensor gathers and evaluates the per-depth line physics in `(depth, line)` tensors: center opacity, Doppler width, and damping are all broadcast operations.
+- The **deposit kernel** uses the full Harris Voigt function, including the large-$a$ branches needed for heavily damped lines, and deposits outward on the logarithmic wavelength grid with a continuum-cutoff reach.
+- The **line-blanketed Rosseland mean** folds the deposited line opacity into the total extinction, $\kappa_\nu^{\rm cont}+\kappa_\nu^{\rm line}+\sigma_\nu$, raising $\kappa_{\rm Ross}$ above the continuum-only value.
+- The **convergence engine is Lecture 11, unchanged** in physics: JOSH, Rosseland mean, hydrostatics, convection, and temperature correction are opacity-agnostic. The only physical change is passing line opacity instead of zero line opacity.
+- The GPU precision diagnostic localises the fp32 failure: deposit, Rosseland fold, optical-depth integral, and each hydrostatic march are near the float floor; the pressure secant $(p_2-p_1)/p_1$ is the catastrophic-cancellation point.
+- The correct GPU design is therefore mixed precision by *need*, not by habit: fp32 for the bulk line-blanketed physics, fp64 promotion for the tiny secant-style reductions that control convergence.""")
+
+md(r"""## Practice exercises
+
+**1. The cutoff reach, vectorized.** Modify the depth-batched deposit to return the active red-wing and blue-wing masks at each offset, and reduce those masks to a per-line/per-depth reach. Plot the reach distribution for a hot deep layer and a cool upper layer. Why do strong ultraviolet lines at the hot base walk far while most lines stop after one or two pixels?
+
+**2. The large-$a$ branch matters.** In `voigt_H`, replace the large-$a$ branch by the small-$a$ table expression everywhere, then re-run the window deposit and its fp32-vs-fp64 comparison. Which pixels change most? Confirm that the heavily damped base lines are the ones that fail.
+
+**3. Symmetric vs asymmetric sampling.** Replace the true logarithmic-grid abscissa by a symmetric integer-pixel offset on both sides of the line center. Compare the result to the production window reference. Which lines suffer most, narrow or broad, and why does the logarithmic wavelength grid make the symmetric approximation wrong?
+
+**4. The Rosseland bands.** Split the Rosseland harmonic fold into ultraviolet, optical, and infrared frequency bands using tensor masks. Which band contributes most to the increase in $\kappa_{\rm Ross}$ at the hot base? Which band matters near the cool surface? Relate the answer to the temperature dependence of $\partial B_\nu/\partial T$.
+
+**5. Back-warming, quantified.** Using the continuum-only and line-blanketed structures plotted above, find the optical depth where $T_{\rm blanket}-T_{\rm cont}$ is largest. Then compare the Rosseland opacity at that depth. Explain why increasing opacity moves a given $\tau_{\rm Ross}$ surface to smaller column mass.
+
+**6. The cancellation experiment.** In the secant cell, change the temperature perturbation amplitude. Make it smaller by factors of 2, 4, and 8. The individual hydrostatic marches should remain accurate, while the relative error of $(p_2-p_1)/p_1$ should grow. This is catastrophic cancellation made visible.
+
+**7. Surgical fp64 promotion.** Recompute only the pressure secant in fp64 while leaving the hydrostatic inputs and the opacity arrays in fp32. How much does `rhox_new` improve? Then also promote the $\tau_{\rm Ross}$ prefix integral. This is the mixed-precision design Lecture 16 uses for the atmosphere convergence core.""")
+
+md(r"""## Further reading
+
+- **Kurucz, R. L. (1979). *Model Atmospheres for G, F, A, B, and O Stars*, ApJS 40, 1.** The classic demonstration of line-blanketed model atmospheres and the back-warming produced by the line forest.
+- **Kurucz, R. L. (1992). *Atomic and Molecular Data for Opacity Calculations*, Rev. Mex. Astron. Astrofis. 23, 45.** The provenance and scale of the predicted line lists that make line blanketing possible.
+- **Gray, D. F. (2005). *The Observation and Analysis of Stellar Photospheres*, 3rd ed., Cambridge.** Line absorption coefficients, Voigt profiles, and the broadening mechanisms assembled into the damping parameter.
+- **Mihalas, D. (1978). *Stellar Atmospheres*, 2nd ed., Freeman.** The radiative-equilibrium and opacity-mean background for line-blanketed atmospheres.
+- **Hubeny, I. & Mihalas, D. (2014). *Theory of Stellar Atmospheres*, Princeton.** Modern opacity sampling and the full line-blanketed model-atmosphere problem.
+- **Kurucz, R. L. (1970). *SAO Special Report* 309 (ATLAS).** The historical source of the ATLAS line-opacity and atmosphere-convergence machinery reproduced pedagogically here.
+- **Kim, E. M. & Ting, Y.-S. (2026). [*pykurucz*](https://arxiv.org/abs/2603.11693).** The pure-Python ATLAS12 and SYNTHE implementation used to generate the NumPy reference bundle.
+- **Higham, N. J. (2002). *Accuracy and Stability of Numerical Algorithms*, 2nd ed., SIAM.** The numerical-analysis background for the cancellation diagnosed here: subtracting nearly equal numbers can be more dangerous than the expensive physics that produced them.""")
+
 nb = new_notebook(cells=cells, metadata={
     "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
     "language_info": {"name": "python"},
