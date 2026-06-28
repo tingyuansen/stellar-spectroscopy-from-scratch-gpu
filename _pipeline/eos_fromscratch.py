@@ -469,6 +469,99 @@ def populations(state: dict, tab: EOSTables, n_elem: int = 99, max_ion: int = 6)
     return U, popion, popfrac
 
 
+# ── Stage 2: Doppler widths (flat slots) + the van-der-Waals perturber number ─
+# nelion(1-based) -> (Z, ion) map (the POPSALL/LINOP flat-slot schedule).
+def _build_nelion_maps(maxn: int = 999):
+    mode12 = [
+        (1.01, 1), (2.02, 3), (3.03, 6), (4.03, 10), (5.03, 15), (6.05, 21),
+        (7.05, 28), (8.05, 36), (9.05, 45), (10.05, 55), (11.05, 66), (12.05, 78),
+        (13.05, 91), (14.05, 105), (15.05, 120), (16.05, 136), (17.04, 153),
+        (18.04, 171), (19.04, 190), (20.04, 210), (21.04, 231), (22.04, 253),
+        (23.04, 276), (24.04, 300), (25.04, 325), (26.04, 351), (27.04, 378),
+        (28.04, 406), (29.02, 435), (30.02, 465),
+    ]
+
+    def nn_from_code(code: float) -> int:
+        return max(1, int((code - int(code)) * 100.0 + 1.5))
+
+    z_of = np.zeros(maxn + 1, np.int64)
+    ion_of = np.zeros(maxn + 1, np.int64)
+    for code, s in mode12:
+        Z = int(code)
+        for i in range(nn_from_code(code)):
+            z_of[s + i] = Z; ion_of[s + i] = i + 1
+    for Z in range(31, 100):
+        s = 496 + (Z - 31) * 5
+        for i in range(nn_from_code(Z + 0.02)):
+            z_of[s + i] = Z; ion_of[s + i] = i + 1
+    return z_of, ion_of
+
+
+_Z_OF, _ION_OF = _build_nelion_maps()
+
+
+def compute_doppler_per_ion(T, vturb, atmass):
+    """Doppler widths v_D/c = sqrt(2 k_B T/(m amu) + vturb^2)/c per (depth, ion-stage, Z).
+
+    The same width for all 6 ion stages of an element (atomic slots 0..98). (nd, 6, 139).
+    """
+    T = np.asarray(T, np.float64); vturb = np.asarray(vturb, np.float64)
+    atmass = np.asarray(atmass, np.float64)
+    nd = T.size
+    tk = K_BOLTZ * T
+    doppler = np.zeros((nd, 6, 139), np.float64)
+    valid = atmass > 0
+    width = np.zeros((nd, 99), np.float64)
+    arg = 2.0 * tk[:, None] / (atmass[None, :] * AMU) + (vturb ** 2)[:, None]
+    width[:, valid] = np.sqrt(arg[:, valid]) / C_LIGHT
+    doppler[:, :, :99] = width[:, None, :]
+    doppler[:, :, :99][:, :, ~valid] = 0.0
+    return doppler
+
+
+def build_xnfdop_dopple_per_nelion(population_per_ion, dop3, rho, mion: int = 1006):
+    """Flat XNFDOP(nd, MION) + DOPPLE(nd, MION) keyed by nelion (the deposit's slot index).
+
+    DOPPLE[J, NELION] = v_D/c;  XNFDOP[J, NELION] = XNFP[J, NELION] / DOPPLE / RHO,
+    XNFP = population_per_ion[J, ion-1, Z-1], via the POPSALL nelion->(Z,ion) schedule.
+    Molecular nelions (>840) left zero (XLINOP type-0 records are all atomic nelion 3..211).
+    """
+    nd = population_per_ion.shape[0]
+    rho = np.asarray(rho, np.float64)
+    xnfdop = np.zeros((nd, mion), np.float64)
+    dopple = np.zeros((nd, mion), np.float64)
+    n_map = _Z_OF.shape[0] - 1
+    nel = np.arange(1, min(n_map, mion - 1) + 1)
+    Z = _Z_OF[nel]; ion = _ION_OF[nel]
+    good = (Z >= 1) & (Z <= 99) & (ion >= 1) & (ion <= 6)
+    nel_g = nel[good]; Zg = Z[good] - 1; iong = ion[good] - 1
+    pop = population_per_ion[:, iong, Zg]
+    dop = dop3[:, iong, Zg]
+    dopple[:, nel_g - 1] = dop
+    with np.errstate(divide="ignore", invalid="ignore"):
+        xn = np.where((dop > 0) & (rho[:, None] > 0), pop / (dop * rho[:, None]), 0.0)
+    xnfdop[:, nel_g - 1] = xn
+    return xnfdop, dopple
+
+
+def compute_txnxn(T, xnf_h, xnf_he1):
+    """Van-der-Waals perturber number TXNXN = (n_HI + 0.42 n_HeI + 0.85 n_H2)*(T/1e4)^0.3.
+
+    n_H2 from the H2 dissociation equilibrium constant (xnfpelsyn); zeroed above 9000 K.
+    """
+    T = np.asarray(T, np.float64)
+    tkev = T * KEV_FACTOR
+    tlog = np.log(T)
+    eq = np.exp(4.478 / tkev - 4.64584e1
+                + (1.63660e-3 + (-4.93992e-7 + (1.11822e-10
+                   + (-1.49567e-14 + (1.06206e-18 - 3.08720e-23 * T) * T) * T) * T) * T) * T
+                - 1.5 * tlog)
+    xnf_h2 = np.asarray(xnf_h, np.float64) ** 2 * eq
+    xnf_h2 = np.where(T > 9000.0, 0.0, xnf_h2)
+    return (np.asarray(xnf_h, np.float64) + 0.42 * np.asarray(xnf_he1, np.float64)
+            + 0.85 * xnf_h2) * (T / 1.0e4) ** 0.3
+
+
 @dataclass
 class PopsAllResult:
     xne: np.ndarray

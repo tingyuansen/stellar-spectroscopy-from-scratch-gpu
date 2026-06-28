@@ -214,3 +214,7 @@ house style, and run the two critics (GPT-5.5 + Gemini-3.1-pro) on every new/cha
   BIT-EXACT PASS, max|reldiff| = 5.69e-14 (fp64 floor) over {xne, xnatom, rho, xnf_h, xnf_he1,
   xnf_he2, population_per_ion, xnfph}. Runs 0.70 s/call (fast enough for 30 iters). Loads only the
   honest reference/pfsaha_inputs.npz; zero pyk/kgpu import. [2026-06-28]
+- Stage 2 (Doppler flat-slot xnfdop/dopple + txnxn, eos_fromscratch.py):
+  BIT-EXACT PASS, max|reldiff| = 5.70e-14 (inherits Stage-1 population floor; dop3/dopple/txnxn
+  exact 0.0). Honest input: reference/atomic_masses.npz (atmass[:99], the masses pyk reads from
+  fortran_data.npz). [2026-06-28]
