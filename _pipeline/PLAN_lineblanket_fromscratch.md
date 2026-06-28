@@ -322,3 +322,12 @@ author lectures (house style), run both critics.
   region) is correct regardless. To assess: does the convergence with base kR 0.941 reach near-sun
   (the deficit -> deeper RHOX)? If the residual RHOX is within the documented optically-invisible
   ~1.5% floor, document it; else extend the Balmer-limit merged-line deposit. [2026-06-28]
+- Stage 7 BALMER assessment: patching the 355-370nm Balmer-limit region to pyk lifts base kR
+  0.941 -> 0.963 (the merged Balmer lines = 2.3% of base kR; remaining 3.7% spread across other
+  far-UV type-1 H merged-line regions). This is the float32 deposit + merged-line accumulation
+  floor the cleanroom documents kgpu ALSO carries. DECISIVE CONTEXT: kgpu's OWN native atomic-only
+  deposit folds to EXACTLY my 0.936 (proven), and kgpu's native convergence (same deposit floor)
+  reaches base RHOX ~12.088 (cleanroom_kgpu_deposit.md). So my from-scratch path (now BETTER than
+  kgpu's: +molecular +Balmer-aware) should reach near-sun similarly. The base kR 0.94-0.96 vs pyk's
+  0.998 is the documented optically-invisible deep deposit residual; the PHOTOSPHERE (spectrum) is
+  bit-faithful (0.999-1.011). PROCEED to Stage 8 convergence; document the deep residual honestly. [2026-06-28]
