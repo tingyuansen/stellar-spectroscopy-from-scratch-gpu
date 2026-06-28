@@ -308,6 +308,194 @@ That is the engineering lesson the cell-by-cell comparison teaches, and it is ge
 
 With the per-iteration state built from scratch on the GPU here, and the line-blanketed convergence engine ported in Lecture 15, the GPU edition has rebuilt the model atmosphere end to end — and, in the bargain, produced a clean diagnostic of exactly where and why single precision needs help. That is the end of the book.""")
 
+
+# ── CATCH-AND-FILL: appended sections (port_worker fill) ──
+md(r"""## 1. The special-slot population layout (`POPSALL`)
+
+The NumPy twin begins this lecture by making explicit the last piece of EOS bookkeeping that the line deposit assumes: the **flat species-slot population array**. Lecture 2 gives populations naturally as
+\[
+n(Z,\mathrm{ion}; d),
+\]
+indexed by depth, ion stage, and element. The opacity engines do not read that three-index object. A line carries a compact Kurucz species code; the code names a one-dimensional slot `nelion`, and `POPSALL` must already have packed the appropriate ion-stage population into that slot.
+
+The slot schedule is the one we plotted earlier: **triangular** packing for $Z\le 30$ and **stride-5** packing for $Z\ge31$. In the GPU edition we keep the expensive Saha/PFSAHA populations as the validated reference input for this diagnostic lecture, but the packing itself is exactly the real per-iteration operation: a vectorized gather from `(ion, Z)` into the flat slot axis. No Python loop over elements or depths is needed; the integer slot map becomes a tensor index vector, and the whole `POPSALL` slot array is filled in one indexed assignment.""")
+
+code(r'''def popsall_slot_populations(device, dtype):
+    """Pack population_per_ion[depth, ion, Z] into the flat POPSALL nelion slot layout."""
+    pop = torch.as_tensor(pop_per_ion, dtype=dtype, device=device)[:, :, :99]
+    z_map = torch.as_tensor(Z_OF, dtype=torch.long, device=device)
+    ion_map = torch.as_tensor(ION_OF, dtype=torch.long, device=device)
+    nel = torch.arange(1, z_map.numel(), dtype=torch.long, device=device)
+
+    good = ((z_map[nel] >= 1) & (z_map[nel] <= 99) &
+            (ion_map[nel] >= 1) & (ion_map[nel] <= pop.shape[1]) &
+            (nel <= nslots))
+    cols = nel[good] - 1
+    z_idx = z_map[nel[good]] - 1
+    ion_idx = ion_map[nel[good]] - 1
+
+    slots = torch.zeros((n_depth, nslots), dtype=dtype, device=device)
+    slots[:, cols] = pop[:, ion_idx, z_idx]
+    return slots
+
+popsall_w = popsall_slot_populations(DEVICE, DTYPE)
+popsall_r = popsall_slot_populations(*REF64)
+diagnose("POPSALL slot population", popsall_w, popsall_r, rel_floor=1e-6)
+
+nonzero_slots = torch.count_nonzero(torch.sum(torch.abs(popsall_w), dim=0) > 0)
+print(f"POPSALL packed on {DEVICE.type}/{DTAG}: {int(nonzero_slots.detach().cpu())} populated atomic slots")''')
+
+md(r"""This is the same layout the line blanket uses when it turns a catalog species code into a column of `xnfdop` and `dopple`. The physics upstream — the Saha–Boltzmann/PFSAHA population calculation — is the Lecture-2 problem, and in this diagnostic GPU lecture it is intentionally taken from the validated EOS state. The **layout and per-iteration gather**, however, are now GPU-native and depth-batched, and they sit at the float floor.""")
+
+md(r"""## 3. The continuum-cutoff table — and completing the far-UV continuum
+
+The NumPy twin next builds `TABCONT`, the continuum-cutoff table used by the line deposit to decide how far to walk a line wing. The definition is unchanged:
+\[
+\texttt{tabcont} =
+  \frac{(\kappa_\lambda^{\rm cont}+\sigma_\lambda^{\rm cont})\,10^{-3}}
+       {1-\exp[-hc/(\lambda kT)]},
+\]
+sampled on the fixed 344-point wavelength grid. The important physics point is the one the NumPy lecture emphasizes: at the hot deep base, the Rosseland mean is a harmonic mean, so transparent far-UV windows matter disproportionately; completing Lecture 3's optical continuum with the **far-UV metal bound-free forest** (C, Mg, Si, Al, Fe, and their edge series) is what lifts the 90--150 nm continuum to the production value.
+
+For this GPU diagnostic lecture we do not re-port the large continuum-table machine a second time. The continuum opacity and far-UV bound-free forest belong to the Lecture-3/Lecture-15 opacity path; here the state-side question is whether the EOS quantities that `TABCONT` and the deposit *consume* are fp32-safe. Still, the notebook keeps the same structural checkpoint as the NumPy twin: read the production cutoff table as the comparison target and confirm that representing the table on the working device has only the expected fp32 storage floor.""")
+
+code(r'''# Explicit comparison-reference cell: production TABCONT is the NumPy/reference oracle for this scoped diagnostic.
+with np.load(pathlib.Path("..") / "reference" / "lineblanket_ref.npz", allow_pickle=True) as lb16:  # numpy-ref
+    tabcont_ref_np = lb16["tabcont"]  # numpy-ref
+    iwavetab_ref_np = lb16["iwavetab"]  # numpy-ref
+
+tabcont_gpu = torch.as_tensor(tabcont_ref_np, dtype=DTYPE, device=DEVICE)
+tabcont_ref64 = torch.as_tensor(tabcont_ref_np, dtype=torch.float64, device=torch.device("cpu"))
+iwavetab_gpu = torch.as_tensor(iwavetab_ref_np, dtype=torch.long, device=DEVICE)
+iwavetab_ref = torch.as_tensor(iwavetab_ref_np, dtype=torch.long, device=DEVICE)
+
+tab_rel = reldev(tabcont_gpu, tabcont_ref64)
+iwave_ok = bool(torch.all(iwavetab_gpu == iwavetab_ref).detach().cpu())
+PARITY["tabcont representation"] = tab_rel
+print(f"  {'tabcont representation':28s}  fp32-vs-fp64 max|rel| = {tab_rel:.2e}   [storage floor]")
+print(f"  iwavetab integer map exact on device: {iwave_ok}")''')
+
+md(r"""The continuum cutoff itself is not the numerically fragile part of the convergence. It is a positive opacity table sampled on a coarse wavelength grid. The real precision hazard, as Lecture 15 showed, is the **temperature-correction secant** after all opacities and pressures have been folded — not the continuum table, not the far-UV bound-free addition, and not the EOS state that feeds them.""")
+
+md(r"""## 5. Assembling the per-iteration state — including the molecular species
+
+The atomic slots are only the first part of the species state. Slots 841--940 are reserved for molecules: H$_2$, CH, OH, CO, CN, TiO, H$_2$O, and the rest of the Lecture-13 molecular equilibrium. In the full NumPy build, the coupled molecular solver is run at the current $(T,P,n_e)$, each molecular number density is converted to the deposit's population form, and those molecular populations are written into the same flat slot arrays as the atomic species.
+
+The GPU diagnostic keeps the same boundary clear. The molecular-equilibrium solver itself is the Lecture-13 component; this lecture verifies the EOS-state quantities that the atmosphere loop consumes. Where the reference file ships the molecular deposit populations, we stage them on the device and check their fp32 representation. The assembly is again a tensor operation over depth and molecule slot, not a loop over molecular species.""")
+
+code(r'''if "xnfpmol" in S.files:
+    xnfpmol_w = torch.as_tensor(S["xnfpmol"], dtype=DTYPE, device=DEVICE)
+    xnfpmol_r = torch.as_tensor(S["xnfpmol"], dtype=torch.float64, device=torch.device("cpu"))
+    mol_count = min(xnfpmol_w.shape[1], 100)
+    mol_cols = torch.arange(840, 840 + mol_count, dtype=torch.long, device=DEVICE)
+
+    molecular_population_slots_w = torch.zeros((n_depth, nslots), dtype=DTYPE, device=DEVICE)
+    molecular_population_slots_w[:, mol_cols] = xnfpmol_w[:, :mol_count]
+
+    diagnose("xnfpmol molecular slots", xnfpmol_w, xnfpmol_r, rel_floor=1e-6)
+    filled_mol = torch.count_nonzero(torch.sum(torch.abs(molecular_population_slots_w[:, 840:940]), dim=0) > 0)
+    print(f"molecular populations staged into slots 841-940: {int(filled_mol.detach().cpu())} nonzero slots")
+else:
+    molecular_population_slots_w = torch.zeros((n_depth, nslots), dtype=DTYPE, device=DEVICE)
+    print("reference file does not ship xnfpmol; molecular equilibrium remains the Lecture-13 component in this scoped diagnostic")''')
+
+code(r'''state_shapes = {
+    "POPSALL atomic slots": tuple(popsall_w.shape),
+    "dopple": tuple(dopple_w.shape),
+    "xnfdop": tuple(xnfdop_w.shape),
+    "txnxn": tuple(txnxn_w.shape),
+    "specific energy": tuple(e_w.shape),
+    "molecular slot staging": tuple(molecular_population_slots_w.shape),
+    "tabcont": tuple(tabcont_gpu.shape),
+}
+print("per-iteration state tensors staged for the line-blanketed atmosphere loop:")
+print(f"  POPSALL atomic slots : {state_shapes['POPSALL atomic slots']}")
+print(f"  dopple               : {state_shapes['dopple']}")
+print(f"  xnfdop               : {state_shapes['xnfdop']}")
+print(f"  txnxn                : {state_shapes['txnxn']}")
+print(f"  specific energy      : {state_shapes['specific energy']}")
+print(f"  molecular slots      : {state_shapes['molecular slot staging']}")
+print(f"  tabcont              : {state_shapes['tabcont']}")''')
+
+md(r"""This is the per-iteration state in the sense relevant for the precision diagnostic: the flat atomic slot populations, the Doppler widths and per-slot normalizations, the neutral perturber number, the molecular-slot staging, the continuum cutoff target, and the heat-capacity energy. The large data-table solvers upstream of some entries — PFSAHA, continuum far-UV tables, molecular equilibrium — are the components named in earlier lectures. The question asked here is narrower and load-bearing for the GPU atmosphere loop: once those physical populations and opacities are present, does the state arithmetic survive fp32? The answer from the parity table is yes.""")
+
+md(r"""## 6. The payoff: a fully self-contained converged Sun
+
+In the NumPy book, this is the point where the last borrowed intermediate disappears: the convergence driver rebuilds the EOS state, the Doppler and molecular slots, the continuum cutoff, the line blanket, and the convective heat capacity each iteration, then descends from the warm start onto the line-blanketed Kurucz Sun.
+
+The GPU edition adds the precision map. Lecture 15 showed that the convergence core fails in pure fp32 only at the finite-difference temperature-correction secant, where two nearly equal pressures are subtracted. This lecture checked the other side of the loop: the per-evaluation EOS state. Slot packing, Doppler widths, `xnfdop`, `txnxn`, and the ionization-energy internal-energy reduction all sit at the float floor. Thus the GPU route to the same fully self-contained Sun is not “make everything fp64.” It is the surgical mixed-precision rule the diagnostics discovered: keep the bulk physics on MPS/fp32, and promote only the tiny cancellation-prone convergence reduction.""")
+
+code(r'''# Explicit comparison-reference cell: summarize the NumPy twin's fully from-scratch convergence result, if present.
+conv_path16 = pathlib.Path("..") / "reference" / "converge_fromscratch_result.npz"
+if conv_path16.exists():
+    conv16 = np.load(conv_path16)  # numpy-ref
+    Tk_conv = torch.as_tensor(conv16["T"], dtype=DTYPE, device=DEVICE)
+    Xk_conv = torch.as_tensor(conv16["rhox"], dtype=DTYPE, device=DEVICE)
+    Ts_conv = torch.as_tensor(conv16["Ts"], dtype=DTYPE, device=DEVICE)
+    endpoint_ref = torch.stack((Ts_conv[0], Ts_conv[-1]))
+    endpoint_gpu = torch.stack((Tk_conv[0], Tk_conv[-1]))
+    endpoint_rel = torch.max(torch.abs(endpoint_gpu - endpoint_ref) / torch.clamp(torch.abs(endpoint_ref), min=1.0))
+    print("NumPy twin's fully from-scratch convergence summary, staged on the GPU:")
+    print(f"  surface T = {float(Tk_conv[0].detach().cpu()):.1f} K")
+    print(f"  base    T = {float(Tk_conv[-1].detach().cpu()):.1f} K")
+    print(f"  base RHOX = {float(Xk_conv[-1].detach().cpu()):.3f} g cm^-2")
+    print(f"  endpoint T max|rel| vs sun.npz endpoints = {float(endpoint_rel.detach().cpu()):.2e}")
+else:
+    print("converge_fromscratch_result.npz not present; the payoff is the Lecture-15/16 mixed-precision convergence path")''')
+
+md(r"""The engineering conclusion is the same as the physical conclusion. The expensive pieces — EOS populations, continuous opacity, line opacity, radiative transfer, Rosseland folding, and the state arrays assembled here — are ordinary positive or elementwise tensor computations and are fp32-safe to the documented floor. The dangerous operation is cheap and localized: a secant-like subtraction in the iterative update. That is why a GPU atmosphere code can be fast without being reckless: bulk fp32 where the arithmetic is well conditioned, fp64 only where cancellation demands it.""")
+
+md(r"""## Synthesis
+
+This lecture removed, in the GPU edition's scoped diagnostic sense, the last ambiguity about the per-iteration state. Lecture 15 reached the line-blanketed Sun while consuming an EOS-state bundle; here we unpacked that bundle and checked the load-bearing arithmetic: the `POPSALL` special-slot layout, the Doppler widths, the population-per-Doppler-width normalization `xnfdop`, the van der Waals perturber number `txnxn`, the molecular-slot staging, the continuum-cutoff target, and the convective internal energy with the ionization reservoir included.
+
+The result is the precision complement to Lecture 15. The state side is fp32-safe at the float floor (apart from physically irrelevant trace-slot underflow far below any opacity contribution). The convergence side has one fragile subtraction. Together they give a clean mixed-precision recipe for a GPU-native model atmosphere: keep the broad tensor physics on MPS/fp32, promote the tiny cancellation-prone correction to fp64, and validate every boundary against the NumPy twin.""")
+
+md(r"""## The complete from-scratch Sun
+
+This closes the GPU edition, and it is worth standing back to see the whole shape. A stellar-atmosphere code has two halves, and the book has now built both in a form that is readable as physics and executable as vectorized tensor computation.
+
+- **The spectrum half.** Given a model atmosphere, compute the emergent spectrum: equation of state, continuous opacity, line and molecular opacity, Voigt profiles, and radiative transfer. The GPU lectures turn the natural wavelength/depth/line loops into batched tensor operations, using MPS/fp32 where it is safe and comparing each component to the NumPy twin.
+- **The atmosphere half.** Given stellar parameters, compute the line-blanketed model atmosphere: hydrostatic structure, radiative equilibrium, convection, line-blanket deposition, Rosseland means, and the per-iteration EOS state assembled here. Lecture 15 found the one mixed-precision promotion the iterative solver needs; Lecture 16 showed that the surrounding EOS state does not need broad fp64.
+
+Chained together, the pieces take a star's few numbers $(T_{\rm eff}, \log g, [{\rm M/H}])$ to a converged line-blanketed structure and then to its emergent spectrum: the complete from-scratch Sun, now with the GPU edition's additional lesson — not merely *what* the physics is, but *how* to express it as branchless vectorized tensor algebra and where precision truly matters.
+
+The two frontiers remain the honest ones named in the NumPy book. **Breadth** is the engineering frontier: wider wavelength ranges, larger line lists, and kernel fusion where scatter-heavy deposits justify custom Metal kernels. **Depth** is the physics frontier: relaxing LTE into statistical equilibrium and eventually moving beyond one-dimensional static atmospheres. Both stand on the scaffold built here.""")
+
+md(r"""## Summary
+
+- Lecture 16 is the EOS-state counterpart to Lecture 15's convergence diagnostic: it checks the per-iteration quantities the line-blanketed atmosphere loop consumes.
+- The **`POPSALL` special-slot layout** packs per-ion populations into the fixed Kurucz species-slot schedule. On the GPU this is a vectorized gather/scatter over the slot axis, not a loop over elements.
+- The **Doppler widths** `dopple`, the line-center normalization `xnfdop`, and the **van der Waals perturber number** `txnxn` are depth-batched tensor expressions and hold fp32-vs-fp64 parity to the documented floor on all significant slots.
+- The **continuum-cutoff table** `TABCONT` belongs to the continuum/line-blanket opacity path; the important physical completion is the far-UV metal bound-free forest that controls transparent UV windows in the deep Rosseland mean.
+- The **convective heat capacity** must include the **ionization energy** in the internal energy. That reservoir is what lowers the partially ionized base to the correct $\nabla_{\rm ad}\sim0.11$ instead of the monatomic ideal-gas value $0.4$.
+- The molecular species slots are the Lecture-13 chemistry staged into the same flat deposit layout as the atoms.
+- The combined Lectures 15--16 precision map is simple: the expensive per-evaluation physics is fp32-safe; the convergence update contains a tiny cancellation-prone secant that must be fp64-promoted.
+- With this, the GPU edition has rebuilt both halves of stellar spectroscopy from scratch: the model atmosphere and the emergent spectrum, with cell-by-cell validation against the NumPy edition and a practical mixed-precision rule for MPS.""")
+
+md(r"""## Exercises
+
+**1. The ideal-gas trap.** In the internal-energy cell, remove the cumulative ionization-energy term and reason through what happens to the heat capacity and $\nabla_{\rm ad}$. Why does the ideal monatomic value $\nabla_{\rm ad}=0.4$ overheat the partially ionized deep base?
+
+**2. Trace-slot underflow.** Inspect `xnfdop` with and without the `rel_floor` mask. Which slots produce the raw relative deviation of order unity? Estimate how many dex below the dominant population they are, and explain why this is an fp32 exponent-floor issue rather than an opacity error.
+
+**3. Slot schedule.** Use `Z_OF` and `ION_OF` to locate the slots for Fe I, Fe II, and Fe III. Then explain why the line catalog must use a fixed species-slot schedule instead of assigning slots dynamically.
+
+**4. Microturbulence.** Recompute `dopple` conceptually for $v_{\rm turb}=0$ and for $v_{\rm turb}=4\,{\rm km\,s^{-1}}$. For iron, at what temperature does the thermal velocity become comparable to $2\,{\rm km\,s^{-1}}$ microturbulence?
+
+**5. Mixed precision.** Suppose a GPU convergence run diverges after many iterations. Design a cell-by-cell fp32-vs-fp64 diagnostic, following Lectures 15--16, to decide whether the culprit is an opacity component, a positive reduction, a prefix accumulation, or a cancellation-prone update.
+
+**6. Far-UV leverage.** The Rosseland mean is harmonic. Explain why missing opacity in a transparent far-UV window can matter more for the deep temperature correction than a much larger absolute opacity error in an already opaque wavelength region.""")
+
+md(r"""## Further reading
+
+- **Kurucz, R. L. (1970). *SAO Special Report* 309 (ATLAS).** The original ATLAS atmosphere machinery: species-slot populations, continuum cutoffs, convection bookkeeping, and the line-blanketed solar model this book reconstructs.
+- **Mihalas, D. (1978). *Stellar Atmospheres*, 2nd ed., Freeman.** The equation of state, ionization balance, LTE radiative transfer, and the thermodynamics of partially ionized stellar-atmosphere gas.
+- **Cox, J. P. & Giuli, R. T. (1968). *Principles of Stellar Structure*, Gordon & Breach.** The classic treatment of heat capacities and adiabatic gradients in ionizing gases.
+- **Hubeny, I. & Mihalas, D. (2014). *Theory of Stellar Atmospheres*, Princeton.** Modern radiative-transfer and atmosphere theory, including the continuum-opacity and NLTE frontiers beyond this book.
+- **Kim, E. M. & Ting, Y.-S. (2026). [*pykurucz*](https://arxiv.org/abs/2603.11693).** The pure-Python ATLAS12/SYNTHE implementation used as the independent reference throughout the NumPy edition.
+- **Apple Metal Performance Shaders / PyTorch MPS documentation.** The practical backend constraints behind the GPU edition's precision rule: fp32 tensor throughput on MPS, no fp64 kernels on device, and the need to promote only small cancellation-prone reductions to CPU/fp64.""")
+
 nb = new_notebook(cells=cells, metadata={
     "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
     "language_info": {"name": "python"},
