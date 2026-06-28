@@ -145,7 +145,9 @@ pykurucz or the production `kgpu` engine.
 
 Read **[PASSDOWN.md](PASSDOWN.md)** first for the current handoff state, especially the L14
 line-blanketed Sun refresh and the no-`kgpu`/no-`pykurucz` self-containment rule. See
-**[PLAN.md](PLAN.md)** for the GPU-substitution roadmap.
+**[PLAN.md](PLAN.md)** for the GPU-substitution roadmap. For L14-L16 reference-bundle edits, also
+read **[reference/MANIFEST_L14_L16.md](reference/MANIFEST_L14_L16.md)** so loaded computed state
+and comparison-only targets stay clearly separated.
 
 ## Layout
 

@@ -43,6 +43,10 @@ the passdown must say so and name the integration work needed to remove it.
   inputs. The stricter end state is to wire or inline the L15/L16 atmosphere + state machinery so
   the Sun atmosphere and EOS state are regenerated inside the capstone from stellar parameters,
   then passed directly into the L14 synthesis path.
+- Reference-bundle bookkeeping is explicit in `reference/MANIFEST_L14_L16.md`. It classifies
+  L14-L16 arrays as physical inputs/static data, computed state currently loaded by a lecture,
+  comparison-only targets, or provenance. Use it before changing L14-L16 so target arrays do not
+  leak into the computed path.
 - GPU-native status is mixed, and should stay honest: lectures 1-7, 9-13, 15-16 have
   `build_lecture<N>_gpu.py` torch/MPS builders; L8 and L14 still use NumPy-style builders.
   L14 is numerically honest now, but not yet the final GPU-native capstone.
@@ -122,8 +126,8 @@ The orchestrator must keep ownership of the hard gates:
   computed state instead of rebuilding it from physical inputs; separately flag any non-GPU-native
   implementation and any parity gap. The first targeted pass has already been run and is recorded
   above.
-- Add a small reference-bundle manifest for L14-L16 classifying arrays as physical data tables,
-  computed intermediate inputs, comparison answers, or plotting-only references.
+- Use `reference/MANIFEST_L14_L16.md` as the bookkeeping gate when promoting loaded L14/L15 state
+  into computed-in-notebook code.
 - Maintain the full lecture build ledger. The 2026-06-28 full build passed; rerun after any
   builder/reference changes.
 - Use the L15/L16 exact-line-blanketing material to design a future kgpu squeeze that moves the
