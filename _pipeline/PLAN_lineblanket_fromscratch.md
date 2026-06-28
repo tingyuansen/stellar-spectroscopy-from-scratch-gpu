@@ -233,3 +233,17 @@ house style, and run the two critics (GPT-5.5 + Gemini-3.1-pro) on every new/cha
   grdadb @ hot base (11425 K) = 0.1130 (target ~0.11 partial-ionization, NOT 0.40 ideal-gas),
   grdadb @ tau~1 = 0.3837 (target ~0.38). The ionization-energy heat capacity is correct; the
   13179 K convective collapse is GUARDED. [2026-06-28]
+
+--------------------------------------------------------------------------------
+## PROGRESS SUMMARY (2026-06-28, run 1)
+EOS HALF DONE + verified bit-exact (the directive's pieces 1, 2, partial 3, 4):
+  Stage 1 (multi-element EOS)      BIT-EXACT 5.7e-14  [eos_fromscratch.py]
+  Stage 2 (doppler flat-slots)     BIT-EXACT 5.7e-14  [eos_fromscratch.py]
+  Stage 3 (tabcont/iwavetab)       median 0.22%, far-UV cutoff-threshold gap documented [continuum_fromscratch.py]
+  Stage 4 (EDENS ionization energy) BIT-EXACT 1.27e-15 + GATE 4b PASS (grdadb 0.113, collapse guarded)
+The book's OWN numpy now computes the full multi-element EOS + Doppler + EDENS self-contained from
+the honest pfsaha_inputs.npz + atomic_masses.npz + wavetab_grid.npz — ZERO pyk/kgpu import.
+REMAINING (run 2+): Stage 5 LINOP1 full-grid (extend L15 window kernel), Stage 6 XLINOP type-0 +
+type-1 H HPROF4 (the large deposit piece), Stage 7 matched-input kappa_R checkpoint @ sun, Stage 8
+from-grey convergence -> near-sun. Then wire into make_lineblanket_reference.py (remove oracle_state),
+author lectures (house style), run both critics.
