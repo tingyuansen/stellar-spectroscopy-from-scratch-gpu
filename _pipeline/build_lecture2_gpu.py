@@ -723,6 +723,83 @@ md(r"""**What the PFSAHA numbers mean.** The per-ion partition functions $U$ rep
 
 **Where this goes next.** The equation of state is now complete on the GPU — both the charge-balance $n_e$ and the full per-ion $U$ and populations $n_{Z,i}$, all depth-batched in `torch`, all validated against the NumPy edition (hence against pykurucz). With these populations in hand, Lecture 3 builds the **continuous opacity** — H$^-$ bound-free and free-free, Rayleigh and Thomson scattering — fully vectorized over depth *and* wavelength on the GPU, and validated against its NumPy twin to the same float floor.""")
 
+
+# ── CATCH-AND-FILL: appended sections (port_worker fill) ──
+md(r"""### Part 1 — the iron group reads a tabulated grid
+
+The Kurucz $Z=20$–$28$ block (calcium through nickel, spanning the iron-group elements) has such dense, tangled level structures that these partition functions are not summed level by level but **read from a pre-computed grid**, `PFTAB`, indexed by temperature and by how much the ionization potential has been lowered. In the GPU port this is the `pfiron` helper above: it brackets $\log_{10}T$ on the grid's three-piece temperature axis, brackets the Debye lowering in $\log_{10}(\Delta\chi)$ when the lowering is large enough to matter, and returns the bilinear interpolation as a depth tensor.
+
+The important GPU lesson is not that the table is large — it is modest — but that the **integer cell choice is discontinuous**. A one-bit fp32 slip at a grid seam could choose the neighboring cell and produce a percent-level jump in $U$. We therefore make the discrete bracket decision on the fp64 host, vectorized over all depths, then cast the interpolated depth vector back to the device. The continuous arithmetic and the downstream Saha ladder remain torch-native and depth-batched; only the table seam decision is protected from MPS fp32 rounding.""")
+
+md(r"""### Part 2 — hand-built level sums for the common light elements
+
+A set of common light elements that dominate the spectrum — H, He, C, O, Na, Mg, Al, Si, K, B, and Ca — get their neutral and first-ion partition functions assembled by hand from explicit, curated lists of measured levels, rather than from the coarse packed `NNN` table. Each block is the same Boltzmann sum we wrote at the beginning of the lecture,
+
+$$
+U(T) = \sum_i g_i\,e^{-E_i/kT},
+$$
+
+just with the measured levels spelled out. In the GPU port this is the `special_partition` dispatcher above. Each branch is a **vectorized tensor expression over all depths**: the level energies and statistical weights live on the device, `hckt` is the depth vector, and the exponentials are evaluated for the whole atmosphere at once. The dispatcher itself is heterogeneous bookkeeping — `col=45` means Na I, `col=51` means Mg I, and so on — but once a branch is chosen there is no loop over depth.
+
+The returned `g_override` and `D1` are the two pieces the high-temperature occupation correction needs. `g_override` supplies the statistical weight of the high Rydberg tail; `D1` supplies a lower cutoff for alkali-like ions whose loosely bound valence electron is especially sensitive to plasma lowering. Those corrections are what make PFSAHA a depth-correct partition-function engine, not merely a temperature table.""")
+
+md(r"""## Synthesis: what you built and where it goes
+
+You closed the atmosphere. Starting from the temperature and pressure of Lecture 1, you used the **Boltzmann** distribution to populate energy levels, the **Saha** equation to balance ionization stages, **Debye lowering** to account for the dense-plasma environment, and **charge conservation** to solve for the electron density at every depth. In this GPU edition every one of those steps was written as a depth-batched `torch` calculation: the 80 atmospheric layers are tensor lanes, not Python-loop iterations. The resulting electron density and hydrogen ionization reproduce the NumPy edition to the documented float floor.
+
+Along the way you found the quiet truth of the cool-star photosphere: hydrogen is almost entirely neutral there, and in the line-forming layers the free electrons come from a handful of low-ionization metals. This is not a minor bookkeeping point. H$^-$ opacity, the continuum opacity that dominates the optical Sun, is proportional to the supply of free electrons; changing the metal abundance changes the electron pressure and therefore changes the continuum.
+
+You then went one level deeper. The temperature-only partition functions that reproduce $n_e$ so well are not good enough for the *per-ion* populations the opacity engines consume, so you rebuilt **PFSAHA** on the GPU — assembling each ion's depth-correct $U$ on the fly from atomic data, applying the Debye and occupation corrections, and running the same Saha ladder in log space. The result matches pykurucz's per-ion partition functions and populations to the fp32 GPU float floor over all physically populated stages.
+
+Those electrons, and those per-ion populations, are exactly what the next lecture needs. Lecture 3 turns this equation of state into a **continuous opacity**: H$^-$ bound-free and free-free absorption, Rayleigh and Thomson scattering, all evaluated over depth and wavelength. The same pattern will recur throughout the GPU edition: write the physics as batched tensor algebra, identify the few places where fp64 table decisions matter, and validate against the NumPy twin cell by cell.""")
+
+md(r"""## Summary
+
+- In LTE the **Boltzmann** distribution sets level populations within an ion,
+  $n_i/n_{\rm ion} = (g_i/U)\,e^{-E_i/kT}$, normalised by the **partition function** $U(T)$.
+- The **Saha** equation balances ionization stages:
+  $n_{i+1}n_e/n_i = 2(U_{i+1}/U_i)(2\pi m_e kT/h^2)^{3/2}e^{-\chi_i/kT}$,
+  with the prefactor $2.4148\times10^{15}\,T^{3/2}$.
+- **Pressure ionization** lowers the ionization potential by the Debye term
+  $\Delta\chi \approx 1.44\times10^{-7}/\lambda_D$ per unit charge — small at the surface,
+  growing with density.
+- **Charge conservation**,
+  $n_e = \sum_Z n_Z \sum_i i\,f_{Z,i}$,
+  closes the system. The GPU depth-batched solve reproduces the NumPy reference electron
+  density to the fp32 float floor on MPS/CUDA, and to tighter precision on the CPU fp64 fallback.
+- In the solar photosphere hydrogen is only $\sim10^{-4}$ ionized. In the cool
+  **line-forming layers metals (Mg, Si, Fe, Na, Ca) supply the electrons**, while hydrogen
+  takes over deeper and higher up.
+- Temperature-only partition functions are good for the *summed* electron density but not for
+  individual ion populations. **PFSAHA** assembles each ion's depth-correct $U$ on the fly:
+  an iron-group grid for Ca–Ni, hand-built level sums for important light elements, packed
+  table interpolation for ordinary ions, plus Debye lowering and a high-temperature occupation
+  correction.
+- The GPU PFSAHA port keeps the continuous arithmetic on the device and depth-batched, protects
+  the discrete table-bracket decisions with fp64 host evaluation where MPS has no fp64, and
+  validates the per-ion $U$, $F/U$, and $n_{\rm ion}/U$ against pykurucz to the documented float floor.""")
+
+md(r"""## Practice exercises
+
+**1. The Saha turnover for hydrogen.** Using the torch `saha_ratio` helper, hold $n_e$ fixed at a photospheric value ($\sim10^{13}\ \mathrm{cm^{-3}}$) and make a device tensor of temperatures from $4000$ to $12000\ \mathrm{K}$. Plot the ionized fraction of hydrogen. At what temperature does hydrogen become half-ionized, and why is it far below the naive scale $13.6\ \mathrm{eV}/k \approx 158{,}000\ \mathrm{K}$?
+
+**2. Metals as electron donors.** Using the `ne_Z` tensor already computed above, find the dominant electron donor at a deep layer ($\tau \sim 10$) and at a line-forming layer ($\tau \sim 0.05$). Explain why hydrogen wins deep while metals win where the lines form.
+
+**3. A metal-poor atmosphere.** The electron density depends on metal abundance. Make a copy of the abundance tensor and multiply all elements heavier than helium by $10^{-1}$ (that is, $[\mathrm{M/H}] = -1$), then re-solve for $n_e$ with the same depth-batched charge-conservation machinery. By how much does the photospheric electron density drop, and what does that imply for H$^-$ opacity in metal-poor stars?
+
+**4. Temperature-only $U$ versus PFSAHA.** Pick Na I and compare its neutral-stage population at the photosphere two ways: first with the simplified `ionization_fractions` calculation and the temperature-only `U` table, and second with the validated PFSAHA tensors `U_pf` and `popion`. Confirm that the temperature-only shortcut misses the per-ion population by a large amount while PFSAHA agrees with the reference to the float floor. Which PFSAHA ingredient — the hand-built level sum, the Debye lowering, the low-temperature ground-state floor, or the occupation correction — is most important for this cool, easily-ionized metal?
+
+**5. Vectorization audit.** Inspect the PFSAHA cells and separate the computation into two categories: continuous tensor arithmetic that runs on the device, and discrete table decisions that are intentionally made on the fp64 host. Why would a fully fp32 table-bracket decision be dangerous near a grid seam? Why is the log-space Saha ladder safer than multiplying raw Saha ratios stage by stage?""")
+
+md(r"""## Further reading
+
+- **Gray, D. F. (2005). *The Observation and Analysis of Stellar Photospheres*, 3rd ed., Cambridge University Press.** Chapter 1 derives the Saha and Boltzmann equations and works the solar electron-donor problem explicitly.
+- **Saha, M. N. (1921). *On a Physical Theory of Stellar Spectra*, Proc. R. Soc. Lond. A, 99, 135.** The original ionization equation.
+- **Mihalas, D. (1978). *Stellar Atmospheres*, 2nd ed., Freeman.** Chapter 5 on the LTE equation of state, partition functions, and pressure ionization.
+- **Hummer, D. G. & Mihalas, D. (1988). *The Equation of State for Stellar Envelopes*, ApJ, 331, 794.** The occupation-probability formalism behind modern pressure-ionization treatments.
+- **Kim, E. M. & Ting, Y.-S. (2026). [*pykurucz*](https://arxiv.org/abs/2603.11693).** The implementation used to generate the NumPy edition's reference electron densities and PFSAHA comparison data.
+- **PyTorch documentation: MPS backend.** Useful for understanding why this GPU edition keeps bulk arithmetic on Apple Silicon's Metal backend while protecting a few fp64-sensitive reductions and table decisions on the CPU fallback path.""")
+
 nb = new_notebook(cells=cells, metadata={
     "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
     "language_info": {"name": "python"},
