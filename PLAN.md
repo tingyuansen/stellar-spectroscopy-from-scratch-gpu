@@ -109,13 +109,20 @@ core can also be ported in this batch as their `kgpu` components are individuall
 |---|---------|--------------|
 | 11 | Convection & the Converged Atmosphere | the converged continuum-only model runs the full convergence **loop** (`kgpu/atlas_loop.py`, `atlas_convec.py`); the fully-MPS fp32 path diverges (base RHOX → ~8.5) until the precision-critical reductions are fp64-promoted. Port the convection *physics* component now; defer the **converged-loop GPU number** until the fix validates by a full MPS convergence. |
 | 14 | A Spectrum from Stellar Parameters, End to End | the **spectrum** assembly is all NOW-ported microphysics, but the Sun's *atmosphere* it runs on is the converged model from L11. Port the synthesis assembly now against a warm-started / NumPy-reference atmosphere; the from-scratch-atmosphere GPU path closes once L11 does. |
-| 15 | Line Blanketing: the True Model Atmosphere | reruns the L11 convergence engine with the line blanket on — the same fp32-convergence-core dependency, and the deepest. WAIT. |
-| 16 | The Full Equation of State: Species Slots & Convective Heat Capacity | feeds the L15 line-blanketed loop; its convergence numbers are downstream of the fp32-core fix. WAIT. |
+| 15 | Line Blanketing: the True Model Atmosphere | ~~reruns the L11 convergence engine with the line blanket on — the same fp32-convergence-core dependency, and the deepest. WAIT.~~ **DONE (as the divergence DIAGNOSTIC).** Ported the line deposit + the convergence-core reductions to depth-batched torch, and used the cell-by-cell fp32-vs-fp64 comparison to **localise** the divergence: per-eval physics (deposit, Rosseland fold, τ integral, each hydrostatic march) holds fp32 parity to the float floor; the divergence enters at the temperature-correction **secant** `(ptot2-ptot1)/ptot1` (catastrophic cancellation, ~41× amplification over its inputs on a realistic step). The lecture ships the **localization**, not a converged GPU number. |
+| 16 | The Full Equation of State: Species Slots & Convective Heat Capacity | ~~feeds the L15 line-blanketed loop; its convergence numbers are downstream of the fp32-core fix. WAIT.~~ **DONE.** Ported the per-iteration EOS state (POPSALL species slots, `dopple`/`xnfdop`, `txnxn`, the ionization-energy heat capacity) to depth-batched torch; the cell-by-cell diagnostic **confirms** L15's prediction — every per-eval EOS-state cell holds fp32 parity at the float floor (worst 2.5e-7). Documented the one expected caveat (the fp32 *exponent* floor on trace `xnfdop` slots ~200 dex below the dominant, which underflow to zero — physically irrelevant). |
 
-**Trigger to lift the WAIT:** `kgpu`'s fp32-convergence-core fix lands and is **validated by a full
-MPS convergence** reaching the scalar best-state (per `~/pykurucz_gpu/PLAN.md §0` and `RESEARCH_LOG`).
-Until then, L11/L14–L16 ship their GPU *components* but not the final converged-atmosphere GPU
-number; the lecture text says so explicitly where it applies.
+**Note on L15/L16 (the divergence diagnostic).** These were lifted from WAIT and built as a
+**precision diagnostic** rather than a converged-atmosphere number: the user's insight was that the
+cell-by-cell GPU(fp32)-vs-numpy(fp64) comparison would *localise* exactly where fp32 peels away.
+It did — to one cell, the TCORR secant — confirming the surgical-fp64-promotion design the `kgpu`
+fix targets. The lectures run live on MPS/fp32 with a CPU/fp64 twin per cell; no converged-loop GPU
+number is claimed (that still waits on the `kgpu` fp32-core fix), only the diagnostic.
+
+**Trigger to lift the remaining WAIT (L11/L14 converged numbers):** `kgpu`'s fp32-convergence-core
+fix lands and is **validated by a full MPS convergence** reaching the scalar best-state (per
+`~/pykurucz_gpu/PLAN.md §0` and `RESEARCH_LOG`). L11/L14 ship their GPU *components* but not the
+final converged-atmosphere GPU number; the lecture text says so explicitly where it applies.
 
 ---
 
