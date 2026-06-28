@@ -690,9 +690,9 @@ print(f"  REL ERR:  median {np.median(rel):.2e}   max {rel.max():.2e}   over {ma
 
 floor = 1e-6                                                             # the bible gate for L12-13
 max_dev = float(rel.max())
-status = "PASS" if (max_dev < floor or np.median(rel) == 0.0) else "CHECK"
+status = "PASS" if max_dev < floor else "CHECK"
 print(f"\ndocumented float floor = {floor:.1e}   ->   [{status}]")
-assert max_dev < floor or np.median(rel) == 0.0, f"band opacity deviates by {max_dev:.2e}"
+assert max_dev < floor, f"band opacity deviates by {max_dev:.2e}"
 print("The GPU TiO band opacity matches the production molecular reference to the float floor.")''')
 
 md(r"""**What the number means.** The GPU `mol_band_opacity` reproduces the production kernel to a **median of a few parts in $10^{16}$** — bit-exact at most points — with the worst point near $10^{-11}$ on opacities of order ten. That residual is a pure float64 **accumulation-order** effect: roughly a million overlapping line wings are summed into each bin, and `index_put_(accumulate=True)` adds them in a different order than the production code's chunked kernel, so the last bit drifts. There is no physics error: the formulas, the Voigt tables, the constants, the `KAPMIN` cutoff, and the near/far-wing thresholds are identical to the NumPy edition.
@@ -730,14 +730,139 @@ print(f"GPU vs reference at this depth: median rel {np.median(rel_row):.2e}, max
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## The emergent spectrum: reusing the JOSH solver
 
-The molecular opacity is just another absorption term, so the emergent spectrum comes from the **JOSH moment solver of Lectures 7–8** with no change at all — already ported to torch in those GPU lectures. Rather than re-derive it, this section reads the production diagnostics' assembled fluxes and confirms the band-shaped spectrum that the molecular opacity produces. The line absorption is the production `line_opacity` (whose molecular component we just reproduced independently); the continuum flux uses zero line opacity; the normalised spectrum is their ratio. We compare to the reference `flux_total / flux_continuum`.""")
+The molecular opacity is just another absorption term, so the emergent spectrum comes from the **JOSH moment solver of Lecture 8** with no change at all.  We reuse the compact solver from the NumPy twin here: the parabolic optical-depth integrator (`PARCOE`/`INTEG`), `MAP1` interpolation onto the fixed Eddington grid, and the single-precision backward Gauss--Seidel source iteration.  The GPU-specific work in this lecture is the molecular opacity accumulation above; this transfer check is a small CPU/fp64 reuse of the already-verified Lecture-8 algorithm so the spectrum is genuinely solved instead of read from the production flux arrays.
 
-code(r'''spectrum = (DT["flux_total"] / DT["flux_continuum"]).astype(float)      # the production normalised spectrum
-print(f"normalised TiO spectrum over {spectrum.size} wavelengths: "
-      f"continuum ~1.0, deepest band point {spectrum.min():.4f}")
-print(f"the molecular opacity that carves it matches the reference to {np.median(rel):.1e} (median)")''')
+For the line opacity we use the molecules-off reference line opacity plus the **computed** molecular opacity `mol_np`.  That keeps the warm atomic/hydrogen background fixed while proving the band opacity we just built is the component that carves the cool-star spectrum.""")
 
-md(r"""The source function in this LTE synthesis is the **Planck function** $B_\lambda(T)$ of Lecture 1, computed not read: with thermal populations and no line scattering in this window, both the continuum and the line source reduce exactly to $B_\lambda(T)$. The JOSH transfer (the parabolic optical-depth integrator, the `MAP1` interpolation onto the Eddington grid, and the backward Gauss–Seidel scattering sweep in single precision) is identical to Lecture 8 — the only change for a cool star is that the molecular opacity now enters the line-absorption term, lifting the optical depth in the band heads. The GPU editions of Lectures 7–8 port that solver; here we reuse its result.""")
+code(r'''def parcoe(f, x):
+    n = f.size; a = np.zeros(n); b = np.zeros(n); c = np.zeros(n)
+    if n == 1: a[0] = f[0]; return a, b, c
+    b[0] = (f[1]-f[0])/(x[1]-x[0]); a[0] = f[0]-x[0]*b[0]; n1 = n-1
+    b[-1] = (f[-1]-f[n1-1])/(x[-1]-x[n1-1]); a[-1] = f[-1]-x[-1]*b[-1]
+    if n == 2: return a, b, c
+    for j in range(1, n1):  # JUSTIFIED-LOOP: exact 80-layer PARCOE recurrence.
+        j1 = j-1; d = (f[j]-f[j1])/(x[j]-x[j1])
+        c[j] = f[j+1]/((x[j+1]-x[j])*(x[j+1]-x[j1])) + (f[j1]/(x[j+1]-x[j1])-f[j]/(x[j+1]-x[j]))/(x[j]-x[j1])
+        b[j] = d-(x[j]+x[j1])*c[j]; a[j] = f[j1]-x[j1]*d+x[j]*x[j1]*c[j]
+    c[1] = 0.0; b[1] = (f[2]-f[1])/(x[2]-x[1]); a[1] = f[1]-x[1]*b[1]
+    if n > 3: c[2] = 0.0; b[2] = (f[3]-f[2])/(x[3]-x[2]); a[2] = f[2]-x[2]*b[2]
+    for j in range(1, n1):  # JUSTIFIED-LOOP: stateful curvature blend.
+        if c[j] == 0.0: continue
+        j1 = min(j+1, n-1); den = abs(c[j1])+abs(c[j]); wt = abs(c[j1])/den if den > 0 else 0.0
+        a[j] = a[j1]+wt*(a[j]-a[j1]); b[j] = b[j1]+wt*(b[j]-b[j1]); c[j] = c[j1]+wt*(c[j]-c[j1])
+    a[n1-1] = a[-1]; b[n1-1] = b[-1]; c[n1-1] = c[-1]
+    return a, b, c
+
+def integ(x, f, start):
+    a, b, c = parcoe(f, x); out = np.zeros(f.size); out[0] = start
+    for i in range(f.size-1):  # JUSTIFIED-LOOP: exact accumulated INTEG order.
+        dx = x[i+1]-x[i]
+        term = a[i] + 0.5*b[i]*(x[i+1]+x[i]) + (c[i]/3.0)*((x[i+1]+x[i])*x[i+1] + x[i]*x[i])
+        out[i+1] = out[i] + term*dx
+    return out
+
+def map1(xold, fold, xnew):
+    nold, nnew = xold.size, xnew.size; fnew = np.zeros(nnew)
+    xo = np.empty(nold+1); fo = np.empty(nold+1); xo[1:] = xold; fo[1:] = fold
+    l = 2; ll = 0; cfor = bfor = afor = cbac = bbac = abac = a = b = c = 0.0
+    for k in range(1, nnew+1):  # JUSTIFIED-LOOP: MAP1 cursor is stateful.
+        xk = xnew[k-1]
+        while True:  # JUSTIFIED-LOOP: finite bracket walk over the 80-layer grid.
+            if xk < xo[l]:
+                if l == ll: break
+                if l == 2 or l == 3:
+                    l = min(nold, l); c = 0.0; b = (fo[l]-fo[l-1])/(xo[l]-xo[l-1]); a = fo[l]-xo[l]*b; ll = l; break
+                l1 = l-1
+                if l > ll+1 or l == 3 or l == 4:
+                    l2 = l-2; d = (fo[l1]-fo[l2])/(xo[l1]-xo[l2])
+                    cbac = fo[l]/((xo[l]-xo[l1])*(xo[l]-xo[l2])) + (fo[l2]/(xo[l]-xo[l2])-fo[l1]/(xo[l]-xo[l1]))/(xo[l1]-xo[l2])
+                    bbac = d-(xo[l1]+xo[l2])*cbac; abac = fo[l2]-xo[l2]*d+xo[l1]*xo[l2]*cbac
+                    if l >= nold: c, b, a, ll = cbac, bbac, abac, l; break
+                else:
+                    cbac, bbac, abac = cfor, bfor, afor
+                    if l == nold: c, b, a, ll = cbac, bbac, abac, l; break
+                d = (fo[l]-fo[l1])/(xo[l]-xo[l1])
+                cfor = fo[l+1]/((xo[l+1]-xo[l])*(xo[l+1]-xo[l1])) + (fo[l1]/(xo[l+1]-xo[l1])-fo[l]/(xo[l+1]-xo[l]))/(xo[l]-xo[l1])
+                bfor = d-(xo[l]+xo[l1])*cfor; afor = fo[l1]-xo[l1]*d+xo[l]*xo[l1]*cfor
+                wt = abs(cfor)/(abs(cfor)+abs(cbac)) if abs(cfor) != 0 else 0.0
+                a = afor+wt*(abac-afor); b = bfor+wt*(bbac-bfor); c = cfor+wt*(cbac-cfor); ll = l; break
+            l += 1
+            if l > nold:
+                l = min(nold, l); c = 0.0; b = (fo[l]-fo[l-1])/(xo[l]-xo[l-1]); a = fo[l]-xo[l]*b; ll = l; break
+        fnew[k-1] = a + (b + c*xk)*xk
+    return fnew
+''')
+
+code(r'''JT = np.load(REF / "josh_tables.npz")
+XTAU = JT["xtau"].astype(float); CH = JT["ch"].astype(float); COEFJ = JT["coefj"].astype(float)
+EPS, TOL, MAXIT = 1e-38, 1e-5, 51; COEFJ_DIAG = np.diag(COEFJ).copy()
+rhox = NPZ["depth"].astype(float)
+
+def iterate_source(sbar_grid, alpha_grid):
+    co = COEFJ.astype(np.float32); xs = sbar_grid.astype(np.float32); al = alpha_grid.astype(np.float32)
+    sbar_mod = (sbar_grid * (1.0 - alpha_grid)).astype(np.float32)
+    diag = (1.0 - alpha_grid * COEFJ_DIAG).astype(np.float32)
+    for _ in range(MAXIT):  # JUSTIFIED-LOOP: fixed 51-point JOSH convergence cap.
+        converged = True
+        for k in range(XTAU.size-1, -1, -1):  # JUSTIFIED-LOOP: backward Gauss-Seidel dependency.
+            jk = np.float32(np.dot(co[k], xs))
+            delta = (jk*al[k] + sbar_mod[k] - xs[k]) / diag[k]
+            if (abs(delta/xs[k]) if xs[k] != 0 else np.inf) > np.float32(TOL): converged = False
+            xs[k] = max(xs[k] + delta, np.float32(EPS))
+        if converged: break
+    return xs.astype(np.float64)
+
+def solve_josh(acont, scont, aline, sline, sigmac, sigmal):
+    abtot = np.maximum(acont + aline + sigmac + sigmal, EPS)
+    alpha = np.clip((sigmac + sigmal) / abtot, 0.0, 1.0)
+    denom = acont + aline
+    sbar = np.where(denom > 0, (acont*scont + aline*sline)/denom, scont)
+    if rhox.size > 1 and rhox[0] > rhox[-1]:
+        r = rhox[::-1]; ab = abtot[::-1]; tau = integ(r, ab, ab[-1]*r[-1])
+        sbar = sbar[::-1]; alpha = alpha[::-1]
+    else:
+        tau = integ(rhox, abtot, abtot[0]*rhox[0])
+    sbar_g = np.maximum(map1(tau, sbar, XTAU), EPS)
+    alpha_g = np.clip(map1(tau, alpha, XTAU), 0.0, 1.0)
+    above = XTAU < tau[0]
+    if above.any(): sbar_g[above] = max(sbar[0], EPS); alpha_g[above] = np.clip(alpha[0], 0, 1)
+    return float(CH @ iterate_source(sbar_g, alpha_g))
+print("compact JOSH transfer solver ready (Lecture 8)")''')
+
+md(r"""The source function in this LTE synthesis is the **Planck function** $B_\nu(T)$ of Lecture 1, computed not read. With thermal populations and zero line scattering in this window, both continuum and line source reduce to that same Planck function. We verify the inline source against the shipped source arrays, then use only the inline source in transfer.""")
+
+code(r'''def planck_nu(nu, temp):
+    x = 6.62607015e-27 * nu / (1.380649e-16 * temp)
+    ex = np.exp(-np.minimum(x, 700.0))
+    stim = np.maximum(1.0 - ex, 1e-300)
+    return 1.47439e-2 * (nu/1e15)**3 * ex / stim
+
+nu_grid = C_NM / wavelength
+B_nu = planck_nu(nu_grid[None, :], T[:, None])
+rel_c = np.abs(B_nu - DT["slinec"].astype(float)) / np.maximum(np.abs(DT["slinec"].astype(float)), 1e-300)
+rel_l = np.abs(B_nu - DT["line_source"].astype(float)) / np.maximum(np.abs(DT["line_source"].astype(float)), 1e-300)
+print(f"inline B_nu vs reference slinec     : max rel diff = {rel_c.max():.2e}")
+print(f"inline B_nu vs reference line_source: max rel diff = {rel_l.max():.2e}")
+print(f"reference line_scattering is exactly zero: {np.all(DT['line_scattering'].astype(float) == 0.0)}")
+assert rel_c.max() < 1e-12 and rel_l.max() < 1e-12''')
+
+code(r'''acont = DT["continuum_absorption"].astype(float)
+sigmac = DT["continuum_scattering"].astype(float)
+sigmal = DT["line_scattering"].astype(float)
+scont = B_nu; sline = B_nu
+aline = DA["line_opacity"].astype(float) + mol_np
+zero = np.zeros(T.size)
+ft = np.array([solve_josh(acont[:, i], scont[:, i], aline[:, i], sline[:, i], sigmac[:, i], sigmal[:, i])
+               for i in range(wavelength.size)])
+fc = np.array([solve_josh(acont[:, i], scont[:, i], zero, sline[:, i], sigmac[:, i], zero)
+               for i in range(wavelength.size)])
+spectrum = ft / fc
+reference = DT["flux_total"] / DT["flux_continuum"]
+spectrum_rel = np.abs(spectrum / reference - 1.0)
+print(f"normalised TiO spectrum vs reference: median {np.median(spectrum_rel):.2e}  max {spectrum_rel.max():.2e}")
+assert spectrum_rel.max() < 5e-6''')
+
+md(r"""The source, line opacity, and transfer are now assembled in the notebook. The production spectrum is used only after the solve, as the parity reference.""")
 
 code(r'''fig, (ax, axr) = plt.subplots(2, 1, figsize=(11, 5.4), sharex=True,
                               gridspec_kw={"height_ratios": [3, 1]})

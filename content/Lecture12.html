@@ -1102,9 +1102,9 @@ print(f&quot;  REL ERR:  median {np.median(rel):.2e}   max {rel.max():.2e}   ove
 
 floor = 1e-6                                                             # the bible gate for L12-13
 max_dev = float(rel.max())
-status = &quot;PASS&quot; if (max_dev &lt; floor or np.median(rel) == 0.0) else &quot;CHECK&quot;
+status = &quot;PASS&quot; if max_dev &lt; floor else &quot;CHECK&quot;
 print(f&quot;\ndocumented float floor = {floor:.1e}   -&gt;   [{status}]&quot;)
-assert max_dev &lt; floor or np.median(rel) == 0.0, f&quot;band opacity deviates by {max_dev:.2e}&quot;
+assert max_dev &lt; floor, f&quot;band opacity deviates by {max_dev:.2e}&quot;
 print(&quot;The GPU TiO band opacity matches the production molecular reference to the float floor.&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
@@ -1129,14 +1129,14 @@ rel = np.<span class="hljs-built_in">abs</span>((mol_np[mask] - mol_ref[mask]) /
 
 floor = <span class="hljs-number">1e-6</span>                                                             <span class="hljs-comment"># the bible gate for L12-13</span>
 max_dev = <span class="hljs-built_in">float</span>(rel.<span class="hljs-built_in">max</span>())
-status = <span class="hljs-string">&quot;PASS&quot;</span> <span class="hljs-keyword">if</span> (max_dev &lt; floor <span class="hljs-keyword">or</span> np.median(rel) == <span class="hljs-number">0.0</span>) <span class="hljs-keyword">else</span> <span class="hljs-string">&quot;CHECK&quot;</span>
+status = <span class="hljs-string">&quot;PASS&quot;</span> <span class="hljs-keyword">if</span> max_dev &lt; floor <span class="hljs-keyword">else</span> <span class="hljs-string">&quot;CHECK&quot;</span>
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;\ndocumented float floor = <span class="hljs-subst">{floor:<span class="hljs-number">.1</span>e}</span>   -&gt;   [<span class="hljs-subst">{status}</span>]&quot;</span>)
-<span class="hljs-keyword">assert</span> max_dev &lt; floor <span class="hljs-keyword">or</span> np.median(rel) == <span class="hljs-number">0.0</span>, <span class="hljs-string">f&quot;band opacity deviates by <span class="hljs-subst">{max_dev:<span class="hljs-number">.2</span>e}</span>&quot;</span>
+<span class="hljs-keyword">assert</span> max_dev &lt; floor, <span class="hljs-string">f&quot;band opacity deviates by <span class="hljs-subst">{max_dev:<span class="hljs-number">.2</span>e}</span>&quot;</span>
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;The GPU TiO band opacity matches the production molecular reference to the float floor.&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">Validating the GPU mol_band_opacity against the production molecular reference
   accumulation path = cpu/float64; 1,170,738 lines x 80 depths
 
-</pre></div><div class="out-block"><pre class="out-stream">band opacity computed in 37.1 s; shape (80, 9136), max 1.2910e+01
+</pre></div><div class="out-block"><pre class="out-stream">band opacity computed in 16.0 s; shape (80, 9136), max 1.2910e+01
 
   ref max 1.2910e+01   reproduced max 1.2910e+01
   abs diff max 2.83e-14
@@ -1192,26 +1192,282 @@ rel_row = np.<span class="hljs-built_in">abs</span>((mol_np[di_show][nz] - mol_r
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">band head at lambda = 712.75 nm  (opacity 8.840e-01 cm^2/g)
 GPU vs reference at this depth: median rel 2.06e-16, max rel 7.13e-14
 </pre></div></div><div class="prose"><h2>The emergent spectrum: reusing the JOSH solver</h2>
-<p>The molecular opacity is just another absorption term, so the emergent spectrum comes from the <strong>JOSH moment solver of Lectures 7–8</strong> with no change at all — already ported to torch in those GPU lectures. Rather than re-derive it, this section reads the production diagnostics&#39; assembled fluxes and confirms the band-shaped spectrum that the molecular opacity produces. The line absorption is the production <code>line_opacity</code> (whose molecular component we just reproduced independently); the continuum flux uses zero line opacity; the normalised spectrum is their ratio. We compare to the reference <code>flux_total / flux_continuum</code>.</p>
+<p>The molecular opacity is just another absorption term, so the emergent spectrum comes from the <strong>JOSH moment solver of Lecture 8</strong> with no change at all.  We reuse the compact solver from the NumPy twin here: the parabolic optical-depth integrator (<code>PARCOE</code>/<code>INTEG</code>), <code>MAP1</code> interpolation onto the fixed Eddington grid, and the single-precision backward Gauss--Seidel source iteration.  The GPU-specific work in this lecture is the molecular opacity accumulation above; this transfer check is a small CPU/fp64 reuse of the already-verified Lecture-8 algorithm so the spectrum is genuinely solved instead of read from the production flux arrays.</p>
+<p>For the line opacity we use the molecules-off reference line opacity plus the <strong>computed</strong> molecular opacity <code>mol_np</code>.  That keeps the warm atomic/hydrogen background fixed while proving the band opacity we just built is the component that carves the cool-star spectrum.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[21]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="spectrum = (DT[&quot;flux_total&quot;] / DT[&quot;flux_continuum&quot;]).astype(float)      # the production normalised spectrum
-print(f&quot;normalised TiO spectrum over {spectrum.size} wavelengths: &quot;
-      f&quot;continuum ~1.0, deepest band point {spectrum.min():.4f}&quot;)
-print(f&quot;the molecular opacity that carves it matches the reference to {np.median(rel):.1e} (median)&quot;)" aria-label="Copy code">
+        <button class="copy-btn" type="button" data-code="def parcoe(f, x):
+    n = f.size; a = np.zeros(n); b = np.zeros(n); c = np.zeros(n)
+    if n == 1: a[0] = f[0]; return a, b, c
+    b[0] = (f[1]-f[0])/(x[1]-x[0]); a[0] = f[0]-x[0]*b[0]; n1 = n-1
+    b[-1] = (f[-1]-f[n1-1])/(x[-1]-x[n1-1]); a[-1] = f[-1]-x[-1]*b[-1]
+    if n == 2: return a, b, c
+    for j in range(1, n1):  # JUSTIFIED-LOOP: exact 80-layer PARCOE recurrence.
+        j1 = j-1; d = (f[j]-f[j1])/(x[j]-x[j1])
+        c[j] = f[j+1]/((x[j+1]-x[j])*(x[j+1]-x[j1])) + (f[j1]/(x[j+1]-x[j1])-f[j]/(x[j+1]-x[j]))/(x[j]-x[j1])
+        b[j] = d-(x[j]+x[j1])*c[j]; a[j] = f[j1]-x[j1]*d+x[j]*x[j1]*c[j]
+    c[1] = 0.0; b[1] = (f[2]-f[1])/(x[2]-x[1]); a[1] = f[1]-x[1]*b[1]
+    if n &gt; 3: c[2] = 0.0; b[2] = (f[3]-f[2])/(x[3]-x[2]); a[2] = f[2]-x[2]*b[2]
+    for j in range(1, n1):  # JUSTIFIED-LOOP: stateful curvature blend.
+        if c[j] == 0.0: continue
+        j1 = min(j+1, n-1); den = abs(c[j1])+abs(c[j]); wt = abs(c[j1])/den if den &gt; 0 else 0.0
+        a[j] = a[j1]+wt*(a[j]-a[j1]); b[j] = b[j1]+wt*(b[j]-b[j1]); c[j] = c[j1]+wt*(c[j]-c[j1])
+    a[n1-1] = a[-1]; b[n1-1] = b[-1]; c[n1-1] = c[-1]
+    return a, b, c
+
+def integ(x, f, start):
+    a, b, c = parcoe(f, x); out = np.zeros(f.size); out[0] = start
+    for i in range(f.size-1):  # JUSTIFIED-LOOP: exact accumulated INTEG order.
+        dx = x[i+1]-x[i]
+        term = a[i] + 0.5*b[i]*(x[i+1]+x[i]) + (c[i]/3.0)*((x[i+1]+x[i])*x[i+1] + x[i]*x[i])
+        out[i+1] = out[i] + term*dx
+    return out
+
+def map1(xold, fold, xnew):
+    nold, nnew = xold.size, xnew.size; fnew = np.zeros(nnew)
+    xo = np.empty(nold+1); fo = np.empty(nold+1); xo[1:] = xold; fo[1:] = fold
+    l = 2; ll = 0; cfor = bfor = afor = cbac = bbac = abac = a = b = c = 0.0
+    for k in range(1, nnew+1):  # JUSTIFIED-LOOP: MAP1 cursor is stateful.
+        xk = xnew[k-1]
+        while True:  # JUSTIFIED-LOOP: finite bracket walk over the 80-layer grid.
+            if xk &lt; xo[l]:
+                if l == ll: break
+                if l == 2 or l == 3:
+                    l = min(nold, l); c = 0.0; b = (fo[l]-fo[l-1])/(xo[l]-xo[l-1]); a = fo[l]-xo[l]*b; ll = l; break
+                l1 = l-1
+                if l &gt; ll+1 or l == 3 or l == 4:
+                    l2 = l-2; d = (fo[l1]-fo[l2])/(xo[l1]-xo[l2])
+                    cbac = fo[l]/((xo[l]-xo[l1])*(xo[l]-xo[l2])) + (fo[l2]/(xo[l]-xo[l2])-fo[l1]/(xo[l]-xo[l1]))/(xo[l1]-xo[l2])
+                    bbac = d-(xo[l1]+xo[l2])*cbac; abac = fo[l2]-xo[l2]*d+xo[l1]*xo[l2]*cbac
+                    if l &gt;= nold: c, b, a, ll = cbac, bbac, abac, l; break
+                else:
+                    cbac, bbac, abac = cfor, bfor, afor
+                    if l == nold: c, b, a, ll = cbac, bbac, abac, l; break
+                d = (fo[l]-fo[l1])/(xo[l]-xo[l1])
+                cfor = fo[l+1]/((xo[l+1]-xo[l])*(xo[l+1]-xo[l1])) + (fo[l1]/(xo[l+1]-xo[l1])-fo[l]/(xo[l+1]-xo[l]))/(xo[l]-xo[l1])
+                bfor = d-(xo[l]+xo[l1])*cfor; afor = fo[l1]-xo[l1]*d+xo[l]*xo[l1]*cfor
+                wt = abs(cfor)/(abs(cfor)+abs(cbac)) if abs(cfor) != 0 else 0.0
+                a = afor+wt*(abac-afor); b = bfor+wt*(bbac-bfor); c = cfor+wt*(cbac-cfor); ll = l; break
+            l += 1
+            if l &gt; nold:
+                l = min(nold, l); c = 0.0; b = (fo[l]-fo[l-1])/(xo[l]-xo[l-1]); a = fo[l]-xo[l]*b; ll = l; break
+        fnew[k-1] = a + (b + c*xk)*xk
+    return fnew
+" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">spectrum = (DT[<span class="hljs-string">&quot;flux_total&quot;</span>] / DT[<span class="hljs-string">&quot;flux_continuum&quot;</span>]).astype(<span class="hljs-built_in">float</span>)      <span class="hljs-comment"># the production normalised spectrum</span>
-<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;normalised TiO spectrum over <span class="hljs-subst">{spectrum.size}</span> wavelengths: &quot;</span>
-      <span class="hljs-string">f&quot;continuum ~1.0, deepest band point <span class="hljs-subst">{spectrum.<span class="hljs-built_in">min</span>():<span class="hljs-number">.4</span>f}</span>&quot;</span>)
-<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;the molecular opacity that carves it matches the reference to <span class="hljs-subst">{np.median(rel):<span class="hljs-number">.1</span>e}</span> (median)&quot;</span>)</code></pre>
-    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">normalised TiO spectrum over 9136 wavelengths: continuum ~1.0, deepest band point 0.1245
-the molecular opacity that carves it matches the reference to 2.2e-16 (median)
-</pre></div></div><div class="prose"><p>The source function in this LTE synthesis is the <strong>Planck function</strong> <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>B</mi><mi>λ</mi></msub><mo stretchy="false">(</mo><mi>T</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">B_\lambda(T)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05017em;">B</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3361em;"><span style="top:-2.55em;margin-left:-0.0502em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">λ</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mclose">)</span></span></span></span> of Lecture 1, computed not read: with thermal populations and no line scattering in this window, both the continuum and the line source reduce exactly to <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>B</mi><mi>λ</mi></msub><mo stretchy="false">(</mo><mi>T</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">B_\lambda(T)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05017em;">B</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3361em;"><span style="top:-2.55em;margin-left:-0.0502em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">λ</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mclose">)</span></span></span></span>. The JOSH transfer (the parabolic optical-depth integrator, the <code>MAP1</code> interpolation onto the Eddington grid, and the backward Gauss–Seidel scattering sweep in single precision) is identical to Lecture 8 — the only change for a cool star is that the molecular opacity now enters the line-absorption term, lifting the optical depth in the band heads. The GPU editions of Lectures 7–8 port that solver; here we reuse its result.</p>
-</div><div class="nb-cell"><div class="code-card">
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">parcoe</span>(<span class="hljs-params">f, x</span>):
+    n = f.size; a = np.zeros(n); b = np.zeros(n); c = np.zeros(n)
+    <span class="hljs-keyword">if</span> n == <span class="hljs-number">1</span>: a[<span class="hljs-number">0</span>] = f[<span class="hljs-number">0</span>]; <span class="hljs-keyword">return</span> a, b, c
+    b[<span class="hljs-number">0</span>] = (f[<span class="hljs-number">1</span>]-f[<span class="hljs-number">0</span>])/(x[<span class="hljs-number">1</span>]-x[<span class="hljs-number">0</span>]); a[<span class="hljs-number">0</span>] = f[<span class="hljs-number">0</span>]-x[<span class="hljs-number">0</span>]*b[<span class="hljs-number">0</span>]; n1 = n-<span class="hljs-number">1</span>
+    b[-<span class="hljs-number">1</span>] = (f[-<span class="hljs-number">1</span>]-f[n1-<span class="hljs-number">1</span>])/(x[-<span class="hljs-number">1</span>]-x[n1-<span class="hljs-number">1</span>]); a[-<span class="hljs-number">1</span>] = f[-<span class="hljs-number">1</span>]-x[-<span class="hljs-number">1</span>]*b[-<span class="hljs-number">1</span>]
+    <span class="hljs-keyword">if</span> n == <span class="hljs-number">2</span>: <span class="hljs-keyword">return</span> a, b, c
+    <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, n1):  <span class="hljs-comment"># JUSTIFIED-LOOP: exact 80-layer PARCOE recurrence.</span>
+        j1 = j-<span class="hljs-number">1</span>; d = (f[j]-f[j1])/(x[j]-x[j1])
+        c[j] = f[j+<span class="hljs-number">1</span>]/((x[j+<span class="hljs-number">1</span>]-x[j])*(x[j+<span class="hljs-number">1</span>]-x[j1])) + (f[j1]/(x[j+<span class="hljs-number">1</span>]-x[j1])-f[j]/(x[j+<span class="hljs-number">1</span>]-x[j]))/(x[j]-x[j1])
+        b[j] = d-(x[j]+x[j1])*c[j]; a[j] = f[j1]-x[j1]*d+x[j]*x[j1]*c[j]
+    c[<span class="hljs-number">1</span>] = <span class="hljs-number">0.0</span>; b[<span class="hljs-number">1</span>] = (f[<span class="hljs-number">2</span>]-f[<span class="hljs-number">1</span>])/(x[<span class="hljs-number">2</span>]-x[<span class="hljs-number">1</span>]); a[<span class="hljs-number">1</span>] = f[<span class="hljs-number">1</span>]-x[<span class="hljs-number">1</span>]*b[<span class="hljs-number">1</span>]
+    <span class="hljs-keyword">if</span> n &gt; <span class="hljs-number">3</span>: c[<span class="hljs-number">2</span>] = <span class="hljs-number">0.0</span>; b[<span class="hljs-number">2</span>] = (f[<span class="hljs-number">3</span>]-f[<span class="hljs-number">2</span>])/(x[<span class="hljs-number">3</span>]-x[<span class="hljs-number">2</span>]); a[<span class="hljs-number">2</span>] = f[<span class="hljs-number">2</span>]-x[<span class="hljs-number">2</span>]*b[<span class="hljs-number">2</span>]
+    <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, n1):  <span class="hljs-comment"># JUSTIFIED-LOOP: stateful curvature blend.</span>
+        <span class="hljs-keyword">if</span> c[j] == <span class="hljs-number">0.0</span>: <span class="hljs-keyword">continue</span>
+        j1 = <span class="hljs-built_in">min</span>(j+<span class="hljs-number">1</span>, n-<span class="hljs-number">1</span>); den = <span class="hljs-built_in">abs</span>(c[j1])+<span class="hljs-built_in">abs</span>(c[j]); wt = <span class="hljs-built_in">abs</span>(c[j1])/den <span class="hljs-keyword">if</span> den &gt; <span class="hljs-number">0</span> <span class="hljs-keyword">else</span> <span class="hljs-number">0.0</span>
+        a[j] = a[j1]+wt*(a[j]-a[j1]); b[j] = b[j1]+wt*(b[j]-b[j1]); c[j] = c[j1]+wt*(c[j]-c[j1])
+    a[n1-<span class="hljs-number">1</span>] = a[-<span class="hljs-number">1</span>]; b[n1-<span class="hljs-number">1</span>] = b[-<span class="hljs-number">1</span>]; c[n1-<span class="hljs-number">1</span>] = c[-<span class="hljs-number">1</span>]
+    <span class="hljs-keyword">return</span> a, b, c
+
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">integ</span>(<span class="hljs-params">x, f, start</span>):
+    a, b, c = parcoe(f, x); out = np.zeros(f.size); out[<span class="hljs-number">0</span>] = start
+    <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(f.size-<span class="hljs-number">1</span>):  <span class="hljs-comment"># JUSTIFIED-LOOP: exact accumulated INTEG order.</span>
+        dx = x[i+<span class="hljs-number">1</span>]-x[i]
+        term = a[i] + <span class="hljs-number">0.5</span>*b[i]*(x[i+<span class="hljs-number">1</span>]+x[i]) + (c[i]/<span class="hljs-number">3.0</span>)*((x[i+<span class="hljs-number">1</span>]+x[i])*x[i+<span class="hljs-number">1</span>] + x[i]*x[i])
+        out[i+<span class="hljs-number">1</span>] = out[i] + term*dx
+    <span class="hljs-keyword">return</span> out
+
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">map1</span>(<span class="hljs-params">xold, fold, xnew</span>):
+    nold, nnew = xold.size, xnew.size; fnew = np.zeros(nnew)
+    xo = np.empty(nold+<span class="hljs-number">1</span>); fo = np.empty(nold+<span class="hljs-number">1</span>); xo[<span class="hljs-number">1</span>:] = xold; fo[<span class="hljs-number">1</span>:] = fold
+    l = <span class="hljs-number">2</span>; ll = <span class="hljs-number">0</span>; cfor = bfor = afor = cbac = bbac = abac = a = b = c = <span class="hljs-number">0.0</span>
+    <span class="hljs-keyword">for</span> k <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, nnew+<span class="hljs-number">1</span>):  <span class="hljs-comment"># JUSTIFIED-LOOP: MAP1 cursor is stateful.</span>
+        xk = xnew[k-<span class="hljs-number">1</span>]
+        <span class="hljs-keyword">while</span> <span class="hljs-literal">True</span>:  <span class="hljs-comment"># JUSTIFIED-LOOP: finite bracket walk over the 80-layer grid.</span>
+            <span class="hljs-keyword">if</span> xk &lt; xo[l]:
+                <span class="hljs-keyword">if</span> l == ll: <span class="hljs-keyword">break</span>
+                <span class="hljs-keyword">if</span> l == <span class="hljs-number">2</span> <span class="hljs-keyword">or</span> l == <span class="hljs-number">3</span>:
+                    l = <span class="hljs-built_in">min</span>(nold, l); c = <span class="hljs-number">0.0</span>; b = (fo[l]-fo[l-<span class="hljs-number">1</span>])/(xo[l]-xo[l-<span class="hljs-number">1</span>]); a = fo[l]-xo[l]*b; ll = l; <span class="hljs-keyword">break</span>
+                l1 = l-<span class="hljs-number">1</span>
+                <span class="hljs-keyword">if</span> l &gt; ll+<span class="hljs-number">1</span> <span class="hljs-keyword">or</span> l == <span class="hljs-number">3</span> <span class="hljs-keyword">or</span> l == <span class="hljs-number">4</span>:
+                    l2 = l-<span class="hljs-number">2</span>; d = (fo[l1]-fo[l2])/(xo[l1]-xo[l2])
+                    cbac = fo[l]/((xo[l]-xo[l1])*(xo[l]-xo[l2])) + (fo[l2]/(xo[l]-xo[l2])-fo[l1]/(xo[l]-xo[l1]))/(xo[l1]-xo[l2])
+                    bbac = d-(xo[l1]+xo[l2])*cbac; abac = fo[l2]-xo[l2]*d+xo[l1]*xo[l2]*cbac
+                    <span class="hljs-keyword">if</span> l &gt;= nold: c, b, a, ll = cbac, bbac, abac, l; <span class="hljs-keyword">break</span>
+                <span class="hljs-keyword">else</span>:
+                    cbac, bbac, abac = cfor, bfor, afor
+                    <span class="hljs-keyword">if</span> l == nold: c, b, a, ll = cbac, bbac, abac, l; <span class="hljs-keyword">break</span>
+                d = (fo[l]-fo[l1])/(xo[l]-xo[l1])
+                cfor = fo[l+<span class="hljs-number">1</span>]/((xo[l+<span class="hljs-number">1</span>]-xo[l])*(xo[l+<span class="hljs-number">1</span>]-xo[l1])) + (fo[l1]/(xo[l+<span class="hljs-number">1</span>]-xo[l1])-fo[l]/(xo[l+<span class="hljs-number">1</span>]-xo[l]))/(xo[l]-xo[l1])
+                bfor = d-(xo[l]+xo[l1])*cfor; afor = fo[l1]-xo[l1]*d+xo[l]*xo[l1]*cfor
+                wt = <span class="hljs-built_in">abs</span>(cfor)/(<span class="hljs-built_in">abs</span>(cfor)+<span class="hljs-built_in">abs</span>(cbac)) <span class="hljs-keyword">if</span> <span class="hljs-built_in">abs</span>(cfor) != <span class="hljs-number">0</span> <span class="hljs-keyword">else</span> <span class="hljs-number">0.0</span>
+                a = afor+wt*(abac-afor); b = bfor+wt*(bbac-bfor); c = cfor+wt*(cbac-cfor); ll = l; <span class="hljs-keyword">break</span>
+            l += <span class="hljs-number">1</span>
+            <span class="hljs-keyword">if</span> l &gt; nold:
+                l = <span class="hljs-built_in">min</span>(nold, l); c = <span class="hljs-number">0.0</span>; b = (fo[l]-fo[l-<span class="hljs-number">1</span>])/(xo[l]-xo[l-<span class="hljs-number">1</span>]); a = fo[l]-xo[l]*b; ll = l; <span class="hljs-keyword">break</span>
+        fnew[k-<span class="hljs-number">1</span>] = a + (b + c*xk)*xk
+    <span class="hljs-keyword">return</span> fnew
+</code></pre>
+    </div></div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[22]</span>Python</span>
+        <button class="copy-btn" type="button" data-code="JT = np.load(REF / &quot;josh_tables.npz&quot;)
+XTAU = JT[&quot;xtau&quot;].astype(float); CH = JT[&quot;ch&quot;].astype(float); COEFJ = JT[&quot;coefj&quot;].astype(float)
+EPS, TOL, MAXIT = 1e-38, 1e-5, 51; COEFJ_DIAG = np.diag(COEFJ).copy()
+rhox = NPZ[&quot;depth&quot;].astype(float)
+
+def iterate_source(sbar_grid, alpha_grid):
+    co = COEFJ.astype(np.float32); xs = sbar_grid.astype(np.float32); al = alpha_grid.astype(np.float32)
+    sbar_mod = (sbar_grid * (1.0 - alpha_grid)).astype(np.float32)
+    diag = (1.0 - alpha_grid * COEFJ_DIAG).astype(np.float32)
+    for _ in range(MAXIT):  # JUSTIFIED-LOOP: fixed 51-point JOSH convergence cap.
+        converged = True
+        for k in range(XTAU.size-1, -1, -1):  # JUSTIFIED-LOOP: backward Gauss-Seidel dependency.
+            jk = np.float32(np.dot(co[k], xs))
+            delta = (jk*al[k] + sbar_mod[k] - xs[k]) / diag[k]
+            if (abs(delta/xs[k]) if xs[k] != 0 else np.inf) &gt; np.float32(TOL): converged = False
+            xs[k] = max(xs[k] + delta, np.float32(EPS))
+        if converged: break
+    return xs.astype(np.float64)
+
+def solve_josh(acont, scont, aline, sline, sigmac, sigmal):
+    abtot = np.maximum(acont + aline + sigmac + sigmal, EPS)
+    alpha = np.clip((sigmac + sigmal) / abtot, 0.0, 1.0)
+    denom = acont + aline
+    sbar = np.where(denom &gt; 0, (acont*scont + aline*sline)/denom, scont)
+    if rhox.size &gt; 1 and rhox[0] &gt; rhox[-1]:
+        r = rhox[::-1]; ab = abtot[::-1]; tau = integ(r, ab, ab[-1]*r[-1])
+        sbar = sbar[::-1]; alpha = alpha[::-1]
+    else:
+        tau = integ(rhox, abtot, abtot[0]*rhox[0])
+    sbar_g = np.maximum(map1(tau, sbar, XTAU), EPS)
+    alpha_g = np.clip(map1(tau, alpha, XTAU), 0.0, 1.0)
+    above = XTAU &lt; tau[0]
+    if above.any(): sbar_g[above] = max(sbar[0], EPS); alpha_g[above] = np.clip(alpha[0], 0, 1)
+    return float(CH @ iterate_source(sbar_g, alpha_g))
+print(&quot;compact JOSH transfer solver ready (Lecture 8)&quot;)" aria-label="Copy code">
+          <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
+      </div>
+      <pre class="code-body"><code class="hljs language-python">JT = np.load(REF / <span class="hljs-string">&quot;josh_tables.npz&quot;</span>)
+XTAU = JT[<span class="hljs-string">&quot;xtau&quot;</span>].astype(<span class="hljs-built_in">float</span>); CH = JT[<span class="hljs-string">&quot;ch&quot;</span>].astype(<span class="hljs-built_in">float</span>); COEFJ = JT[<span class="hljs-string">&quot;coefj&quot;</span>].astype(<span class="hljs-built_in">float</span>)
+EPS, TOL, MAXIT = <span class="hljs-number">1e-38</span>, <span class="hljs-number">1e-5</span>, <span class="hljs-number">51</span>; COEFJ_DIAG = np.diag(COEFJ).copy()
+rhox = NPZ[<span class="hljs-string">&quot;depth&quot;</span>].astype(<span class="hljs-built_in">float</span>)
+
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">iterate_source</span>(<span class="hljs-params">sbar_grid, alpha_grid</span>):
+    co = COEFJ.astype(np.float32); xs = sbar_grid.astype(np.float32); al = alpha_grid.astype(np.float32)
+    sbar_mod = (sbar_grid * (<span class="hljs-number">1.0</span> - alpha_grid)).astype(np.float32)
+    diag = (<span class="hljs-number">1.0</span> - alpha_grid * COEFJ_DIAG).astype(np.float32)
+    <span class="hljs-keyword">for</span> _ <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(MAXIT):  <span class="hljs-comment"># JUSTIFIED-LOOP: fixed 51-point JOSH convergence cap.</span>
+        converged = <span class="hljs-literal">True</span>
+        <span class="hljs-keyword">for</span> k <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(XTAU.size-<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>):  <span class="hljs-comment"># JUSTIFIED-LOOP: backward Gauss-Seidel dependency.</span>
+            jk = np.float32(np.dot(co[k], xs))
+            delta = (jk*al[k] + sbar_mod[k] - xs[k]) / diag[k]
+            <span class="hljs-keyword">if</span> (<span class="hljs-built_in">abs</span>(delta/xs[k]) <span class="hljs-keyword">if</span> xs[k] != <span class="hljs-number">0</span> <span class="hljs-keyword">else</span> np.inf) &gt; np.float32(TOL): converged = <span class="hljs-literal">False</span>
+            xs[k] = <span class="hljs-built_in">max</span>(xs[k] + delta, np.float32(EPS))
+        <span class="hljs-keyword">if</span> converged: <span class="hljs-keyword">break</span>
+    <span class="hljs-keyword">return</span> xs.astype(np.float64)
+
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">solve_josh</span>(<span class="hljs-params">acont, scont, aline, sline, sigmac, sigmal</span>):
+    abtot = np.maximum(acont + aline + sigmac + sigmal, EPS)
+    alpha = np.clip((sigmac + sigmal) / abtot, <span class="hljs-number">0.0</span>, <span class="hljs-number">1.0</span>)
+    denom = acont + aline
+    sbar = np.where(denom &gt; <span class="hljs-number">0</span>, (acont*scont + aline*sline)/denom, scont)
+    <span class="hljs-keyword">if</span> rhox.size &gt; <span class="hljs-number">1</span> <span class="hljs-keyword">and</span> rhox[<span class="hljs-number">0</span>] &gt; rhox[-<span class="hljs-number">1</span>]:
+        r = rhox[::-<span class="hljs-number">1</span>]; ab = abtot[::-<span class="hljs-number">1</span>]; tau = integ(r, ab, ab[-<span class="hljs-number">1</span>]*r[-<span class="hljs-number">1</span>])
+        sbar = sbar[::-<span class="hljs-number">1</span>]; alpha = alpha[::-<span class="hljs-number">1</span>]
+    <span class="hljs-keyword">else</span>:
+        tau = integ(rhox, abtot, abtot[<span class="hljs-number">0</span>]*rhox[<span class="hljs-number">0</span>])
+    sbar_g = np.maximum(map1(tau, sbar, XTAU), EPS)
+    alpha_g = np.clip(map1(tau, alpha, XTAU), <span class="hljs-number">0.0</span>, <span class="hljs-number">1.0</span>)
+    above = XTAU &lt; tau[<span class="hljs-number">0</span>]
+    <span class="hljs-keyword">if</span> above.<span class="hljs-built_in">any</span>(): sbar_g[above] = <span class="hljs-built_in">max</span>(sbar[<span class="hljs-number">0</span>], EPS); alpha_g[above] = np.clip(alpha[<span class="hljs-number">0</span>], <span class="hljs-number">0</span>, <span class="hljs-number">1</span>)
+    <span class="hljs-keyword">return</span> <span class="hljs-built_in">float</span>(CH @ iterate_source(sbar_g, alpha_g))
+<span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;compact JOSH transfer solver ready (Lecture 8)&quot;</span>)</code></pre>
+    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">compact JOSH transfer solver ready (Lecture 8)
+</pre></div></div><div class="prose"><p>The source function in this LTE synthesis is the <strong>Planck function</strong> <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>B</mi><mi>ν</mi></msub><mo stretchy="false">(</mo><mi>T</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">B_\nu(T)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05017em;">B</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.0502em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mclose">)</span></span></span></span> of Lecture 1, computed not read. With thermal populations and zero line scattering in this window, both continuum and line source reduce to that same Planck function. We verify the inline source against the shipped source arrays, then use only the inline source in transfer.</p>
+</div><div class="nb-cell"><div class="code-card">
+      <div class="code-top">
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[23]</span>Python</span>
+        <button class="copy-btn" type="button" data-code="def planck_nu(nu, temp):
+    x = 6.62607015e-27 * nu / (1.380649e-16 * temp)
+    ex = np.exp(-np.minimum(x, 700.0))
+    stim = np.maximum(1.0 - ex, 1e-300)
+    return 1.47439e-2 * (nu/1e15)**3 * ex / stim
+
+nu_grid = C_NM / wavelength
+B_nu = planck_nu(nu_grid[None, :], T[:, None])
+rel_c = np.abs(B_nu - DT[&quot;slinec&quot;].astype(float)) / np.maximum(np.abs(DT[&quot;slinec&quot;].astype(float)), 1e-300)
+rel_l = np.abs(B_nu - DT[&quot;line_source&quot;].astype(float)) / np.maximum(np.abs(DT[&quot;line_source&quot;].astype(float)), 1e-300)
+print(f&quot;inline B_nu vs reference slinec     : max rel diff = {rel_c.max():.2e}&quot;)
+print(f&quot;inline B_nu vs reference line_source: max rel diff = {rel_l.max():.2e}&quot;)
+print(f&quot;reference line_scattering is exactly zero: {np.all(DT[&#39;line_scattering&#39;].astype(float) == 0.0)}&quot;)
+assert rel_c.max() &lt; 1e-12 and rel_l.max() &lt; 1e-12" aria-label="Copy code">
+          <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
+      </div>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">planck_nu</span>(<span class="hljs-params">nu, temp</span>):
+    x = <span class="hljs-number">6.62607015e-27</span> * nu / (<span class="hljs-number">1.380649e-16</span> * temp)
+    ex = np.exp(-np.minimum(x, <span class="hljs-number">700.0</span>))
+    stim = np.maximum(<span class="hljs-number">1.0</span> - ex, <span class="hljs-number">1e-300</span>)
+    <span class="hljs-keyword">return</span> <span class="hljs-number">1.47439e-2</span> * (nu/<span class="hljs-number">1e15</span>)**<span class="hljs-number">3</span> * ex / stim
+
+nu_grid = C_NM / wavelength
+B_nu = planck_nu(nu_grid[<span class="hljs-literal">None</span>, :], T[:, <span class="hljs-literal">None</span>])
+rel_c = np.<span class="hljs-built_in">abs</span>(B_nu - DT[<span class="hljs-string">&quot;slinec&quot;</span>].astype(<span class="hljs-built_in">float</span>)) / np.maximum(np.<span class="hljs-built_in">abs</span>(DT[<span class="hljs-string">&quot;slinec&quot;</span>].astype(<span class="hljs-built_in">float</span>)), <span class="hljs-number">1e-300</span>)
+rel_l = np.<span class="hljs-built_in">abs</span>(B_nu - DT[<span class="hljs-string">&quot;line_source&quot;</span>].astype(<span class="hljs-built_in">float</span>)) / np.maximum(np.<span class="hljs-built_in">abs</span>(DT[<span class="hljs-string">&quot;line_source&quot;</span>].astype(<span class="hljs-built_in">float</span>)), <span class="hljs-number">1e-300</span>)
+<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;inline B_nu vs reference slinec     : max rel diff = <span class="hljs-subst">{rel_c.<span class="hljs-built_in">max</span>():<span class="hljs-number">.2</span>e}</span>&quot;</span>)
+<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;inline B_nu vs reference line_source: max rel diff = <span class="hljs-subst">{rel_l.<span class="hljs-built_in">max</span>():<span class="hljs-number">.2</span>e}</span>&quot;</span>)
+<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;reference line_scattering is exactly zero: <span class="hljs-subst">{np.<span class="hljs-built_in">all</span>(DT[<span class="hljs-string">&#x27;line_scattering&#x27;</span>].astype(<span class="hljs-built_in">float</span>) == <span class="hljs-number">0.0</span>)}</span>&quot;</span>)
+<span class="hljs-keyword">assert</span> rel_c.<span class="hljs-built_in">max</span>() &lt; <span class="hljs-number">1e-12</span> <span class="hljs-keyword">and</span> rel_l.<span class="hljs-built_in">max</span>() &lt; <span class="hljs-number">1e-12</span></code></pre>
+    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">inline B_nu vs reference slinec     : max rel diff = 3.60e-15
+inline B_nu vs reference line_source: max rel diff = 3.60e-15
+reference line_scattering is exactly zero: True
+</pre></div></div><div class="nb-cell"><div class="code-card">
+      <div class="code-top">
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[24]</span>Python</span>
+        <button class="copy-btn" type="button" data-code="acont = DT[&quot;continuum_absorption&quot;].astype(float)
+sigmac = DT[&quot;continuum_scattering&quot;].astype(float)
+sigmal = DT[&quot;line_scattering&quot;].astype(float)
+scont = B_nu; sline = B_nu
+aline = DA[&quot;line_opacity&quot;].astype(float) + mol_np
+zero = np.zeros(T.size)
+ft = np.array([solve_josh(acont[:, i], scont[:, i], aline[:, i], sline[:, i], sigmac[:, i], sigmal[:, i])
+               for i in range(wavelength.size)])
+fc = np.array([solve_josh(acont[:, i], scont[:, i], zero, sline[:, i], sigmac[:, i], zero)
+               for i in range(wavelength.size)])
+spectrum = ft / fc
+reference = DT[&quot;flux_total&quot;] / DT[&quot;flux_continuum&quot;]
+spectrum_rel = np.abs(spectrum / reference - 1.0)
+print(f&quot;normalised TiO spectrum vs reference: median {np.median(spectrum_rel):.2e}  max {spectrum_rel.max():.2e}&quot;)
+assert spectrum_rel.max() &lt; 5e-6" aria-label="Copy code">
+          <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
+      </div>
+      <pre class="code-body"><code class="hljs language-python">acont = DT[<span class="hljs-string">&quot;continuum_absorption&quot;</span>].astype(<span class="hljs-built_in">float</span>)
+sigmac = DT[<span class="hljs-string">&quot;continuum_scattering&quot;</span>].astype(<span class="hljs-built_in">float</span>)
+sigmal = DT[<span class="hljs-string">&quot;line_scattering&quot;</span>].astype(<span class="hljs-built_in">float</span>)
+scont = B_nu; sline = B_nu
+aline = DA[<span class="hljs-string">&quot;line_opacity&quot;</span>].astype(<span class="hljs-built_in">float</span>) + mol_np
+zero = np.zeros(T.size)
+ft = np.array([solve_josh(acont[:, i], scont[:, i], aline[:, i], sline[:, i], sigmac[:, i], sigmal[:, i])
+               <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(wavelength.size)])
+fc = np.array([solve_josh(acont[:, i], scont[:, i], zero, sline[:, i], sigmac[:, i], zero)
+               <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(wavelength.size)])
+spectrum = ft / fc
+reference = DT[<span class="hljs-string">&quot;flux_total&quot;</span>] / DT[<span class="hljs-string">&quot;flux_continuum&quot;</span>]
+spectrum_rel = np.<span class="hljs-built_in">abs</span>(spectrum / reference - <span class="hljs-number">1.0</span>)
+<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;normalised TiO spectrum vs reference: median <span class="hljs-subst">{np.median(spectrum_rel):<span class="hljs-number">.2</span>e}</span>  max <span class="hljs-subst">{spectrum_rel.<span class="hljs-built_in">max</span>():<span class="hljs-number">.2</span>e}</span>&quot;</span>)
+<span class="hljs-keyword">assert</span> spectrum_rel.<span class="hljs-built_in">max</span>() &lt; <span class="hljs-number">5e-6</span></code></pre>
+    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">normalised TiO spectrum vs reference: median 1.67e-13  max 1.06e-08
+</pre></div></div><div class="prose"><p>The source, line opacity, and transfer are now assembled in the notebook. The production spectrum is used only after the solve, as the parity reference.</p>
+</div><div class="nb-cell"><div class="code-card">
+      <div class="code-top">
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[25]</span>Python</span>
         <button class="copy-btn" type="button" data-code="fig, (ax, axr) = plt.subplots(2, 1, figsize=(11, 5.4), sharex=True,
                               gridspec_kw={&quot;height_ratios&quot;: [3, 1]})
 ax.plot(wavelength, spectrum, color=&quot;C3&quot;, lw=0.7, label=&quot;cool M dwarf (TiO bands)&quot;)
