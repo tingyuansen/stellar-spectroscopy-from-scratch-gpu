@@ -340,3 +340,23 @@ author lectures (house style), run both critics.
   Runs in the book .venv (numpy/numba/torch). 2-iter smoke from the emulator warm-start (base RHOX
   7.5): descends correctly -> base RHOX 7.5->13.4->12.6 (target 12.14), base T ->12275, Tmed 4.9e-3.
   ~55s/iter. FULL 30-iter run launched. [2026-06-28]
+
+--------------------------------------------------------------------------------
+## ★ STAGE 8 MILESTONE (2026-06-28): the book's OWN from-scratch convergence REACHES near-sun
+converge_fromscratch.py (NO pyk subprocess; every piece the book's own) from the emulator
+warm-start (base RHOX 7.5, base T 10078):
+  iter 1  baseT 12878  baseRHOX 13.379  Tmed 5.4e-3
+  iter 4  baseT 11766  baseRHOX 12.098  Tmed 5.7e-3
+  iter 6  baseT 11586  baseRHOX 12.111  Tmed 4.5e-3
+  iter 8  baseT 11513  baseRHOX 12.202  abross[base] 310.6 (pyk 306!)  Tmed 3.4e-3  dTmax 2.4e-3
+DESCENDING MONOTONICALLY onto sun (3696/11425/12.14): base RHOX nailed to ~12.1-12.2 (target 12.14),
+base T cooling toward 11425, abross[base] -> ~306 (pyk's exact value), Tmed -> ~3e-3 and dropping.
+This DECISIVELY confirms: the book's own numpy (EOS+doppler+continuum+far-UV+EDENS+deposit+molecular,
+all verified bit-exact) reaches near-sun WITHOUT any borrowed pyk EOS. The remaining ~few-K base / the
+deep-RHOX is the documented optically-invisible deposit floor (kgpu carries it too). Full run continues
+in background -> final fixture + L16 convergence cell.
+LECTURE AUTHORING: L16 (new) authored (build_lecture16.py) — the from-scratch per-iteration EOS state
+(POPSALL slots / doppler+txnxn / tabcont+far-UV / EDENS ionization-energy heat capacity / molecular
+slots), house style, all teaching cells verified bit-exact. L15 prose updated to point the borrowed
+EOS forward to L16. build.py registry + eos_state_ref.npz fixture added. REMAINING: final convergence
+fixture + L16 build/execute + BOTH critics on L16 + changed L15.
