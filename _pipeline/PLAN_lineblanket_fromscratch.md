@@ -276,3 +276,18 @@ author lectures (house style), run both critics.
   DECISION (per the plan + coordinator): the far-UV continuum DOES bind the deep base -> extend the
   book's L3 continuum with the far-UV source (template kgpu/continuum.py). This is the Stage-7
   remediation. [2026-06-28]
+- Stage 7 REMEDIATION (precise diagnosis): the binding far-UV deficit is the metal BOUND-FREE
+  forest. ZEROING kgpu pops at 100 nm / 11425 K isolated it: xnfpc (CARBON) contributes 764 of
+  803 cm^2/g — the C I far-UV bf. The book's L3 C1OP (verify_kapp.py:608-618) EXPLICITLY
+  implements ONLY the optical edge (22006 cm^-1) and comments "other C1 edges are far-UV
+  (>=28880); inactive at 500-510 nm" — i.e. L3 deliberately TRUNCATED the far-UV metal bf because
+  it was validated only at 500-510 nm. The full far-UV forest (C I 90862 cm^-1 edge + level series
+  + Luo-Pradhan resonances + Kramers-Gaunt ff; same for Mg I/Si I/Al I/Fe I) is in kgpu/continuum.py
+  (_c1op_atlas/_mg1op_atlas/_si1op_atlas/_al1op_atlas/_fe1op_atlas + the _C1_ELEV/_MG1_ELEV/...
+  data + _xkarsas). cleanroom note: "the dominant kappa_R deficit holding the clean-room ATLAS12
+  off the 5e-4 gold floor."
+  REMEDIATION (next run): transcribe the 5 _xNop_atlas far-UV metal-bf functions + their element
+  data tables into the book's L3 continuum (extend verify_kapp / continuum_fromscratch), re-verify
+  the far-UV acont vs kgpu bit-exact, then re-run the Stage-7 fold (target abross[base] ratio ~1.0).
+  Honest-input note: the metal-bf cross-section coefficients (_C1_ELEV etc.) are atomic-data
+  constants (Karzas-Latter / atlas12.for), the same class as the L3 tables already shipped.
