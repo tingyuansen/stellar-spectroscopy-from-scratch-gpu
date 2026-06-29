@@ -26,7 +26,10 @@ Current status:
    - translate legacy bundle/table fields at input boundaries, not throughout taught code;
    - keep canonical Kurucz table names only when changing them would obscure provenance or break
      parity;
-   - rename in small builder/verifier-gated slices.
+   - rename in small builder/verifier-gated slices;
+   - status: L1-L13 have now had the naming/line-break readability pass. Leave remaining legacy
+     names only where they are canonical table/routine labels, fixture keys, or scalar-reference
+     transcriptions.
 
 2. Rework the L14-L16 curriculum order before major capstone promotion:
    - collect the end-to-end ATLAS12+SYNTHE topics in `BIBLE.md`/`PLAN.md`;
@@ -60,9 +63,11 @@ Current status:
      cells where practical;
    - retain scalar loops only for true recurrences or fixed table logic.
 
-7. Finish dense-cell cleanup:
+7. Finish dense-code teaching cleanup after the L14-L16 restructure:
    - remaining long cell is L14 `compute_kapp`, the continuum opacity ledger;
-   - split only when the capstone verifier is rerun.
+   - add reader-walkthrough comments/docstrings inside dense code blocks after the sequence is
+     stable, so comments describe the final structure rather than a soon-to-move draft;
+   - split or comment dense cells only when the corresponding verifier is rerun.
 
 ## GPU-Native Audit Rules
 

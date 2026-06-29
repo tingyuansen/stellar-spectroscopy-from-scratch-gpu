@@ -371,7 +371,7 @@ code(r'''def harris_hav_walk(x, a, h0tab, h1tab, h2tab, small, branch_oracle=Non
     return torch.where(small.expand_as(x) if small.shape != x.shape else small, cheap, full)
 print("batched near-wing Harris walk ready")''')
 
-md(r"""**`_wing_reach_batched` — every pair's reach, at once.** This is the tensor recasting of Stage 1 + Stage 2 of `process_wing_pair`. It computes, for the whole $[\text{depth},\text{line}]$ batch: `dopple` and the per-step $v$ increment `dvoigt`; the last near-wing step `n10dop` ($10\,v_D$); a batched `[depth, line, step]` scan of the cheap profile that finds where each pair first drops below the cutoff (`first_below` via `argmax` on the boolean — no per-line `break`); the far-wing anchor `x_far` and the analytic far reach; and the final per-pair `maxstep`. Transcribed from the validated implementation.""")
+md(r"""**`_wing_reach_batched` — every pair's reach, at once.** This is the tensor recasting of Stage 1 + Stage 2 of `process_wing_pair`. It computes, for the whole $[\text{depth},\text{line}]$ batch: the fractional Doppler width and the per-step $v$ increment `dvoigt`; the last near-wing step `n10dop` ($10\,v_D$); a batched `[depth, line, step]` scan of the cheap profile that finds where each pair first drops below the cutoff (`first_below` via `argmax` on the boolean — no per-line `break`); the far-wing anchor `x_far` and the analytic far reach; and the final per-pair `maxstep`. Transcribed from the validated implementation.""")
 
 code(r'''NARROW_REACH_TIERS = (
     1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768,
@@ -383,17 +383,18 @@ def wing_reach_batched(kappa0_wing, a_w, doppler_width, wl, kapmin_ref, wing_pai
                        resolu, h0tab, h1tab, h2tab):
     """Reach geometry for the WHOLE [depth, line] batch (port _wing_reach_batched): near-wing
     cutoff step, far-wing anchor x_far + analytic reach, per-pair maxstep. No per-line loop."""
-    dopple = torch.where(
+    doppler_fraction = torch.where(
         (doppler_width > 0.0) & (wl.view(1, -1) > 0.0),
         doppler_width / wl.view(1, -1), torch.full_like(doppler_width, 1.0e-10))
     active = (doppler_width > 0.0) & wing_pairs
-    n10dop = (10.0 * dopple * resolu).to(torch.int64)
-    dvoigt = torch.where(dopple > 0.0, 1.0 / (dopple * resolu), torch.ones_like(dopple))
+    n10dop = (10.0 * doppler_fraction * resolu).to(torch.int64)
+    dvoigt = torch.where(doppler_fraction > 0.0, 1.0 / (doppler_fraction * resolu),
+                         torch.ones_like(doppler_fraction))
     small = a_w < 0.2
 
     nstep_cutoff = n10dop.clone()
     broke = torch.zeros_like(active)
-    profile_at_n10dop = torch.zeros_like(dopple)
+    profile_at_n10dop = torch.zeros_like(doppler_fraction)
 
     # JUSTIFY: one scalar reach bound orchestrates a single batched near-wing launch.
     max_n10 = int(n10dop[active].max().item()) if bool(active.any()) else 0
@@ -411,7 +412,8 @@ def wing_reach_batched(kappa0_wing, a_w, doppler_width, wl, kapmin_ref, wing_pai
         broke = any_below
         n10_col = torch.clamp(n10dop - 1, min=0)
         profile_at_n10dop = torch.where(
-            n10dop >= 1, pv.gather(2, n10_col[:, :, None]).squeeze(2), torch.zeros_like(dopple))
+            n10dop >= 1, pv.gather(2, n10_col[:, :, None]).squeeze(2),
+            torch.zeros_like(doppler_fraction))
 
     never = (~broke) & (n10dop >= 1)
     nstep_cutoff = torch.where(never, torch.full_like(nstep_cutoff, -1), nstep_cutoff)
@@ -420,8 +422,8 @@ def wing_reach_batched(kappa0_wing, a_w, doppler_width, wl, kapmin_ref, wing_pai
     # far wing: profile * n^2 is constant in 1/v^2; reach where x_far/n^2 falls below the cutoff
     x_far = torch.where(
         (n10dop > 0) & (profile_at_n10dop > 0.0),
-        profile_at_n10dop * n10dop.to(dopple.dtype) * n10dop.to(dopple.dtype),
-        torch.zeros_like(dopple))
+        profile_at_n10dop * n10dop.to(doppler_fraction.dtype) * n10dop.to(doppler_fraction.dtype),
+        torch.zeros_like(doppler_fraction))
     safe_kapmin = torch.where(kapmin_ref > 0.0, kapmin_ref, torch.ones_like(kapmin_ref))
     far_reach_pos = torch.where(
         kapmin_ref > 0.0, (torch.sqrt(x_far / safe_kapmin) + 1.0).to(torch.int64),
@@ -586,31 +588,41 @@ def metal_invariants_fp64(catalog, atmd, grid, cont, sel0_np, center_idx_np, win
     center_idx = ti(center_idx_np)[sel0_np]; wing_idx = ti(wing_idx_np)[sel0_np]
     n_w = int(torch.as_tensor(grid).numel())
 
-    pop3 = t64(atmd["pop3"]); dop3 = t64(atmd["dop3"])
-    rho = t64(atmd["rho"]); xne = t64(atmd["xne"]); hckt = t64(atmd["hckt"])
-    txnxn = t64(atmd["txnxn"]); cont_t = t64(cont)
+    population_per_ion = t64(atmd["pop3"])
+    doppler_fraction_per_ion = t64(atmd["dop3"])
+    mass_density = t64(atmd["rho"])
+    electron_density = t64(atmd["xne"])
+    hc_over_kT = t64(atmd["hckt"])
+    vdw_perturber_density = t64(atmd["txnxn"])
+    cont_t = t64(cont)
     h0t = t64(catalog["h0tab"]); h1t = t64(catalog["h1tab"]); h2t = t64(catalog["h2tab"])
 
-    pop = pop3[:, ion_idx, elem_idx]; dop = dop3[:, ion_idx, elem_idx]
+    population = population_per_ion[:, ion_idx, elem_idx]
+    doppler_fraction = doppler_fraction_per_ion[:, ion_idx, elem_idx]
     cgf = CGF_CONSTANT * gf / (C_LIGHT_NM / lam)
     center_valid = (center_idx >= 0) & (center_idx < n_w)
     wing_active = (wing_idx >= -MAX_PROFILE_STEPS) & (wing_idx <= n_w - 1 + MAX_PROFILE_STEPS)
     kapmin_center = cont_t[:, torch.clamp(center_idx, 0, n_w - 1)] * CUTOFF
 
     extab, extabf = gpu_fastex_tables(dtype=f64, device=cpu)
-    boltz = gpu_fast_ex(Elow.view(1, -1) * hckt.view(-1, 1), extab, extabf)
-    good = (pop > 0.0) & (dop > 0.0) & (rho.view(-1, 1) > 0.0)
-    xnfdop = torch.where(good, pop / (rho.view(-1, 1) * dop), torch.zeros_like(pop))
-    kappa0_pre = cgf.view(1, -1) * xnfdop
+    boltz = gpu_fast_ex(Elow.view(1, -1) * hc_over_kT.view(-1, 1), extab, extabf)
+    good = (population > 0.0) & (doppler_fraction > 0.0) & (mass_density.view(-1, 1) > 0.0)
+    population_over_mass_doppler_width = torch.where(
+        good,
+        population / (mass_density.view(-1, 1) * doppler_fraction),
+        torch.zeros_like(population),
+    )
+    kappa0_pre = cgf.view(1, -1) * population_over_mass_doppler_width
     post = kappa0_pre * boltz
     passcut = good & (kappa0_pre >= kapmin_center) & (post >= kapmin_center) & (post > 0.0)
 
-    doppler_width = dop * lam.view(1, -1)
-    dopple = torch.where(lam.view(1, -1) > 0.0, doppler_width / lam.view(1, -1),
-                         torch.full_like(doppler_width, 1.0e-6))
-    gamma_total = (grad.view(1, -1) + gstark.view(1, -1) * xne.view(-1, 1)
-                   + gvdw.view(1, -1) * txnxn.view(-1, 1))
-    adamp = torch.where((doppler_width > 0.0) & (dopple > 0.0), gamma_total / dopple,
+    doppler_width = doppler_fraction * lam.view(1, -1)
+    doppler_fraction_for_damping = torch.where(lam.view(1, -1) > 0.0, doppler_width / lam.view(1, -1),
+                                               torch.full_like(doppler_width, 1.0e-6))
+    gamma_total = (grad.view(1, -1) + gstark.view(1, -1) * electron_density.view(-1, 1)
+                   + gvdw.view(1, -1) * vdw_perturber_density.view(-1, 1))
+    adamp = torch.where((doppler_width > 0.0) & (doppler_fraction_for_damping > 0.0),
+                        gamma_total / doppler_fraction_for_damping,
                         torch.zeros_like(gamma_total))
     cd = passcut & (adamp >= 0.0) & (post > 0.0)
     h0_center = gpu_voigt_h_at_zero(adamp, h0t, h1t, h2t)
@@ -790,8 +802,9 @@ def process_wing_pair(asynth_d, grid, center_idx, kappa0, adamp, doppler_width,
     """One (line, depth) scalar wing walk: near wing, far-wing reach, red+blue scalar += deposit."""
     n_w=grid.size
     if doppler_width<=0.0: return
-    dopple=doppler_width/line_wavelength if line_wavelength>0.0 else 1e-10
-    n10dop=int(10.0*dopple*resolu); dvoigt=1.0/(dopple*resolu) if dopple>0.0 else 1.0
+    doppler_fraction=doppler_width/line_wavelength if line_wavelength>0.0 else 1e-10
+    n10dop=int(10.0*doppler_fraction*resolu)
+    dvoigt=1.0/(doppler_fraction*resolu) if doppler_fraction>0.0 else 1.0
     nstep_cutoff=n10dop; profile_at_n10dop=0.0; tabstep=200.0*dvoigt; tabi=0.5; broke=False
     # JUSTIFIED-LOOP: scalar NumPy reference twin, never part of the shipped torch compute path.
     for nstep in range(1, n10dop+1):
@@ -841,17 +854,18 @@ code(r'''def metal_accumulate_numpy(catalog, atmd, grid, cont):
     Zc=catalog['Z']; ion=catalog['ion']; lt=catalog['lt']
     grad=catalog['grad']; gstark=catalog['gstark']; gvdw=catalog['gvdw']
     h0tab,h1tab,h2tab=catalog['h0tab'],catalog['h1tab'],catalog['h2tab']
-    pop3=atmd['pop3']; dop3=atmd['dop3']; rho=atmd['rho']; xne=atmd['xne']; T=atmd['T']
-    hckt=atmd['hckt']; txnxn=atmd['txnxn']
-    n_depths=T.size; n_w=grid.size
+    population_per_ion=atmd['pop3']; doppler_fraction_per_ion=atmd['dop3']
+    mass_density=atmd['rho']; electron_density=atmd['xne']; temperature=atmd['T']
+    hc_over_kT=atmd['hckt']; vdw_perturber_density=atmd['txnxn']
+    n_depths=temperature.size; n_w=grid.size
     freq_hz=_C_LIGHT_NM/lam; cgf=_CGF_CONSTANT*gf_lin/freq_hz
     elem_idx=Zc-1; ion_idx=ion-1
-    n_ion_max,n_elem_max=pop3.shape[1],pop3.shape[2]
+    n_ion_max,n_elem_max=population_per_ion.shape[1],population_per_ion.shape[2]
     center_idx=nearest_grid_indices(grid, idxwl)
     wing_idx=nearest_grid_indices_raw(grid, idxwl, float(grid[0]))
     ratio=grid[1]/grid[0]; resolu=1.0/(ratio-1.0) if ratio>1.0 else 300000.0
     line_ok=(lt==0)&(elem_idx>=0)&(elem_idx<n_elem_max)&(ion_idx>=0)&(ion_idx<n_ion_max)
-    boltz=fast_ex(Elow[None,:]*hckt[:,None])
+    boltz=fast_ex(Elow[None,:]*hc_over_kT[:,None])
     M=_MAX_PROFILE_STEPS
     center_valid=line_ok&(center_idx>=0)&(center_idx<n_w)
     wing_active=line_ok&(wing_idx>=-M)&(wing_idx<=n_w-1+M)
@@ -859,16 +873,23 @@ code(r'''def metal_accumulate_numpy(catalog, atmd, grid, cont):
     # JUSTIFIED-LOOP: scalar NumPy reference twin, intentionally mirrors the per-line loop.
     for i in np.where(line_ok)[0]:                                   # the Python per-line loop
         ci=int(center_idx[i]); wi=int(wing_idx[i]); wl_i=lam[i]; clamped=max(0,min(ci,n_w-1))
-        pop=pop3[:,ion_idx[i],elem_idx[i]]; dop=dop3[:,ion_idx[i],elem_idx[i]]
-        kapmin=cont[:,clamped]*_CUTOFF; good=(pop>0.0)&(dop>0.0)&(rho>0.0)
+        population=population_per_ion[:,ion_idx[i],elem_idx[i]]
+        doppler_fraction=doppler_fraction_per_ion[:,ion_idx[i],elem_idx[i]]
+        kapmin=cont[:,clamped]*_CUTOFF
+        good=(population>0.0)&(doppler_fraction>0.0)&(mass_density>0.0)
         if not np.any(good): continue
-        xnfdop=np.zeros(n_depths); xnfdop[good]=pop[good]/(rho[good]*dop[good])
-        kappa0_pre=cgf[i]*xnfdop; post=kappa0_pre*boltz[:,i]
+        population_over_mass_doppler_width=np.zeros(n_depths)
+        population_over_mass_doppler_width[good]=(
+            population[good]/(mass_density[good]*doppler_fraction[good])
+        )
+        kappa0_pre=cgf[i]*population_over_mass_doppler_width; post=kappa0_pre*boltz[:,i]
         passcut=good&(kappa0_pre>=kapmin)&(post>=kapmin)&(post>0.0)
         if not np.any(passcut): continue
-        doppler_width=dop*wl_i; dopple=np.where(wl_i>0,doppler_width/wl_i,1e-6)
-        gamma_total=grad[i]+gstark[i]*xne+gvdw[i]*txnxn
-        adamp=np.where((doppler_width>0)&(dopple>0),gamma_total/dopple,0.0)
+        doppler_width=doppler_fraction*wl_i
+        doppler_fraction_for_damping=np.where(wl_i>0,doppler_width/wl_i,1e-6)
+        gamma_total=grad[i]+gstark[i]*electron_density+gvdw[i]*vdw_perturber_density
+        adamp=np.where((doppler_width>0)&(doppler_fraction_for_damping>0),
+                       gamma_total/doppler_fraction_for_damping,0.0)
         kapcen=np.zeros(n_depths); cd=passcut&(adamp>=0.0)&(post>0.0)
         # JUSTIFIED-LOOP: scalar NumPy reference twin over active depths.
         for d in np.where(cd)[0]:
@@ -1117,37 +1138,46 @@ code(r'''def helium_opacity_torch():
     grad_he = t64(grad)[he_sel]; gstark_he = t64(gstark)[he_sel]
     gvdw_he = t64(gvdw)[he_sel]
 
-    pop3 = t64(atm["population_per_ion"]); dop3 = t64(atm["doppler_per_ion"])
-    rho64 = t64(atm["mass_density"]); xne64 = t64(atm["electron_density"])
-    T64 = t64(atm["temperature"]); hckt64 = t64(atm["hckt"]); txnxn64 = t64(txnxn)
+    population_per_ion = t64(atm["population_per_ion"])
+    doppler_fraction_per_ion = t64(atm["doppler_per_ion"])
+    mass_density = t64(atm["mass_density"])
+    electron_density = t64(atm["electron_density"])
+    temperature = t64(atm["temperature"])
+    hc_over_kT = t64(atm["hckt"])
+    vdw_perturber_density = t64(txnxn)
     grid64 = t64(grid); cont64 = t64(cont)
-    elem = torch.clamp(ti(Zc)[he_sel] - 1, 0, pop3.shape[2] - 1)
-    ion0 = torch.clamp(ti(ion)[he_sel] - 1, 0, pop3.shape[1] - 1)
+    elem = torch.clamp(ti(Zc)[he_sel] - 1, 0, population_per_ion.shape[2] - 1)
+    ion0 = torch.clamp(ti(ion)[he_sel] - 1, 0, population_per_ion.shape[1] - 1)
     ci = torch.clamp(ti(center_idx_np)[he_sel], 0, grid64.numel() - 1)
 
     he_ltc_t = ti(cat["he_ltc"])
     wcon_t = t64(cat["he_wcon_2d"]); wtail_t = t64(cat["he_wtail_2d"])
     he_cut_t = torch.as_tensor(float(cat["he_cutoff"]), dtype=solve_dtype, device=solve_device)
 
-    pop = pop3[:, ion0, elem]; dop = dop3[:, ion0, elem]
+    population = population_per_ion[:, ion0, elem]
+    doppler_fraction = doppler_fraction_per_ion[:, ion0, elem]
     cgf_he = CGF_CONSTANT * gf_he / (C_LIGHT_NM / wl)
     extab64, extabf64 = gpu_fastex_tables(dtype=solve_dtype, device=solve_device)
-    boltz = gpu_fast_ex(Elow_he.view(1, -1) * hckt64.view(-1, 1), extab64, extabf64)
+    boltz = gpu_fast_ex(Elow_he.view(1, -1) * hc_over_kT.view(-1, 1), extab64, extabf64)
 
-    dop_safe = torch.clamp(dop, min=1.0e-40)
-    valid = (pop > 0.0) & (dop > 0.0) & (rho64.view(-1, 1) > 0.0)
-    xnfdop = torch.where(valid, pop / (rho64.view(-1, 1) * dop_safe), torch.zeros_like(pop))
+    doppler_safe = torch.clamp(doppler_fraction, min=1.0e-40)
+    valid = (population > 0.0) & (doppler_fraction > 0.0) & (mass_density.view(-1, 1) > 0.0)
+    population_over_mass_doppler_width = torch.where(
+        valid,
+        population / (mass_density.view(-1, 1) * doppler_safe),
+        torch.zeros_like(population),
+    )
 
-    k0pre = cgf_he.view(1, -1) * xnfdop
+    k0pre = cgf_he.view(1, -1) * population_over_mass_doppler_width
     kmin = cont64[:, ci] * he_cut_t
     valid = valid & (k0pre >= kmin)
     k0 = k0pre * boltz
     valid = valid & (k0 >= kmin) & (k0 > 0.0)
 
-    gtot = (grad_he.view(1, -1) + gstark_he.view(1, -1) * xne64.view(-1, 1)
-            + gvdw_he.view(1, -1) * txnxn64.view(-1, 1))
-    adamp = torch.where(dop_safe > 0.0, gtot / dop_safe, torch.zeros_like(gtot))
-    dopw = dop * wl.view(1, -1)
+    gtot = (grad_he.view(1, -1) + gstark_he.view(1, -1) * electron_density.view(-1, 1)
+            + gvdw_he.view(1, -1) * vdw_perturber_density.view(-1, 1))
+    adamp = torch.where(doppler_safe > 0.0, gtot / doppler_safe, torch.zeros_like(gtot))
+    dopw = doppler_fraction * wl.view(1, -1)
 
     isotope = (he_ltc_t.view(1, -1) == -4)
     k_eff = torch.where(isotope, k0 / 1.155, k0)
@@ -1198,8 +1228,10 @@ code(r'''def helium_opacity_torch():
     h_planck = torch.as_tensor(6.62607015e-27, dtype=solve_dtype, device=solve_device)
     k_boltz = torch.as_tensor(1.380649e-16, dtype=solve_dtype, device=solve_device)
     freq_grid_t = C_LIGHT_NM / grid64
-    stim_t = 1.0 - torch.exp(-freq_grid_t.view(1, -1) * (h_planck / (k_boltz * T64)).view(-1, 1))
-    return (he_raw * stim_t).to(dtype=DTYPE, device=DEVICE)
+    stimulated_emission_factor = (
+        1.0 - torch.exp(-freq_grid_t.view(1, -1) * (h_planck / (k_boltz * temperature)).view(-1, 1))
+    )
+    return (he_raw * stimulated_emission_factor).to(dtype=DTYPE, device=DEVICE)
 ''')
 
 md(r"""Run the helium path and keep its result as a tensor on the selected device. The validation cells below compare it component-by-component against the archived helium-wing diagnostic.""")

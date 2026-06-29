@@ -152,11 +152,14 @@ TAU1LG = torch.as_tensor(-6.875, dtype=DTYPE, device=DEVICE)
 STEPLG = torch.as_tensor(0.125, dtype=DTYPE, device=DEVICE)
 
 layer = torch.arange(NRHOX, dtype=DTYPE, device=DEVICE)
-tau = torch.pow(torch.as_tensor(10.0, dtype=DTYPE, device=DEVICE), TAU1LG + STEPLG * layer)
-T = grey_temperature(TEFF, tau)
+rosseland_optical_depth = torch.pow(torch.as_tensor(10.0, dtype=DTYPE, device=DEVICE), TAU1LG + STEPLG * layer)
+temperature = grey_temperature(TEFF, rosseland_optical_depth)
 
-print(f&quot;{NRHOX} layers on {DEVICE.type}: tau = {tau[0].detach().cpu().to(torch.float64):.3e} .. {tau[-1].detach().cpu().to(torch.float64):.3e}&quot;)
-print(f&quot;T(top) = {T[0].detach().cpu().to(torch.float64):.1f} K    T(bottom) = {T[-1].detach().cpu().to(torch.float64):.1f} K&quot;)" aria-label="Copy code">
+# Compatibility aliases for the textbook formulas and reference labels below.
+tau, T = rosseland_optical_depth, temperature
+
+print(f&quot;{NRHOX} layers on {DEVICE.type}: tau = {rosseland_optical_depth[0].detach().cpu().to(torch.float64):.3e} .. {rosseland_optical_depth[-1].detach().cpu().to(torch.float64):.3e}&quot;)
+print(f&quot;T(top) = {temperature[0].detach().cpu().to(torch.float64):.1f} K    T(bottom) = {temperature[-1].detach().cpu().to(torch.float64):.1f} K&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python">NRHOX = <span class="hljs-number">80</span>
@@ -164,11 +167,14 @@ TAU1LG = torch.as_tensor(-<span class="hljs-number">6.875</span>, dtype=DTYPE, d
 STEPLG = torch.as_tensor(<span class="hljs-number">0.125</span>, dtype=DTYPE, device=DEVICE)
 
 layer = torch.arange(NRHOX, dtype=DTYPE, device=DEVICE)
-tau = torch.<span class="hljs-built_in">pow</span>(torch.as_tensor(<span class="hljs-number">10.0</span>, dtype=DTYPE, device=DEVICE), TAU1LG + STEPLG * layer)
-T = grey_temperature(TEFF, tau)
+rosseland_optical_depth = torch.<span class="hljs-built_in">pow</span>(torch.as_tensor(<span class="hljs-number">10.0</span>, dtype=DTYPE, device=DEVICE), TAU1LG + STEPLG * layer)
+temperature = grey_temperature(TEFF, rosseland_optical_depth)
 
-<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;<span class="hljs-subst">{NRHOX}</span> layers on <span class="hljs-subst">{DEVICE.<span class="hljs-built_in">type</span>}</span>: tau = <span class="hljs-subst">{tau[<span class="hljs-number">0</span>].detach().cpu().to(torch.float64):<span class="hljs-number">.3</span>e}</span> .. <span class="hljs-subst">{tau[-<span class="hljs-number">1</span>].detach().cpu().to(torch.float64):<span class="hljs-number">.3</span>e}</span>&quot;</span>)
-<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;T(top) = <span class="hljs-subst">{T[<span class="hljs-number">0</span>].detach().cpu().to(torch.float64):<span class="hljs-number">.1</span>f}</span> K    T(bottom) = <span class="hljs-subst">{T[-<span class="hljs-number">1</span>].detach().cpu().to(torch.float64):<span class="hljs-number">.1</span>f}</span> K&quot;</span>)</code></pre>
+<span class="hljs-comment"># Compatibility aliases for the textbook formulas and reference labels below.</span>
+tau, T = rosseland_optical_depth, temperature
+
+<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;<span class="hljs-subst">{NRHOX}</span> layers on <span class="hljs-subst">{DEVICE.<span class="hljs-built_in">type</span>}</span>: tau = <span class="hljs-subst">{rosseland_optical_depth[<span class="hljs-number">0</span>].detach().cpu().to(torch.float64):<span class="hljs-number">.3</span>e}</span> .. <span class="hljs-subst">{rosseland_optical_depth[-<span class="hljs-number">1</span>].detach().cpu().to(torch.float64):<span class="hljs-number">.3</span>e}</span>&quot;</span>)
+<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;T(top) = <span class="hljs-subst">{temperature[<span class="hljs-number">0</span>].detach().cpu().to(torch.float64):<span class="hljs-number">.1</span>f}</span> K    T(bottom) = <span class="hljs-subst">{temperature[-<span class="hljs-number">1</span>].detach().cpu().to(torch.float64):<span class="hljs-number">.1</span>f}</span> K&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">80 layers on mps: tau = 1.334e-07 .. 1.000e+03
 T(top) = 4679.7 K    T(bottom) = 30200.8 K
 </pre></div></div><div class="prose"><p>The first parity check is the recap itself: the optical-depth grid and the Hopf temperature must reproduce the reference arrays from Lecture 1. On the CPU fp64 fallback these are at the roundoff floor of the two libraries; on MPS/CUDA the accepted floor is the usual fp32 one.</p>
@@ -480,18 +486,28 @@ expected_dlg_tau = torch.log(torch.as_tensor(<span class="hljs-number">10.0</spa
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[8]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="abstd, ptotal, P_gas = ttaup(T, tau, prad, pturb, g_cgs)
-RHOX = ptotal / torch.as_tensor(float(g_cgs), dtype=DTYPE, device=DEVICE)
+        <button class="copy-btn" type="button" data-code="cold_start_opacity, total_pressure, gas_pressure = ttaup(
+    temperature, rosseland_optical_depth, prad, pturb, g_cgs,
+)
+column_mass = total_pressure / torch.as_tensor(float(g_cgs), dtype=DTYPE, device=DEVICE)
 
-print(f&quot;P_gas: top = {P_gas[0].detach().cpu().to(torch.float64):.4e}   bottom = {P_gas[-1].detach().cpu().to(torch.float64):.4e} dyn/cm^2&quot;)
-print(f&quot;RHOX:  top = {RHOX[0].detach().cpu().to(torch.float64):.4e}   bottom = {RHOX[-1].detach().cpu().to(torch.float64):.4e} g/cm^2&quot;)" aria-label="Copy code">
+# Compatibility aliases for the ATLAS/reference names printed below.
+abstd, ptotal, P_gas, RHOX = cold_start_opacity, total_pressure, gas_pressure, column_mass
+
+print(f&quot;P_gas: top = {gas_pressure[0].detach().cpu().to(torch.float64):.4e}   bottom = {gas_pressure[-1].detach().cpu().to(torch.float64):.4e} dyn/cm^2&quot;)
+print(f&quot;RHOX:  top = {column_mass[0].detach().cpu().to(torch.float64):.4e}   bottom = {column_mass[-1].detach().cpu().to(torch.float64):.4e} g/cm^2&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">abstd, ptotal, P_gas = ttaup(T, tau, prad, pturb, g_cgs)
-RHOX = ptotal / torch.as_tensor(<span class="hljs-built_in">float</span>(g_cgs), dtype=DTYPE, device=DEVICE)
+      <pre class="code-body"><code class="hljs language-python">cold_start_opacity, total_pressure, gas_pressure = ttaup(
+    temperature, rosseland_optical_depth, prad, pturb, g_cgs,
+)
+column_mass = total_pressure / torch.as_tensor(<span class="hljs-built_in">float</span>(g_cgs), dtype=DTYPE, device=DEVICE)
 
-<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;P_gas: top = <span class="hljs-subst">{P_gas[<span class="hljs-number">0</span>].detach().cpu().to(torch.float64):<span class="hljs-number">.4</span>e}</span>   bottom = <span class="hljs-subst">{P_gas[-<span class="hljs-number">1</span>].detach().cpu().to(torch.float64):<span class="hljs-number">.4</span>e}</span> dyn/cm^2&quot;</span>)
-<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;RHOX:  top = <span class="hljs-subst">{RHOX[<span class="hljs-number">0</span>].detach().cpu().to(torch.float64):<span class="hljs-number">.4</span>e}</span>   bottom = <span class="hljs-subst">{RHOX[-<span class="hljs-number">1</span>].detach().cpu().to(torch.float64):<span class="hljs-number">.4</span>e}</span> g/cm^2&quot;</span>)</code></pre>
+<span class="hljs-comment"># Compatibility aliases for the ATLAS/reference names printed below.</span>
+abstd, ptotal, P_gas, RHOX = cold_start_opacity, total_pressure, gas_pressure, column_mass
+
+<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;P_gas: top = <span class="hljs-subst">{gas_pressure[<span class="hljs-number">0</span>].detach().cpu().to(torch.float64):<span class="hljs-number">.4</span>e}</span>   bottom = <span class="hljs-subst">{gas_pressure[-<span class="hljs-number">1</span>].detach().cpu().to(torch.float64):<span class="hljs-number">.4</span>e}</span> dyn/cm^2&quot;</span>)
+<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;RHOX:  top = <span class="hljs-subst">{column_mass[<span class="hljs-number">0</span>].detach().cpu().to(torch.float64):<span class="hljs-number">.4</span>e}</span>   bottom = <span class="hljs-subst">{column_mass[-<span class="hljs-number">1</span>].detach().cpu().to(torch.float64):<span class="hljs-number">.4</span>e}</span> g/cm^2&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">P_gas: top = 3.6729e-03   bottom = 2.7540e+07 dyn/cm^2
 RHOX:  top = 1.3335e-07   bottom = 1.0000e+03 g/cm^2
 </pre></div></div><div class="prose"><h2>Benchmark: the documented float floor</h2>
@@ -503,10 +519,10 @@ RHOX:  top = 1.3335e-07   bottom = 1.0000e+03 g/cm^2
         <button class="copy-btn" type="button" data-code="# comparison-reference cell: REF[...] is the NumPy-edition parity oracle
 print(&quot;grey model atmosphere vs reference/L1.npz:&quot;)
 
-e_tau  = compare(&quot;grey_tau&quot;,  tau,   REF[&quot;grey_tau&quot;])
-e_T    = compare(&quot;grey_T&quot;,    T,     REF[&quot;grey_T&quot;])
-e_pgas = compare(&quot;grey_pgas&quot;, P_gas, REF[&quot;grey_pgas&quot;])
-e_rhox = compare(&quot;grey_rhox&quot;, RHOX,  REF[&quot;grey_rhox&quot;])
+e_tau  = compare(&quot;grey_tau&quot;,  rosseland_optical_depth, REF[&quot;grey_tau&quot;])
+e_T    = compare(&quot;grey_T&quot;,    temperature,              REF[&quot;grey_T&quot;])
+e_pgas = compare(&quot;grey_pgas&quot;, gas_pressure,             REF[&quot;grey_pgas&quot;])
+e_rhox = compare(&quot;grey_rhox&quot;, column_mass,              REF[&quot;grey_rhox&quot;])
 
 worst = max(e_tau, e_T, e_pgas, e_rhox)
 print(f&quot;\nworst max|rel| over all four arrays = {worst:.2e}&quot;)" aria-label="Copy code">
@@ -515,10 +531,10 @@ print(f&quot;\nworst max|rel| over all four arrays = {worst:.2e}&quot;)" aria-la
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># comparison-reference cell: REF[...] is the NumPy-edition parity oracle</span>
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;grey model atmosphere vs reference/L1.npz:&quot;</span>)
 
-e_tau  = compare(<span class="hljs-string">&quot;grey_tau&quot;</span>,  tau,   REF[<span class="hljs-string">&quot;grey_tau&quot;</span>])
-e_T    = compare(<span class="hljs-string">&quot;grey_T&quot;</span>,    T,     REF[<span class="hljs-string">&quot;grey_T&quot;</span>])
-e_pgas = compare(<span class="hljs-string">&quot;grey_pgas&quot;</span>, P_gas, REF[<span class="hljs-string">&quot;grey_pgas&quot;</span>])
-e_rhox = compare(<span class="hljs-string">&quot;grey_rhox&quot;</span>, RHOX,  REF[<span class="hljs-string">&quot;grey_rhox&quot;</span>])
+e_tau  = compare(<span class="hljs-string">&quot;grey_tau&quot;</span>,  rosseland_optical_depth, REF[<span class="hljs-string">&quot;grey_tau&quot;</span>])
+e_T    = compare(<span class="hljs-string">&quot;grey_T&quot;</span>,    temperature,              REF[<span class="hljs-string">&quot;grey_T&quot;</span>])
+e_pgas = compare(<span class="hljs-string">&quot;grey_pgas&quot;</span>, gas_pressure,             REF[<span class="hljs-string">&quot;grey_pgas&quot;</span>])
+e_rhox = compare(<span class="hljs-string">&quot;grey_rhox&quot;</span>, column_mass,              REF[<span class="hljs-string">&quot;grey_rhox&quot;</span>])
 
 worst = <span class="hljs-built_in">max</span>(e_tau, e_T, e_pgas, e_rhox)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;\nworst max|rel| over all four arrays = <span class="hljs-subst">{worst:<span class="hljs-number">.2</span>e}</span>&quot;</span>)</code></pre>
@@ -534,12 +550,12 @@ worst max|rel| over all four arrays = 1.89e-06
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[10]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="P_analytic = torch.as_tensor(float(g_cgs), dtype=DTYPE, device=DEVICE) * tau
-resid = torch.abs(P_analytic - P_gas) / P_gas
+        <button class="copy-btn" type="button" data-code="analytic_total_pressure = torch.as_tensor(float(g_cgs), dtype=DTYPE, device=DEVICE) * rosseland_optical_depth
+resid = torch.abs(analytic_total_pressure - gas_pressure) / gas_pressure
 
-x_tau = torch.log10(tau).detach().cpu().to(torch.float64).numpy()
-y_pgas = torch.log10(P_gas).detach().cpu().to(torch.float64).numpy()
-y_rhox = torch.log10(RHOX).detach().cpu().to(torch.float64).numpy()
+x_tau = torch.log10(rosseland_optical_depth).detach().cpu().to(torch.float64).numpy()
+y_pgas = torch.log10(gas_pressure).detach().cpu().to(torch.float64).numpy()
+y_rhox = torch.log10(column_mass).detach().cpu().to(torch.float64).numpy()
 y_resid = resid.detach().cpu().to(torch.float64).numpy()
 
 fig, ax = plt.subplots(1, 2, figsize=(11, 4.1))
@@ -563,12 +579,12 @@ plt.show()
 print(f&quot;P=g*tau vs P_gas: max frac diff = {resid.max().detach().cpu().to(torch.float64):.2e}&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">P_analytic = torch.as_tensor(<span class="hljs-built_in">float</span>(g_cgs), dtype=DTYPE, device=DEVICE) * tau
-resid = torch.<span class="hljs-built_in">abs</span>(P_analytic - P_gas) / P_gas
+      <pre class="code-body"><code class="hljs language-python">analytic_total_pressure = torch.as_tensor(<span class="hljs-built_in">float</span>(g_cgs), dtype=DTYPE, device=DEVICE) * rosseland_optical_depth
+resid = torch.<span class="hljs-built_in">abs</span>(analytic_total_pressure - gas_pressure) / gas_pressure
 
-x_tau = torch.log10(tau).detach().cpu().to(torch.float64).numpy()
-y_pgas = torch.log10(P_gas).detach().cpu().to(torch.float64).numpy()
-y_rhox = torch.log10(RHOX).detach().cpu().to(torch.float64).numpy()
+x_tau = torch.log10(rosseland_optical_depth).detach().cpu().to(torch.float64).numpy()
+y_pgas = torch.log10(gas_pressure).detach().cpu().to(torch.float64).numpy()
+y_rhox = torch.log10(column_mass).detach().cpu().to(torch.float64).numpy()
 y_resid = resid.detach().cpu().to(torch.float64).numpy()
 
 fig, ax = plt.subplots(<span class="hljs-number">1</span>, <span class="hljs-number">2</span>, figsize=(<span class="hljs-number">11</span>, <span class="hljs-number">4.1</span>))

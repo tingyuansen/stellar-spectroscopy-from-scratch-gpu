@@ -92,16 +92,16 @@ REF = pathlib.Path("..") / "reference"
 D = np.load(REF / "diag.npz")
 JT = np.load(REF / "josh_tables.npz")
 
-wl_np = D["wavelength"].astype(np.float64)
-cont_abs_np = D["continuum_absorption"].astype(np.float64)
-cont_scat_np = D["continuum_scattering"].astype(np.float64)
-line_abs_np = D["line_opacity"].astype(np.float64)
-line_scat_np = D["line_scattering"].astype(np.float64)
+wavelength_nm_np = D["wavelength"].astype(np.float64)
+continuum_absorption_np = D["continuum_absorption"].astype(np.float64)
+continuum_scattering_np = D["continuum_scattering"].astype(np.float64)
+line_absorption_np = D["line_opacity"].astype(np.float64)
+line_scattering_np = D["line_scattering"].astype(np.float64)
 flux_total_ref_np = D["flux_total"].astype(np.float64)
 flux_cont_ref_np = D["flux_continuum"].astype(np.float64)
 
-Tdepth_np = np.load(REF / "atmosphere.npz")["temperature"].astype(np.float64)
-rhox_np = JT["rhox"].astype(np.float64)
+temperature_np = np.load(REF / "atmosphere.npz")["temperature"].astype(np.float64)
+column_mass_np = JT["rhox"].astype(np.float64)
 xtau_np = JT["xtau"].astype(np.float64)
 coefj_np = JT["coefj"].astype(np.float64)
 ch_np = JT["ch"].astype(np.float64)
@@ -115,19 +115,19 @@ def tt(x, dtype=DTYPE):
     """
     return torch.as_tensor(x, device=DEVICE, dtype=dtype)
 
-wl = tt(wl_np)
-Tdepth = tt(Tdepth_np)
-rhox = tt(rhox_np)
-cont_abs = tt(cont_abs_np)
-cont_scat = tt(cont_scat_np)
-line_abs = tt(line_abs_np)
-line_scat = tt(line_scat_np)
+wavelength_nm = tt(wavelength_nm_np)
+temperature = tt(temperature_np)
+column_mass = tt(column_mass_np)
+continuum_absorption = tt(continuum_absorption_np)
+continuum_scattering = tt(continuum_scattering_np)
+line_absorption = tt(line_absorption_np)
+line_scattering = tt(line_scattering_np)
 XTAU = tt(xtau_np)
 COEFJ = tt(coefj_np)
 CH = tt(ch_np)
 COEFJ_DIAG = torch.diagonal(COEFJ).contiguous()
 
-print(f"opacity grid: {cont_abs.shape[0]} depths x {cont_abs.shape[1]} wavelengths")
+print(f"opacity grid: {continuum_absorption.shape[0]} depths x {continuum_absorption.shape[1]} wavelengths")
 print(f"JOSH grid: {XTAU.numel()} points, tau = {xtau_np[0]:.3g} .. {xtau_np[-1]:.3g}")'''
 )
 
@@ -238,16 +238,16 @@ def planck_bnu(wl_nm, temperature):
     """
     nu = C_NM / wl_nm
     x = (H_PLANCK * nu)[None, :] / (K_BOLTZ * temperature[:, None])
-    ehvkt = torch.exp(-x)
-    return PLANCK_PREFACTOR * (nu[None, :] / 1.0e15) ** 3 * ehvkt / (1.0 - ehvkt)
+    exp_minus_hnu_over_kT = torch.exp(-x)
+    return PLANCK_PREFACTOR * (nu[None, :] / 1.0e15) ** 3 * exp_minus_hnu_over_kT / (1.0 - exp_minus_hnu_over_kT)
 
-B_nu = planck_bnu(wl, Tdepth)
+source_function = planck_bnu(wavelength_nm, temperature)
 
-rel_slinec = torch.max(torch.abs(B_nu.detach().cpu().to(torch.float64) - torch.as_tensor(D["slinec"])) / torch.abs(torch.as_tensor(D["slinec"])))
-rel_lsource = torch.max(torch.abs(B_nu.detach().cpu().to(torch.float64) - torch.as_tensor(D["line_source"])) / torch.abs(torch.as_tensor(D["line_source"])))
+rel_slinec = torch.max(torch.abs(source_function.detach().cpu().to(torch.float64) - torch.as_tensor(D["slinec"])) / torch.abs(torch.as_tensor(D["slinec"])))
+rel_lsource = torch.max(torch.abs(source_function.detach().cpu().to(torch.float64) - torch.as_tensor(D["line_source"])) / torch.abs(torch.as_tensor(D["line_source"])))
 print(f"inline B_nu vs reference slinec     : max rel diff = {float(rel_slinec):.2e}")
 print(f"inline B_nu vs reference line_source: max rel diff = {float(rel_lsource):.2e}")
-print(f"reference line_scattering is exactly zero: {bool(np.all(line_scat_np == 0.0))}")
+print(f"reference line_scattering is exactly zero: {bool(np.all(line_scattering_np == 0.0))}")
 
 def source_and_alpha(acont, scont, aline, sline, sigmac, sigmal):
     """Build total extinction, scattering fraction, and thermal source.
@@ -258,19 +258,33 @@ def source_and_alpha(acont, scont, aline, sline, sigmac, sigmal):
 
     Returns
     -------
-    abtot : torch.Tensor
+    total_extinction : torch.Tensor
         Total extinction, floored by `EPS` for safe division.
-    alpha : torch.Tensor
+    scattering_fraction : torch.Tensor
         Scattering fraction clipped to [0, 1].
-    snubar : torch.Tensor
+    thermal_source : torch.Tensor
         Absorption-weighted thermal source. Scattering emission is excluded
         here because it enters through the later alpha*J fixed point.
     """
-    abtot = torch.clamp(acont + aline + sigmac + sigmal, min=EPS)
-    alpha = torch.clamp((sigmac + sigmal) / abtot, 0.0, 1.0)
-    denom = acont + aline
-    snubar = torch.where(denom > 0, (acont * scont + aline * sline) / denom, scont)
-    return abtot, alpha, snubar'''
+    continuum_absorption = acont
+    continuum_source = scont
+    line_absorption = aline
+    line_source = sline
+    continuum_scattering = sigmac
+    line_scattering = sigmal
+
+    total_extinction = torch.clamp(
+        continuum_absorption + line_absorption + continuum_scattering + line_scattering,
+        min=EPS,
+    )
+    scattering_fraction = torch.clamp((continuum_scattering + line_scattering) / total_extinction, 0.0, 1.0)
+    true_absorption = continuum_absorption + line_absorption
+    thermal_source = torch.where(
+        true_absorption > 0,
+        (continuum_absorption * continuum_source + line_absorption * line_source) / true_absorption,
+        continuum_source,
+    )
+    return total_extinction, scattering_fraction, thermal_source'''
 )
 
 md(
@@ -576,36 +590,51 @@ code(
         lacks fp64; on CPU/CUDA it is promoted to fp64 to match the reference
         dot-product precision.
     """
-    abtot, alpha, snubar = source_and_alpha(acont, scont, aline, sline, sigmac, sigmal)
-    taunu = integ_batched(rhox, abtot, abtot[:, 0] * rhox[0])
+    total_extinction, scattering_fraction, thermal_source = source_and_alpha(acont, scont, aline, sline, sigmac, sigmal)
+    monochromatic_optical_depth = integ_batched(rhox, total_extinction, total_extinction[:, 0] * rhox[0])
 
-    saturated = taunu[:, 0] > XTAU[-1]
+    saturated = monochromatic_optical_depth[:, 0] > XTAU[-1]
     if bool(saturated.any()):
         raise NotImplementedError("The saturated-core path does not fire in this solar window.")
 
-    xsbar = torch.clamp(map1_batched(taunu, snubar, XTAU), min=EPS)
-    xalpha = torch.clamp(map1_batched(taunu, alpha, XTAU), 0.0, 1.0)
+    thermal_source_fixed_grid = torch.clamp(map1_batched(monochromatic_optical_depth, thermal_source, XTAU), min=EPS)
+    scattering_fraction_fixed_grid = torch.clamp(map1_batched(monochromatic_optical_depth, scattering_fraction, XTAU), 0.0, 1.0)
 
-    above = XTAU[None, :] < taunu[:, 0:1]
-    xsbar = torch.where(above, torch.clamp(snubar[:, 0:1], min=EPS).expand_as(xsbar), xsbar)
-    xalpha = torch.where(above, torch.clamp(alpha[:, 0:1], 0.0, 1.0).expand_as(xalpha), xalpha)
+    above = XTAU[None, :] < monochromatic_optical_depth[:, 0:1]
+    thermal_source_fixed_grid = torch.where(
+        above,
+        torch.clamp(thermal_source[:, 0:1], min=EPS).expand_as(thermal_source_fixed_grid),
+        thermal_source_fixed_grid,
+    )
+    scattering_fraction_fixed_grid = torch.where(
+        above,
+        torch.clamp(scattering_fraction[:, 0:1], 0.0, 1.0).expand_as(scattering_fraction_fixed_grid),
+        scattering_fraction_fixed_grid,
+    )
 
-    xs = iterate_source(xsbar, xalpha, COEFJ, COEFJ_DIAG, sweeps=sweeps)
+    source_function_fixed_grid = iterate_source(
+        thermal_source_fixed_grid,
+        scattering_fraction_fixed_grid,
+        COEFJ,
+        COEFJ_DIAG,
+        sweeps=sweeps,
+    )
     dot_dtype = torch.float32 if DEVICE.type == "mps" else torch.float64
-    return torch.matmul(xs.to(dot_dtype), CH.to(dot_dtype))
+    return torch.matmul(source_function_fixed_grid.to(dot_dtype), CH.to(dot_dtype))
 
-def solve_spectrum(cont_abs, cont_scat, line_abs, line_scat, b_nu, rhox, sweeps=DEFAULT_SWEEPS):
+def solve_spectrum(continuum_absorption, continuum_scattering, line_absorption, line_scattering,
+                   source_function, column_mass, sweeps=DEFAULT_SWEEPS):
     """Solve total and continuum spectra with one stacked JOSH batch.
 
     Parameters
     ----------
-    cont_abs, cont_scat, line_abs, line_scat : torch.Tensor, shape [depth, n_wl]
+    continuum_absorption, continuum_scattering, line_absorption, line_scattering : torch.Tensor, shape [depth, n_wl]
         Opacity slabs for the window. These are the remaining taught-path data
         boundary in this L8 patch: they are consumed as scoped inputs rather
         than regenerated here from Lectures 3-6.
-    b_nu : torch.Tensor, shape [depth, n_wl]
+    source_function : torch.Tensor, shape [depth, n_wl]
         Inline LTE Planck source.
-    rhox : torch.Tensor, shape [depth]
+    column_mass : torch.Tensor, shape [depth]
         Column-mass grid.
     sweeps : int
         Fixed fp32 source-iteration sweep count.
@@ -616,23 +645,32 @@ def solve_spectrum(cont_abs, cont_scat, line_abs, line_scat, b_nu, rhox, sweeps=
         Total flux, continuum-only flux, and their normalised ratio. The
         comparison target is loaded separately and is not used by this function.
     """
-    acont = cont_abs.transpose(0, 1).contiguous()
-    sigmac = cont_scat.transpose(0, 1).contiguous()
-    aline = line_abs.transpose(0, 1).contiguous()
-    sigmal = line_scat.transpose(0, 1).contiguous()
-    src = b_nu.transpose(0, 1).contiguous()
-    zero = torch.zeros_like(aline)
+    continuum_absorption_batch = continuum_absorption.transpose(0, 1).contiguous()
+    continuum_scattering_batch = continuum_scattering.transpose(0, 1).contiguous()
+    line_absorption_batch = line_absorption.transpose(0, 1).contiguous()
+    line_scattering_batch = line_scattering.transpose(0, 1).contiguous()
+    source_batch = source_function.transpose(0, 1).contiguous()
+    zero_line_opacity = torch.zeros_like(line_absorption_batch)
 
-    acont2 = torch.cat((acont, acont), dim=0)
-    src2 = torch.cat((src, src), dim=0)
-    aline2 = torch.cat((aline, zero), dim=0)
-    sigmac2 = torch.cat((sigmac, sigmac), dim=0)
-    sigmal2 = torch.cat((sigmal, zero), dim=0)
+    continuum_absorption_stacked = torch.cat((continuum_absorption_batch, continuum_absorption_batch), dim=0)
+    source_stacked = torch.cat((source_batch, source_batch), dim=0)
+    line_absorption_stacked = torch.cat((line_absorption_batch, zero_line_opacity), dim=0)
+    continuum_scattering_stacked = torch.cat((continuum_scattering_batch, continuum_scattering_batch), dim=0)
+    line_scattering_stacked = torch.cat((line_scattering_batch, zero_line_opacity), dim=0)
 
-    h0 = solve_josh_batched(acont2, src2, aline2, src2, sigmac2, sigmal2, rhox, sweeps=sweeps)
-    n_wl = src.shape[0]
-    flux_total = h0[:n_wl]
-    flux_cont = h0[n_wl:]
+    surface_flux = solve_josh_batched(
+        continuum_absorption_stacked,
+        source_stacked,
+        line_absorption_stacked,
+        source_stacked,
+        continuum_scattering_stacked,
+        line_scattering_stacked,
+        column_mass,
+        sweeps=sweeps,
+    )
+    n_wl = source_batch.shape[0]
+    flux_total = surface_flux[:n_wl]
+    flux_cont = surface_flux[n_wl:]
     return flux_total, flux_cont, flux_total / flux_cont'''
 )
 
@@ -649,23 +687,38 @@ kk = int(np.argmin(np.abs(reference - 1.0)))
 
 fig, axes = plt.subplots(1, 2, figsize=(11, 4.0), sharey=True)
 for ax, k, name in [(axes[0], kk, "continuum"), (axes[1], kc, "deep line core")]:
-    acont = cont_abs[:, [k]].T.contiguous()
-    sigmac = cont_scat[:, [k]].T.contiguous()
-    aline = line_abs[:, [k]].T.contiguous()
-    sigmal = line_scat[:, [k]].T.contiguous()
-    src = B_nu[:, [k]].T.contiguous()
-    abtot, alpha, snubar = source_and_alpha(acont, src, aline, src, sigmac, sigmal)
-    taunu = integ_batched(rhox, abtot, abtot[:, 0] * rhox[0])
-    xsbar = torch.clamp(map1_batched(taunu, snubar, XTAU), min=EPS)
-    xalpha = torch.clamp(map1_batched(taunu, alpha, XTAU), 0.0, 1.0)
-    above = XTAU[None, :] < taunu[:, 0:1]
-    xsbar = torch.where(above, torch.clamp(snubar[:, 0:1], min=EPS).expand_as(xsbar), xsbar)
-    xalpha = torch.where(above, torch.clamp(alpha[:, 0:1], 0.0, 1.0).expand_as(xalpha), xalpha)
-    xs = iterate_source(xsbar, xalpha, COEFJ, COEFJ_DIAG)
+    continuum_absorption_slice = continuum_absorption[:, [k]].T.contiguous()
+    continuum_scattering_slice = continuum_scattering[:, [k]].T.contiguous()
+    line_absorption_slice = line_absorption[:, [k]].T.contiguous()
+    line_scattering_slice = line_scattering[:, [k]].T.contiguous()
+    source_slice = source_function[:, [k]].T.contiguous()
+    total_extinction, scattering_fraction, thermal_source = source_and_alpha(
+        continuum_absorption_slice,
+        source_slice,
+        line_absorption_slice,
+        source_slice,
+        continuum_scattering_slice,
+        line_scattering_slice,
+    )
+    monochromatic_optical_depth = integ_batched(column_mass, total_extinction, total_extinction[:, 0] * column_mass[0])
+    thermal_source_fixed_grid = torch.clamp(map1_batched(monochromatic_optical_depth, thermal_source, XTAU), min=EPS)
+    scattering_fraction_fixed_grid = torch.clamp(map1_batched(monochromatic_optical_depth, scattering_fraction, XTAU), 0.0, 1.0)
+    above = XTAU[None, :] < monochromatic_optical_depth[:, 0:1]
+    thermal_source_fixed_grid = torch.where(
+        above,
+        torch.clamp(thermal_source[:, 0:1], min=EPS).expand_as(thermal_source_fixed_grid),
+        thermal_source_fixed_grid,
+    )
+    scattering_fraction_fixed_grid = torch.where(
+        above,
+        torch.clamp(scattering_fraction[:, 0:1], 0.0, 1.0).expand_as(scattering_fraction_fixed_grid),
+        scattering_fraction_fixed_grid,
+    )
+    source_function_fixed_grid = iterate_source(thermal_source_fixed_grid, scattering_fraction_fixed_grid, COEFJ, COEFJ_DIAG)
 
-    ax.loglog(xtau_np, xsbar[0].detach().cpu().numpy(), "o-", ms=3, label=r"thermal $\bar S$")
-    ax.loglog(xtau_np, xs[0].detach().cpu().numpy(), "s-", ms=3, label="iterated S")
-    ax.set_title(f"{name}: $\\lambda$ = {wl_np[k]:.3f} nm, max $\\alpha$ = {float(xalpha.max().detach().cpu()):.2f}")
+    ax.loglog(xtau_np, thermal_source_fixed_grid[0].detach().cpu().numpy(), "o-", ms=3, label=r"thermal $\bar S$")
+    ax.loglog(xtau_np, source_function_fixed_grid[0].detach().cpu().numpy(), "s-", ms=3, label="iterated S")
+    ax.set_title(f"{name}: $\\lambda$ = {wavelength_nm_np[k]:.3f} nm, max $\\alpha$ = {float(scattering_fraction_fixed_grid.max().detach().cpu()):.2f}")
     ax.set_xlabel(r"optical depth $\tau$")
 
 axes[0].set_ylabel("source function")
@@ -681,27 +734,34 @@ Now run the batched tensor solver over the whole 500--510 nm window. The ratio o
 )
 
 code(
-    r'''flux_total, flux_cont, spectrum_t = solve_spectrum(cont_abs, cont_scat, line_abs, line_scat, B_nu, rhox)
+    r'''flux_total, flux_cont, spectrum_t = solve_spectrum(
+    continuum_absorption,
+    continuum_scattering,
+    line_absorption,
+    line_scattering,
+    source_function,
+    column_mass,
+)
 spectrum = spectrum_t.detach().cpu().to(torch.float64).numpy()
 reference = flux_total_ref_np / flux_cont_ref_np
 rel = np.abs(spectrum - reference) / np.abs(reference)
 
 print(f"normalised spectrum vs reference: median |rel diff| = {np.median(rel):.2e}, max = {rel.max():.2e}")
-print(f"worst wavelength = {wl_np[int(np.argmax(rel))]:.6f} nm")
+print(f"worst wavelength = {wavelength_nm_np[int(np.argmax(rel))]:.6f} nm")
 assert np.median(rel) < 2e-7
 assert rel.max() < 5e-5'''
 )
 
 code(
     r'''fig, (ax, axr) = plt.subplots(2, 1, figsize=(11, 5.2), sharex=True, gridspec_kw={"height_ratios": [3, 1]})
-ax.plot(wl_np, reference, color="0.6", lw=1.4, label="reference")
-ax.plot(wl_np, spectrum, color="C3", lw=0.6, label="torch JOSH")
+ax.plot(wavelength_nm_np, reference, color="0.6", lw=1.4, label="reference")
+ax.plot(wavelength_nm_np, spectrum, color="C3", lw=0.6, label="torch JOSH")
 ax.set_ylabel("normalised flux")
 ax.set_ylim(0, 1.05)
 ax.set_title("Solar spectrum, 500-510 nm: JOSH rebuilt in torch")
 ax.legend(loc="lower right")
 
-axr.semilogy(wl_np, np.maximum(rel, 1e-16), color="C0", lw=0.55)
+axr.semilogy(wavelength_nm_np, np.maximum(rel, 1e-16), color="C0", lw=0.55)
 axr.axhline(5e-5, color="0.5", ls=":", lw=1)
 axr.set_xlabel("wavelength [nm]")
 axr.set_ylabel("|rel diff|")

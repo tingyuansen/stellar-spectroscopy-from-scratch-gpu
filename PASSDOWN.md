@@ -66,11 +66,12 @@ Lectures 1-16 build and render. The local site is currently running at
   rerun.
 - Naming is now an explicit quality track. `BIBLE.md` contains the shared glossary; keep raw
   fixture/table keys stable at boundaries and translate to readable names in taught code.
-- Readability is not globally closed. Completed slices include L1 Planck naming, L2 PFSAHA boundary
-  aliases, L3 analytic continuum, L4 single-line atmosphere/stimulated-emission naming, L10
-  atmosphere/convergence terminology, and L12 molecular Doppler/population-driver naming. Continue
-  lecture-by-lecture in small builder/verifier-gated commits before attempting the larger L14-L16
-  sequence refactor.
+- Global readability is now closed for the pre-finale lecture sequence at the naming/line-break
+  gate: L1-L13 have builder/verifier-gated readable-name passes where the code was low risk. Legacy
+  names remain only for canonical Kurucz concepts, fixture keys, parity-reference labels, or
+  scalar-reference transcriptions where renaming would obscure provenance. The next readability
+  layer is not more naming churn; it is the deeper dense-code teaching-comment/docstring pass,
+  scheduled after the L14-L16 restructure gate.
 
 ## L14 status
 

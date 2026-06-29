@@ -13,7 +13,7 @@
 <p>We have everything the photons need. Lecture 1 gave the temperature structure; Lecture 2 the populations; Lecture 3 the continuous opacity; Lectures 4–6 the line opacity. What remains is to let the light out: to solve the <strong>radiative transfer equation</strong> for the intensity that emerges from the top of the atmosphere, wavelength by wavelength. That emergent flux <em>is</em> the spectrum.</p>
 <p>The physics is a single first-order equation, and in LTE — when scattering is negligible — it has a closed-form <strong>formal solution</strong>: the emergent flux is, up to a factor of <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>π</mi></mrow><annotation encoding="application/x-tex">\pi</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">π</span></span></span></span>, a weighted average of the source function over depth, with the weighting set by how the optical depth builds up. We will write that solution, evaluate it on the opacity we assembled, and watch a forest of iron lines appear exactly where the line list said they would.</p>
 <p>The GPU story of this lecture is one of <strong>shape</strong>, not of new physics. The formal solution is <em>embarrassingly parallel over wavelength</em> — every wavelength&#39;s flux is an independent depth integral against the same source structure — so the natural object is the <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">[</mo><mtext>depth</mtext><mo separator="true">,</mo><mtext>wavelength</mtext><mo stretchy="false">]</mo></mrow><annotation encoding="application/x-tex">[\text{depth}, \text{wavelength}]</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">[</span><span class="mord text"><span class="mord">depth</span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord text"><span class="mord">wavelength</span></span><span class="mclose">]</span></span></span></span> tensor, and every step below is one batched tensor op on it. Two precision lessons make the lecture earn its GPU keep: the optical-depth integral is a <strong>long cumulative sum</strong> whose fp32 accumulation drifts in the deep photosphere, and the <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>E</mi><mn>2</mn></msub></mrow><annotation encoding="application/x-tex">E_2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05764em;">E</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.0576em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> kernel&#39;s outer branch is a <strong>difference of two nearly-equal numbers</strong> that loses its leading digits in fp32. Both are fixed the same surgical way — promote <em>just that reduction</em> to fp64 — and the lecture makes that budget explicit.</p>
-<p>We begin by loading the products this lecture builds on. Everything we need was saved at the end of Lecture 6 into <code>reference/L6.npz</code> (hence the name <code>REF</code>): the wavelength grid <code>wl</code>, the atmosphere&#39;s temperature and column-mass profiles (<code>T</code>, <code>rhox</code>), and — the new ingredient — the assembled opacity, split two ways. The arrays <code>total_abs</code>/<code>total_scat</code> hold the <em>full</em> opacity (continuum plus all the lines), while <code>cont_abs</code>/<code>cont_scat</code> hold the <em>continuum alone</em>; carrying both lets us form the line spectrum and the continuum it sits on from the same machinery.</p>
+<p>We begin by loading the products this lecture builds on. Everything we need was saved at the end of Lecture 6 into <code>reference/L6.npz</code> (hence the name <code>REF</code>): the wavelength grid, the atmosphere&#39;s temperature and column-mass profiles, and — the new ingredient — the assembled opacity, split two ways. The arrays <code>total_abs</code>/<code>total_scat</code> hold the <em>full</em> opacity (continuum plus all the lines), while <code>cont_abs</code>/<code>cont_scat</code> hold the <em>continuum alone</em>; at the load boundary we translate those fixture keys into readable local names such as <code>wavelength_nm_np</code>, <code>temperature_np</code>, <code>column_mass_np</code>, <code>total_extinction</code>, and <code>continuum_extinction</code>.</p>
 <p>We then pick the <strong>device and working dtype once</strong>: MPS (Apple) or CUDA in fp32, else CPU in fp64. The opacity slabs move onto the device as the <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">[</mo><mtext>depth</mtext><mo separator="true">,</mo><mtext>wavelength</mtext><mo stretchy="false">]</mo></mrow><annotation encoding="application/x-tex">[\text{depth},\text{wavelength}]</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">[</span><span class="mord text"><span class="mord">depth</span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord text"><span class="mord">wavelength</span></span><span class="mclose">]</span></span></span></span> batch, and from here on every computation is a tensor op on that grid.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
@@ -42,22 +42,26 @@ H_C, C, K = 6.62607015e-27, 2.99792458e10, 1.380649e-16
 
 # Lecture 7 starts from the opacity products saved at the end of Lecture 6 (hence &quot;L6&quot;).
 REF = np.load(pathlib.Path(&quot;..&quot;) / &quot;reference&quot; / &quot;L6.npz&quot;)
-wl_np = REF[&quot;wl&quot;].astype(float); T_np = REF[&quot;T&quot;].astype(float); rhox_np = REF[&quot;rhox&quot;].astype(float)
+wavelength_nm_np = REF[&quot;wl&quot;].astype(float)
+temperature_np = REF[&quot;T&quot;].astype(float)
+column_mass_np = REF[&quot;rhox&quot;].astype(float)
 
 # Opacity assembled in the continuum (Lecture 3) and line (Lectures 4-6) lectures, per depth and
 # wavelength [cm^2/g]. cont_* are continuum processes only; total_* add the lines on top.
-total_abs  = REF[&quot;total_abs&quot;].astype(float);  total_scat = REF[&quot;total_scat&quot;].astype(float)
-cont_abs   = REF[&quot;cont_abs&quot;].astype(float);   cont_scat  = REF[&quot;cont_scat&quot;].astype(float)
+total_absorption = REF[&quot;total_abs&quot;].astype(float)
+total_scattering = REF[&quot;total_scat&quot;].astype(float)
+continuum_absorption = REF[&quot;cont_abs&quot;].astype(float)
+continuum_scattering = REF[&quot;cont_scat&quot;].astype(float)
 
 # the full and continuum-only extinction (absorption + scattering), as the device batch
-total = torch.as_tensor(total_abs + total_scat, device=DEVICE, dtype=DTYPE)   # [D, n_wl]
-cont  = torch.as_tensor(cont_abs  + cont_scat,  device=DEVICE, dtype=DTYPE)    # [D, n_wl]
-wl    = torch.as_tensor(wl_np,   device=DEVICE, dtype=DTYPE)
-T     = torch.as_tensor(T_np,    device=DEVICE, dtype=DTYPE)
-rhox  = torch.as_tensor(rhox_np, device=DEVICE, dtype=DTYPE)
+total_extinction = torch.as_tensor(total_absorption + total_scattering, device=DEVICE, dtype=DTYPE)   # [D, n_wl]
+continuum_extinction = torch.as_tensor(continuum_absorption + continuum_scattering, device=DEVICE, dtype=DTYPE)    # [D, n_wl]
+wavelength_nm = torch.as_tensor(wavelength_nm_np, device=DEVICE, dtype=DTYPE)
+temperature = torch.as_tensor(temperature_np, device=DEVICE, dtype=DTYPE)
+column_mass = torch.as_tensor(column_mass_np, device=DEVICE, dtype=DTYPE)
 
-print(f&quot;opacity grid: {total.shape[0]} depths x {total.shape[1]} wavelengths, &quot;
-      f&quot;{wl_np[0]:.1f}-{wl_np[-1]:.1f} nm&quot;)" aria-label="Copy code">
+print(f&quot;opacity grid: {total_extinction.shape[0]} depths x {total_extinction.shape[1]} wavelengths, &quot;
+      f&quot;{wavelength_nm_np[0]:.1f}-{wavelength_nm_np[-1]:.1f} nm&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">import</span> pathlib
@@ -84,22 +88,26 @@ H_C, C, K = <span class="hljs-number">6.62607015e-27</span>, <span class="hljs-n
 
 <span class="hljs-comment"># Lecture 7 starts from the opacity products saved at the end of Lecture 6 (hence &quot;L6&quot;).</span>
 REF = np.load(pathlib.Path(<span class="hljs-string">&quot;..&quot;</span>) / <span class="hljs-string">&quot;reference&quot;</span> / <span class="hljs-string">&quot;L6.npz&quot;</span>)
-wl_np = REF[<span class="hljs-string">&quot;wl&quot;</span>].astype(<span class="hljs-built_in">float</span>); T_np = REF[<span class="hljs-string">&quot;T&quot;</span>].astype(<span class="hljs-built_in">float</span>); rhox_np = REF[<span class="hljs-string">&quot;rhox&quot;</span>].astype(<span class="hljs-built_in">float</span>)
+wavelength_nm_np = REF[<span class="hljs-string">&quot;wl&quot;</span>].astype(<span class="hljs-built_in">float</span>)
+temperature_np = REF[<span class="hljs-string">&quot;T&quot;</span>].astype(<span class="hljs-built_in">float</span>)
+column_mass_np = REF[<span class="hljs-string">&quot;rhox&quot;</span>].astype(<span class="hljs-built_in">float</span>)
 
 <span class="hljs-comment"># Opacity assembled in the continuum (Lecture 3) and line (Lectures 4-6) lectures, per depth and</span>
 <span class="hljs-comment"># wavelength [cm^2/g]. cont_* are continuum processes only; total_* add the lines on top.</span>
-total_abs  = REF[<span class="hljs-string">&quot;total_abs&quot;</span>].astype(<span class="hljs-built_in">float</span>);  total_scat = REF[<span class="hljs-string">&quot;total_scat&quot;</span>].astype(<span class="hljs-built_in">float</span>)
-cont_abs   = REF[<span class="hljs-string">&quot;cont_abs&quot;</span>].astype(<span class="hljs-built_in">float</span>);   cont_scat  = REF[<span class="hljs-string">&quot;cont_scat&quot;</span>].astype(<span class="hljs-built_in">float</span>)
+total_absorption = REF[<span class="hljs-string">&quot;total_abs&quot;</span>].astype(<span class="hljs-built_in">float</span>)
+total_scattering = REF[<span class="hljs-string">&quot;total_scat&quot;</span>].astype(<span class="hljs-built_in">float</span>)
+continuum_absorption = REF[<span class="hljs-string">&quot;cont_abs&quot;</span>].astype(<span class="hljs-built_in">float</span>)
+continuum_scattering = REF[<span class="hljs-string">&quot;cont_scat&quot;</span>].astype(<span class="hljs-built_in">float</span>)
 
 <span class="hljs-comment"># the full and continuum-only extinction (absorption + scattering), as the device batch</span>
-total = torch.as_tensor(total_abs + total_scat, device=DEVICE, dtype=DTYPE)   <span class="hljs-comment"># [D, n_wl]</span>
-cont  = torch.as_tensor(cont_abs  + cont_scat,  device=DEVICE, dtype=DTYPE)    <span class="hljs-comment"># [D, n_wl]</span>
-wl    = torch.as_tensor(wl_np,   device=DEVICE, dtype=DTYPE)
-T     = torch.as_tensor(T_np,    device=DEVICE, dtype=DTYPE)
-rhox  = torch.as_tensor(rhox_np, device=DEVICE, dtype=DTYPE)
+total_extinction = torch.as_tensor(total_absorption + total_scattering, device=DEVICE, dtype=DTYPE)   <span class="hljs-comment"># [D, n_wl]</span>
+continuum_extinction = torch.as_tensor(continuum_absorption + continuum_scattering, device=DEVICE, dtype=DTYPE)    <span class="hljs-comment"># [D, n_wl]</span>
+wavelength_nm = torch.as_tensor(wavelength_nm_np, device=DEVICE, dtype=DTYPE)
+temperature = torch.as_tensor(temperature_np, device=DEVICE, dtype=DTYPE)
+column_mass = torch.as_tensor(column_mass_np, device=DEVICE, dtype=DTYPE)
 
-<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;opacity grid: <span class="hljs-subst">{total.shape[<span class="hljs-number">0</span>]}</span> depths x <span class="hljs-subst">{total.shape[<span class="hljs-number">1</span>]}</span> wavelengths, &quot;</span>
-      <span class="hljs-string">f&quot;<span class="hljs-subst">{wl_np[<span class="hljs-number">0</span>]:<span class="hljs-number">.1</span>f}</span>-<span class="hljs-subst">{wl_np[-<span class="hljs-number">1</span>]:<span class="hljs-number">.1</span>f}</span> nm&quot;</span>)</code></pre>
+<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;opacity grid: <span class="hljs-subst">{total_extinction.shape[<span class="hljs-number">0</span>]}</span> depths x <span class="hljs-subst">{total_extinction.shape[<span class="hljs-number">1</span>]}</span> wavelengths, &quot;</span>
+      <span class="hljs-string">f&quot;<span class="hljs-subst">{wavelength_nm_np[<span class="hljs-number">0</span>]:<span class="hljs-number">.1</span>f}</span>-<span class="hljs-subst">{wavelength_nm_np[-<span class="hljs-number">1</span>]:<span class="hljs-number">.1</span>f}</span> nm&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">device = mps,  working dtype = torch.float32
 opacity grid: 80 depths x 5941 wavelengths, 500.0-510.0 nm
 </pre></div></div><div class="prose"><h2>The transfer equation and its formal solution</h2>
@@ -126,32 +134,32 @@ opacity grid: 80 depths x 5941 wavelengths, 500.0-510.0 nm
     return torch.as_tensor(x, device=&quot;cpu&quot;, dtype=torch.float64)
 
 
-def optical_depth(kappa, rhox):
+def optical_depth(extinction, column_mass):
     &quot;&quot;&quot;Cumulative optical depth over column mass: tau[depth, wl], vectorized over wavelength.
 
     tau = int kappa dm by the trapezoid, seeded with kappa[0]*rhox[0] (the column above the top
     layer), accumulated inward by a single cumsum over the DEPTH axis. The long accumulation is
     fp64-promoted (the first GPU precision trap) — a tiny [D, n_wl] object, so the cost is nil.&quot;&quot;&quot;
-    kappa64 = _cpu_f64(kappa)
-    rhox64 = _cpu_f64(rhox)
+    extinction64 = _cpu_f64(extinction)
+    column_mass64 = _cpu_f64(column_mass)
 
     # trapezoid contribution of each layer: mean kappa times the column step between layers
-    dtau = 0.5 * (kappa64[1:, :] + kappa64[:-1, :]) * (rhox64[1:] - rhox64[:-1]).unsqueeze(1)
+    optical_depth_steps = 0.5 * (extinction64[1:, :] + extinction64[:-1, :]) * (column_mass64[1:] - column_mass64[:-1]).unsqueeze(1)
 
     # seed the top layer, then accumulate inward with a prefix sum (cumsum) over depth
-    seed = kappa64[0, :] * rhox64[0]
-    tail = seed.unsqueeze(0) + torch.cumsum(dtau, dim=0)
-    return torch.cat((seed.unsqueeze(0), tail), dim=0)
+    surface_optical_depth = extinction64[0, :] * column_mass64[0]
+    interior_optical_depth = surface_optical_depth.unsqueeze(0) + torch.cumsum(optical_depth_steps, dim=0)
+    return torch.cat((surface_optical_depth.unsqueeze(0), interior_optical_depth), dim=0)
 
 
 # full optical depth uses the total extinction; the continuum-only version drops the lines
-tau_line = optical_depth(total, rhox)
-tau_cont = optical_depth(cont,  rhox)
+total_optical_depth = optical_depth(total_extinction, column_mass)
+continuum_optical_depth = optical_depth(continuum_extinction, column_mass)
 
 # sanity: at 505 nm the scale runs from optically thin at the top to deep below the photosphere
-k505 = torch.argmin(torch.abs(wl - 505.0))
-print(f&quot;at {wl[k505]:.1f} nm, full optical depth spans &quot;
-      f&quot;{tau_line[:, k505].min():.1e} .. {tau_line[:, k505].max():.1e}&quot;)" aria-label="Copy code">
+k505 = torch.argmin(torch.abs(wavelength_nm - 505.0))
+print(f&quot;at {wavelength_nm[k505]:.1f} nm, full optical depth spans &quot;
+      f&quot;{total_optical_depth[:, k505].min():.1e} .. {total_optical_depth[:, k505].max():.1e}&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_cpu_f64</span>(<span class="hljs-params">x</span>):
@@ -161,32 +169,32 @@ print(f&quot;at {wl[k505]:.1f} nm, full optical depth spans &quot;
     <span class="hljs-keyword">return</span> torch.as_tensor(x, device=<span class="hljs-string">&quot;cpu&quot;</span>, dtype=torch.float64)
 
 
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">optical_depth</span>(<span class="hljs-params">kappa, rhox</span>):
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">optical_depth</span>(<span class="hljs-params">extinction, column_mass</span>):
     <span class="hljs-string">&quot;&quot;&quot;Cumulative optical depth over column mass: tau[depth, wl], vectorized over wavelength.
 
     tau = int kappa dm by the trapezoid, seeded with kappa[0]*rhox[0] (the column above the top
     layer), accumulated inward by a single cumsum over the DEPTH axis. The long accumulation is
     fp64-promoted (the first GPU precision trap) — a tiny [D, n_wl] object, so the cost is nil.&quot;&quot;&quot;</span>
-    kappa64 = _cpu_f64(kappa)
-    rhox64 = _cpu_f64(rhox)
+    extinction64 = _cpu_f64(extinction)
+    column_mass64 = _cpu_f64(column_mass)
 
     <span class="hljs-comment"># trapezoid contribution of each layer: mean kappa times the column step between layers</span>
-    dtau = <span class="hljs-number">0.5</span> * (kappa64[<span class="hljs-number">1</span>:, :] + kappa64[:-<span class="hljs-number">1</span>, :]) * (rhox64[<span class="hljs-number">1</span>:] - rhox64[:-<span class="hljs-number">1</span>]).unsqueeze(<span class="hljs-number">1</span>)
+    optical_depth_steps = <span class="hljs-number">0.5</span> * (extinction64[<span class="hljs-number">1</span>:, :] + extinction64[:-<span class="hljs-number">1</span>, :]) * (column_mass64[<span class="hljs-number">1</span>:] - column_mass64[:-<span class="hljs-number">1</span>]).unsqueeze(<span class="hljs-number">1</span>)
 
     <span class="hljs-comment"># seed the top layer, then accumulate inward with a prefix sum (cumsum) over depth</span>
-    seed = kappa64[<span class="hljs-number">0</span>, :] * rhox64[<span class="hljs-number">0</span>]
-    tail = seed.unsqueeze(<span class="hljs-number">0</span>) + torch.cumsum(dtau, dim=<span class="hljs-number">0</span>)
-    <span class="hljs-keyword">return</span> torch.cat((seed.unsqueeze(<span class="hljs-number">0</span>), tail), dim=<span class="hljs-number">0</span>)
+    surface_optical_depth = extinction64[<span class="hljs-number">0</span>, :] * column_mass64[<span class="hljs-number">0</span>]
+    interior_optical_depth = surface_optical_depth.unsqueeze(<span class="hljs-number">0</span>) + torch.cumsum(optical_depth_steps, dim=<span class="hljs-number">0</span>)
+    <span class="hljs-keyword">return</span> torch.cat((surface_optical_depth.unsqueeze(<span class="hljs-number">0</span>), interior_optical_depth), dim=<span class="hljs-number">0</span>)
 
 
 <span class="hljs-comment"># full optical depth uses the total extinction; the continuum-only version drops the lines</span>
-tau_line = optical_depth(total, rhox)
-tau_cont = optical_depth(cont,  rhox)
+total_optical_depth = optical_depth(total_extinction, column_mass)
+continuum_optical_depth = optical_depth(continuum_extinction, column_mass)
 
 <span class="hljs-comment"># sanity: at 505 nm the scale runs from optically thin at the top to deep below the photosphere</span>
-k505 = torch.argmin(torch.<span class="hljs-built_in">abs</span>(wl - <span class="hljs-number">505.0</span>))
-<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;at <span class="hljs-subst">{wl[k505]:<span class="hljs-number">.1</span>f}</span> nm, full optical depth spans &quot;</span>
-      <span class="hljs-string">f&quot;<span class="hljs-subst">{tau_line[:, k505].<span class="hljs-built_in">min</span>():<span class="hljs-number">.1</span>e}</span> .. <span class="hljs-subst">{tau_line[:, k505].<span class="hljs-built_in">max</span>():<span class="hljs-number">.1</span>e}</span>&quot;</span>)</code></pre>
+k505 = torch.argmin(torch.<span class="hljs-built_in">abs</span>(wavelength_nm - <span class="hljs-number">505.0</span>))
+<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;at <span class="hljs-subst">{wavelength_nm[k505]:<span class="hljs-number">.1</span>f}</span> nm, full optical depth spans &quot;</span>
+      <span class="hljs-string">f&quot;<span class="hljs-subst">{total_optical_depth[:, k505].<span class="hljs-built_in">min</span>():<span class="hljs-number">.1</span>e}</span> .. <span class="hljs-subst">{total_optical_depth[:, k505].<span class="hljs-built_in">max</span>():<span class="hljs-number">.1</span>e}</span>&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">at 505.0 nm, full optical depth spans 7.8e-10 .. 3.6e+07
 </pre></div></div><div class="prose"><h2>The emergent flux</h2>
 <p>Now the formal solution, built in three short steps: the source function, the <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>E</mi><mn>2</mn></msub></mrow><annotation encoding="application/x-tex">E_2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05764em;">E</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.0576em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> kernel, then the depth integral that combines them.</p>
@@ -195,36 +203,36 @@ k505 = torch.argmin(torch.<span class="hljs-built_in">abs</span>(wl - <span clas
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[3]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="def planck_nu(nu, T):
+        <button class="copy-btn" type="button" data-code="def planck_nu(frequency_hz, temperature):
     &quot;&quot;&quot;Planck B_nu(T) [CGS], overflow-safe Kurucz form, broadcast over (depth, wl). Torch-native.&quot;&quot;&quot;
-    nu_t = torch.as_tensor(nu, device=DEVICE, dtype=DTYPE)
-    T_t = torch.as_tensor(T, device=DEVICE, dtype=DTYPE)
-    x = (H_C * nu_t) / (K * T_t)             # dimensionless h nu / kT
-    emx = torch.exp(-x)                       # &lt;= 1: the Wien tail never overflows
-    return 1.47439e-2 * torch.pow(nu_t / 1.0e15, 3) * emx / (1.0 - emx)
+    frequency_t = torch.as_tensor(frequency_hz, device=DEVICE, dtype=DTYPE)
+    temperature_t = torch.as_tensor(temperature, device=DEVICE, dtype=DTYPE)
+    hnu_over_kT = (H_C * frequency_t) / (K * temperature_t)
+    exp_minus_hnu_over_kT = torch.exp(-hnu_over_kT)        # &lt;= 1: the Wien tail never overflows
+    return 1.47439e-2 * torch.pow(frequency_t / 1.0e15, 3) * exp_minus_hnu_over_kT / (1.0 - exp_minus_hnu_over_kT)
 
 
 # frequency at each wavelength (wl in nm -&gt; cm), then S = B_nu(T) on the whole grid
-nu = C / (wl * 1e-7)                          # [n_wl], Hz
-S = planck_nu(nu[None, :], T[:, None])        # [D, n_wl] source function
+frequency_hz = C / (wavelength_nm * 1e-7)                 # [n_wl], Hz
+source_function = planck_nu(frequency_hz[None, :], temperature[:, None])  # [D, n_wl] source function
 
-print(f&quot;source function S: {tuple(S.shape)}  (depth x wavelength)&quot;)" aria-label="Copy code">
+print(f&quot;source function S: {tuple(source_function.shape)}  (depth x wavelength)&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">planck_nu</span>(<span class="hljs-params">nu, T</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">planck_nu</span>(<span class="hljs-params">frequency_hz, temperature</span>):
     <span class="hljs-string">&quot;&quot;&quot;Planck B_nu(T) [CGS], overflow-safe Kurucz form, broadcast over (depth, wl). Torch-native.&quot;&quot;&quot;</span>
-    nu_t = torch.as_tensor(nu, device=DEVICE, dtype=DTYPE)
-    T_t = torch.as_tensor(T, device=DEVICE, dtype=DTYPE)
-    x = (H_C * nu_t) / (K * T_t)             <span class="hljs-comment"># dimensionless h nu / kT</span>
-    emx = torch.exp(-x)                       <span class="hljs-comment"># &lt;= 1: the Wien tail never overflows</span>
-    <span class="hljs-keyword">return</span> <span class="hljs-number">1.47439e-2</span> * torch.<span class="hljs-built_in">pow</span>(nu_t / <span class="hljs-number">1.0e15</span>, <span class="hljs-number">3</span>) * emx / (<span class="hljs-number">1.0</span> - emx)
+    frequency_t = torch.as_tensor(frequency_hz, device=DEVICE, dtype=DTYPE)
+    temperature_t = torch.as_tensor(temperature, device=DEVICE, dtype=DTYPE)
+    hnu_over_kT = (H_C * frequency_t) / (K * temperature_t)
+    exp_minus_hnu_over_kT = torch.exp(-hnu_over_kT)        <span class="hljs-comment"># &lt;= 1: the Wien tail never overflows</span>
+    <span class="hljs-keyword">return</span> <span class="hljs-number">1.47439e-2</span> * torch.<span class="hljs-built_in">pow</span>(frequency_t / <span class="hljs-number">1.0e15</span>, <span class="hljs-number">3</span>) * exp_minus_hnu_over_kT / (<span class="hljs-number">1.0</span> - exp_minus_hnu_over_kT)
 
 
 <span class="hljs-comment"># frequency at each wavelength (wl in nm -&gt; cm), then S = B_nu(T) on the whole grid</span>
-nu = C / (wl * <span class="hljs-number">1e-7</span>)                          <span class="hljs-comment"># [n_wl], Hz</span>
-S = planck_nu(nu[<span class="hljs-literal">None</span>, :], T[:, <span class="hljs-literal">None</span>])        <span class="hljs-comment"># [D, n_wl] source function</span>
+frequency_hz = C / (wavelength_nm * <span class="hljs-number">1e-7</span>)                 <span class="hljs-comment"># [n_wl], Hz</span>
+source_function = planck_nu(frequency_hz[<span class="hljs-literal">None</span>, :], temperature[:, <span class="hljs-literal">None</span>])  <span class="hljs-comment"># [D, n_wl] source function</span>
 
-<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;source function S: <span class="hljs-subst">{<span class="hljs-built_in">tuple</span>(S.shape)}</span>  (depth x wavelength)&quot;</span>)</code></pre>
+<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;source function S: <span class="hljs-subst">{<span class="hljs-built_in">tuple</span>(source_function.shape)}</span>  (depth x wavelength)&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">source function S: (80, 5941)  (depth x wavelength)
 </pre></div></div><div class="prose"><p>Next the kernel. The angle integral left us with the second exponential integral <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>E</mi><mn>2</mn></msub></mrow><annotation encoding="application/x-tex">E_2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05764em;">E</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.0576em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>; we supply it from scratch with the standard Abramowitz &amp; Stegun rational approximations — one polynomial form for <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>x</mi><mo>≤</mo><mn>1</mn></mrow><annotation encoding="application/x-tex">x\le1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7719em;vertical-align:-0.136em;"></span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">≤</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">1</span></span></span></span>, a rational form for <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>x</mi><mo>&gt;</mo><mn>1</mn></mrow><annotation encoding="application/x-tex">x&gt;1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5782em;vertical-align:-0.0391em;"></span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">&gt;</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">1</span></span></span></span>, then <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>E</mi><mn>2</mn></msub><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo>=</mo><msup><mi>e</mi><mrow><mo>−</mo><mi>x</mi></mrow></msup><mo>−</mo><mi>x</mi><mtext> </mtext><msub><mi>E</mi><mn>1</mn></msub><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">E_2(x) = e^{-x} - x\,E_1(x)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05764em;">E</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.0576em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">)</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8547em;vertical-align:-0.0833em;"></span><span class="mord"><span class="mord mathnormal">e</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7713em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mathnormal mtight">x</span></span></span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05764em;">E</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.0576em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">)</span></span></span></span>, with the limit <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>E</mi><mn>2</mn></msub><mo stretchy="false">(</mo><mn>0</mn><mo stretchy="false">)</mo><mo>=</mo><mn>1</mn></mrow><annotation encoding="application/x-tex">E_2(0)=1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05764em;">E</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.0576em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mopen">(</span><span class="mord">0</span><span class="mclose">)</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">1</span></span></span></span> handled explicitly. No SciPy needed.</p>
 <p>The GPU rewrite is <strong>branchless</strong>: the NumPy <code>np.where</code> picking the <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>x</mi><mo>≤</mo><mn>1</mn></mrow><annotation encoding="application/x-tex">x\le1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7719em;vertical-align:-0.136em;"></span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">≤</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">1</span></span></span></span> vs <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>x</mi><mo>&gt;</mo><mn>1</mn></mrow><annotation encoding="application/x-tex">x&gt;1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5782em;vertical-align:-0.0391em;"></span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">&gt;</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">1</span></span></span></span> branch becomes <code>torch.where</code>, so <em>both</em> forms are evaluated over the whole grid and the right one selected per element — every depth/wavelength lane does the same work, no data-dependent control flow.</p>
@@ -308,41 +316,41 @@ _A1, _A2, _B1, _B2 = <span class="hljs-number">2.334733</span>, <span class="hlj
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[5]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="def emergent_flux(tau, S):
+        <button class="copy-btn" type="button" data-code="def emergent_flux(optical_depth_grid, source_function_grid):
     &quot;&quot;&quot;F_lambda = 2*pi * trapezoid(S * E2(tau), tau, axis=depth), batched over wavelength.&quot;&quot;&quot;
-    tau_t = torch.as_tensor(tau, device=DEVICE, dtype=DTYPE)
-    S_t = torch.as_tensor(S, device=DEVICE, dtype=DTYPE)
-    y = S_t * _expint2_work(tau_t)                       # the weighted integrand on the grid
-    dtau = tau_t[1:, :] - tau_t[:-1, :]                  # non-uniform tau steps per wavelength
-    trap = 0.5 * (y[1:, :] + y[:-1, :]) * dtau           # trapezoid contributions
-    return (2.0 * math.pi) * torch.sum(trap, dim=0)      # integrate over depth -&gt; [n_wl]
+    optical_depth_t = torch.as_tensor(optical_depth_grid, device=DEVICE, dtype=DTYPE)
+    source_function_t = torch.as_tensor(source_function_grid, device=DEVICE, dtype=DTYPE)
+    weighted_source = source_function_t * _expint2_work(optical_depth_t)
+    optical_depth_step = optical_depth_t[1:, :] - optical_depth_t[:-1, :]
+    trapezoid_terms = 0.5 * (weighted_source[1:, :] + weighted_source[:-1, :]) * optical_depth_step
+    return (2.0 * math.pi) * torch.sum(trapezoid_terms, dim=0)      # integrate over depth -&gt; [n_wl]
 
 
 # run the formal solution twice: full opacity -&gt; line flux; continuum opacity -&gt; the flux it sits on
-flux_line = emergent_flux(tau_line, S)
-flux_cont = emergent_flux(tau_cont, S)
+total_flux = emergent_flux(total_optical_depth, source_function)
+continuum_flux = emergent_flux(continuum_optical_depth, source_function)
 
 # normalised (rectified) spectrum
-spectrum = flux_line / flux_cont
+spectrum = total_flux / continuum_flux
 print(f&quot;emergent flux computed for {spectrum.numel()} wavelengths&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">emergent_flux</span>(<span class="hljs-params">tau, S</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">emergent_flux</span>(<span class="hljs-params">optical_depth_grid, source_function_grid</span>):
     <span class="hljs-string">&quot;&quot;&quot;F_lambda = 2*pi * trapezoid(S * E2(tau), tau, axis=depth), batched over wavelength.&quot;&quot;&quot;</span>
-    tau_t = torch.as_tensor(tau, device=DEVICE, dtype=DTYPE)
-    S_t = torch.as_tensor(S, device=DEVICE, dtype=DTYPE)
-    y = S_t * _expint2_work(tau_t)                       <span class="hljs-comment"># the weighted integrand on the grid</span>
-    dtau = tau_t[<span class="hljs-number">1</span>:, :] - tau_t[:-<span class="hljs-number">1</span>, :]                  <span class="hljs-comment"># non-uniform tau steps per wavelength</span>
-    trap = <span class="hljs-number">0.5</span> * (y[<span class="hljs-number">1</span>:, :] + y[:-<span class="hljs-number">1</span>, :]) * dtau           <span class="hljs-comment"># trapezoid contributions</span>
-    <span class="hljs-keyword">return</span> (<span class="hljs-number">2.0</span> * math.pi) * torch.<span class="hljs-built_in">sum</span>(trap, dim=<span class="hljs-number">0</span>)      <span class="hljs-comment"># integrate over depth -&gt; [n_wl]</span>
+    optical_depth_t = torch.as_tensor(optical_depth_grid, device=DEVICE, dtype=DTYPE)
+    source_function_t = torch.as_tensor(source_function_grid, device=DEVICE, dtype=DTYPE)
+    weighted_source = source_function_t * _expint2_work(optical_depth_t)
+    optical_depth_step = optical_depth_t[<span class="hljs-number">1</span>:, :] - optical_depth_t[:-<span class="hljs-number">1</span>, :]
+    trapezoid_terms = <span class="hljs-number">0.5</span> * (weighted_source[<span class="hljs-number">1</span>:, :] + weighted_source[:-<span class="hljs-number">1</span>, :]) * optical_depth_step
+    <span class="hljs-keyword">return</span> (<span class="hljs-number">2.0</span> * math.pi) * torch.<span class="hljs-built_in">sum</span>(trapezoid_terms, dim=<span class="hljs-number">0</span>)      <span class="hljs-comment"># integrate over depth -&gt; [n_wl]</span>
 
 
 <span class="hljs-comment"># run the formal solution twice: full opacity -&gt; line flux; continuum opacity -&gt; the flux it sits on</span>
-flux_line = emergent_flux(tau_line, S)
-flux_cont = emergent_flux(tau_cont, S)
+total_flux = emergent_flux(total_optical_depth, source_function)
+continuum_flux = emergent_flux(continuum_optical_depth, source_function)
 
 <span class="hljs-comment"># normalised (rectified) spectrum</span>
-spectrum = flux_line / flux_cont
+spectrum = total_flux / continuum_flux
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;emergent flux computed for <span class="hljs-subst">{spectrum.numel()}</span> wavelengths&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">emergent flux computed for 5941 wavelengths
 </pre></div></div><div class="prose"><h3>Comparison cell — the GPU spectrum vs the inline fp64 reference</h3>
@@ -352,8 +360,11 @@ spectrum = flux_line / flux_cont
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[6]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# --- the exact fp64 NumPy formal solution, inline (the parity oracle) ---
 def _np_od(kappa):
-    dt = 0.5*(kappa[1:]+kappa[:-1])*np.diff(rhox_np)[:, None]
-    t = np.empty_like(kappa); t[0] = kappa[0]*rhox_np[0]; t[1:] = t[0] + np.cumsum(dt, axis=0); return t
+    optical_depth_steps = 0.5*(kappa[1:]+kappa[:-1])*np.diff(column_mass_np)[:, None]
+    optical_depth_grid = np.empty_like(kappa)
+    optical_depth_grid[0] = kappa[0]*column_mass_np[0]
+    optical_depth_grid[1:] = optical_depth_grid[0] + np.cumsum(optical_depth_steps, axis=0)
+    return optical_depth_grid
 
 def _np_bnu(nuu, TT):
     x = H_C*nuu/(K*TT); return 1.47439e-2*(nuu/1e15)**3*np.exp(-x)/(1.0-np.exp(-x))
@@ -366,11 +377,13 @@ def _np_e2(x):
     el = np.exp(-xp)/xp*(xp*xp + a1*xp + a2)/(xp*xp + b1*xp + b2)
     E1 = np.where(x &lt;= 1.0, es, el); return np.where(x &gt; 0, np.exp(-x)-x*E1, 1.0)
 
-nu_np = C / (wl_np*1e-7); S_np = _np_bnu(nu_np[None, :], T_np[:, None])
-tau_l_np = _np_od(total_abs + total_scat); tau_c_np = _np_od(cont_abs + cont_scat)
-fl_np = 2*np.pi*np.trapezoid(S_np*_np_e2(tau_l_np), tau_l_np, axis=0)
-fc_np = 2*np.pi*np.trapezoid(S_np*_np_e2(tau_c_np), tau_c_np, axis=0)
-spec_np = fl_np / fc_np
+frequency_hz_np = C / (wavelength_nm_np*1e-7)
+source_function_np = _np_bnu(frequency_hz_np[None, :], temperature_np[:, None])
+total_optical_depth_np = _np_od(total_absorption + total_scattering)
+continuum_optical_depth_np = _np_od(continuum_absorption + continuum_scattering)
+total_flux_np = 2*np.pi*np.trapezoid(source_function_np*_np_e2(total_optical_depth_np), total_optical_depth_np, axis=0)
+continuum_flux_np = 2*np.pi*np.trapezoid(source_function_np*_np_e2(continuum_optical_depth_np), continuum_optical_depth_np, axis=0)
+spec_np = total_flux_np / continuum_flux_np
 ref = REF[&quot;flux_total&quot;] / REF[&quot;flux_continuum&quot;]                      # the pykurucz reference
 
 
@@ -396,8 +409,11 @@ print(&quot;PASS — the GPU formal solution reproduces the inline fp64 referenc
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># --- the exact fp64 NumPy formal solution, inline (the parity oracle) ---</span>
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">_np_od</span>(<span class="hljs-params">kappa</span>):
-    dt = <span class="hljs-number">0.5</span>*(kappa[<span class="hljs-number">1</span>:]+kappa[:-<span class="hljs-number">1</span>])*np.diff(rhox_np)[:, <span class="hljs-literal">None</span>]
-    t = np.empty_like(kappa); t[<span class="hljs-number">0</span>] = kappa[<span class="hljs-number">0</span>]*rhox_np[<span class="hljs-number">0</span>]; t[<span class="hljs-number">1</span>:] = t[<span class="hljs-number">0</span>] + np.cumsum(dt, axis=<span class="hljs-number">0</span>); <span class="hljs-keyword">return</span> t
+    optical_depth_steps = <span class="hljs-number">0.5</span>*(kappa[<span class="hljs-number">1</span>:]+kappa[:-<span class="hljs-number">1</span>])*np.diff(column_mass_np)[:, <span class="hljs-literal">None</span>]
+    optical_depth_grid = np.empty_like(kappa)
+    optical_depth_grid[<span class="hljs-number">0</span>] = kappa[<span class="hljs-number">0</span>]*column_mass_np[<span class="hljs-number">0</span>]
+    optical_depth_grid[<span class="hljs-number">1</span>:] = optical_depth_grid[<span class="hljs-number">0</span>] + np.cumsum(optical_depth_steps, axis=<span class="hljs-number">0</span>)
+    <span class="hljs-keyword">return</span> optical_depth_grid
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">_np_bnu</span>(<span class="hljs-params">nuu, TT</span>):
     x = H_C*nuu/(K*TT); <span class="hljs-keyword">return</span> <span class="hljs-number">1.47439e-2</span>*(nuu/<span class="hljs-number">1e15</span>)**<span class="hljs-number">3</span>*np.exp(-x)/(<span class="hljs-number">1.0</span>-np.exp(-x))
@@ -410,11 +426,13 @@ print(&quot;PASS — the GPU formal solution reproduces the inline fp64 referenc
     el = np.exp(-xp)/xp*(xp*xp + a1*xp + a2)/(xp*xp + b1*xp + b2)
     E1 = np.where(x &lt;= <span class="hljs-number">1.0</span>, es, el); <span class="hljs-keyword">return</span> np.where(x &gt; <span class="hljs-number">0</span>, np.exp(-x)-x*E1, <span class="hljs-number">1.0</span>)
 
-nu_np = C / (wl_np*<span class="hljs-number">1e-7</span>); S_np = _np_bnu(nu_np[<span class="hljs-literal">None</span>, :], T_np[:, <span class="hljs-literal">None</span>])
-tau_l_np = _np_od(total_abs + total_scat); tau_c_np = _np_od(cont_abs + cont_scat)
-fl_np = <span class="hljs-number">2</span>*np.pi*np.trapezoid(S_np*_np_e2(tau_l_np), tau_l_np, axis=<span class="hljs-number">0</span>)
-fc_np = <span class="hljs-number">2</span>*np.pi*np.trapezoid(S_np*_np_e2(tau_c_np), tau_c_np, axis=<span class="hljs-number">0</span>)
-spec_np = fl_np / fc_np
+frequency_hz_np = C / (wavelength_nm_np*<span class="hljs-number">1e-7</span>)
+source_function_np = _np_bnu(frequency_hz_np[<span class="hljs-literal">None</span>, :], temperature_np[:, <span class="hljs-literal">None</span>])
+total_optical_depth_np = _np_od(total_absorption + total_scattering)
+continuum_optical_depth_np = _np_od(continuum_absorption + continuum_scattering)
+total_flux_np = <span class="hljs-number">2</span>*np.pi*np.trapezoid(source_function_np*_np_e2(total_optical_depth_np), total_optical_depth_np, axis=<span class="hljs-number">0</span>)
+continuum_flux_np = <span class="hljs-number">2</span>*np.pi*np.trapezoid(source_function_np*_np_e2(continuum_optical_depth_np), continuum_optical_depth_np, axis=<span class="hljs-number">0</span>)
+spec_np = total_flux_np / continuum_flux_np
 ref = REF[<span class="hljs-string">&quot;flux_total&quot;</span>] / REF[<span class="hljs-string">&quot;flux_continuum&quot;</span>]                      <span class="hljs-comment"># the pykurucz reference</span>
 
 
@@ -445,8 +463,8 @@ PASS — the GPU formal solution reproduces the inline fp64 reference to the flo
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[7]</span>Python</span>
         <button class="copy-btn" type="button" data-code="fig, ax = plt.subplots(figsize=(11, 4.2))
-ax.plot(wl_np, ref, color=&quot;0.6&quot;, lw=1.4, label=&quot;pykurucz reference&quot;)
-ax.plot(wl_np, spec_gpu, color=&quot;C3&quot;, lw=0.6, label=&quot;computed here&quot;)
+ax.plot(wavelength_nm_np, ref, color=&quot;0.6&quot;, lw=1.4, label=&quot;pykurucz reference&quot;)
+ax.plot(wavelength_nm_np, spec_gpu, color=&quot;C3&quot;, lw=0.6, label=&quot;computed here&quot;)
 ax.set_xlabel(&quot;wavelength  [nm]&quot;); ax.set_ylabel(&quot;normalised flux&quot;)
 ax.set_title(&quot;The solar spectrum, 500-510 nm — built from scratch on the GPU, matched to the reference&quot;)
 ax.set_ylim(0, 1.05); ax.legend(loc=&quot;lower right&quot;)
@@ -454,8 +472,8 @@ fig.tight_layout(); plt.show()" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python">fig, ax = plt.subplots(figsize=(<span class="hljs-number">11</span>, <span class="hljs-number">4.2</span>))
-ax.plot(wl_np, ref, color=<span class="hljs-string">&quot;0.6&quot;</span>, lw=<span class="hljs-number">1.4</span>, label=<span class="hljs-string">&quot;pykurucz reference&quot;</span>)
-ax.plot(wl_np, spec_gpu, color=<span class="hljs-string">&quot;C3&quot;</span>, lw=<span class="hljs-number">0.6</span>, label=<span class="hljs-string">&quot;computed here&quot;</span>)
+ax.plot(wavelength_nm_np, ref, color=<span class="hljs-string">&quot;0.6&quot;</span>, lw=<span class="hljs-number">1.4</span>, label=<span class="hljs-string">&quot;pykurucz reference&quot;</span>)
+ax.plot(wavelength_nm_np, spec_gpu, color=<span class="hljs-string">&quot;C3&quot;</span>, lw=<span class="hljs-number">0.6</span>, label=<span class="hljs-string">&quot;computed here&quot;</span>)
 ax.set_xlabel(<span class="hljs-string">&quot;wavelength  [nm]&quot;</span>); ax.set_ylabel(<span class="hljs-string">&quot;normalised flux&quot;</span>)
 ax.set_title(<span class="hljs-string">&quot;The solar spectrum, 500-510 nm — built from scratch on the GPU, matched to the reference&quot;</span>)
 ax.set_ylim(<span class="hljs-number">0</span>, <span class="hljs-number">1.05</span>); ax.legend(loc=<span class="hljs-string">&quot;lower right&quot;</span>)
@@ -469,76 +487,78 @@ fig.tight_layout(); plt.show()</code></pre>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[8]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="def eddington_barbier_T(tau, T):
+        <button class="copy-btn" type="button" data-code="def eddington_barbier_T(optical_depth_grid, temperature):
     &quot;&quot;&quot;Read T where tau_lambda = 2/3 at every wavelength, fully vectorized (no per-wl loop).&quot;&quot;&quot;
-    tau_t = torch.as_tensor(tau, device=DEVICE, dtype=DTYPE)
-    T_t = torch.as_tensor(T, device=DEVICE, dtype=DTYPE)
+    optical_depth_t = torch.as_tensor(optical_depth_grid, device=DEVICE, dtype=DTYPE)
+    temperature_t = torch.as_tensor(temperature, device=DEVICE, dtype=DTYPE)
     target = torch.as_tensor(2.0/3.0, device=DEVICE, dtype=DTYPE)
-    Dn = tau_t.shape[0]
+    n_depths = optical_depth_t.shape[0]
 
     # count depths below 2/3 per wavelength -&gt; the upper bracket index (a vectorized searchsorted)
-    hi = torch.clamp(torch.sum(tau_t &lt; target, dim=0).to(torch.long), 1, Dn - 1)
+    hi = torch.clamp(torch.sum(optical_depth_t &lt; target, dim=0).to(torch.long), 1, n_depths - 1)
     lo = hi - 1
-    kw = torch.arange(tau_t.shape[1], device=DEVICE, dtype=torch.long)
+    wavelength_index = torch.arange(optical_depth_t.shape[1], device=DEVICE, dtype=torch.long)
 
-    tau_lo, tau_hi = tau_t[lo, kw], tau_t[hi, kw]        # gather the bracketing tau pairs
-    T_lo, T_hi = T_t[lo], T_t[hi]                         # and the bracketing temperatures
+    tau_lo = optical_depth_t[lo, wavelength_index]
+    tau_hi = optical_depth_t[hi, wavelength_index]
+    temperature_lo, temperature_hi = temperature_t[lo], temperature_t[hi]
     denom = tau_hi - tau_lo
     frac = torch.where(denom != 0.0, (target - tau_lo) / denom, torch.zeros_like(denom))
-    interp = T_lo + frac * (T_hi - T_lo)                  # linear interpolation onto 2/3
+    interp = temperature_lo + frac * (temperature_hi - temperature_lo)
 
     # clamp the ends (grid above 2/3 at the top, or below it at the base)
-    interp = torch.where(target &lt;= tau_t[0, :], T_t[0].expand_as(interp), interp)
-    interp = torch.where(target &gt;= tau_t[-1, :], T_t[-1].expand_as(interp), interp)
+    interp = torch.where(target &lt;= optical_depth_t[0, :], temperature_t[0].expand_as(interp), interp)
+    interp = torch.where(target &gt;= optical_depth_t[-1, :], temperature_t[-1].expand_as(interp), interp)
     return interp
 
 
 # Eddington-Barbier flux: pi * B at the tau = 2/3 layer, for the line and the continuum
-T23_line = eddington_barbier_T(tau_line, T)
-T23_cont = eddington_barbier_T(tau_cont, T)
-flux_EB = math.pi * planck_nu(nu, T23_line)
-spectrum_EB = flux_EB / (math.pi * planck_nu(nu, T23_cont))
+temperature_tau23_total = eddington_barbier_T(total_optical_depth, temperature)
+temperature_tau23_continuum = eddington_barbier_T(continuum_optical_depth, temperature)
+flux_EB = math.pi * planck_nu(frequency_hz, temperature_tau23_total)
+spectrum_EB = flux_EB / (math.pi * planck_nu(frequency_hz, temperature_tau23_continuum))
 
 dev_EB = float(torch.median(torch.abs(spectrum_EB - spectrum) / spectrum))
 print(f&quot;Eddington-Barbier vs full formal solution: median |rel diff| = {dev_EB:.2e}&quot;)
-print(f&quot;in a deep line core the tau=2/3 surface sits at T = {float(T23_line.min()):.0f} K &quot;
-      f&quot;(vs {float(T23_line.max()):.0f} K in the continuum)&quot;)" aria-label="Copy code">
+print(f&quot;in a deep line core the tau=2/3 surface sits at T = {float(temperature_tau23_total.min()):.0f} K &quot;
+      f&quot;(vs {float(temperature_tau23_total.max()):.0f} K in the continuum)&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">eddington_barbier_T</span>(<span class="hljs-params">tau, T</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">eddington_barbier_T</span>(<span class="hljs-params">optical_depth_grid, temperature</span>):
     <span class="hljs-string">&quot;&quot;&quot;Read T where tau_lambda = 2/3 at every wavelength, fully vectorized (no per-wl loop).&quot;&quot;&quot;</span>
-    tau_t = torch.as_tensor(tau, device=DEVICE, dtype=DTYPE)
-    T_t = torch.as_tensor(T, device=DEVICE, dtype=DTYPE)
+    optical_depth_t = torch.as_tensor(optical_depth_grid, device=DEVICE, dtype=DTYPE)
+    temperature_t = torch.as_tensor(temperature, device=DEVICE, dtype=DTYPE)
     target = torch.as_tensor(<span class="hljs-number">2.0</span>/<span class="hljs-number">3.0</span>, device=DEVICE, dtype=DTYPE)
-    Dn = tau_t.shape[<span class="hljs-number">0</span>]
+    n_depths = optical_depth_t.shape[<span class="hljs-number">0</span>]
 
     <span class="hljs-comment"># count depths below 2/3 per wavelength -&gt; the upper bracket index (a vectorized searchsorted)</span>
-    hi = torch.clamp(torch.<span class="hljs-built_in">sum</span>(tau_t &lt; target, dim=<span class="hljs-number">0</span>).to(torch.long), <span class="hljs-number">1</span>, Dn - <span class="hljs-number">1</span>)
+    hi = torch.clamp(torch.<span class="hljs-built_in">sum</span>(optical_depth_t &lt; target, dim=<span class="hljs-number">0</span>).to(torch.long), <span class="hljs-number">1</span>, n_depths - <span class="hljs-number">1</span>)
     lo = hi - <span class="hljs-number">1</span>
-    kw = torch.arange(tau_t.shape[<span class="hljs-number">1</span>], device=DEVICE, dtype=torch.long)
+    wavelength_index = torch.arange(optical_depth_t.shape[<span class="hljs-number">1</span>], device=DEVICE, dtype=torch.long)
 
-    tau_lo, tau_hi = tau_t[lo, kw], tau_t[hi, kw]        <span class="hljs-comment"># gather the bracketing tau pairs</span>
-    T_lo, T_hi = T_t[lo], T_t[hi]                         <span class="hljs-comment"># and the bracketing temperatures</span>
+    tau_lo = optical_depth_t[lo, wavelength_index]
+    tau_hi = optical_depth_t[hi, wavelength_index]
+    temperature_lo, temperature_hi = temperature_t[lo], temperature_t[hi]
     denom = tau_hi - tau_lo
     frac = torch.where(denom != <span class="hljs-number">0.0</span>, (target - tau_lo) / denom, torch.zeros_like(denom))
-    interp = T_lo + frac * (T_hi - T_lo)                  <span class="hljs-comment"># linear interpolation onto 2/3</span>
+    interp = temperature_lo + frac * (temperature_hi - temperature_lo)
 
     <span class="hljs-comment"># clamp the ends (grid above 2/3 at the top, or below it at the base)</span>
-    interp = torch.where(target &lt;= tau_t[<span class="hljs-number">0</span>, :], T_t[<span class="hljs-number">0</span>].expand_as(interp), interp)
-    interp = torch.where(target &gt;= tau_t[-<span class="hljs-number">1</span>, :], T_t[-<span class="hljs-number">1</span>].expand_as(interp), interp)
+    interp = torch.where(target &lt;= optical_depth_t[<span class="hljs-number">0</span>, :], temperature_t[<span class="hljs-number">0</span>].expand_as(interp), interp)
+    interp = torch.where(target &gt;= optical_depth_t[-<span class="hljs-number">1</span>, :], temperature_t[-<span class="hljs-number">1</span>].expand_as(interp), interp)
     <span class="hljs-keyword">return</span> interp
 
 
 <span class="hljs-comment"># Eddington-Barbier flux: pi * B at the tau = 2/3 layer, for the line and the continuum</span>
-T23_line = eddington_barbier_T(tau_line, T)
-T23_cont = eddington_barbier_T(tau_cont, T)
-flux_EB = math.pi * planck_nu(nu, T23_line)
-spectrum_EB = flux_EB / (math.pi * planck_nu(nu, T23_cont))
+temperature_tau23_total = eddington_barbier_T(total_optical_depth, temperature)
+temperature_tau23_continuum = eddington_barbier_T(continuum_optical_depth, temperature)
+flux_EB = math.pi * planck_nu(frequency_hz, temperature_tau23_total)
+spectrum_EB = flux_EB / (math.pi * planck_nu(frequency_hz, temperature_tau23_continuum))
 
 dev_EB = <span class="hljs-built_in">float</span>(torch.median(torch.<span class="hljs-built_in">abs</span>(spectrum_EB - spectrum) / spectrum))
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;Eddington-Barbier vs full formal solution: median |rel diff| = <span class="hljs-subst">{dev_EB:<span class="hljs-number">.2</span>e}</span>&quot;</span>)
-<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;in a deep line core the tau=2/3 surface sits at T = <span class="hljs-subst">{<span class="hljs-built_in">float</span>(T23_line.<span class="hljs-built_in">min</span>()):<span class="hljs-number">.0</span>f}</span> K &quot;</span>
-      <span class="hljs-string">f&quot;(vs <span class="hljs-subst">{<span class="hljs-built_in">float</span>(T23_line.<span class="hljs-built_in">max</span>()):<span class="hljs-number">.0</span>f}</span> K in the continuum)&quot;</span>)</code></pre>
+<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;in a deep line core the tau=2/3 surface sits at T = <span class="hljs-subst">{<span class="hljs-built_in">float</span>(temperature_tau23_total.<span class="hljs-built_in">min</span>()):<span class="hljs-number">.0</span>f}</span> K &quot;</span>
+      <span class="hljs-string">f&quot;(vs <span class="hljs-subst">{<span class="hljs-built_in">float</span>(temperature_tau23_total.<span class="hljs-built_in">max</span>()):<span class="hljs-number">.0</span>f}</span> K in the continuum)&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">Eddington-Barbier vs full formal solution: median |rel diff| = 8.53e-04
 in a deep line core the tau=2/3 surface sits at T = 4737 K (vs 6883 K in the continuum)
 </pre></div></div><div class="prose"><p>The Eddington–Barbier flux tracks the full solution to a few percent — good enough to read the physics off by eye, though we use the exact integral for the spectrum. It makes the line-formation picture concrete: in a deep core the <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>τ</mi><mo>=</mo><mn>2</mn><mi mathvariant="normal">/</mi><mn>3</mn></mrow><annotation encoding="application/x-tex">\tau=2/3</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">2/3</span></span></span></span> surface climbs to a layer hundreds — in the deepest cores, more than a thousand — kelvin cooler than the continuum-forming layer, and the Planck function, steeply temperature-sensitive in the blue, drops accordingly.</p>
@@ -591,7 +611,7 @@ makes a spectrum a depth thermometer: line opacity raises the <span class="katex
 <p><strong>1. The <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>E</mi><mn>2</mn></msub></mrow><annotation encoding="application/x-tex">E_2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05764em;">E</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.0576em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> weighting.</strong> Plot <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>E</mi><mn>2</mn></msub><mo stretchy="false">(</mo><mi>τ</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">E_2(\tau)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05764em;">E</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.0576em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="mclose">)</span></span></span></span> from <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>τ</mi><mo>=</mo><mn>0</mn></mrow><annotation encoding="application/x-tex">\tau=0</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">0</span></span></span></span> to <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>5</mn></mrow><annotation encoding="application/x-tex">5</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">5</span></span></span></span> and confirm it is largest at <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>τ</mi><mo>=</mo><mn>0</mn></mrow><annotation encoding="application/x-tex">\tau=0</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">0</span></span></span></span> and decreases as <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>τ</mi></mrow><annotation encoding="application/x-tex">\tau</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span></span></span></span> increases inward — it does <em>not</em> peak at <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>2</mn><mi mathvariant="normal">/</mi><mn>3</mn></mrow><annotation encoding="application/x-tex">2/3</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">2/3</span></span></span></span>. Find the median depth of the kernel, where <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msubsup><mo>∫</mo><mn>0</mn><mi>τ</mi></msubsup><msub><mi>E</mi><mn>2</mn></msub><mo stretchy="false">(</mo><msup><mi>τ</mi><mo mathvariant="normal" lspace="0em" rspace="0em">′</mo></msup><mo stretchy="false">)</mo><mtext> </mtext><mi>d</mi><msup><mi>τ</mi><mo mathvariant="normal" lspace="0em" rspace="0em">′</mo></msup></mrow><annotation encoding="application/x-tex">\int_0^\tau E_2(\tau&#x27;)\,d\tau&#x27;</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1.2151em;vertical-align:-0.3558em;"></span><span class="mop"><span class="mop op-symbol small-op" style="margin-right:0.19445em;position:relative;top:-0.0006em;">∫</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.8593em;"><span style="top:-2.3442em;margin-left:-0.1945em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">0</span></span></span><span style="top:-3.2579em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.1132em;">τ</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.3558em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05764em;">E</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.0576em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7519em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">′</span></span></span></span></span></span></span></span></span><span class="mclose">)</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal">d</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7519em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">′</span></span></span></span></span></span></span></span></span></span></span></span> reaches half its total, and note that it is <em>not</em> <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>2</mn><mi mathvariant="normal">/</mi><mn>3</mn></mrow><annotation encoding="application/x-tex">2/3</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">2/3</span></span></span></span>: the kernel&#39;s median and the Eddington–Barbier depth are different concepts. Then plug a linear source function <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>S</mi><mo>=</mo><mi>a</mi><mo>+</mo><mi>b</mi><mi>τ</mi></mrow><annotation encoding="application/x-tex">S=a+b\tau</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.05764em;">S</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal">a</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal">b</span><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span></span></span></span> into
 <span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>F</mi><mo>=</mo><mn>2</mn><mi>π</mi><msubsup><mo>∫</mo><mn>0</mn><mi mathvariant="normal">∞</mi></msubsup><mi>S</mi><mo stretchy="false">(</mo><mi>τ</mi><mo stretchy="false">)</mo><msub><mi>E</mi><mn>2</mn></msub><mo stretchy="false">(</mo><mi>τ</mi><mo stretchy="false">)</mo><mtext> </mtext><mi>d</mi><mi>τ</mi></mrow><annotation encoding="application/x-tex">F=2\pi\int_0^\infty S(\tau)E_2(\tau)\,d\tau</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">F</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:2.3262em;vertical-align:-0.9119em;"></span><span class="mord">2</span><span class="mord mathnormal" style="margin-right:0.03588em;">π</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mop"><span class="mop op-symbol large-op" style="margin-right:0.44445em;position:relative;top:-0.0011em;">∫</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.4143em;"><span style="top:-1.7881em;margin-left:-0.4445em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">0</span></span></span><span style="top:-3.8129em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">∞</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.9119em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.05764em;">S</span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="mclose">)</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05764em;">E</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.0576em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="mclose">)</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal">d</span><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span></span></span></span></span>
 and show analytically that the result equals <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>π</mi><mi>S</mi><mo stretchy="false">(</mo><mi>τ</mi><mo>=</mo><mn>2</mn><mi mathvariant="normal">/</mi><mn>3</mn><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">\pi S(\tau=2/3)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">π</span><span class="mord mathnormal" style="margin-right:0.05764em;">S</span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">2/3</span><span class="mclose">)</span></span></span></span>. That is where <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>2</mn><mi mathvariant="normal">/</mi><mn>3</mn></mrow><annotation encoding="application/x-tex">2/3</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">2/3</span></span></span></span> actually comes from.</p>
-<p><strong>2. A line-depth thermometer.</strong> For the deepest line in the window, read <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>T</mi><mo stretchy="false">(</mo><msub><mi>τ</mi><mi>λ</mi></msub><mo>=</mo><mn>2</mn><mi mathvariant="normal">/</mi><mn>3</mn><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">T(\tau_\lambda=2/3)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3361em;"><span style="top:-2.55em;margin-left:-0.1132em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">λ</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">2/3</span><span class="mclose">)</span></span></span></span> at line centre and in the nearby continuum. Using the Planck function, predict the line&#39;s central depth and compare with the computed spectrum. Why are blue lines deeper than red ones at the same opacity contrast? In the GPU notebook, try to do this with the already-vectorized <code>T23_line</code>, <code>T23_cont</code>, and <code>planck_nu</code> arrays, rather than writing a Python loop over wavelength.</p>
+<p><strong>2. A line-depth thermometer.</strong> For the deepest line in the window, read <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>T</mi><mo stretchy="false">(</mo><msub><mi>τ</mi><mi>λ</mi></msub><mo>=</mo><mn>2</mn><mi mathvariant="normal">/</mi><mn>3</mn><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">T(\tau_\lambda=2/3)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3361em;"><span style="top:-2.55em;margin-left:-0.1132em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">λ</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">2/3</span><span class="mclose">)</span></span></span></span> at line centre and in the nearby continuum. Using the Planck function, predict the line&#39;s central depth and compare with the computed spectrum. Why are blue lines deeper than red ones at the same opacity contrast? In the GPU notebook, try to do this with the already-vectorized <code>temperature_tau23_total</code>, <code>temperature_tau23_continuum</code>, and <code>planck_nu</code> arrays, rather than writing a Python loop over wavelength.</p>
 <p><strong>3. What limits the deep cores.</strong> At the deepest line core in the window, compute the local scattering fraction
 <span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mfrac><msup><mi>κ</mi><mrow><mi mathvariant="normal">s</mi><mi mathvariant="normal">c</mi><mi mathvariant="normal">a</mi><mi mathvariant="normal">t</mi></mrow></msup><mrow><msup><mi>κ</mi><mrow><mi mathvariant="normal">a</mi><mi mathvariant="normal">b</mi><mi mathvariant="normal">s</mi></mrow></msup><mo>+</mo><msup><mi>κ</mi><mrow><mi mathvariant="normal">s</mi><mi mathvariant="normal">c</mi><mi mathvariant="normal">a</mi><mi mathvariant="normal">t</mi></mrow></msup></mrow></mfrac></mrow><annotation encoding="application/x-tex">\frac{\kappa^{\rm scat}}{\kappa^{\rm abs}+\kappa^{\rm scat}}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:2.2399em;vertical-align:-0.7693em;"></span><span class="mord"><span class="mopen nulldelimiter"></span><span class="mfrac"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.4706em;"><span style="top:-2.314em;"><span class="pstrut" style="height:3em;"></span><span class="mord"><span class="mord"><span class="mord mathnormal">κ</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7751em;"><span style="top:-2.989em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">abs</span></span></span></span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mord"><span class="mord mathnormal">κ</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7196em;"><span style="top:-2.989em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">scat</span></span></span></span></span></span></span></span></span></span></span></span><span style="top:-3.23em;"><span class="pstrut" style="height:3em;"></span><span class="frac-line" style="border-bottom-width:0.04em;"></span></span><span style="top:-3.677em;"><span class="pstrut" style="height:3em;"></span><span class="mord"><span class="mord"><span class="mord mathnormal">κ</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7936em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">scat</span></span></span></span></span></span></span></span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.7693em;"><span></span></span></span></span></span><span class="mclose nulldelimiter"></span></span></span></span></span></span>
 in the surface layers and confirm it is of order <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>4</mn></mrow></msup></mrow><annotation encoding="application/x-tex">10^{-4}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">4</span></span></span></span></span></span></span></span></span></span></span></span> — so setting

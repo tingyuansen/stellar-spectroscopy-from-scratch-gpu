@@ -42,16 +42,16 @@ REF = pathlib.Path(&quot;..&quot;) / &quot;reference&quot;
 D = np.load(REF / &quot;diag.npz&quot;)
 JT = np.load(REF / &quot;josh_tables.npz&quot;)
 
-wl_np = D[&quot;wavelength&quot;].astype(np.float64)
-cont_abs_np = D[&quot;continuum_absorption&quot;].astype(np.float64)
-cont_scat_np = D[&quot;continuum_scattering&quot;].astype(np.float64)
-line_abs_np = D[&quot;line_opacity&quot;].astype(np.float64)
-line_scat_np = D[&quot;line_scattering&quot;].astype(np.float64)
+wavelength_nm_np = D[&quot;wavelength&quot;].astype(np.float64)
+continuum_absorption_np = D[&quot;continuum_absorption&quot;].astype(np.float64)
+continuum_scattering_np = D[&quot;continuum_scattering&quot;].astype(np.float64)
+line_absorption_np = D[&quot;line_opacity&quot;].astype(np.float64)
+line_scattering_np = D[&quot;line_scattering&quot;].astype(np.float64)
 flux_total_ref_np = D[&quot;flux_total&quot;].astype(np.float64)
 flux_cont_ref_np = D[&quot;flux_continuum&quot;].astype(np.float64)
 
-Tdepth_np = np.load(REF / &quot;atmosphere.npz&quot;)[&quot;temperature&quot;].astype(np.float64)
-rhox_np = JT[&quot;rhox&quot;].astype(np.float64)
+temperature_np = np.load(REF / &quot;atmosphere.npz&quot;)[&quot;temperature&quot;].astype(np.float64)
+column_mass_np = JT[&quot;rhox&quot;].astype(np.float64)
 xtau_np = JT[&quot;xtau&quot;].astype(np.float64)
 coefj_np = JT[&quot;coefj&quot;].astype(np.float64)
 ch_np = JT[&quot;ch&quot;].astype(np.float64)
@@ -65,19 +65,19 @@ def tt(x, dtype=DTYPE):
     &quot;&quot;&quot;
     return torch.as_tensor(x, device=DEVICE, dtype=dtype)
 
-wl = tt(wl_np)
-Tdepth = tt(Tdepth_np)
-rhox = tt(rhox_np)
-cont_abs = tt(cont_abs_np)
-cont_scat = tt(cont_scat_np)
-line_abs = tt(line_abs_np)
-line_scat = tt(line_scat_np)
+wavelength_nm = tt(wavelength_nm_np)
+temperature = tt(temperature_np)
+column_mass = tt(column_mass_np)
+continuum_absorption = tt(continuum_absorption_np)
+continuum_scattering = tt(continuum_scattering_np)
+line_absorption = tt(line_absorption_np)
+line_scattering = tt(line_scattering_np)
 XTAU = tt(xtau_np)
 COEFJ = tt(coefj_np)
 CH = tt(ch_np)
 COEFJ_DIAG = torch.diagonal(COEFJ).contiguous()
 
-print(f&quot;opacity grid: {cont_abs.shape[0]} depths x {cont_abs.shape[1]} wavelengths&quot;)
+print(f&quot;opacity grid: {continuum_absorption.shape[0]} depths x {continuum_absorption.shape[1]} wavelengths&quot;)
 print(f&quot;JOSH grid: {XTAU.numel()} points, tau = {xtau_np[0]:.3g} .. {xtau_np[-1]:.3g}&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
@@ -104,16 +104,16 @@ REF = pathlib.Path(<span class="hljs-string">&quot;..&quot;</span>) / <span clas
 D = np.load(REF / <span class="hljs-string">&quot;diag.npz&quot;</span>)
 JT = np.load(REF / <span class="hljs-string">&quot;josh_tables.npz&quot;</span>)
 
-wl_np = D[<span class="hljs-string">&quot;wavelength&quot;</span>].astype(np.float64)
-cont_abs_np = D[<span class="hljs-string">&quot;continuum_absorption&quot;</span>].astype(np.float64)
-cont_scat_np = D[<span class="hljs-string">&quot;continuum_scattering&quot;</span>].astype(np.float64)
-line_abs_np = D[<span class="hljs-string">&quot;line_opacity&quot;</span>].astype(np.float64)
-line_scat_np = D[<span class="hljs-string">&quot;line_scattering&quot;</span>].astype(np.float64)
+wavelength_nm_np = D[<span class="hljs-string">&quot;wavelength&quot;</span>].astype(np.float64)
+continuum_absorption_np = D[<span class="hljs-string">&quot;continuum_absorption&quot;</span>].astype(np.float64)
+continuum_scattering_np = D[<span class="hljs-string">&quot;continuum_scattering&quot;</span>].astype(np.float64)
+line_absorption_np = D[<span class="hljs-string">&quot;line_opacity&quot;</span>].astype(np.float64)
+line_scattering_np = D[<span class="hljs-string">&quot;line_scattering&quot;</span>].astype(np.float64)
 flux_total_ref_np = D[<span class="hljs-string">&quot;flux_total&quot;</span>].astype(np.float64)
 flux_cont_ref_np = D[<span class="hljs-string">&quot;flux_continuum&quot;</span>].astype(np.float64)
 
-Tdepth_np = np.load(REF / <span class="hljs-string">&quot;atmosphere.npz&quot;</span>)[<span class="hljs-string">&quot;temperature&quot;</span>].astype(np.float64)
-rhox_np = JT[<span class="hljs-string">&quot;rhox&quot;</span>].astype(np.float64)
+temperature_np = np.load(REF / <span class="hljs-string">&quot;atmosphere.npz&quot;</span>)[<span class="hljs-string">&quot;temperature&quot;</span>].astype(np.float64)
+column_mass_np = JT[<span class="hljs-string">&quot;rhox&quot;</span>].astype(np.float64)
 xtau_np = JT[<span class="hljs-string">&quot;xtau&quot;</span>].astype(np.float64)
 coefj_np = JT[<span class="hljs-string">&quot;coefj&quot;</span>].astype(np.float64)
 ch_np = JT[<span class="hljs-string">&quot;ch&quot;</span>].astype(np.float64)
@@ -127,19 +127,19 @@ ch_np = JT[<span class="hljs-string">&quot;ch&quot;</span>].astype(np.float64)
     &quot;&quot;&quot;</span>
     <span class="hljs-keyword">return</span> torch.as_tensor(x, device=DEVICE, dtype=dtype)
 
-wl = tt(wl_np)
-Tdepth = tt(Tdepth_np)
-rhox = tt(rhox_np)
-cont_abs = tt(cont_abs_np)
-cont_scat = tt(cont_scat_np)
-line_abs = tt(line_abs_np)
-line_scat = tt(line_scat_np)
+wavelength_nm = tt(wavelength_nm_np)
+temperature = tt(temperature_np)
+column_mass = tt(column_mass_np)
+continuum_absorption = tt(continuum_absorption_np)
+continuum_scattering = tt(continuum_scattering_np)
+line_absorption = tt(line_absorption_np)
+line_scattering = tt(line_scattering_np)
 XTAU = tt(xtau_np)
 COEFJ = tt(coefj_np)
 CH = tt(ch_np)
 COEFJ_DIAG = torch.diagonal(COEFJ).contiguous()
 
-<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;opacity grid: <span class="hljs-subst">{cont_abs.shape[<span class="hljs-number">0</span>]}</span> depths x <span class="hljs-subst">{cont_abs.shape[<span class="hljs-number">1</span>]}</span> wavelengths&quot;</span>)
+<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;opacity grid: <span class="hljs-subst">{continuum_absorption.shape[<span class="hljs-number">0</span>]}</span> depths x <span class="hljs-subst">{continuum_absorption.shape[<span class="hljs-number">1</span>]}</span> wavelengths&quot;</span>)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;JOSH grid: <span class="hljs-subst">{XTAU.numel()}</span> points, tau = <span class="hljs-subst">{xtau_np[<span class="hljs-number">0</span>]:<span class="hljs-number">.3</span>g}</span> .. <span class="hljs-subst">{xtau_np[-<span class="hljs-number">1</span>]:<span class="hljs-number">.3</span>g}</span>&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">device = mps, working dtype = torch.float32
 opacity grid: 80 depths x 5941 wavelengths
@@ -284,16 +284,16 @@ def planck_bnu(wl_nm, temperature):
     &quot;&quot;&quot;
     nu = C_NM / wl_nm
     x = (H_PLANCK * nu)[None, :] / (K_BOLTZ * temperature[:, None])
-    ehvkt = torch.exp(-x)
-    return PLANCK_PREFACTOR * (nu[None, :] / 1.0e15) ** 3 * ehvkt / (1.0 - ehvkt)
+    exp_minus_hnu_over_kT = torch.exp(-x)
+    return PLANCK_PREFACTOR * (nu[None, :] / 1.0e15) ** 3 * exp_minus_hnu_over_kT / (1.0 - exp_minus_hnu_over_kT)
 
-B_nu = planck_bnu(wl, Tdepth)
+source_function = planck_bnu(wavelength_nm, temperature)
 
-rel_slinec = torch.max(torch.abs(B_nu.detach().cpu().to(torch.float64) - torch.as_tensor(D[&quot;slinec&quot;])) / torch.abs(torch.as_tensor(D[&quot;slinec&quot;])))
-rel_lsource = torch.max(torch.abs(B_nu.detach().cpu().to(torch.float64) - torch.as_tensor(D[&quot;line_source&quot;])) / torch.abs(torch.as_tensor(D[&quot;line_source&quot;])))
+rel_slinec = torch.max(torch.abs(source_function.detach().cpu().to(torch.float64) - torch.as_tensor(D[&quot;slinec&quot;])) / torch.abs(torch.as_tensor(D[&quot;slinec&quot;])))
+rel_lsource = torch.max(torch.abs(source_function.detach().cpu().to(torch.float64) - torch.as_tensor(D[&quot;line_source&quot;])) / torch.abs(torch.as_tensor(D[&quot;line_source&quot;])))
 print(f&quot;inline B_nu vs reference slinec     : max rel diff = {float(rel_slinec):.2e}&quot;)
 print(f&quot;inline B_nu vs reference line_source: max rel diff = {float(rel_lsource):.2e}&quot;)
-print(f&quot;reference line_scattering is exactly zero: {bool(np.all(line_scat_np == 0.0))}&quot;)
+print(f&quot;reference line_scattering is exactly zero: {bool(np.all(line_scattering_np == 0.0))}&quot;)
 
 def source_and_alpha(acont, scont, aline, sline, sigmac, sigmal):
     &quot;&quot;&quot;Build total extinction, scattering fraction, and thermal source.
@@ -304,19 +304,33 @@ def source_and_alpha(acont, scont, aline, sline, sigmac, sigmal):
 
     Returns
     -------
-    abtot : torch.Tensor
+    total_extinction : torch.Tensor
         Total extinction, floored by `EPS` for safe division.
-    alpha : torch.Tensor
+    scattering_fraction : torch.Tensor
         Scattering fraction clipped to [0, 1].
-    snubar : torch.Tensor
+    thermal_source : torch.Tensor
         Absorption-weighted thermal source. Scattering emission is excluded
         here because it enters through the later alpha*J fixed point.
     &quot;&quot;&quot;
-    abtot = torch.clamp(acont + aline + sigmac + sigmal, min=EPS)
-    alpha = torch.clamp((sigmac + sigmal) / abtot, 0.0, 1.0)
-    denom = acont + aline
-    snubar = torch.where(denom &gt; 0, (acont * scont + aline * sline) / denom, scont)
-    return abtot, alpha, snubar" aria-label="Copy code">
+    continuum_absorption = acont
+    continuum_source = scont
+    line_absorption = aline
+    line_source = sline
+    continuum_scattering = sigmac
+    line_scattering = sigmal
+
+    total_extinction = torch.clamp(
+        continuum_absorption + line_absorption + continuum_scattering + line_scattering,
+        min=EPS,
+    )
+    scattering_fraction = torch.clamp((continuum_scattering + line_scattering) / total_extinction, 0.0, 1.0)
+    true_absorption = continuum_absorption + line_absorption
+    thermal_source = torch.where(
+        true_absorption &gt; 0,
+        (continuum_absorption * continuum_source + line_absorption * line_source) / true_absorption,
+        continuum_source,
+    )
+    return total_extinction, scattering_fraction, thermal_source" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python">H_PLANCK = <span class="hljs-number">6.62607015e-27</span>
@@ -347,16 +361,16 @@ DEFAULT_SWEEPS = <span class="hljs-number">8</span>
     &quot;&quot;&quot;</span>
     nu = C_NM / wl_nm
     x = (H_PLANCK * nu)[<span class="hljs-literal">None</span>, :] / (K_BOLTZ * temperature[:, <span class="hljs-literal">None</span>])
-    ehvkt = torch.exp(-x)
-    <span class="hljs-keyword">return</span> PLANCK_PREFACTOR * (nu[<span class="hljs-literal">None</span>, :] / <span class="hljs-number">1.0e15</span>) ** <span class="hljs-number">3</span> * ehvkt / (<span class="hljs-number">1.0</span> - ehvkt)
+    exp_minus_hnu_over_kT = torch.exp(-x)
+    <span class="hljs-keyword">return</span> PLANCK_PREFACTOR * (nu[<span class="hljs-literal">None</span>, :] / <span class="hljs-number">1.0e15</span>) ** <span class="hljs-number">3</span> * exp_minus_hnu_over_kT / (<span class="hljs-number">1.0</span> - exp_minus_hnu_over_kT)
 
-B_nu = planck_bnu(wl, Tdepth)
+source_function = planck_bnu(wavelength_nm, temperature)
 
-rel_slinec = torch.<span class="hljs-built_in">max</span>(torch.<span class="hljs-built_in">abs</span>(B_nu.detach().cpu().to(torch.float64) - torch.as_tensor(D[<span class="hljs-string">&quot;slinec&quot;</span>])) / torch.<span class="hljs-built_in">abs</span>(torch.as_tensor(D[<span class="hljs-string">&quot;slinec&quot;</span>])))
-rel_lsource = torch.<span class="hljs-built_in">max</span>(torch.<span class="hljs-built_in">abs</span>(B_nu.detach().cpu().to(torch.float64) - torch.as_tensor(D[<span class="hljs-string">&quot;line_source&quot;</span>])) / torch.<span class="hljs-built_in">abs</span>(torch.as_tensor(D[<span class="hljs-string">&quot;line_source&quot;</span>])))
+rel_slinec = torch.<span class="hljs-built_in">max</span>(torch.<span class="hljs-built_in">abs</span>(source_function.detach().cpu().to(torch.float64) - torch.as_tensor(D[<span class="hljs-string">&quot;slinec&quot;</span>])) / torch.<span class="hljs-built_in">abs</span>(torch.as_tensor(D[<span class="hljs-string">&quot;slinec&quot;</span>])))
+rel_lsource = torch.<span class="hljs-built_in">max</span>(torch.<span class="hljs-built_in">abs</span>(source_function.detach().cpu().to(torch.float64) - torch.as_tensor(D[<span class="hljs-string">&quot;line_source&quot;</span>])) / torch.<span class="hljs-built_in">abs</span>(torch.as_tensor(D[<span class="hljs-string">&quot;line_source&quot;</span>])))
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;inline B_nu vs reference slinec     : max rel diff = <span class="hljs-subst">{<span class="hljs-built_in">float</span>(rel_slinec):<span class="hljs-number">.2</span>e}</span>&quot;</span>)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;inline B_nu vs reference line_source: max rel diff = <span class="hljs-subst">{<span class="hljs-built_in">float</span>(rel_lsource):<span class="hljs-number">.2</span>e}</span>&quot;</span>)
-<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;reference line_scattering is exactly zero: <span class="hljs-subst">{<span class="hljs-built_in">bool</span>(np.<span class="hljs-built_in">all</span>(line_scat_np == <span class="hljs-number">0.0</span>))}</span>&quot;</span>)
+<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;reference line_scattering is exactly zero: <span class="hljs-subst">{<span class="hljs-built_in">bool</span>(np.<span class="hljs-built_in">all</span>(line_scattering_np == <span class="hljs-number">0.0</span>))}</span>&quot;</span>)
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">source_and_alpha</span>(<span class="hljs-params">acont, scont, aline, sline, sigmac, sigmal</span>):
     <span class="hljs-string">&quot;&quot;&quot;Build total extinction, scattering fraction, and thermal source.
@@ -367,19 +381,33 @@ rel_lsource = torch.<span class="hljs-built_in">max</span>(torch.<span class="hl
 
     Returns
     -------
-    abtot : torch.Tensor
+    total_extinction : torch.Tensor
         Total extinction, floored by `EPS` for safe division.
-    alpha : torch.Tensor
+    scattering_fraction : torch.Tensor
         Scattering fraction clipped to [0, 1].
-    snubar : torch.Tensor
+    thermal_source : torch.Tensor
         Absorption-weighted thermal source. Scattering emission is excluded
         here because it enters through the later alpha*J fixed point.
     &quot;&quot;&quot;</span>
-    abtot = torch.clamp(acont + aline + sigmac + sigmal, <span class="hljs-built_in">min</span>=EPS)
-    alpha = torch.clamp((sigmac + sigmal) / abtot, <span class="hljs-number">0.0</span>, <span class="hljs-number">1.0</span>)
-    denom = acont + aline
-    snubar = torch.where(denom &gt; <span class="hljs-number">0</span>, (acont * scont + aline * sline) / denom, scont)
-    <span class="hljs-keyword">return</span> abtot, alpha, snubar</code></pre>
+    continuum_absorption = acont
+    continuum_source = scont
+    line_absorption = aline
+    line_source = sline
+    continuum_scattering = sigmac
+    line_scattering = sigmal
+
+    total_extinction = torch.clamp(
+        continuum_absorption + line_absorption + continuum_scattering + line_scattering,
+        <span class="hljs-built_in">min</span>=EPS,
+    )
+    scattering_fraction = torch.clamp((continuum_scattering + line_scattering) / total_extinction, <span class="hljs-number">0.0</span>, <span class="hljs-number">1.0</span>)
+    true_absorption = continuum_absorption + line_absorption
+    thermal_source = torch.where(
+        true_absorption &gt; <span class="hljs-number">0</span>,
+        (continuum_absorption * continuum_source + line_absorption * line_source) / true_absorption,
+        continuum_source,
+    )
+    <span class="hljs-keyword">return</span> total_extinction, scattering_fraction, thermal_source</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">inline B_nu vs reference slinec     : max rel diff = 1.56e-06
 inline B_nu vs reference line_source: max rel diff = 1.56e-06
 reference line_scattering is exactly zero: True
@@ -891,36 +919,51 @@ def integ_batched(x, f, start):
         lacks fp64; on CPU/CUDA it is promoted to fp64 to match the reference
         dot-product precision.
     &quot;&quot;&quot;
-    abtot, alpha, snubar = source_and_alpha(acont, scont, aline, sline, sigmac, sigmal)
-    taunu = integ_batched(rhox, abtot, abtot[:, 0] * rhox[0])
+    total_extinction, scattering_fraction, thermal_source = source_and_alpha(acont, scont, aline, sline, sigmac, sigmal)
+    monochromatic_optical_depth = integ_batched(rhox, total_extinction, total_extinction[:, 0] * rhox[0])
 
-    saturated = taunu[:, 0] &gt; XTAU[-1]
+    saturated = monochromatic_optical_depth[:, 0] &gt; XTAU[-1]
     if bool(saturated.any()):
         raise NotImplementedError(&quot;The saturated-core path does not fire in this solar window.&quot;)
 
-    xsbar = torch.clamp(map1_batched(taunu, snubar, XTAU), min=EPS)
-    xalpha = torch.clamp(map1_batched(taunu, alpha, XTAU), 0.0, 1.0)
+    thermal_source_fixed_grid = torch.clamp(map1_batched(monochromatic_optical_depth, thermal_source, XTAU), min=EPS)
+    scattering_fraction_fixed_grid = torch.clamp(map1_batched(monochromatic_optical_depth, scattering_fraction, XTAU), 0.0, 1.0)
 
-    above = XTAU[None, :] &lt; taunu[:, 0:1]
-    xsbar = torch.where(above, torch.clamp(snubar[:, 0:1], min=EPS).expand_as(xsbar), xsbar)
-    xalpha = torch.where(above, torch.clamp(alpha[:, 0:1], 0.0, 1.0).expand_as(xalpha), xalpha)
+    above = XTAU[None, :] &lt; monochromatic_optical_depth[:, 0:1]
+    thermal_source_fixed_grid = torch.where(
+        above,
+        torch.clamp(thermal_source[:, 0:1], min=EPS).expand_as(thermal_source_fixed_grid),
+        thermal_source_fixed_grid,
+    )
+    scattering_fraction_fixed_grid = torch.where(
+        above,
+        torch.clamp(scattering_fraction[:, 0:1], 0.0, 1.0).expand_as(scattering_fraction_fixed_grid),
+        scattering_fraction_fixed_grid,
+    )
 
-    xs = iterate_source(xsbar, xalpha, COEFJ, COEFJ_DIAG, sweeps=sweeps)
+    source_function_fixed_grid = iterate_source(
+        thermal_source_fixed_grid,
+        scattering_fraction_fixed_grid,
+        COEFJ,
+        COEFJ_DIAG,
+        sweeps=sweeps,
+    )
     dot_dtype = torch.float32 if DEVICE.type == &quot;mps&quot; else torch.float64
-    return torch.matmul(xs.to(dot_dtype), CH.to(dot_dtype))
+    return torch.matmul(source_function_fixed_grid.to(dot_dtype), CH.to(dot_dtype))
 
-def solve_spectrum(cont_abs, cont_scat, line_abs, line_scat, b_nu, rhox, sweeps=DEFAULT_SWEEPS):
+def solve_spectrum(continuum_absorption, continuum_scattering, line_absorption, line_scattering,
+                   source_function, column_mass, sweeps=DEFAULT_SWEEPS):
     &quot;&quot;&quot;Solve total and continuum spectra with one stacked JOSH batch.
 
     Parameters
     ----------
-    cont_abs, cont_scat, line_abs, line_scat : torch.Tensor, shape [depth, n_wl]
+    continuum_absorption, continuum_scattering, line_absorption, line_scattering : torch.Tensor, shape [depth, n_wl]
         Opacity slabs for the window. These are the remaining taught-path data
         boundary in this L8 patch: they are consumed as scoped inputs rather
         than regenerated here from Lectures 3-6.
-    b_nu : torch.Tensor, shape [depth, n_wl]
+    source_function : torch.Tensor, shape [depth, n_wl]
         Inline LTE Planck source.
-    rhox : torch.Tensor, shape [depth]
+    column_mass : torch.Tensor, shape [depth]
         Column-mass grid.
     sweeps : int
         Fixed fp32 source-iteration sweep count.
@@ -931,23 +974,32 @@ def solve_spectrum(cont_abs, cont_scat, line_abs, line_scat, b_nu, rhox, sweeps=
         Total flux, continuum-only flux, and their normalised ratio. The
         comparison target is loaded separately and is not used by this function.
     &quot;&quot;&quot;
-    acont = cont_abs.transpose(0, 1).contiguous()
-    sigmac = cont_scat.transpose(0, 1).contiguous()
-    aline = line_abs.transpose(0, 1).contiguous()
-    sigmal = line_scat.transpose(0, 1).contiguous()
-    src = b_nu.transpose(0, 1).contiguous()
-    zero = torch.zeros_like(aline)
+    continuum_absorption_batch = continuum_absorption.transpose(0, 1).contiguous()
+    continuum_scattering_batch = continuum_scattering.transpose(0, 1).contiguous()
+    line_absorption_batch = line_absorption.transpose(0, 1).contiguous()
+    line_scattering_batch = line_scattering.transpose(0, 1).contiguous()
+    source_batch = source_function.transpose(0, 1).contiguous()
+    zero_line_opacity = torch.zeros_like(line_absorption_batch)
 
-    acont2 = torch.cat((acont, acont), dim=0)
-    src2 = torch.cat((src, src), dim=0)
-    aline2 = torch.cat((aline, zero), dim=0)
-    sigmac2 = torch.cat((sigmac, sigmac), dim=0)
-    sigmal2 = torch.cat((sigmal, zero), dim=0)
+    continuum_absorption_stacked = torch.cat((continuum_absorption_batch, continuum_absorption_batch), dim=0)
+    source_stacked = torch.cat((source_batch, source_batch), dim=0)
+    line_absorption_stacked = torch.cat((line_absorption_batch, zero_line_opacity), dim=0)
+    continuum_scattering_stacked = torch.cat((continuum_scattering_batch, continuum_scattering_batch), dim=0)
+    line_scattering_stacked = torch.cat((line_scattering_batch, zero_line_opacity), dim=0)
 
-    h0 = solve_josh_batched(acont2, src2, aline2, src2, sigmac2, sigmal2, rhox, sweeps=sweeps)
-    n_wl = src.shape[0]
-    flux_total = h0[:n_wl]
-    flux_cont = h0[n_wl:]
+    surface_flux = solve_josh_batched(
+        continuum_absorption_stacked,
+        source_stacked,
+        line_absorption_stacked,
+        source_stacked,
+        continuum_scattering_stacked,
+        line_scattering_stacked,
+        column_mass,
+        sweeps=sweeps,
+    )
+    n_wl = source_batch.shape[0]
+    flux_total = surface_flux[:n_wl]
+    flux_cont = surface_flux[n_wl:]
     return flux_total, flux_cont, flux_total / flux_cont" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
@@ -975,36 +1027,51 @@ def solve_spectrum(cont_abs, cont_scat, line_abs, line_scat, b_nu, rhox, sweeps=
         lacks fp64; on CPU/CUDA it is promoted to fp64 to match the reference
         dot-product precision.
     &quot;&quot;&quot;</span>
-    abtot, alpha, snubar = source_and_alpha(acont, scont, aline, sline, sigmac, sigmal)
-    taunu = integ_batched(rhox, abtot, abtot[:, <span class="hljs-number">0</span>] * rhox[<span class="hljs-number">0</span>])
+    total_extinction, scattering_fraction, thermal_source = source_and_alpha(acont, scont, aline, sline, sigmac, sigmal)
+    monochromatic_optical_depth = integ_batched(rhox, total_extinction, total_extinction[:, <span class="hljs-number">0</span>] * rhox[<span class="hljs-number">0</span>])
 
-    saturated = taunu[:, <span class="hljs-number">0</span>] &gt; XTAU[-<span class="hljs-number">1</span>]
+    saturated = monochromatic_optical_depth[:, <span class="hljs-number">0</span>] &gt; XTAU[-<span class="hljs-number">1</span>]
     <span class="hljs-keyword">if</span> <span class="hljs-built_in">bool</span>(saturated.<span class="hljs-built_in">any</span>()):
         <span class="hljs-keyword">raise</span> NotImplementedError(<span class="hljs-string">&quot;The saturated-core path does not fire in this solar window.&quot;</span>)
 
-    xsbar = torch.clamp(map1_batched(taunu, snubar, XTAU), <span class="hljs-built_in">min</span>=EPS)
-    xalpha = torch.clamp(map1_batched(taunu, alpha, XTAU), <span class="hljs-number">0.0</span>, <span class="hljs-number">1.0</span>)
+    thermal_source_fixed_grid = torch.clamp(map1_batched(monochromatic_optical_depth, thermal_source, XTAU), <span class="hljs-built_in">min</span>=EPS)
+    scattering_fraction_fixed_grid = torch.clamp(map1_batched(monochromatic_optical_depth, scattering_fraction, XTAU), <span class="hljs-number">0.0</span>, <span class="hljs-number">1.0</span>)
 
-    above = XTAU[<span class="hljs-literal">None</span>, :] &lt; taunu[:, <span class="hljs-number">0</span>:<span class="hljs-number">1</span>]
-    xsbar = torch.where(above, torch.clamp(snubar[:, <span class="hljs-number">0</span>:<span class="hljs-number">1</span>], <span class="hljs-built_in">min</span>=EPS).expand_as(xsbar), xsbar)
-    xalpha = torch.where(above, torch.clamp(alpha[:, <span class="hljs-number">0</span>:<span class="hljs-number">1</span>], <span class="hljs-number">0.0</span>, <span class="hljs-number">1.0</span>).expand_as(xalpha), xalpha)
+    above = XTAU[<span class="hljs-literal">None</span>, :] &lt; monochromatic_optical_depth[:, <span class="hljs-number">0</span>:<span class="hljs-number">1</span>]
+    thermal_source_fixed_grid = torch.where(
+        above,
+        torch.clamp(thermal_source[:, <span class="hljs-number">0</span>:<span class="hljs-number">1</span>], <span class="hljs-built_in">min</span>=EPS).expand_as(thermal_source_fixed_grid),
+        thermal_source_fixed_grid,
+    )
+    scattering_fraction_fixed_grid = torch.where(
+        above,
+        torch.clamp(scattering_fraction[:, <span class="hljs-number">0</span>:<span class="hljs-number">1</span>], <span class="hljs-number">0.0</span>, <span class="hljs-number">1.0</span>).expand_as(scattering_fraction_fixed_grid),
+        scattering_fraction_fixed_grid,
+    )
 
-    xs = iterate_source(xsbar, xalpha, COEFJ, COEFJ_DIAG, sweeps=sweeps)
+    source_function_fixed_grid = iterate_source(
+        thermal_source_fixed_grid,
+        scattering_fraction_fixed_grid,
+        COEFJ,
+        COEFJ_DIAG,
+        sweeps=sweeps,
+    )
     dot_dtype = torch.float32 <span class="hljs-keyword">if</span> DEVICE.<span class="hljs-built_in">type</span> == <span class="hljs-string">&quot;mps&quot;</span> <span class="hljs-keyword">else</span> torch.float64
-    <span class="hljs-keyword">return</span> torch.matmul(xs.to(dot_dtype), CH.to(dot_dtype))
+    <span class="hljs-keyword">return</span> torch.matmul(source_function_fixed_grid.to(dot_dtype), CH.to(dot_dtype))
 
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">solve_spectrum</span>(<span class="hljs-params">cont_abs, cont_scat, line_abs, line_scat, b_nu, rhox, sweeps=DEFAULT_SWEEPS</span>):
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">solve_spectrum</span>(<span class="hljs-params">continuum_absorption, continuum_scattering, line_absorption, line_scattering,
+                   source_function, column_mass, sweeps=DEFAULT_SWEEPS</span>):
     <span class="hljs-string">&quot;&quot;&quot;Solve total and continuum spectra with one stacked JOSH batch.
 
     Parameters
     ----------
-    cont_abs, cont_scat, line_abs, line_scat : torch.Tensor, shape [depth, n_wl]
+    continuum_absorption, continuum_scattering, line_absorption, line_scattering : torch.Tensor, shape [depth, n_wl]
         Opacity slabs for the window. These are the remaining taught-path data
         boundary in this L8 patch: they are consumed as scoped inputs rather
         than regenerated here from Lectures 3-6.
-    b_nu : torch.Tensor, shape [depth, n_wl]
+    source_function : torch.Tensor, shape [depth, n_wl]
         Inline LTE Planck source.
-    rhox : torch.Tensor, shape [depth]
+    column_mass : torch.Tensor, shape [depth]
         Column-mass grid.
     sweeps : int
         Fixed fp32 source-iteration sweep count.
@@ -1015,23 +1082,32 @@ def solve_spectrum(cont_abs, cont_scat, line_abs, line_scat, b_nu, rhox, sweeps=
         Total flux, continuum-only flux, and their normalised ratio. The
         comparison target is loaded separately and is not used by this function.
     &quot;&quot;&quot;</span>
-    acont = cont_abs.transpose(<span class="hljs-number">0</span>, <span class="hljs-number">1</span>).contiguous()
-    sigmac = cont_scat.transpose(<span class="hljs-number">0</span>, <span class="hljs-number">1</span>).contiguous()
-    aline = line_abs.transpose(<span class="hljs-number">0</span>, <span class="hljs-number">1</span>).contiguous()
-    sigmal = line_scat.transpose(<span class="hljs-number">0</span>, <span class="hljs-number">1</span>).contiguous()
-    src = b_nu.transpose(<span class="hljs-number">0</span>, <span class="hljs-number">1</span>).contiguous()
-    zero = torch.zeros_like(aline)
+    continuum_absorption_batch = continuum_absorption.transpose(<span class="hljs-number">0</span>, <span class="hljs-number">1</span>).contiguous()
+    continuum_scattering_batch = continuum_scattering.transpose(<span class="hljs-number">0</span>, <span class="hljs-number">1</span>).contiguous()
+    line_absorption_batch = line_absorption.transpose(<span class="hljs-number">0</span>, <span class="hljs-number">1</span>).contiguous()
+    line_scattering_batch = line_scattering.transpose(<span class="hljs-number">0</span>, <span class="hljs-number">1</span>).contiguous()
+    source_batch = source_function.transpose(<span class="hljs-number">0</span>, <span class="hljs-number">1</span>).contiguous()
+    zero_line_opacity = torch.zeros_like(line_absorption_batch)
 
-    acont2 = torch.cat((acont, acont), dim=<span class="hljs-number">0</span>)
-    src2 = torch.cat((src, src), dim=<span class="hljs-number">0</span>)
-    aline2 = torch.cat((aline, zero), dim=<span class="hljs-number">0</span>)
-    sigmac2 = torch.cat((sigmac, sigmac), dim=<span class="hljs-number">0</span>)
-    sigmal2 = torch.cat((sigmal, zero), dim=<span class="hljs-number">0</span>)
+    continuum_absorption_stacked = torch.cat((continuum_absorption_batch, continuum_absorption_batch), dim=<span class="hljs-number">0</span>)
+    source_stacked = torch.cat((source_batch, source_batch), dim=<span class="hljs-number">0</span>)
+    line_absorption_stacked = torch.cat((line_absorption_batch, zero_line_opacity), dim=<span class="hljs-number">0</span>)
+    continuum_scattering_stacked = torch.cat((continuum_scattering_batch, continuum_scattering_batch), dim=<span class="hljs-number">0</span>)
+    line_scattering_stacked = torch.cat((line_scattering_batch, zero_line_opacity), dim=<span class="hljs-number">0</span>)
 
-    h0 = solve_josh_batched(acont2, src2, aline2, src2, sigmac2, sigmal2, rhox, sweeps=sweeps)
-    n_wl = src.shape[<span class="hljs-number">0</span>]
-    flux_total = h0[:n_wl]
-    flux_cont = h0[n_wl:]
+    surface_flux = solve_josh_batched(
+        continuum_absorption_stacked,
+        source_stacked,
+        line_absorption_stacked,
+        source_stacked,
+        continuum_scattering_stacked,
+        line_scattering_stacked,
+        column_mass,
+        sweeps=sweeps,
+    )
+    n_wl = source_batch.shape[<span class="hljs-number">0</span>]
+    flux_total = surface_flux[:n_wl]
+    flux_cont = surface_flux[n_wl:]
     <span class="hljs-keyword">return</span> flux_total, flux_cont, flux_total / flux_cont</code></pre>
     </div></div><div class="prose"><h2>A worked example: continuum versus line core</h2>
 <p>The continuum surface can be scattering dominated because true absorption becomes tiny in the top layers, while the deep line cores in this solar window are almost pure absorption because the line opacity swamps the continuum scattering. The iteration matters where <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>α</mi></mrow><annotation encoding="application/x-tex">\alpha</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal" style="margin-right:0.0037em;">α</span></span></span></span> is large, not simply where a spectral feature is deep.</p>
@@ -1044,23 +1120,38 @@ kk = int(np.argmin(np.abs(reference - 1.0)))
 
 fig, axes = plt.subplots(1, 2, figsize=(11, 4.0), sharey=True)
 for ax, k, name in [(axes[0], kk, &quot;continuum&quot;), (axes[1], kc, &quot;deep line core&quot;)]:
-    acont = cont_abs[:, [k]].T.contiguous()
-    sigmac = cont_scat[:, [k]].T.contiguous()
-    aline = line_abs[:, [k]].T.contiguous()
-    sigmal = line_scat[:, [k]].T.contiguous()
-    src = B_nu[:, [k]].T.contiguous()
-    abtot, alpha, snubar = source_and_alpha(acont, src, aline, src, sigmac, sigmal)
-    taunu = integ_batched(rhox, abtot, abtot[:, 0] * rhox[0])
-    xsbar = torch.clamp(map1_batched(taunu, snubar, XTAU), min=EPS)
-    xalpha = torch.clamp(map1_batched(taunu, alpha, XTAU), 0.0, 1.0)
-    above = XTAU[None, :] &lt; taunu[:, 0:1]
-    xsbar = torch.where(above, torch.clamp(snubar[:, 0:1], min=EPS).expand_as(xsbar), xsbar)
-    xalpha = torch.where(above, torch.clamp(alpha[:, 0:1], 0.0, 1.0).expand_as(xalpha), xalpha)
-    xs = iterate_source(xsbar, xalpha, COEFJ, COEFJ_DIAG)
+    continuum_absorption_slice = continuum_absorption[:, [k]].T.contiguous()
+    continuum_scattering_slice = continuum_scattering[:, [k]].T.contiguous()
+    line_absorption_slice = line_absorption[:, [k]].T.contiguous()
+    line_scattering_slice = line_scattering[:, [k]].T.contiguous()
+    source_slice = source_function[:, [k]].T.contiguous()
+    total_extinction, scattering_fraction, thermal_source = source_and_alpha(
+        continuum_absorption_slice,
+        source_slice,
+        line_absorption_slice,
+        source_slice,
+        continuum_scattering_slice,
+        line_scattering_slice,
+    )
+    monochromatic_optical_depth = integ_batched(column_mass, total_extinction, total_extinction[:, 0] * column_mass[0])
+    thermal_source_fixed_grid = torch.clamp(map1_batched(monochromatic_optical_depth, thermal_source, XTAU), min=EPS)
+    scattering_fraction_fixed_grid = torch.clamp(map1_batched(monochromatic_optical_depth, scattering_fraction, XTAU), 0.0, 1.0)
+    above = XTAU[None, :] &lt; monochromatic_optical_depth[:, 0:1]
+    thermal_source_fixed_grid = torch.where(
+        above,
+        torch.clamp(thermal_source[:, 0:1], min=EPS).expand_as(thermal_source_fixed_grid),
+        thermal_source_fixed_grid,
+    )
+    scattering_fraction_fixed_grid = torch.where(
+        above,
+        torch.clamp(scattering_fraction[:, 0:1], 0.0, 1.0).expand_as(scattering_fraction_fixed_grid),
+        scattering_fraction_fixed_grid,
+    )
+    source_function_fixed_grid = iterate_source(thermal_source_fixed_grid, scattering_fraction_fixed_grid, COEFJ, COEFJ_DIAG)
 
-    ax.loglog(xtau_np, xsbar[0].detach().cpu().numpy(), &quot;o-&quot;, ms=3, label=r&quot;thermal $\bar S$&quot;)
-    ax.loglog(xtau_np, xs[0].detach().cpu().numpy(), &quot;s-&quot;, ms=3, label=&quot;iterated S&quot;)
-    ax.set_title(f&quot;{name}: $\\lambda$ = {wl_np[k]:.3f} nm, max $\\alpha$ = {float(xalpha.max().detach().cpu()):.2f}&quot;)
+    ax.loglog(xtau_np, thermal_source_fixed_grid[0].detach().cpu().numpy(), &quot;o-&quot;, ms=3, label=r&quot;thermal $\bar S$&quot;)
+    ax.loglog(xtau_np, source_function_fixed_grid[0].detach().cpu().numpy(), &quot;s-&quot;, ms=3, label=&quot;iterated S&quot;)
+    ax.set_title(f&quot;{name}: $\\lambda$ = {wavelength_nm_np[k]:.3f} nm, max $\\alpha$ = {float(scattering_fraction_fixed_grid.max().detach().cpu()):.2f}&quot;)
     ax.set_xlabel(r&quot;optical depth $\tau$&quot;)
 
 axes[0].set_ylabel(&quot;source function&quot;)
@@ -1075,23 +1166,38 @@ kk = <span class="hljs-built_in">int</span>(np.argmin(np.<span class="hljs-built
 
 fig, axes = plt.subplots(<span class="hljs-number">1</span>, <span class="hljs-number">2</span>, figsize=(<span class="hljs-number">11</span>, <span class="hljs-number">4.0</span>), sharey=<span class="hljs-literal">True</span>)
 <span class="hljs-keyword">for</span> ax, k, name <span class="hljs-keyword">in</span> [(axes[<span class="hljs-number">0</span>], kk, <span class="hljs-string">&quot;continuum&quot;</span>), (axes[<span class="hljs-number">1</span>], kc, <span class="hljs-string">&quot;deep line core&quot;</span>)]:
-    acont = cont_abs[:, [k]].T.contiguous()
-    sigmac = cont_scat[:, [k]].T.contiguous()
-    aline = line_abs[:, [k]].T.contiguous()
-    sigmal = line_scat[:, [k]].T.contiguous()
-    src = B_nu[:, [k]].T.contiguous()
-    abtot, alpha, snubar = source_and_alpha(acont, src, aline, src, sigmac, sigmal)
-    taunu = integ_batched(rhox, abtot, abtot[:, <span class="hljs-number">0</span>] * rhox[<span class="hljs-number">0</span>])
-    xsbar = torch.clamp(map1_batched(taunu, snubar, XTAU), <span class="hljs-built_in">min</span>=EPS)
-    xalpha = torch.clamp(map1_batched(taunu, alpha, XTAU), <span class="hljs-number">0.0</span>, <span class="hljs-number">1.0</span>)
-    above = XTAU[<span class="hljs-literal">None</span>, :] &lt; taunu[:, <span class="hljs-number">0</span>:<span class="hljs-number">1</span>]
-    xsbar = torch.where(above, torch.clamp(snubar[:, <span class="hljs-number">0</span>:<span class="hljs-number">1</span>], <span class="hljs-built_in">min</span>=EPS).expand_as(xsbar), xsbar)
-    xalpha = torch.where(above, torch.clamp(alpha[:, <span class="hljs-number">0</span>:<span class="hljs-number">1</span>], <span class="hljs-number">0.0</span>, <span class="hljs-number">1.0</span>).expand_as(xalpha), xalpha)
-    xs = iterate_source(xsbar, xalpha, COEFJ, COEFJ_DIAG)
+    continuum_absorption_slice = continuum_absorption[:, [k]].T.contiguous()
+    continuum_scattering_slice = continuum_scattering[:, [k]].T.contiguous()
+    line_absorption_slice = line_absorption[:, [k]].T.contiguous()
+    line_scattering_slice = line_scattering[:, [k]].T.contiguous()
+    source_slice = source_function[:, [k]].T.contiguous()
+    total_extinction, scattering_fraction, thermal_source = source_and_alpha(
+        continuum_absorption_slice,
+        source_slice,
+        line_absorption_slice,
+        source_slice,
+        continuum_scattering_slice,
+        line_scattering_slice,
+    )
+    monochromatic_optical_depth = integ_batched(column_mass, total_extinction, total_extinction[:, <span class="hljs-number">0</span>] * column_mass[<span class="hljs-number">0</span>])
+    thermal_source_fixed_grid = torch.clamp(map1_batched(monochromatic_optical_depth, thermal_source, XTAU), <span class="hljs-built_in">min</span>=EPS)
+    scattering_fraction_fixed_grid = torch.clamp(map1_batched(monochromatic_optical_depth, scattering_fraction, XTAU), <span class="hljs-number">0.0</span>, <span class="hljs-number">1.0</span>)
+    above = XTAU[<span class="hljs-literal">None</span>, :] &lt; monochromatic_optical_depth[:, <span class="hljs-number">0</span>:<span class="hljs-number">1</span>]
+    thermal_source_fixed_grid = torch.where(
+        above,
+        torch.clamp(thermal_source[:, <span class="hljs-number">0</span>:<span class="hljs-number">1</span>], <span class="hljs-built_in">min</span>=EPS).expand_as(thermal_source_fixed_grid),
+        thermal_source_fixed_grid,
+    )
+    scattering_fraction_fixed_grid = torch.where(
+        above,
+        torch.clamp(scattering_fraction[:, <span class="hljs-number">0</span>:<span class="hljs-number">1</span>], <span class="hljs-number">0.0</span>, <span class="hljs-number">1.0</span>).expand_as(scattering_fraction_fixed_grid),
+        scattering_fraction_fixed_grid,
+    )
+    source_function_fixed_grid = iterate_source(thermal_source_fixed_grid, scattering_fraction_fixed_grid, COEFJ, COEFJ_DIAG)
 
-    ax.loglog(xtau_np, xsbar[<span class="hljs-number">0</span>].detach().cpu().numpy(), <span class="hljs-string">&quot;o-&quot;</span>, ms=<span class="hljs-number">3</span>, label=<span class="hljs-string">r&quot;thermal $\bar S$&quot;</span>)
-    ax.loglog(xtau_np, xs[<span class="hljs-number">0</span>].detach().cpu().numpy(), <span class="hljs-string">&quot;s-&quot;</span>, ms=<span class="hljs-number">3</span>, label=<span class="hljs-string">&quot;iterated S&quot;</span>)
-    ax.set_title(<span class="hljs-string">f&quot;<span class="hljs-subst">{name}</span>: $\\lambda$ = <span class="hljs-subst">{wl_np[k]:<span class="hljs-number">.3</span>f}</span> nm, max $\\alpha$ = <span class="hljs-subst">{<span class="hljs-built_in">float</span>(xalpha.<span class="hljs-built_in">max</span>().detach().cpu()):<span class="hljs-number">.2</span>f}</span>&quot;</span>)
+    ax.loglog(xtau_np, thermal_source_fixed_grid[<span class="hljs-number">0</span>].detach().cpu().numpy(), <span class="hljs-string">&quot;o-&quot;</span>, ms=<span class="hljs-number">3</span>, label=<span class="hljs-string">r&quot;thermal $\bar S$&quot;</span>)
+    ax.loglog(xtau_np, source_function_fixed_grid[<span class="hljs-number">0</span>].detach().cpu().numpy(), <span class="hljs-string">&quot;s-&quot;</span>, ms=<span class="hljs-number">3</span>, label=<span class="hljs-string">&quot;iterated S&quot;</span>)
+    ax.set_title(<span class="hljs-string">f&quot;<span class="hljs-subst">{name}</span>: $\\lambda$ = <span class="hljs-subst">{wavelength_nm_np[k]:<span class="hljs-number">.3</span>f}</span> nm, max $\\alpha$ = <span class="hljs-subst">{<span class="hljs-built_in">float</span>(scattering_fraction_fixed_grid.<span class="hljs-built_in">max</span>().detach().cpu()):<span class="hljs-number">.2</span>f}</span>&quot;</span>)
     ax.set_xlabel(<span class="hljs-string">r&quot;optical depth $\tau$&quot;</span>)
 
 axes[<span class="hljs-number">0</span>].set_ylabel(<span class="hljs-string">&quot;source function&quot;</span>)
@@ -1103,24 +1209,38 @@ plt.show()</code></pre>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[9]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="flux_total, flux_cont, spectrum_t = solve_spectrum(cont_abs, cont_scat, line_abs, line_scat, B_nu, rhox)
+        <button class="copy-btn" type="button" data-code="flux_total, flux_cont, spectrum_t = solve_spectrum(
+    continuum_absorption,
+    continuum_scattering,
+    line_absorption,
+    line_scattering,
+    source_function,
+    column_mass,
+)
 spectrum = spectrum_t.detach().cpu().to(torch.float64).numpy()
 reference = flux_total_ref_np / flux_cont_ref_np
 rel = np.abs(spectrum - reference) / np.abs(reference)
 
 print(f&quot;normalised spectrum vs reference: median |rel diff| = {np.median(rel):.2e}, max = {rel.max():.2e}&quot;)
-print(f&quot;worst wavelength = {wl_np[int(np.argmax(rel))]:.6f} nm&quot;)
+print(f&quot;worst wavelength = {wavelength_nm_np[int(np.argmax(rel))]:.6f} nm&quot;)
 assert np.median(rel) &lt; 2e-7
 assert rel.max() &lt; 5e-5" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">flux_total, flux_cont, spectrum_t = solve_spectrum(cont_abs, cont_scat, line_abs, line_scat, B_nu, rhox)
+      <pre class="code-body"><code class="hljs language-python">flux_total, flux_cont, spectrum_t = solve_spectrum(
+    continuum_absorption,
+    continuum_scattering,
+    line_absorption,
+    line_scattering,
+    source_function,
+    column_mass,
+)
 spectrum = spectrum_t.detach().cpu().to(torch.float64).numpy()
 reference = flux_total_ref_np / flux_cont_ref_np
 rel = np.<span class="hljs-built_in">abs</span>(spectrum - reference) / np.<span class="hljs-built_in">abs</span>(reference)
 
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;normalised spectrum vs reference: median |rel diff| = <span class="hljs-subst">{np.median(rel):<span class="hljs-number">.2</span>e}</span>, max = <span class="hljs-subst">{rel.<span class="hljs-built_in">max</span>():<span class="hljs-number">.2</span>e}</span>&quot;</span>)
-<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;worst wavelength = <span class="hljs-subst">{wl_np[<span class="hljs-built_in">int</span>(np.argmax(rel))]:<span class="hljs-number">.6</span>f}</span> nm&quot;</span>)
+<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;worst wavelength = <span class="hljs-subst">{wavelength_nm_np[<span class="hljs-built_in">int</span>(np.argmax(rel))]:<span class="hljs-number">.6</span>f}</span> nm&quot;</span>)
 <span class="hljs-keyword">assert</span> np.median(rel) &lt; <span class="hljs-number">2e-7</span>
 <span class="hljs-keyword">assert</span> rel.<span class="hljs-built_in">max</span>() &lt; <span class="hljs-number">5e-5</span></code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">normalised spectrum vs reference: median |rel diff| = 5.76e-08, max = 3.23e-07
@@ -1129,14 +1249,14 @@ worst wavelength = 500.325878 nm
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[10]</span>Python</span>
         <button class="copy-btn" type="button" data-code="fig, (ax, axr) = plt.subplots(2, 1, figsize=(11, 5.2), sharex=True, gridspec_kw={&quot;height_ratios&quot;: [3, 1]})
-ax.plot(wl_np, reference, color=&quot;0.6&quot;, lw=1.4, label=&quot;reference&quot;)
-ax.plot(wl_np, spectrum, color=&quot;C3&quot;, lw=0.6, label=&quot;torch JOSH&quot;)
+ax.plot(wavelength_nm_np, reference, color=&quot;0.6&quot;, lw=1.4, label=&quot;reference&quot;)
+ax.plot(wavelength_nm_np, spectrum, color=&quot;C3&quot;, lw=0.6, label=&quot;torch JOSH&quot;)
 ax.set_ylabel(&quot;normalised flux&quot;)
 ax.set_ylim(0, 1.05)
 ax.set_title(&quot;Solar spectrum, 500-510 nm: JOSH rebuilt in torch&quot;)
 ax.legend(loc=&quot;lower right&quot;)
 
-axr.semilogy(wl_np, np.maximum(rel, 1e-16), color=&quot;C0&quot;, lw=0.55)
+axr.semilogy(wavelength_nm_np, np.maximum(rel, 1e-16), color=&quot;C0&quot;, lw=0.55)
 axr.axhline(5e-5, color=&quot;0.5&quot;, ls=&quot;:&quot;, lw=1)
 axr.set_xlabel(&quot;wavelength [nm]&quot;)
 axr.set_ylabel(&quot;|rel diff|&quot;)
@@ -1146,14 +1266,14 @@ plt.show()" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python">fig, (ax, axr) = plt.subplots(<span class="hljs-number">2</span>, <span class="hljs-number">1</span>, figsize=(<span class="hljs-number">11</span>, <span class="hljs-number">5.2</span>), sharex=<span class="hljs-literal">True</span>, gridspec_kw={<span class="hljs-string">&quot;height_ratios&quot;</span>: [<span class="hljs-number">3</span>, <span class="hljs-number">1</span>]})
-ax.plot(wl_np, reference, color=<span class="hljs-string">&quot;0.6&quot;</span>, lw=<span class="hljs-number">1.4</span>, label=<span class="hljs-string">&quot;reference&quot;</span>)
-ax.plot(wl_np, spectrum, color=<span class="hljs-string">&quot;C3&quot;</span>, lw=<span class="hljs-number">0.6</span>, label=<span class="hljs-string">&quot;torch JOSH&quot;</span>)
+ax.plot(wavelength_nm_np, reference, color=<span class="hljs-string">&quot;0.6&quot;</span>, lw=<span class="hljs-number">1.4</span>, label=<span class="hljs-string">&quot;reference&quot;</span>)
+ax.plot(wavelength_nm_np, spectrum, color=<span class="hljs-string">&quot;C3&quot;</span>, lw=<span class="hljs-number">0.6</span>, label=<span class="hljs-string">&quot;torch JOSH&quot;</span>)
 ax.set_ylabel(<span class="hljs-string">&quot;normalised flux&quot;</span>)
 ax.set_ylim(<span class="hljs-number">0</span>, <span class="hljs-number">1.05</span>)
 ax.set_title(<span class="hljs-string">&quot;Solar spectrum, 500-510 nm: JOSH rebuilt in torch&quot;</span>)
 ax.legend(loc=<span class="hljs-string">&quot;lower right&quot;</span>)
 
-axr.semilogy(wl_np, np.maximum(rel, <span class="hljs-number">1e-16</span>), color=<span class="hljs-string">&quot;C0&quot;</span>, lw=<span class="hljs-number">0.55</span>)
+axr.semilogy(wavelength_nm_np, np.maximum(rel, <span class="hljs-number">1e-16</span>), color=<span class="hljs-string">&quot;C0&quot;</span>, lw=<span class="hljs-number">0.55</span>)
 axr.axhline(<span class="hljs-number">5e-5</span>, color=<span class="hljs-string">&quot;0.5&quot;</span>, ls=<span class="hljs-string">&quot;:&quot;</span>, lw=<span class="hljs-number">1</span>)
 axr.set_xlabel(<span class="hljs-string">&quot;wavelength [nm]&quot;</span>)
 axr.set_ylabel(<span class="hljs-string">&quot;|rel diff|&quot;</span>)

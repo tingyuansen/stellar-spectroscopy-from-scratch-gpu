@@ -208,9 +208,9 @@ code(r'''class ExactQuadrantRosstab:
     """
     def __init__(self):
         """Create an empty table; normalization is fixed by the first ingest."""
-        self.t = []
-        self.p = []
-        self.k = []
+        self.temperature_coord = []
+        self.pressure_coord = []
+        self.log_opacity = []
         self.zerot = self.zerop = 0.0
         self.slopet = self.slopep = 1.0
 
@@ -219,7 +219,7 @@ code(r'''class ExactQuadrantRosstab:
         T = np.asarray(T, dtype=np.float64)
         P = np.asarray(P, dtype=np.float64)
         kappa = np.asarray(kappa, dtype=np.float64)
-        if len(self.t) == 0:
+        if len(self.temperature_coord) == 0:
             self.zerot = np.log10(max(float(T[0]), 1e-300))
             self.zerop = np.log10(max(float(P[0]), 1e-300))
             self.slopet = np.log10(max(float(T[-1]), 1e-300)) - self.zerot
@@ -231,12 +231,12 @@ code(r'''class ExactQuadrantRosstab:
         for tj, pj, kj in zip(T, P, kappa):
             # Normalize before appending so multiple ingests share one coordinate
             # system, matching how ROSSTAB extends an existing atmosphere table.
-            self.t.append((np.log10(max(float(tj), 1e-300)) - self.zerot) / self.slopet)
-            self.p.append((np.log10(max(float(pj), 1e-300)) - self.zerop) / self.slopep)
-            self.k.append(np.log10(max(float(kj), 1e-300)))
-        self.t = np.asarray(self.t, dtype=np.float64)
-        self.p = np.asarray(self.p, dtype=np.float64)
-        self.k = np.asarray(self.k, dtype=np.float64)
+            self.temperature_coord.append((np.log10(max(float(tj), 1e-300)) - self.zerot) / self.slopet)
+            self.pressure_coord.append((np.log10(max(float(pj), 1e-300)) - self.zerop) / self.slopep)
+            self.log_opacity.append(np.log10(max(float(kj), 1e-300)))
+        self.temperature_coord = np.asarray(self.temperature_coord, dtype=np.float64)
+        self.pressure_coord = np.asarray(self.pressure_coord, dtype=np.float64)
+        self.log_opacity = np.asarray(self.log_opacity, dtype=np.float64)
 
     def eval(self, temp, pressure):
         """Return interpolated opacity for one scalar temperature/pressure query.
@@ -247,11 +247,11 @@ code(r'''class ExactQuadrantRosstab:
         """
         templog = (np.log10(max(float(temp), 1e-300)) - self.zerot) / self.slopet
         presslog = (np.log10(max(float(pressure), 1e-300)) - self.zerop) / self.slopep
-        dt = self.t - templog
-        dp = self.p - presslog
+        dt = self.temperature_coord - templog
+        dp = self.pressure_coord - presslog
         exact = np.where((np.abs(dt) <= 2e-15) & (np.abs(dp) <= 2e-15))[0]
         if exact.size:
-            return float(10.0 ** self.k[int(exact[0])])
+            return float(10.0 ** self.log_opacity[int(exact[0])])
 
         # Build the same four-quadrant stencil used by the scalar ROSSTAB code:
         # (+T,+P), (+T,-P), (-T,+P), (-T,-P), nearest point in each.
@@ -269,10 +269,10 @@ code(r'''class ExactQuadrantRosstab:
             # Interpolate opacity along normalized temperature on both pressure
             # sides, then interpolate those two results along normalized pressure.
             i_pp, i_pm, i_mp, i_mm = idx
-            tpp, ppp, vpp = self.t[i_pp], self.p[i_pp], self.k[i_pp]
-            tpm, ppm, vpm = self.t[i_pm], self.p[i_pm], self.k[i_pm]
-            tmp, pmp, vmp = self.t[i_mp], self.p[i_mp], self.k[i_mp]
-            tmm, pmm, vmm = self.t[i_mm], self.p[i_mm], self.k[i_mm]
+            tpp, ppp, vpp = self.temperature_coord[i_pp], self.pressure_coord[i_pp], self.log_opacity[i_pp]
+            tpm, ppm, vpm = self.temperature_coord[i_pm], self.pressure_coord[i_pm], self.log_opacity[i_pm]
+            tmp, pmp, vmp = self.temperature_coord[i_mp], self.pressure_coord[i_mp], self.log_opacity[i_mp]
+            tmm, pmm, vmm = self.temperature_coord[i_mm], self.pressure_coord[i_mm], self.log_opacity[i_mm]
             rppmp = ((templog - tmp) * vpp + (tpp - templog) * vmp) / max(tpp - tmp, 1e-300)
             rpmmm = ((templog - tmm) * vpm + (tpm - templog) * vmm) / max(tpm - tmm, 1e-300)
             pppmp = ((templog - tmp) * ppp + (tpp - templog) * pmp) / max(tpp - tmp, 1e-300)
@@ -285,11 +285,14 @@ code(r'''class ExactQuadrantRosstab:
         # representatives rather than all table rows.
         dist = np.sqrt(dt[present] * dt[present] + dp[present] * dp[present])
         w = 1.0 / np.maximum(dist, 1e-12)
-        return float(10.0 ** np.sum(self.k[present] * w) / np.sum(w))
+        return float(10.0 ** np.sum(self.log_opacity[present] * w) / np.sum(w))
 
 rosstab_exact = ExactQuadrantRosstab()
 rosstab_exact.ingest(REF["T_conv"], REF["p_conv"], REF["abross_conv"])
-ab_self = np.array([rosstab_exact.eval(t, p) for t, p in zip(REF["T_conv"], REF["p_conv"])])
+ab_self = np.array([
+    rosstab_exact.eval(temperature_j, gas_pressure_j)
+    for temperature_j, gas_pressure_j in zip(REF["T_conv"], REF["p_conv"])
+])
 err_ros = maxrel(ab_self, REF["abross_conv"])
 print(f"ROSSTAB self lookup max|rel| = {err_ros:.3e}")
 assert err_ros <= 5e-6''')

@@ -278,13 +278,18 @@ This is the per-part check used throughout the book, and the continuum needs **t
 
 code(r'''def numpy_twin():
     """Recompute the EXACT same continuum formulas in fp64 NumPy — the GPU's own twin."""
+    # Broadcast atmosphere columns [depth, 1] against the wavelength grid [1, wavelength].
     wavelength_nm_np = REF["wl"][None, :]
     temperature_np = REF["T"][:, None]
     electron_density_np = REF["n_e"][:, None]
     mass_density_np = REF["rho"][:, None]
     neutral_hydrogen_density_np = REF["nHI"][:, None]
+
+    # Shared radiation factors.
     frequency_hz_np = C / (wavelength_nm_np * 1e-7)
     stimulated_emission_np = 1 - np.exp(-H * frequency_hz_np / (K * temperature_np))
+
+    # H- bound-free: Saha density of H- times threshold cross-section.
     hminus_density_np = (
         neutral_hydrogen_density_np * electron_density_np
         * np.exp(chi_Hminus / (KEV * temperature_np))
@@ -293,30 +298,63 @@ code(r'''def numpy_twin():
     wavelength_um_np = wavelength_nm_np * 1e-3
     threshold_distance = np.clip((lam0 - wavelength_um_np) / (lam0 * wavelength_um_np), 0, None)
     sqrt_threshold_distance = np.sqrt(threshold_distance)
+
     polynomial = C_bf[5]
-    for c in reversed(C_bf[:5]): polynomial = polynomial*sqrt_threshold_distance+c  # numpy-ref
+    for coefficient in reversed(C_bf[:5]):  # numpy-ref: six fixed polynomial coefficients.
+        polynomial = polynomial * sqrt_threshold_distance + coefficient
+
     sigma_boundfree = 1e-18 * wavelength_um_np**3 * sqrt_threshold_distance**3 * polynomial
     kappa_boundfree = hminus_density_np * sigma_boundfree * stimulated_emission_np / mass_density_np
+
+    # H- free-free: Kurucz polynomial in wavelength and theta = 5040 / T.
     theta_np = 5040.0 / temperature_np
     inv_wavelength_um = 1.0 / wavelength_um_np
-    kff = np.zeros_like(stimulated_emission_np)
-    for n in range(1,6):  # numpy-ref
-        kff = kff + theta_np**((n+1)/2.0) * (
-            A[n]*wavelength_um_np**2 + B[n] + Cc[n]*inv_wavelength_um
-            + D[n]*inv_wavelength_um**2 + E[n]*inv_wavelength_um**3
-            + F[n]*inv_wavelength_um**4
+    inv_wavelength_um2 = inv_wavelength_um**2
+    inv_wavelength_um3 = inv_wavelength_um**3
+    inv_wavelength_um4 = inv_wavelength_um**4
+
+    freefree_polynomial = np.zeros_like(stimulated_emission_np)
+    for power_index in range(1, 6):  # numpy-ref: five fixed Kurucz coefficient rows.
+        wavelength_polynomial = (
+            A[power_index] * wavelength_um_np**2
+            + B[power_index]
+            + Cc[power_index] * inv_wavelength_um
+            + D[power_index] * inv_wavelength_um2
+            + E[power_index] * inv_wavelength_um3
+            + F[power_index] * inv_wavelength_um4
         )
+        freefree_polynomial += theta_np**((power_index + 1) / 2.0) * wavelength_polynomial
+
     electron_pressure_np = electron_density_np * K * temperature_np
-    kappa_freefree = 1e-29 * kff * electron_pressure_np * neutral_hydrogen_density_np / mass_density_np
+    kappa_freefree = (
+        1e-29
+        * freefree_polynomial
+        * electron_pressure_np
+        * neutral_hydrogen_density_np
+        / mass_density_np
+    )
+
+    # Scattering: Rayleigh on neutral H plus Thomson on free electrons.
     wavelength_angstrom_np = wavelength_nm_np * 10.0
     inv_angstrom = 1.0 / wavelength_angstrom_np
-    inv2 = inv_angstrom*inv_angstrom; inv4 = inv2*inv2; inv6 = inv4*inv2; inv8 = inv4*inv4
+    inv_angstrom2 = inv_angstrom * inv_angstrom
+    inv_angstrom4 = inv_angstrom2 * inv_angstrom2
+    inv_angstrom6 = inv_angstrom4 * inv_angstrom2
+    inv_angstrom8 = inv_angstrom4 * inv_angstrom4
     kappa_rayleigh = (
-        (5.799e-13*inv4 + 1.422e-6*inv6 + 2.784*inv8)
+        (5.799e-13 * inv_angstrom4 + 1.422e-6 * inv_angstrom6 + 2.784 * inv_angstrom8)
         * neutral_hydrogen_density_np / mass_density_np
     )
-    kappa_thomson = 0.6653e-24 * electron_density_np / mass_density_np * np.ones_like(frequency_hz_np)
-    return kappa_boundfree + kappa_freefree, kappa_rayleigh + kappa_thomson
+    kappa_thomson = (
+        0.6653e-24
+        * electron_density_np
+        / mass_density_np
+        * np.ones_like(frequency_hz_np)
+    )
+
+    continuum_absorption_np = kappa_boundfree + kappa_freefree
+    continuum_scattering_np = kappa_rayleigh + kappa_thomson
+    return continuum_absorption_np, continuum_scattering_np
 
 def floor_rel(name, got, ref, floor):
     """Max relative deviation against max(|ref|, floor) — the absolute floor protects zero-crossings."""

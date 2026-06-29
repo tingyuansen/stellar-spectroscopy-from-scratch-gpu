@@ -162,8 +162,8 @@ This lecture juggles many similarly named arrays. For reference, here are the on
 | code name | shape | units | meaning |
 |---|---|---|---|
 | `temperature_in`, `column_mass`, `gas_pressure_in` | $N$ | K, g cm$^{-2}$, dyn cm$^{-2}$ | grey-start temperature, column mass, gas pressure |
-| `acont`, `sigmac`, `scont` | $F\times N$ | cm$^2$ g$^{-1}$ (abs/scat), source units | continuum absorption, scattering, source (Lecture 3) |
-| `freq`, `rco` | $F$ | Hz, Hz | frequency grid and its quadrature weights $d\nu$ |
+| `continuum_absorption`, `continuum_scattering`, `continuum_source` | $F\times N$ | cm$^2$ g$^{-1}$ (abs/scat), source units | continuum absorption, scattering, source (Lecture 3) |
+| `freq_hz`, `frequency_weight` | $F$ | Hz, Hz | frequency grid and its quadrature weights $d\nu$ |
 | `total_extinction`, `scattering_fraction` | $F\times N$ | cm$^2$ g$^{-1}$, — | per-frequency total extinction $\kappa_\nu$ and scattering fraction |
 | `rosseland_opacity`, `rosseland_optical_depth` | $N$ | cm$^2$ g$^{-1}$, — | Rosseland mean opacity and optical depth |
 | `radiative_flux_integral`, `net_heating_integral`, `opacity_gradient_flux_integral`, `lambda_diagonal_integral` | $N$ | ATLAS conventions ($H$-like; opacity-weighted $J-S$; gradient-weighted flux; temperature-response denominator) | the four frequency-integrated correction accumulators |
@@ -603,7 +603,7 @@ continuum_absorption = t(REF["acont"]).T
 continuum_scattering = t(REF["sigmac"]).T
 continuum_source = t(REF["scont"]).T
 freq_hz = t(REF["freq_hz"]); rco_t = t(REF["rco"])
-w = rco_t[:, None]
+frequency_weight = rco_t[:, None]
 
 # Broadcast Planck function and stimulated emission
 dimensionless_photon_energy = freq_hz[:, None] * h_over_kT[None, :]
@@ -621,7 +621,7 @@ monochromatic_optical_depth, eddington_flux_profile, mean_intensity_profile, \
     )
 
 # The Rosseland HARMONIC fold — requires fp64 promotion
-ross_contrib = dBnu_dT / torch.clamp(total_extinction, min=1e-30) * w
+ross_contrib = dBnu_dT / torch.clamp(total_extinction, min=1e-30) * frequency_weight
 ross_acc64 = ross_contrib.detach().cpu().to(torch.float64).sum(dim=0)
 temperature64 = temperature_in.detach().cpu().to(torch.float64)
 column_mass64 = column_mass.detach().cpu().to(torch.float64)
@@ -646,16 +646,16 @@ code(r'''# The JOSH profiles stay MPS/fp32; NumPy's wide frequency accumulators 
 d_total_extinction_d_column_mass = deriv(column_mass, total_extinction)
 opacity_gradient_flux_integral64 = (
     d_total_extinction_d_column_mass / torch.clamp(total_extinction, min=1e-30)
-    * eddington_flux_profile * w
+    * eddington_flux_profile * frequency_weight
 ).detach().cpu().to(torch.float64).sum(dim=0)
 net_heating_integral64 = (
-    total_extinction * mean_intensity_minus_source * w
+    total_extinction * mean_intensity_minus_source * frequency_weight
 ).detach().cpu().to(torch.float64).sum(dim=0)
 radiative_flux_integral64 = (
-    eddington_flux_profile * w
+    eddington_flux_profile * frequency_weight
 ).detach().cpu().to(torch.float64).sum(dim=0)
 radiation_pressure_integral64 = (
-    total_extinction * eddington_flux_profile * w
+    total_extinction * eddington_flux_profile * frequency_weight
 ).detach().cpu().to(torch.float64).sum(dim=0)
 lambda_diagonal_integral64 = accumulate_rdiagj(
     monochromatic_optical_depth, total_extinction, scattering_fraction, dBnu_dT, rco_t, TEFF,
@@ -863,16 +863,16 @@ code(r'''class Rosstab:
         if self.slopet == 0: self.slopet = 1.0
         self.slopep = torch.log10(torch.clamp(P_arr[-1], min=1e-300)) - self.zerop
         if self.slopep == 0: self.slopep = 1.0
-        self.t = (torch.log10(torch.clamp(T_arr, min=1e-300)) - self.zerot)/self.slopet
-        self.p = (torch.log10(torch.clamp(P_arr, min=1e-300)) - self.zerop)/self.slopep
-        self.k = torch.log10(torch.clamp(kappa, min=1e-300))
+        self.temperature_coord = (torch.log10(torch.clamp(T_arr, min=1e-300)) - self.zerot)/self.slopet
+        self.pressure_coord = (torch.log10(torch.clamp(P_arr, min=1e-300)) - self.zerop)/self.slopep
+        self.log_opacity = torch.log10(torch.clamp(kappa, min=1e-300))
         self.nn = T_arr.shape[0]
 
     def eval(self, temp, pressure):
         """Return interpolated Rosseland opacity for a scalar temperature/pressure."""
         tl = (torch.log10(torch.clamp(temp, min=1e-300)) - self.zerot)/self.slopet
         pl = (torch.log10(torch.clamp(pressure, min=1e-300)) - self.zerop)/self.slopep
-        return rosstab_eval(tl, pl, self.t, self.p, self.k, self.nn)
+        return rosstab_eval(tl, pl, self.temperature_coord, self.pressure_coord, self.log_opacity, self.nn)
 
 def ttaup_predict(j, abstd0, tau0, grav, p1, p4, q1, q2, q3):
     """Predict log total pressure for depth ``j`` from previous TTAUP history."""
@@ -888,7 +888,7 @@ def ttaup_correct(j, abstd_j, tau_j, grav, plog, dplog, p1, p3, p4, q1, q2, q3):
 
 md(r"""`Rosstab` wraps the opacity table and the two predictor/corrector formulas above. The actual hydrostatic march comes next; it is sequential in depth because each layer depends on the pressure history above it.""")
 
-code(r'''def ttaup(t_arr, tau, prad, grav, rosstab):
+code(r'''def ttaup(temperature_arr, tau, prad, grav, rosstab):
     """Integrate hydrostatic total pressure on a standard optical-depth grid.
 
     Each layer predicts log(P_total), queries ROSSTAB at the implied gas
@@ -896,8 +896,8 @@ code(r'''def ttaup(t_arr, tau, prad, grav, rosstab):
     consistent.  The history variables ``p1``..``p4`` and ``q1``..``q3`` are the
     prior pressure and pressure-increment terms used by the ATLAS formulas.
     """
-    nn = t_arr.shape[0]
-    dev, dtp = t_arr.device, t_arr.dtype
+    nn = temperature_arr.shape[0]
+    dev, dtp = temperature_arr.device, temperature_arr.dtype
     abstd = torch.zeros(nn, device=dev, dtype=dtp)
     ptotal = torch.zeros(nn, device=dev, dtype=dtp)
     pgas = torch.zeros(nn, device=dev, dtype=dtp)
@@ -925,7 +925,7 @@ code(r'''def ttaup(t_arr, tau, prad, grav, rosstab):
             if pg_j <= 0.0:
                 pgas[j] = 1e-30; abstd[j] = 0.1; break
                 
-            abs_j = rosstab.eval(t_arr[j], pg_j)
+            abs_j = rosstab.eval(temperature_arr[j], pg_j)
             abstd[j] = abs_j
             dplog = grav / torch.clamp(abs_j, min=1e-300) * tau[j] / torch.clamp(ptot_j, min=1e-300) * dlg
             
@@ -943,24 +943,24 @@ code(r'''def ttaup(t_arr, tau, prad, grav, rosstab):
 
 md(r"""Now we run that march twice, once at the old temperature and once at the corrected temperature. Their fractional pressure difference is the column-mass correction, evaluated in fp64 to avoid subtracting nearly equal pressure profiles in fp32.""")
 
-code(r'''p64 = p_in.detach().cpu().to(torch.float64)
-rt = Rosstab(T64, p64, abross64)
+code(r'''gas_pressure64 = p_in.detach().cpu().to(torch.float64)
+rosseland_table = Rosstab(T64, gas_pressure64, abross64)
 prdnew64 = map1(tauros64, prad64, taustd64)
 
-ptot_old64 = ttaup(map1(tauros64, T64, taustd64), taustd64, prdnew64, GRAV, rt)
-ptot_new64 = ttaup(map1(tauros64, T64 + t1_64, taustd64), taustd64, prdnew64, GRAV, rt)
+ptot_old64 = ttaup(map1(tauros64, T64, taustd64), taustd64, prdnew64, GRAV, rosseland_table)
+ptot_new64 = ttaup(map1(tauros64, T64 + t1_64, taustd64), taustd64, prdnew64, GRAV, rosseland_table)
 
-frac64 = (ptot_new64 - ptot_old64) / torch.clamp(ptot_old64, min=1e-300)
-drhox64 = map1(taustd64, frac64, tauros64) * rhox64
-rhox_new64 = rhox64 + drhox64
-rhox_new = rhox_new64.to(device=DEVICE, dtype=DTYPE)''')
+pressure_fractional_change64 = (ptot_new64 - ptot_old64) / torch.clamp(ptot_old64, min=1e-300)
+column_mass_correction64 = map1(taustd64, pressure_fractional_change64, tauros64) * rhox64
+column_mass_new64 = rhox64 + column_mass_correction64
+rhox_new = column_mass_new64.to(device=DEVICE, dtype=DTYPE)''')
 
 md(r"""## Closing the iteration: the standard-grid remap
 
 To cap off the `TCORR` iteration, ATLAS returns all corrected state arrays to the standard `taustd` grid structure to prime the parameters for the subsequent iteration loop.""")
 
 code(r'''T_out64 = map1(tauros64, tnew64, taustd64)
-rhox_out64 = map1(tauros64, rhox_new64, taustd64)
+rhox_out64 = map1(tauros64, column_mass_new64, taustd64)
 T_out = T_out64.to(device=DEVICE, dtype=DTYPE)
 rhox_out = rhox_out64.to(device=DEVICE, dtype=DTYPE)
 

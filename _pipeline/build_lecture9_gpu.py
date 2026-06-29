@@ -157,11 +157,14 @@ TAU1LG = torch.as_tensor(-6.875, dtype=DTYPE, device=DEVICE)
 STEPLG = torch.as_tensor(0.125, dtype=DTYPE, device=DEVICE)
 
 layer = torch.arange(NRHOX, dtype=DTYPE, device=DEVICE)
-tau = torch.pow(torch.as_tensor(10.0, dtype=DTYPE, device=DEVICE), TAU1LG + STEPLG * layer)
-T = grey_temperature(TEFF, tau)
+rosseland_optical_depth = torch.pow(torch.as_tensor(10.0, dtype=DTYPE, device=DEVICE), TAU1LG + STEPLG * layer)
+temperature = grey_temperature(TEFF, rosseland_optical_depth)
 
-print(f"{NRHOX} layers on {DEVICE.type}: tau = {tau[0].detach().cpu().to(torch.float64):.3e} .. {tau[-1].detach().cpu().to(torch.float64):.3e}")
-print(f"T(top) = {T[0].detach().cpu().to(torch.float64):.1f} K    T(bottom) = {T[-1].detach().cpu().to(torch.float64):.1f} K")''')
+# Compatibility aliases for the textbook formulas and reference labels below.
+tau, T = rosseland_optical_depth, temperature
+
+print(f"{NRHOX} layers on {DEVICE.type}: tau = {rosseland_optical_depth[0].detach().cpu().to(torch.float64):.3e} .. {rosseland_optical_depth[-1].detach().cpu().to(torch.float64):.3e}")
+print(f"T(top) = {temperature[0].detach().cpu().to(torch.float64):.1f} K    T(bottom) = {temperature[-1].detach().cpu().to(torch.float64):.1f} K")''')
 
 md(r"""The first parity check is the recap itself: the optical-depth grid and the Hopf temperature must reproduce the reference arrays from Lecture 1. On the CPU fp64 fallback these are at the roundoff floor of the two libraries; on MPS/CUDA the accepted floor is the usual fp32 one.""")
  
@@ -410,11 +413,16 @@ $$
 
 This is Kurucz's `RHOX`, the depth coordinate carried by the atmosphere file.""")
  
-code(r'''abstd, ptotal, P_gas = ttaup(T, tau, prad, pturb, g_cgs)
-RHOX = ptotal / torch.as_tensor(float(g_cgs), dtype=DTYPE, device=DEVICE)
+code(r'''cold_start_opacity, total_pressure, gas_pressure = ttaup(
+    temperature, rosseland_optical_depth, prad, pturb, g_cgs,
+)
+column_mass = total_pressure / torch.as_tensor(float(g_cgs), dtype=DTYPE, device=DEVICE)
 
-print(f"P_gas: top = {P_gas[0].detach().cpu().to(torch.float64):.4e}   bottom = {P_gas[-1].detach().cpu().to(torch.float64):.4e} dyn/cm^2")
-print(f"RHOX:  top = {RHOX[0].detach().cpu().to(torch.float64):.4e}   bottom = {RHOX[-1].detach().cpu().to(torch.float64):.4e} g/cm^2")''')
+# Compatibility aliases for the ATLAS/reference names printed below.
+abstd, ptotal, P_gas, RHOX = cold_start_opacity, total_pressure, gas_pressure, column_mass
+
+print(f"P_gas: top = {gas_pressure[0].detach().cpu().to(torch.float64):.4e}   bottom = {gas_pressure[-1].detach().cpu().to(torch.float64):.4e} dyn/cm^2")
+print(f"RHOX:  top = {column_mass[0].detach().cpu().to(torch.float64):.4e}   bottom = {column_mass[-1].detach().cpu().to(torch.float64):.4e} g/cm^2")''')
 
 md(r"""## Benchmark: the documented float floor
 
@@ -425,10 +433,10 @@ On the CPU fallback the arithmetic is fp64 and the residual is at the last-round
 code(r'''# comparison-reference cell: REF[...] is the NumPy-edition parity oracle
 print("grey model atmosphere vs reference/L1.npz:")
 
-e_tau  = compare("grey_tau",  tau,   REF["grey_tau"])
-e_T    = compare("grey_T",    T,     REF["grey_T"])
-e_pgas = compare("grey_pgas", P_gas, REF["grey_pgas"])
-e_rhox = compare("grey_rhox", RHOX,  REF["grey_rhox"])
+e_tau  = compare("grey_tau",  rosseland_optical_depth, REF["grey_tau"])
+e_T    = compare("grey_T",    temperature,              REF["grey_T"])
+e_pgas = compare("grey_pgas", gas_pressure,             REF["grey_pgas"])
+e_rhox = compare("grey_rhox", column_mass,              REF["grey_rhox"])
 
 worst = max(e_tau, e_T, e_pgas, e_rhox)
 print(f"\nworst max|rel| over all four arrays = {worst:.2e}")''')
@@ -437,12 +445,12 @@ md(r"""The first lecture's $P=g\tau$ was the exact analytic $\kappa\equiv1$, zer
  
 md(r"""A useful diagnostic is to plot both the structure and the fractional difference between the analytic one-line estimate and the integrated gas pressure. The plotting cell is the only place we move the arrays back to the host; all computation above stayed torch-native on the chosen device.""")
  
-code(r'''P_analytic = torch.as_tensor(float(g_cgs), dtype=DTYPE, device=DEVICE) * tau
-resid = torch.abs(P_analytic - P_gas) / P_gas
+code(r'''analytic_total_pressure = torch.as_tensor(float(g_cgs), dtype=DTYPE, device=DEVICE) * rosseland_optical_depth
+resid = torch.abs(analytic_total_pressure - gas_pressure) / gas_pressure
 
-x_tau = torch.log10(tau).detach().cpu().to(torch.float64).numpy()
-y_pgas = torch.log10(P_gas).detach().cpu().to(torch.float64).numpy()
-y_rhox = torch.log10(RHOX).detach().cpu().to(torch.float64).numpy()
+x_tau = torch.log10(rosseland_optical_depth).detach().cpu().to(torch.float64).numpy()
+y_pgas = torch.log10(gas_pressure).detach().cpu().to(torch.float64).numpy()
+y_rhox = torch.log10(column_mass).detach().cpu().to(torch.float64).numpy()
 y_resid = resid.detach().cpu().to(torch.float64).numpy()
 
 fig, ax = plt.subplots(1, 2, figsize=(11, 4.1))

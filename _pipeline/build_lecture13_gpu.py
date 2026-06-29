@@ -847,12 +847,13 @@ md(r"""### Loading the continuum inputs and the coefficient tables
 The continuum needs the atmosphere state (temperature, mass density, the H ground-state and He I populations) plus the molecular-equilibrium populations of CH and OH (`xnfpch`, `xnfpoh` — Kurucz-style mode-1 $N/U$ populations; multiplying by the interpolated partition function restores the absorber density used by the cross-section table). This is the continuum fixture boundary: in the full pipeline those state populations are supplied by the EOS/equilibrium stages; in this standalone lecture they are loaded only to hold the input state fixed while we test the CH/OH/H$_2$ continuum implementation. The wavelength grid spans 300–5000 nm so we see both the blue CH/OH region and the near-infrared H$_2$-CIA region. The tables are the CH/OH cross-section and partition-function tables and the Borysow H$_2$–H$_2$ / H$_2$–He CIA coefficient tables. The accepted `mol_continuum` port reads them straight from the npz, so we pass the loaded archive through.""")
 
 code(r'''mc = np.load(REF / "mol_continuum_inputs.npz")
-wl_nm = mc["wavelength_nm"].astype(float)               # nm
-freq  = mc["frequency_hz"].astype(float)                # Hz
-temp_c = mc["temperature"].astype(float)                # K (same cool dwarf as Part 1)
-nlc, nfreq = temp_c.size, freq.size
-print(f"continuum grid: {nlc} layers x {nfreq} wavelengths, "
-      f"{wl_nm.min():.0f}-{wl_nm.max():.0f} nm, T = {temp_c.min():.0f}-{temp_c.max():.0f} K")
+wavelength_nm = mc["wavelength_nm"].astype(float)       # nm
+frequency_hz = mc["frequency_hz"].astype(float)         # Hz
+continuum_temperature = mc["temperature"].astype(float) # K (same cool dwarf as Part 1)
+num_continuum_layers, num_wavelengths = continuum_temperature.size, frequency_hz.size
+print(f"continuum grid: {num_continuum_layers} layers x {num_wavelengths} wavelengths, "
+      f"{wavelength_nm.min():.0f}-{wavelength_nm.max():.0f} nm, "
+      f"T = {continuum_temperature.min():.0f}-{continuum_temperature.max():.0f} K")
 print("tables:", [k for k in mc.files if k.isupper()])''')
 
 md(r"""### The shared physical constants and the device adapters
@@ -895,19 +896,24 @@ md(r"""### CH and OH continuous opacity (CHOP / OHOP): the frequency-row interpo
 
 CHOP and OHOP share one structure, so the port factors it into `_band_frequency_rows`: given the whole frequency grid it forms the photon energy in eV, computes the band-energy index branchlessly (`_trunc_i64(ev*10)` with a per-species shift — CH starts at 0.2 eV, OH at 2.1 eV), brackets the cross-section table in energy, and **gathers two adjacent table rows and linearly interpolates** them — `lo + (hi - lo)*frac` — for *every* frequency at once. The inactive region (energy outside the band) is zeroed by a `torch.where` over the `valid` mask, not skipped by a Python `if/return`. This collapses the loop over frequency into one batched gather + interpolation. Transcribed verbatim.""")
 
-code(r'''def _band_frequency_rows(freq, cross_table, species):
+code(r'''def _band_frequency_rows(frequency_hz, cross_section_table, species):
     """Interpolate the CH/OH cross-section table in PHOTON ENERGY for all frequencies at once."""
-    wn = freq / C_LIGHT_CM; ev = wn / 8065.479
+    wavenumber_cm1 = frequency_hz / C_LIGHT_CM; photon_energy_ev = wavenumber_cm1 / 8065.479
     if species == "CH":
-        n = _trunc_i64(ev * 10.0); en = n.astype(np.float64) * 0.1
-        idx = n - 2; valid = (n >= 20) & (n < 105) & (idx >= 0) & (idx < 104)
+        energy_bin = _trunc_i64(photon_energy_ev * 10.0)
+        lower_energy_ev = energy_bin.astype(np.float64) * 0.1
+        table_row = energy_bin - 2
+        valid = (energy_bin >= 20) & (energy_bin < 105) & (table_row >= 0) & (table_row < 104)
     else:  # OH: energy index shifted by 2.0 eV (table starts at 2.1 eV)
-        n = _trunc_i64(ev * 10.0) - 20; en = n.astype(np.float64) * 0.1 + 2.0
-        idx = n - 1; valid = (n > 0) & (n < 130) & (idx >= 0) & (idx < 129)
-    safe_idx = np.clip(idx, 0, cross_table.shape[0] - 2)
-    frac = _cpu64((ev - en) / 0.1); table = _cpu64(cross_table); idx_t = _cpu_long(safe_idx)
-    lo = table.index_select(0, idx_t); hi = table.index_select(0, idx_t + 1)
-    rows = lo + (hi - lo) * frac[:, None]                    # linear interp in energy, all freqs
+        energy_bin = _trunc_i64(photon_energy_ev * 10.0) - 20
+        lower_energy_ev = energy_bin.astype(np.float64) * 0.1 + 2.0
+        table_row = energy_bin - 1
+        valid = (energy_bin > 0) & (energy_bin < 130) & (table_row >= 0) & (table_row < 129)
+    safe_table_row = np.clip(table_row, 0, cross_section_table.shape[0] - 2)
+    energy_weight = _cpu64((photon_energy_ev - lower_energy_ev) / 0.1)
+    table = _cpu64(cross_section_table); table_row_t = _cpu_long(safe_table_row)
+    lower_row = table.index_select(0, table_row_t); upper_row = table.index_select(0, table_row_t + 1)
+    rows = lower_row + (upper_row - lower_row) * energy_weight[:, None]  # linear interp in energy, all freqs
     valid_t = torch.as_tensor(np.ascontiguousarray(valid), dtype=torch.bool, device=_CPU)
     rows = torch.where(valid_t[:, None], rows, torch.zeros_like(rows))   # branchless band cutoff
     return rows, valid_t, valid_t.to(_F64)
@@ -930,15 +936,21 @@ def _cross_temp_cell(temperature):
     tn = it.astype(np.float64) * 500.0 + 2000.0
     return it, (temperature - tn) / 500.0
 
-def _band_continuum(cross, valid_bool, valid_float, it_c, wc, part, active_t, pop, rho, stim):
-    """CH/OH continuum on the [D, F] grid: T-interpolate, exponentiate, apply pop/rho and stim."""
-    n_t = cross.shape[1]; it0 = it_c.clamp(0, n_t - 2); it1 = it0 + 1
-    lo = cross.index_select(1, it0).transpose(0, 1); hi = cross.index_select(1, it1).transpose(0, 1)
-    log_x = lo + (hi - lo) * wc[:, None]                     # linear interp in T, all (D,F)
-    safe = valid_bool[None, :] & (active_t > 0.0)[:, None]   # branchless active-region mask
+def _band_continuum(cross_section_rows, valid_bool, valid_float, temperature_cell_index,
+                    temperature_weight, partition_function, active_temperature,
+                    molecular_number_density, mass_density, stimulated_emission_factor):
+    """CH/OH continuum on the [D, F] grid: T-interpolate, exponentiate, apply n/rho and stim."""
+    num_temperature_nodes = cross_section_rows.shape[1]
+    lower_temperature_cell = temperature_cell_index.clamp(0, num_temperature_nodes - 2)
+    upper_temperature_cell = lower_temperature_cell + 1
+    lower_cross_section = cross_section_rows.index_select(1, lower_temperature_cell).transpose(0, 1)
+    upper_cross_section = cross_section_rows.index_select(1, upper_temperature_cell).transpose(0, 1)
+    log_x = lower_cross_section + (upper_cross_section - lower_cross_section) * temperature_weight[:, None]
+    safe = valid_bool[None, :] & (active_temperature > 0.0)[:, None]   # branchless active-region mask
     log_x = torch.where(safe, log_x, torch.zeros_like(log_x))
-    xsect_u = torch.exp(log_x * LN10) * part[:, None]        # 10^x * U
-    return xsect_u * valid_float[None, :] * active_t[:, None] * pop[:, None] / rho[:, None] * stim
+    cross_section_times_partition = torch.exp(log_x * LN10) * partition_function[:, None]
+    return (cross_section_times_partition * valid_float[None, :] * active_temperature[:, None]
+            * molecular_number_density[:, None] / mass_density[:, None] * stimulated_emission_factor)
 
 print("_band_continuum + temperature-cell helpers ready")''')
 
@@ -952,23 +964,28 @@ code(r'''def _h2_temp_cell(temperature):
     delt = np.clip((temperature - 1000.0 * it.astype(np.float64)) / 1000.0, 0.0, 1.0)
     return it, delt
 
-def _h2_frequency_rows(freq, h2h2_table, h2he_table):
+def _h2_frequency_rows(frequency_hz, h2h2_table, h2he_table):
     """Borysow H2-H2 / H2-He tables interpolated in WAVENUMBER for all frequencies at once."""
-    wn = freq / C_LIGHT_CM; nu = np.minimum(79, _trunc_i64(wn / 250.0))
-    delnu = (wn - 250.0 * nu.astype(np.float64)) / 250.0
-    idx1 = np.clip(np.minimum(nu, 80), 0, 80); idx2 = np.clip(np.minimum(nu + 1, 80), 0, 80)
-    valid = wn <= 20000.0                                    # Borysow table/mask range
-    idx1_t = _cpu_long(idx1); idx2_t = _cpu_long(idx2); delnu_t = _cpu64(delnu)
+    wavenumber_cm1 = frequency_hz / C_LIGHT_CM
+    wavenumber_cell = np.minimum(79, _trunc_i64(wavenumber_cm1 / 250.0))
+    wavenumber_weight = (wavenumber_cm1 - 250.0 * wavenumber_cell.astype(np.float64)) / 250.0
+    lower_wavenumber_row = np.clip(np.minimum(wavenumber_cell, 80), 0, 80)
+    upper_wavenumber_row = np.clip(np.minimum(wavenumber_cell + 1, 80), 0, 80)
+    valid = wavenumber_cm1 <= 20000.0                         # Borysow table/mask range
+    lower_row_t = _cpu_long(lower_wavenumber_row); upper_row_t = _cpu_long(upper_wavenumber_row)
+    wavenumber_weight_t = _cpu64(wavenumber_weight)
     h2h2 = _cpu64(h2h2_table); h2he = _cpu64(h2he_table)
-    h2h2_rows = h2h2.index_select(0, idx1_t) * delnu_t[:, None] + h2h2.index_select(0, idx2_t) * (1.0 - delnu_t[:, None])
-    h2he_rows = h2he.index_select(0, idx1_t) * delnu_t[:, None] + h2he.index_select(0, idx2_t) * (1.0 - delnu_t[:, None])
+    h2h2_rows = (h2h2.index_select(0, lower_row_t) * wavenumber_weight_t[:, None]
+                 + h2h2.index_select(0, upper_row_t) * (1.0 - wavenumber_weight_t[:, None]))
+    h2he_rows = (h2he.index_select(0, lower_row_t) * wavenumber_weight_t[:, None]
+                 + h2he.index_select(0, upper_row_t) * (1.0 - wavenumber_weight_t[:, None]))
     valid_t = torch.as_tensor(np.ascontiguousarray(valid), dtype=torch.bool, device=_CPU)
     h2h2_rows = torch.where(valid_t[:, None], h2h2_rows, torch.full_like(h2h2_rows, -300.0))
     h2he_rows = torch.where(valid_t[:, None], h2he_rows, torch.full_like(h2he_rows, -300.0))
     return h2h2_rows, h2he_rows, valid_t, valid_t.to(_F64)
 
 def _temp_lerp_rows(rows_ft, it, delt):
-    """Interpolate the (freq, T-node) rows in temperature, per depth."""
+    """Interpolate the (frequency, T-node) rows in temperature, per depth."""
     n_t = rows_ft.shape[1]; it_hi = it.clamp(1, n_t - 1); it_lo = it_hi - 1
     lo = rows_ft.index_select(1, it_lo).transpose(0, 1); hi = rows_ft.index_select(1, it_hi).transpose(0, 1)
     return lo * delt[:, None] + hi * (1.0 - delt[:, None])
@@ -990,72 +1007,90 @@ The driver assembles everything: it interpolates CH/OH in energy and the Borysow
 
 code(r'''def mol_continuum(inp):
     """Molecular continuous opacity (CHOP, OHOP, H2-CIA) on the [D, F] grid, fully vectorized.
-    Returns (chop, ohop, h2cia, total)."""
+    Returns (ch_continuum_absorption, oh_continuum_absorption, h2_cia_absorption,
+    continuum_absorption)."""
     temperature = _np64(inp, "temperature"); mass_density = _np64(inp, "mass_density")
-    xnfph1 = _np64(inp, "xnfph1"); bhyd1 = _np64(inp, "bhyd1"); xnfhe1 = _np64(inp, "xnfhe1")
-    xnfpch = _np64(inp, "xnfpch"); xnfpoh = _np64(inp, "xnfpoh"); freq = _np64(inp, "frequency_hz")
+    hydrogen_ground_population = _np64(inp, "xnfph1")
+    hydrogen_departure_coefficient = _np64(inp, "bhyd1")
+    helium_number_density = _np64(inp, "xnfhe1")
+    ch_molecular_number_density = _np64(inp, "xnfpch")
+    oh_molecular_number_density = _np64(inp, "xnfpoh")
+    frequency_hz = _np64(inp, "frequency_hz")
     ch_partition = _np64(inp, "CH_PARTITION"); oh_partition = _np64(inp, "OH_PARTITION")
     ch_crosssect = _np64(inp, "CH_CROSSSECT"); oh_crosssect = _np64(inp, "OH_CROSSSECT")
     h2h2_table = _np64(inp, "H2_COLL_H2H2"); h2he_table = _np64(inp, "H2_COLL_H2HE")
 
     # frequency-row interpolations (all freqs at once)
-    ch_cross, ch_valid_bool, ch_valid = _band_frequency_rows(freq, ch_crosssect, "CH")
-    oh_cross, oh_valid_bool, oh_valid = _band_frequency_rows(freq, oh_crosssect, "OH")
-    h2h2_nu, h2he_nu, h2_valid_bool, h2_valid = _h2_frequency_rows(freq, h2h2_table, h2he_table)
+    ch_cross, ch_valid_bool, ch_valid = _band_frequency_rows(frequency_hz, ch_crosssect, "CH")
+    oh_cross, oh_valid_bool, oh_valid = _band_frequency_rows(frequency_hz, oh_crosssect, "OH")
+    h2h2_nu, h2he_nu, h2_valid_bool, h2_valid = _h2_frequency_rows(frequency_hz, h2h2_table, h2he_table)
 
     # per-depth cells, partitions, H2 density
     ch_part = _partition_per_depth(ch_partition, temperature); oh_part = _partition_per_depth(oh_partition, temperature)
     it_c, wc = _cross_temp_cell(temperature); it_h2, delt = _h2_temp_cell(temperature)
-    xnh2 = _h2_number_density(temperature, xnfph1, bhyd1)
+    h2_number_density = _h2_number_density(temperature, hydrogen_ground_population, hydrogen_departure_coefficient)
 
-    temp_t = _cpu64(temperature); rho_t = _cpu64(mass_density); xnfhe1_t = _cpu64(xnfhe1)
-    xnfpch_t = _cpu64(xnfpch); xnfpoh_t = _cpu64(xnfpoh); xnh2_t = _cpu64(xnh2)
+    temperature_t = _cpu64(temperature); mass_density_t = _cpu64(mass_density)
+    helium_number_density_t = _cpu64(helium_number_density)
+    ch_molecular_number_density_t = _cpu64(ch_molecular_number_density)
+    oh_molecular_number_density_t = _cpu64(oh_molecular_number_density)
+    h2_number_density_t = _cpu64(h2_number_density)
     ch_part_t = _cpu64(ch_part); oh_part_t = _cpu64(oh_part); wc_t = _cpu64(wc); delt_t = _cpu64(delt)
     active_t = _cpu64((temperature < 9000.0).astype(np.float64))     # branchless T-cutoff
     it_c_t = _cpu_long(it_c); it_h2_t = _cpu_long(it_h2)
 
-    freq_arg_t = _cpu64(H_PLANCK * freq / K_BOLTZ)
-    stim = 1.0 - torch.exp(-freq_arg_t[None, :] / temp_t[:, None])   # stimulated emission [D,F]
+    frequency_temperature_t = _cpu64(H_PLANCK * frequency_hz / K_BOLTZ)
+    stimulated_emission_factor = 1.0 - torch.exp(-frequency_temperature_t[None, :] / temperature_t[:, None])
 
-    chop64 = _band_continuum(ch_cross, ch_valid_bool, ch_valid, it_c_t, wc_t, ch_part_t,
-                             active_t, xnfpch_t, rho_t, stim)
-    ohop64 = _band_continuum(oh_cross, oh_valid_bool, oh_valid, it_c_t, wc_t, oh_part_t,
-                             active_t, xnfpoh_t, rho_t, stim)
+    ch_continuum_absorption64 = _band_continuum(ch_cross, ch_valid_bool, ch_valid, it_c_t, wc_t,
+                                                ch_part_t, active_t, ch_molecular_number_density_t,
+                                                mass_density_t, stimulated_emission_factor)
+    oh_continuum_absorption64 = _band_continuum(oh_cross, oh_valid_bool, oh_valid, it_c_t, wc_t,
+                                                oh_part_t, active_t, oh_molecular_number_density_t,
+                                                mass_density_t, stimulated_emission_factor)
 
     xh2h2 = _temp_lerp_rows(h2h2_nu, it_h2_t, delt_t); xh2he = _temp_lerp_rows(h2he_nu, it_h2_t, delt_t)
     xh2h2 = torch.where(h2_valid_bool[None, :], xh2h2, torch.full_like(xh2h2, -300.0))
     xh2he = torch.where(h2_valid_bool[None, :], xh2he, torch.full_like(xh2he, -300.0))
     ten = torch.tensor(10.0, dtype=_F64, device=_CPU)
-    h2cia64 = ((torch.pow(ten, xh2he) * xnfhe1_t[:, None] + torch.pow(ten, xh2h2) * xnh2_t[:, None])
-               * xnh2_t[:, None] / rho_t[:, None] * stim * h2_valid[None, :])
-    total64 = chop64 + ohop64 + h2cia64
-    return _finish(chop64), _finish(ohop64), _finish(h2cia64), _finish(total64)
+    h2_cia_absorption64 = ((torch.pow(ten, xh2he) * helium_number_density_t[:, None]
+                            + torch.pow(ten, xh2h2) * h2_number_density_t[:, None])
+                           * h2_number_density_t[:, None] / mass_density_t[:, None]
+                           * stimulated_emission_factor * h2_valid[None, :])
+    continuum_absorption64 = ch_continuum_absorption64 + oh_continuum_absorption64 + h2_cia_absorption64
+    return (_finish(ch_continuum_absorption64), _finish(oh_continuum_absorption64),
+            _finish(h2_cia_absorption64), _finish(continuum_absorption64))
 
 t0 = time.time()
-chop, ohop, h2cia, total = mol_continuum(mc)
-print(f"molecular continuum computed over the {nlc}x{nfreq} grid in {time.time()-t0:.3f}s "
+ch_continuum_absorption, oh_continuum_absorption, h2_cia_absorption, continuum_absorption = mol_continuum(mc)
+print(f"molecular continuum computed over the {num_continuum_layers}x{num_wavelengths} grid in {time.time()-t0:.3f}s "
       f"(device {DEVICE.type})")''')
 
 # ── PART 2 comparison ────────────────────────────────────────────────────────
 md(r"""### Benchmark: the torch continuum against the inline fp64 reference
 
-We validate the torch `mol_continuum` against the inline fp64 reference (the scalar reference from `verify_mol_continuum.py` — CHOP/OHOP/H2COLLOP with their Python frequency loops — the parity oracle) and against the shipped ground truth, reporting `max|rel|` on chop, ohop, h2cia, and the total.
+We validate the torch `mol_continuum` against the inline fp64 reference (the scalar reference from `verify_mol_continuum.py` — CHOP/OHOP/H2COLLOP with their Python frequency loops — the parity oracle) and against the shipped ground truth, reporting `max|rel|` on CH, OH, H$_2$-CIA, and the total molecular continuum absorption.
 
 First we prepare the scalar reference tables and the shared thermodynamic factors. The CH/OH cross-section helper and the H$_2$-CIA helper are defined in separate cells below because they are independent pieces of physics.""")
 
 code(r'''# --- the inline fp64 reference: scalar CHOP/OHOP/H2COLLOP, the parity oracle ---
-temp_np = mc["temperature"].astype(float); rho_np = mc["mass_density"].astype(float)
-xnfph1_np = mc["xnfph1"].astype(float); bhyd1_np = mc["bhyd1"].astype(float)
-xnfhe1_np = mc["xnfhe1"].astype(float); xnfpch_np = mc["xnfpch"].astype(float)
-xnfpoh_np = mc["xnfpoh"].astype(float)
+temperature_ref = mc["temperature"].astype(float); mass_density_ref = mc["mass_density"].astype(float)
+hydrogen_ground_population_ref = mc["xnfph1"].astype(float)
+hydrogen_departure_coefficient_ref = mc["bhyd1"].astype(float)
+helium_number_density_ref = mc["xnfhe1"].astype(float)
+ch_molecular_number_density_ref = mc["xnfpch"].astype(float)
+oh_molecular_number_density_ref = mc["xnfpoh"].astype(float)
 CH_PARTITION = mc["CH_PARTITION"]; OH_PARTITION = mc["OH_PARTITION"]
 CH_CROSSSECT = mc["CH_CROSSSECT"]; OH_CROSSSECT = mc["OH_CROSSSECT"]
 H2H2 = mc["H2_COLL_H2H2"]; H2HE = mc["H2_COLL_H2HE"]
-tkev_np = KBOLTZ_EV_F * temp_np; tlog_np = np.log(temp_np)
-stim_np = 1.0 - np.exp(-H_PLANCK * freq[None, :] / (K_BOLTZ * temp_np[:, None]))
-_poly_t = (1.63660e-3 + (-4.93992e-7 + (1.11822e-10 + (-1.49567e-14
-           + (1.06206e-18 - 3.08720e-23 * temp_np) * temp_np) * temp_np) * temp_np) * temp_np) * temp_np
-XNH2_np = (xnfph1_np * 2.0 * bhyd1_np) ** 2 * np.exp(np.clip(4.478 / tkev_np - 46.4584 + _poly_t - 1.5 * tlog_np, -100, 100))
+tkev_ref = KBOLTZ_EV_F * temperature_ref; tlog_ref = np.log(temperature_ref)
+stimulated_emission_ref = 1.0 - np.exp(-H_PLANCK * frequency_hz[None, :] / (K_BOLTZ * temperature_ref[:, None]))
+poly_temperature_ref = (1.63660e-3 + (-4.93992e-7 + (1.11822e-10 + (-1.49567e-14
+                        + (1.06206e-18 - 3.08720e-23 * temperature_ref) * temperature_ref)
+                        * temperature_ref) * temperature_ref) * temperature_ref) * temperature_ref
+h2_number_density_ref = ((hydrogen_ground_population_ref * 2.0 * hydrogen_departure_coefficient_ref) ** 2
+                         * np.exp(np.clip(4.478 / tkev_ref - 46.4584 + poly_temperature_ref
+                                          - 1.5 * tlog_ref, -100, 100)))
 print("fp64 reference: continuum tables and thermodynamic factors ready")''')
 
 md(r"""The CH/OH reference helper is the scalar version of the same table interpolation used by the torch path: choose the photon-energy bracket, interpolate the cross-section table, then interpolate the partition function and temperature row at each depth.""")
@@ -1064,14 +1099,14 @@ code(r'''# --- fp64 reference: scalar CHOP/OHOP band interpolation ---
 
 def _band_xsect_np(freq_scalar, CROSS, PART, n_off, idx_off, en_off, n_lo, n_hi, idx_hi):
     """Scalar CH/OH cross-section lookup used only by the fp64 parity oracle."""
-    out = np.zeros(temp_np.size); wn = freq_scalar / C_LIGHT_CM; ev = wn / 8065.479   # numpy-ref
+    out = np.zeros(temperature_ref.size); wn = freq_scalar / C_LIGHT_CM; ev = wn / 8065.479   # numpy-ref
     n = int(ev * 10) - n_off
     if n <= n_lo or n >= n_hi: return out
     en = n * 0.1 + en_off; idx = n - idx_off
     if idx < 0 or idx >= idx_hi: return out
     cross = CROSS[idx] + (CROSS[idx + 1] - CROSS[idx]) * (ev - en) / 0.1
-    for j in range(temp_np.size):   # numpy-ref
-        tj = temp_np[j]
+    for j in range(temperature_ref.size):   # numpy-ref
+        tj = temperature_ref[j]
         if tj >= 9000.0: continue
         it_p = max(0, min(int((tj - 1000.0) / 200.0), 39)); tn_p = it_p * 200.0 + 1000.0
         part = PART[it_p] + (PART[it_p + 1] - PART[it_p]) * (tj - tn_p) / 200.0
@@ -1087,18 +1122,20 @@ code(r'''# --- fp64 reference: scalar H2 collision-induced absorption ---
 
 def h2cia_np(freq_scalar, stim_col):
     """Scalar Borysow H2-CIA lookup used only by the fp64 parity oracle."""
-    out = np.zeros(temp_np.size); wn = freq_scalar / C_LIGHT_CM   # numpy-ref
+    out = np.zeros(temperature_ref.size); wn = freq_scalar / C_LIGHT_CM   # numpy-ref
     if wn > 20000.0: return out
     nu = min(79, int(wn / 250.0)); delnu = (wn - 250.0 * nu) / 250.0
     idx1 = min(nu, 80); idx2 = min(nu + 1, 80)
     h2h2_nu = H2H2[idx1] * delnu + H2H2[idx2] * (1.0 - delnu)
     h2he_nu = H2HE[idx1] * delnu + H2HE[idx2] * (1.0 - delnu)
-    for j in range(temp_np.size):   # numpy-ref
-        tj = temp_np[j]; it = max(1, min(6, int(tj / 1000.0)))
+    for j in range(temperature_ref.size):   # numpy-ref
+        tj = temperature_ref[j]; it = max(1, min(6, int(tj / 1000.0)))
         delt = max(0.0, min(1.0, (tj - 1000.0 * it) / 1000.0))
         xh2h2 = h2h2_nu[it - 1] * delt + h2h2_nu[it] * (1.0 - delt)
         xh2he = h2he_nu[it - 1] * delt + h2he_nu[it] * (1.0 - delt)
-        out[j] = (10.0 ** xh2he * xnfhe1_np[j] + 10.0 ** xh2h2 * XNH2_np[j]) * XNH2_np[j] / rho_np[j] * stim_col[j]
+        out[j] = ((10.0 ** xh2he * helium_number_density_ref[j]
+                   + 10.0 ** xh2h2 * h2_number_density_ref[j])
+                  * h2_number_density_ref[j] / mass_density_ref[j] * stim_col[j])
     return out
 
 print("fp64 reference: scalar H2-CIA helper ready")''')
@@ -1107,26 +1144,32 @@ md(r"""Finally assemble the fp64 reference continuum over the same frequency gri
 target for the torch continuum cell above; it is not fed back into the taught calculation.""")
 
 code(r'''# numpy-ref: assemble the fp64-reference reference arrays (the parity targets) over the frequency grid
-chop_ref = np.zeros((nlc, nfreq)); ohop_ref = np.zeros((nlc, nfreq)); h2cia_ref = np.zeros((nlc, nfreq))
-for j in range(nfreq):   # numpy-ref: the scalar twin's frequency loop (the oracle, not the shipped torch path)
-    f = freq[j]; stim_j = stim_np[:, j]
-    chop_ref[:, j] = _band_xsect_np(f, CH_CROSSSECT, CH_PARTITION, 0, 2, 0.0, 19, 105, 104) * xnfpch_np / rho_np * stim_j
-    ohop_ref[:, j] = _band_xsect_np(f, OH_CROSSSECT, OH_PARTITION, 20, 1, 2.0, 0, 130, 129) * xnfpoh_np / rho_np * stim_j
-    h2cia_ref[:, j] = h2cia_np(f, stim_j)
-total_ref = chop_ref + ohop_ref + h2cia_ref
+ch_continuum_absorption_ref = np.zeros((num_continuum_layers, num_wavelengths))
+oh_continuum_absorption_ref = np.zeros((num_continuum_layers, num_wavelengths))
+h2_cia_absorption_ref = np.zeros((num_continuum_layers, num_wavelengths))
+for j in range(num_wavelengths):   # numpy-ref: the scalar twin's frequency loop (the oracle, not the shipped torch path)
+    frequency_j = frequency_hz[j]; stimulated_emission_j = stimulated_emission_ref[:, j]
+    ch_continuum_absorption_ref[:, j] = (
+        _band_xsect_np(frequency_j, CH_CROSSSECT, CH_PARTITION, 0, 2, 0.0, 19, 105, 104)
+        * ch_molecular_number_density_ref / mass_density_ref * stimulated_emission_j)
+    oh_continuum_absorption_ref[:, j] = (
+        _band_xsect_np(frequency_j, OH_CROSSSECT, OH_PARTITION, 20, 1, 2.0, 0, 130, 129)
+        * oh_molecular_number_density_ref / mass_density_ref * stimulated_emission_j)
+    h2_cia_absorption_ref[:, j] = h2cia_np(frequency_j, stimulated_emission_j)
+continuum_absorption_ref = ch_continuum_absorption_ref + oh_continuum_absorption_ref + h2_cia_absorption_ref
 
 # COMPARISON ONLY: pykurucz ground truth, never used in the computation
 truth = np.load(REF / "mol_continuum_truth.npz")
 print("GPU torch mol_continuum  vs  inline fp64 reference:")
-compare("CHOP   (CH)     ", chop, chop_ref, tol=1e-6, floor=0.0)
-compare("OHOP   (OH)     ", ohop, ohop_ref, tol=1e-6, floor=0.0)
-compare("H2-CIA (Borysow)", h2cia, h2cia_ref, tol=1e-6, floor=0.0)
-compare("MOL TOTAL       ", total, total_ref, tol=1e-6, floor=0.0)
+compare("CHOP   (CH)     ", ch_continuum_absorption, ch_continuum_absorption_ref, tol=1e-6, floor=0.0)
+compare("OHOP   (OH)     ", oh_continuum_absorption, oh_continuum_absorption_ref, tol=1e-6, floor=0.0)
+compare("H2-CIA (Borysow)", h2_cia_absorption, h2_cia_absorption_ref, tol=1e-6, floor=0.0)
+compare("MOL TOTAL       ", continuum_absorption, continuum_absorption_ref, tol=1e-6, floor=0.0)
 print("\nGPU torch mol_continuum  vs  pykurucz ground truth:")
-rc = compare("CHOP   (CH)     ", chop, truth["chop"], tol=1e-6, floor=0.0)
-ro = compare("OHOP   (OH)     ", ohop, truth["ohop"], tol=1e-6, floor=0.0)
-rh = compare("H2-CIA (Borysow)", h2cia, truth["h2cia"], tol=1e-6, floor=0.0)
-rt = compare("MOL TOTAL       ", total, truth["mol_total"], tol=1e-6, floor=0.0)
+rc = compare("CHOP   (CH)     ", ch_continuum_absorption, truth["chop"], tol=1e-6, floor=0.0)
+ro = compare("OHOP   (OH)     ", oh_continuum_absorption, truth["ohop"], tol=1e-6, floor=0.0)
+rh = compare("H2-CIA (Borysow)", h2_cia_absorption, truth["h2cia"], tol=1e-6, floor=0.0)
+rt = compare("MOL TOTAL       ", continuum_absorption, truth["mol_total"], tol=1e-6, floor=0.0)
 is_fp32 = (DTYPE == torch.float32)
 floor_c = 1e-6 if is_fp32 else 1e-10
 worst_c = max(rc, ro, rh, rt)
@@ -1140,28 +1183,31 @@ md(r"""### H$_2$-CIA is the dominant molecular near-infrared continuum here
 
 The physical payoff. At a representative cool photospheric layer ($T\approx3000$ K), the three species at four wavelengths from blue to near-infrared: CH and OH carry the blue *molecular* continuum, but from about 1 $\mu$m outward their bound-free tables contribute zero beyond their tabulated/energetic ranges and H$_2$-CIA is the dominant molecular-continuum term — overlapping a large fraction of the near-infrared flux an M dwarf emits.""")
 
-code(r'''chop_g = chop.detach().cpu().double().numpy(); ohop_g = ohop.detach().cpu().double().numpy()  # JUSTIFY: reporting/plot boundary
-h2cia_g = h2cia.detach().cpu().double().numpy(); total_g = total.detach().cpu().double().numpy()  # JUSTIFY: reporting/plot boundary
+code(r'''ch_continuum_absorption_plot = ch_continuum_absorption.detach().cpu().double().numpy()  # JUSTIFY: reporting/plot boundary
+oh_continuum_absorption_plot = oh_continuum_absorption.detach().cpu().double().numpy()  # JUSTIFY: reporting/plot boundary
+h2_cia_absorption_plot = h2_cia_absorption.detach().cpu().double().numpy()  # JUSTIFY: reporting/plot boundary
+continuum_absorption_plot = continuum_absorption.detach().cpu().double().numpy()  # JUSTIFY: reporting/plot boundary
 
-jcool = int(np.argmin(np.abs(temp_c - 3000.0)))     # numpy-ref: a results-readout cell (host-side print of the torch result)
-print(f"H2-CIA dominance at T = {temp_c[jcool]:.0f} K:")
+jcool = int(np.argmin(np.abs(continuum_temperature - 3000.0)))     # numpy-ref: a results-readout cell (host-side print of the torch result)
+print(f"H2-CIA dominance at T = {continuum_temperature[jcool]:.0f} K:")
 for target in (450.0, 1000.0, 1500.0, 2200.0):       # JUSTIFIED-LOOP: 4 fixed readout wavelengths, blue -> near-IR
-    i = int(np.argmin(np.abs(wl_nm - target))); tot = total_g[jcool, i]   # numpy-ref
-    frac = (h2cia_g[jcool, i] / tot * 100.0) if tot > 0 else 0.0
-    print(f"  {wl_nm[i]:6.0f} nm : CHOP={chop_g[jcool,i]:.3e} OHOP={ohop_g[jcool,i]:.3e} "
-          f"H2CIA={h2cia_g[jcool,i]:.3e}  ->  H2-CIA = {frac:5.1f}% of mol continuum")''')
+    i = int(np.argmin(np.abs(wavelength_nm - target))); total_at_wavelength = continuum_absorption_plot[jcool, i]   # numpy-ref
+    fraction_h2_cia = (h2_cia_absorption_plot[jcool, i] / total_at_wavelength * 100.0) if total_at_wavelength > 0 else 0.0
+    print(f"  {wavelength_nm[i]:6.0f} nm : CHOP={ch_continuum_absorption_plot[jcool,i]:.3e} "
+          f"OHOP={oh_continuum_absorption_plot[jcool,i]:.3e} "
+          f"H2CIA={h2_cia_absorption_plot[jcool,i]:.3e}  ->  H2-CIA = {fraction_h2_cia:5.1f}% of mol continuum")''')
 
 md(r"""The molecular continuum across the whole grid at the deepest layer of the cool-dwarf model ($T\approx5250$ K — a *local* layer temperature, the warmest, densest base of the $T_{\rm eff}=3500$ K photosphere, where the density-squared H$_2$-CIA is largest). CH and OH appear as blue/near-UV bumps; the Borysow CIA table is used only for $\tilde\nu \le 20000\ {\rm cm^{-1}}$ ($\lambda \gtrsim 500$ nm), and within that tabulated range H$_2$-CIA dominates the molecular contribution through the near-infrared.""")
 
-code(r'''jdeep = nlc - 1
+code(r'''jdeep = num_continuum_layers - 1
 fig, ax = plt.subplots(figsize=(8.0, 4.6))
-ax.plot(wl_nm, chop_g[jdeep], label="CH (CHOP)")
-ax.plot(wl_nm, ohop_g[jdeep], label="OH (OHOP)")
-ax.plot(wl_nm, h2cia_g[jdeep], label="H$_2$-CIA (Borysow)")
-ax.plot(wl_nm, total_g[jdeep], "k--", lw=0.9, label="molecular total")
+ax.plot(wavelength_nm, ch_continuum_absorption_plot[jdeep], label="CH (CHOP)")
+ax.plot(wavelength_nm, oh_continuum_absorption_plot[jdeep], label="OH (OHOP)")
+ax.plot(wavelength_nm, h2_cia_absorption_plot[jdeep], label="H$_2$-CIA (Borysow)")
+ax.plot(wavelength_nm, continuum_absorption_plot[jdeep], "k--", lw=0.9, label="molecular total")
 ax.set_yscale("log"); ax.set_xlabel("wavelength [nm]")
 ax.set_ylabel("molecular continuum opacity [cm$^2$/g]")
-ax.set_title(f"Molecular continuum, $T_{{\\rm eff}}=3500$ K dwarf, deep layer T = {temp_c[jdeep]:.0f} K")
+ax.set_title(f"Molecular continuum, $T_{{\\rm eff}}=3500$ K dwarf, deep layer T = {continuum_temperature[jdeep]:.0f} K")
 ax.set_ylim(1e-12, None); ax.legend()
 fig.tight_layout(); plt.show()''')
 

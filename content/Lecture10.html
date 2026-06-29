@@ -181,13 +181,13 @@ flux = SIGMA / <span class="hljs-number">12.5664</span> * TEFF**<span class="hlj
 <td>grey-start temperature, column mass, gas pressure</td>
 </tr>
 <tr>
-<td><code>acont</code>, <code>sigmac</code>, <code>scont</code></td>
+<td><code>continuum_absorption</code>, <code>continuum_scattering</code>, <code>continuum_source</code></td>
 <td><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>F</mi><mo>×</mo><mi>N</mi></mrow><annotation encoding="application/x-tex">F\times N</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">F</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span></span></span></span></td>
 <td>cm<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mn>2</mn></msup></mrow><annotation encoding="application/x-tex">^2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span></span></span></span> g<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mrow><mo>−</mo><mn>1</mn></mrow></msup></mrow><annotation encoding="application/x-tex">^{-1}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">1</span></span></span></span></span></span></span></span></span></span></span></span> (abs/scat), source units</td>
 <td>continuum absorption, scattering, source (Lecture 3)</td>
 </tr>
 <tr>
-<td><code>freq</code>, <code>rco</code></td>
+<td><code>freq_hz</code>, <code>frequency_weight</code></td>
 <td><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>F</mi></mrow><annotation encoding="application/x-tex">F</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">F</span></span></span></span></td>
 <td>Hz, Hz</td>
 <td>frequency grid and its quadrature weights <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>d</mi><mi>ν</mi></mrow><annotation encoding="application/x-tex">d\nu</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal">d</span><span class="mord mathnormal" style="margin-right:0.06366em;">ν</span></span></span></span></td>
@@ -1029,7 +1029,7 @@ continuum_absorption = t(REF[&quot;acont&quot;]).T
 continuum_scattering = t(REF[&quot;sigmac&quot;]).T
 continuum_source = t(REF[&quot;scont&quot;]).T
 freq_hz = t(REF[&quot;freq_hz&quot;]); rco_t = t(REF[&quot;rco&quot;])
-w = rco_t[:, None]
+frequency_weight = rco_t[:, None]
 
 # Broadcast Planck function and stimulated emission
 dimensionless_photon_energy = freq_hz[:, None] * h_over_kT[None, :]
@@ -1047,7 +1047,7 @@ monochromatic_optical_depth, eddington_flux_profile, mean_intensity_profile, \
     )
 
 # The Rosseland HARMONIC fold — requires fp64 promotion
-ross_contrib = dBnu_dT / torch.clamp(total_extinction, min=1e-30) * w
+ross_contrib = dBnu_dT / torch.clamp(total_extinction, min=1e-30) * frequency_weight
 ross_acc64 = ross_contrib.detach().cpu().to(torch.float64).sum(dim=0)
 temperature64 = temperature_in.detach().cpu().to(torch.float64)
 column_mass64 = column_mass.detach().cpu().to(torch.float64)
@@ -1072,7 +1072,7 @@ continuum_absorption = t(REF[<span class="hljs-string">&quot;acont&quot;</span>]
 continuum_scattering = t(REF[<span class="hljs-string">&quot;sigmac&quot;</span>]).T
 continuum_source = t(REF[<span class="hljs-string">&quot;scont&quot;</span>]).T
 freq_hz = t(REF[<span class="hljs-string">&quot;freq_hz&quot;</span>]); rco_t = t(REF[<span class="hljs-string">&quot;rco&quot;</span>])
-w = rco_t[:, <span class="hljs-literal">None</span>]
+frequency_weight = rco_t[:, <span class="hljs-literal">None</span>]
 
 <span class="hljs-comment"># Broadcast Planck function and stimulated emission</span>
 dimensionless_photon_energy = freq_hz[:, <span class="hljs-literal">None</span>] * h_over_kT[<span class="hljs-literal">None</span>, :]
@@ -1090,7 +1090,7 @@ monochromatic_optical_depth, eddington_flux_profile, mean_intensity_profile, \
     )
 
 <span class="hljs-comment"># The Rosseland HARMONIC fold — requires fp64 promotion</span>
-ross_contrib = dBnu_dT / torch.clamp(total_extinction, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-30</span>) * w
+ross_contrib = dBnu_dT / torch.clamp(total_extinction, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-30</span>) * frequency_weight
 ross_acc64 = ross_contrib.detach().cpu().to(torch.float64).<span class="hljs-built_in">sum</span>(dim=<span class="hljs-number">0</span>)
 temperature64 = temperature_in.detach().cpu().to(torch.float64)
 column_mass64 = column_mass.detach().cpu().to(torch.float64)
@@ -1117,16 +1117,16 @@ bnu, stim, dbdt = planck_source, stimulated_emission_factor, dBnu_dT</code></pre
 d_total_extinction_d_column_mass = deriv(column_mass, total_extinction)
 opacity_gradient_flux_integral64 = (
     d_total_extinction_d_column_mass / torch.clamp(total_extinction, min=1e-30)
-    * eddington_flux_profile * w
+    * eddington_flux_profile * frequency_weight
 ).detach().cpu().to(torch.float64).sum(dim=0)
 net_heating_integral64 = (
-    total_extinction * mean_intensity_minus_source * w
+    total_extinction * mean_intensity_minus_source * frequency_weight
 ).detach().cpu().to(torch.float64).sum(dim=0)
 radiative_flux_integral64 = (
-    eddington_flux_profile * w
+    eddington_flux_profile * frequency_weight
 ).detach().cpu().to(torch.float64).sum(dim=0)
 radiation_pressure_integral64 = (
-    total_extinction * eddington_flux_profile * w
+    total_extinction * eddington_flux_profile * frequency_weight
 ).detach().cpu().to(torch.float64).sum(dim=0)
 lambda_diagonal_integral64 = accumulate_rdiagj(
     monochromatic_optical_depth, total_extinction, scattering_fraction, dBnu_dT, rco_t, TEFF,
@@ -1165,16 +1165,16 @@ assert e_rjmins &lt; 1e-5" aria-label="Copy code">
 d_total_extinction_d_column_mass = deriv(column_mass, total_extinction)
 opacity_gradient_flux_integral64 = (
     d_total_extinction_d_column_mass / torch.clamp(total_extinction, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-30</span>)
-    * eddington_flux_profile * w
+    * eddington_flux_profile * frequency_weight
 ).detach().cpu().to(torch.float64).<span class="hljs-built_in">sum</span>(dim=<span class="hljs-number">0</span>)
 net_heating_integral64 = (
-    total_extinction * mean_intensity_minus_source * w
+    total_extinction * mean_intensity_minus_source * frequency_weight
 ).detach().cpu().to(torch.float64).<span class="hljs-built_in">sum</span>(dim=<span class="hljs-number">0</span>)
 radiative_flux_integral64 = (
-    eddington_flux_profile * w
+    eddington_flux_profile * frequency_weight
 ).detach().cpu().to(torch.float64).<span class="hljs-built_in">sum</span>(dim=<span class="hljs-number">0</span>)
 radiation_pressure_integral64 = (
-    total_extinction * eddington_flux_profile * w
+    total_extinction * eddington_flux_profile * frequency_weight
 ).detach().cpu().to(torch.float64).<span class="hljs-built_in">sum</span>(dim=<span class="hljs-number">0</span>)
 lambda_diagonal_integral64 = accumulate_rdiagj(
     monochromatic_optical_depth, total_extinction, scattering_fraction, dBnu_dT, rco_t, TEFF,
@@ -1537,16 +1537,16 @@ T1 (total)                  max|rel| = 1.12e-05   median = 7.22e-07   [CHECK]
         if self.slopet == 0: self.slopet = 1.0
         self.slopep = torch.log10(torch.clamp(P_arr[-1], min=1e-300)) - self.zerop
         if self.slopep == 0: self.slopep = 1.0
-        self.t = (torch.log10(torch.clamp(T_arr, min=1e-300)) - self.zerot)/self.slopet
-        self.p = (torch.log10(torch.clamp(P_arr, min=1e-300)) - self.zerop)/self.slopep
-        self.k = torch.log10(torch.clamp(kappa, min=1e-300))
+        self.temperature_coord = (torch.log10(torch.clamp(T_arr, min=1e-300)) - self.zerot)/self.slopet
+        self.pressure_coord = (torch.log10(torch.clamp(P_arr, min=1e-300)) - self.zerop)/self.slopep
+        self.log_opacity = torch.log10(torch.clamp(kappa, min=1e-300))
         self.nn = T_arr.shape[0]
 
     def eval(self, temp, pressure):
         &quot;&quot;&quot;Return interpolated Rosseland opacity for a scalar temperature/pressure.&quot;&quot;&quot;
         tl = (torch.log10(torch.clamp(temp, min=1e-300)) - self.zerot)/self.slopet
         pl = (torch.log10(torch.clamp(pressure, min=1e-300)) - self.zerop)/self.slopep
-        return rosstab_eval(tl, pl, self.t, self.p, self.k, self.nn)
+        return rosstab_eval(tl, pl, self.temperature_coord, self.pressure_coord, self.log_opacity, self.nn)
 
 def ttaup_predict(j, abstd0, tau0, grav, p1, p4, q1, q2, q3):
     &quot;&quot;&quot;Predict log total pressure for depth ``j`` from previous TTAUP history.&quot;&quot;&quot;
@@ -1571,16 +1571,16 @@ def ttaup_correct(j, abstd_j, tau_j, grav, plog, dplog, p1, p3, p4, q1, q2, q3):
         <span class="hljs-keyword">if</span> self.slopet == <span class="hljs-number">0</span>: self.slopet = <span class="hljs-number">1.0</span>
         self.slopep = torch.log10(torch.clamp(P_arr[-<span class="hljs-number">1</span>], <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-300</span>)) - self.zerop
         <span class="hljs-keyword">if</span> self.slopep == <span class="hljs-number">0</span>: self.slopep = <span class="hljs-number">1.0</span>
-        self.t = (torch.log10(torch.clamp(T_arr, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-300</span>)) - self.zerot)/self.slopet
-        self.p = (torch.log10(torch.clamp(P_arr, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-300</span>)) - self.zerop)/self.slopep
-        self.k = torch.log10(torch.clamp(kappa, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-300</span>))
+        self.temperature_coord = (torch.log10(torch.clamp(T_arr, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-300</span>)) - self.zerot)/self.slopet
+        self.pressure_coord = (torch.log10(torch.clamp(P_arr, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-300</span>)) - self.zerop)/self.slopep
+        self.log_opacity = torch.log10(torch.clamp(kappa, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-300</span>))
         self.nn = T_arr.shape[<span class="hljs-number">0</span>]
 
     <span class="hljs-keyword">def</span> <span class="hljs-title function_">eval</span>(<span class="hljs-params">self, temp, pressure</span>):
         <span class="hljs-string">&quot;&quot;&quot;Return interpolated Rosseland opacity for a scalar temperature/pressure.&quot;&quot;&quot;</span>
         tl = (torch.log10(torch.clamp(temp, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-300</span>)) - self.zerot)/self.slopet
         pl = (torch.log10(torch.clamp(pressure, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-300</span>)) - self.zerop)/self.slopep
-        <span class="hljs-keyword">return</span> rosstab_eval(tl, pl, self.t, self.p, self.k, self.nn)
+        <span class="hljs-keyword">return</span> rosstab_eval(tl, pl, self.temperature_coord, self.pressure_coord, self.log_opacity, self.nn)
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">ttaup_predict</span>(<span class="hljs-params">j, abstd0, tau0, grav, p1, p4, q1, q2, q3</span>):
     <span class="hljs-string">&quot;&quot;&quot;Predict log total pressure for depth ``j`` from previous TTAUP history.&quot;&quot;&quot;</span>
@@ -1597,7 +1597,7 @@ def ttaup_correct(j, abstd_j, tau_j, grav, plog, dplog, p1, p3, p4, q1, q2, q3):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[23]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="def ttaup(t_arr, tau, prad, grav, rosstab):
+        <button class="copy-btn" type="button" data-code="def ttaup(temperature_arr, tau, prad, grav, rosstab):
     &quot;&quot;&quot;Integrate hydrostatic total pressure on a standard optical-depth grid.
 
     Each layer predicts log(P_total), queries ROSSTAB at the implied gas
@@ -1605,8 +1605,8 @@ def ttaup_correct(j, abstd_j, tau_j, grav, plog, dplog, p1, p3, p4, q1, q2, q3):
     consistent.  The history variables ``p1``..``p4`` and ``q1``..``q3`` are the
     prior pressure and pressure-increment terms used by the ATLAS formulas.
     &quot;&quot;&quot;
-    nn = t_arr.shape[0]
-    dev, dtp = t_arr.device, t_arr.dtype
+    nn = temperature_arr.shape[0]
+    dev, dtp = temperature_arr.device, temperature_arr.dtype
     abstd = torch.zeros(nn, device=dev, dtype=dtp)
     ptotal = torch.zeros(nn, device=dev, dtype=dtp)
     pgas = torch.zeros(nn, device=dev, dtype=dtp)
@@ -1634,7 +1634,7 @@ def ttaup_correct(j, abstd_j, tau_j, grav, plog, dplog, p1, p3, p4, q1, q2, q3):
             if pg_j &lt;= 0.0:
                 pgas[j] = 1e-30; abstd[j] = 0.1; break
                 
-            abs_j = rosstab.eval(t_arr[j], pg_j)
+            abs_j = rosstab.eval(temperature_arr[j], pg_j)
             abstd[j] = abs_j
             dplog = grav / torch.clamp(abs_j, min=1e-300) * tau[j] / torch.clamp(ptot_j, min=1e-300) * dlg
             
@@ -1651,7 +1651,7 @@ def ttaup_correct(j, abstd_j, tau_j, grav, plog, dplog, p1, p3, p4, q1, q2, q3):
     return ptotal" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">ttaup</span>(<span class="hljs-params">t_arr, tau, prad, grav, rosstab</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">ttaup</span>(<span class="hljs-params">temperature_arr, tau, prad, grav, rosstab</span>):
     <span class="hljs-string">&quot;&quot;&quot;Integrate hydrostatic total pressure on a standard optical-depth grid.
 
     Each layer predicts log(P_total), queries ROSSTAB at the implied gas
@@ -1659,8 +1659,8 @@ def ttaup_correct(j, abstd_j, tau_j, grav, plog, dplog, p1, p3, p4, q1, q2, q3):
     consistent.  The history variables ``p1``..``p4`` and ``q1``..``q3`` are the
     prior pressure and pressure-increment terms used by the ATLAS formulas.
     &quot;&quot;&quot;</span>
-    nn = t_arr.shape[<span class="hljs-number">0</span>]
-    dev, dtp = t_arr.device, t_arr.dtype
+    nn = temperature_arr.shape[<span class="hljs-number">0</span>]
+    dev, dtp = temperature_arr.device, temperature_arr.dtype
     abstd = torch.zeros(nn, device=dev, dtype=dtp)
     ptotal = torch.zeros(nn, device=dev, dtype=dtp)
     pgas = torch.zeros(nn, device=dev, dtype=dtp)
@@ -1688,7 +1688,7 @@ def ttaup_correct(j, abstd_j, tau_j, grav, plog, dplog, p1, p3, p4, q1, q2, q3):
             <span class="hljs-keyword">if</span> pg_j &lt;= <span class="hljs-number">0.0</span>:
                 pgas[j] = <span class="hljs-number">1e-30</span>; abstd[j] = <span class="hljs-number">0.1</span>; <span class="hljs-keyword">break</span>
                 
-            abs_j = rosstab.<span class="hljs-built_in">eval</span>(t_arr[j], pg_j)
+            abs_j = rosstab.<span class="hljs-built_in">eval</span>(temperature_arr[j], pg_j)
             abstd[j] = abs_j
             dplog = grav / torch.clamp(abs_j, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-300</span>) * tau[j] / torch.clamp(ptot_j, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-300</span>) * dlg
             
@@ -1707,37 +1707,37 @@ def ttaup_correct(j, abstd_j, tau_j, grav, plog, dplog, p1, p3, p4, q1, q2, q3):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[24]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="p64 = p_in.detach().cpu().to(torch.float64)
-rt = Rosstab(T64, p64, abross64)
+        <button class="copy-btn" type="button" data-code="gas_pressure64 = p_in.detach().cpu().to(torch.float64)
+rosseland_table = Rosstab(T64, gas_pressure64, abross64)
 prdnew64 = map1(tauros64, prad64, taustd64)
 
-ptot_old64 = ttaup(map1(tauros64, T64, taustd64), taustd64, prdnew64, GRAV, rt)
-ptot_new64 = ttaup(map1(tauros64, T64 + t1_64, taustd64), taustd64, prdnew64, GRAV, rt)
+ptot_old64 = ttaup(map1(tauros64, T64, taustd64), taustd64, prdnew64, GRAV, rosseland_table)
+ptot_new64 = ttaup(map1(tauros64, T64 + t1_64, taustd64), taustd64, prdnew64, GRAV, rosseland_table)
 
-frac64 = (ptot_new64 - ptot_old64) / torch.clamp(ptot_old64, min=1e-300)
-drhox64 = map1(taustd64, frac64, tauros64) * rhox64
-rhox_new64 = rhox64 + drhox64
-rhox_new = rhox_new64.to(device=DEVICE, dtype=DTYPE)" aria-label="Copy code">
+pressure_fractional_change64 = (ptot_new64 - ptot_old64) / torch.clamp(ptot_old64, min=1e-300)
+column_mass_correction64 = map1(taustd64, pressure_fractional_change64, tauros64) * rhox64
+column_mass_new64 = rhox64 + column_mass_correction64
+rhox_new = column_mass_new64.to(device=DEVICE, dtype=DTYPE)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">p64 = p_in.detach().cpu().to(torch.float64)
-rt = Rosstab(T64, p64, abross64)
+      <pre class="code-body"><code class="hljs language-python">gas_pressure64 = p_in.detach().cpu().to(torch.float64)
+rosseland_table = Rosstab(T64, gas_pressure64, abross64)
 prdnew64 = map1(tauros64, prad64, taustd64)
 
-ptot_old64 = ttaup(map1(tauros64, T64, taustd64), taustd64, prdnew64, GRAV, rt)
-ptot_new64 = ttaup(map1(tauros64, T64 + t1_64, taustd64), taustd64, prdnew64, GRAV, rt)
+ptot_old64 = ttaup(map1(tauros64, T64, taustd64), taustd64, prdnew64, GRAV, rosseland_table)
+ptot_new64 = ttaup(map1(tauros64, T64 + t1_64, taustd64), taustd64, prdnew64, GRAV, rosseland_table)
 
-frac64 = (ptot_new64 - ptot_old64) / torch.clamp(ptot_old64, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-300</span>)
-drhox64 = map1(taustd64, frac64, tauros64) * rhox64
-rhox_new64 = rhox64 + drhox64
-rhox_new = rhox_new64.to(device=DEVICE, dtype=DTYPE)</code></pre>
+pressure_fractional_change64 = (ptot_new64 - ptot_old64) / torch.clamp(ptot_old64, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-300</span>)
+column_mass_correction64 = map1(taustd64, pressure_fractional_change64, tauros64) * rhox64
+column_mass_new64 = rhox64 + column_mass_correction64
+rhox_new = column_mass_new64.to(device=DEVICE, dtype=DTYPE)</code></pre>
     </div></div><div class="prose"><h2>Closing the iteration: the standard-grid remap</h2>
 <p>To cap off the <code>TCORR</code> iteration, ATLAS returns all corrected state arrays to the standard <code>taustd</code> grid structure to prime the parameters for the subsequent iteration loop.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[25]</span>Python</span>
         <button class="copy-btn" type="button" data-code="T_out64 = map1(tauros64, tnew64, taustd64)
-rhox_out64 = map1(tauros64, rhox_new64, taustd64)
+rhox_out64 = map1(tauros64, column_mass_new64, taustd64)
 T_out = T_out64.to(device=DEVICE, dtype=DTYPE)
 rhox_out = rhox_out64.to(device=DEVICE, dtype=DTYPE)
 
@@ -1747,7 +1747,7 @@ rX = compare(&quot;corrected RHOX&quot;, rhox_out64, &quot;rhox_out&quot;)" aria
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python">T_out64 = map1(tauros64, tnew64, taustd64)
-rhox_out64 = map1(tauros64, rhox_new64, taustd64)
+rhox_out64 = map1(tauros64, column_mass_new64, taustd64)
 T_out = T_out64.to(device=DEVICE, dtype=DTYPE)
 rhox_out = rhox_out64.to(device=DEVICE, dtype=DTYPE)
 

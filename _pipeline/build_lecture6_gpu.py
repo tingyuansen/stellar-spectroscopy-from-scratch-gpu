@@ -132,14 +132,14 @@ def compare(name, ours, ref, tol=1e-6):
     return rel
 
 # atmosphere depth state (surface -> deep), and the electron density floored away from zero
-T   = A["temperature"]                                   # K
-xne = np.maximum(A["electron_density"], 1e-40)           # cm^-3
-n_depths = T.size
-wl = D["wavelength"]                                      # nm, 500--510 nm
-cont = D["continuum_absorption"] + D["continuum_scattering"]
+temperature = A["temperature"]                                      # K
+electron_density = np.maximum(A["electron_density"], 1e-40)         # cm^-3
+n_depths = temperature.size
+wavelength_nm = D["wavelength"]                                     # nm, 500--510 nm
+continuum_extinction = D["continuum_absorption"] + D["continuum_scattering"]
 gt_ahline = C["gt_ahline"]                               # independent production result
-print(f"loaded: {wl.size} wavelengths x {n_depths} layers, "
-      f"T = {T[0]:.0f}..{T[-1]:.0f} K")''')
+print(f"loaded: {wavelength_nm.size} wavelengths x {n_depths} layers, "
+      f"T = {temperature[0]:.0f}..{temperature[-1]:.0f} K")''')
 
 md(r"""Bundle the `htab_*` Stark tables into one dictionary the profile reads by name, and build the fine-structure lookup. `asum` is the radiative-damping sum per level; `propbm`, `c`, `d` are the Holtsmark statistical-broadening corrections on the `pp`$\times$`beta` grid; `xknmtb` holds the Stark constants $K_{nm}$; `y1wtm` the electron-density weights for the impact width. Each Balmer line is really several closely spaced fine-structure sub-lines, stored keyed by transition $(n_{\rm lower}, n_{\rm upper})$.""")
 
@@ -184,9 +184,9 @@ code(r'''RYDH       = 3.2880515e15          # Hz
 C_LIGHT_AA = 2.99792458e18         # AA/s
 
 # normal Holtsmark field F0 = 1.25e-9 * ne^(2/3), for ALL 80 depths at once (one tensor op)
-xne_t = dev(xne)
-xne16 = xne_t ** (1.0/6.0)         # sixth root, reused below; (xne16)^4 == ne^(2/3)
-fo_all = xne16**4 * 1.25e-9        # [80] Holtsmark field per depth
+electron_density_t = dev(electron_density)
+electron_density_sixth_root = electron_density_t ** (1.0/6.0)
+holtsmark_field_all = electron_density_sixth_root**4 * 1.25e-9        # [80] Holtsmark field per depth
 
 # H-beta line constants: n=2 -> m=4
 n, m   = 2, 4
@@ -197,9 +197,9 @@ dbeta  = C_LIGHT_AA / (freqnm * freqnm * xknm)     # the beta scale factor
 
 # how big is beta at 505 nm, deep vs photosphere?
 freq_505 = C_LIGHT_AA / 5050.0                     # 505 nm, in AA
-for di, lab in [(int(np.argmin(np.abs(T-6400))), "photosphere ~6400K"), (n_depths-1, "deepest ~30000K")]:
-    beta = abs(freq_505 - freqnm) / float(fo_all[di]) * dbeta
-    print(f"{lab:22s}: ne={xne[di]:.2e}  F0={float(fo_all[di]):.3e}  beta(505nm)={beta:7.2f}")
+for di, lab in [(int(np.argmin(np.abs(temperature-6400))), "photosphere ~6400K"), (n_depths-1, "deepest ~30000K")]:
+    beta = abs(freq_505 - freqnm) / float(holtsmark_field_all[di]) * dbeta
+    print(f"{lab:22s}: ne={electron_density[di]:.2e}  F0={float(holtsmark_field_all[di]):.3e}  beta(505nm)={beta:7.2f}")
 print(f"H-beta centre = {C_LIGHT_AA/freqnm/10:.3f} nm,  dbeta = {dbeta:.4e}")''')
 
 md(r"""Two things to read off. First, $F_0$ swings over five orders of magnitude from the cool surface to the hot deep layers, because $F_0 \propto n_e^{2/3}$ and $n_e$ does the same — the Stark broadening is a strong function of depth, and this is exactly the axis the GPU batches over. Second, at 505 nm (some 19 nm from the H$\beta$ centre) $\beta$ is of order unity to a few: the **transition region** of the profile, where the quasi-static Holtsmark term and the electron-impact term both matter. That is the regime the tables are built to handle, and why the wing is smooth and substantial there rather than a negligible Lorentzian skirt.""")
@@ -592,22 +592,23 @@ xnf_he1 = A["xnf_he1"]; xnf_h2 = A["xnf_h2"]; xnfph = A["xnfph"]
 vturb_cms = A["turbulent_velocity"]
 
 # build the per-depth state for ALL depths at once (vectorized numpy; exactly the scalar reference)
-temp = np.maximum(T.astype(np.float64), 1.0); ne_d = xne.astype(np.float64)
-x16  = ne_d ** (1.0/6.0)                              # sixth root, reused
-t43  = (temp/1.0e4)**0.3                              # weak T scaling, reused
+temperature_safe = np.maximum(temperature.astype(np.float64), 1.0)
+electron_density_d = electron_density.astype(np.float64)
+electron_density_sixth_root_np = electron_density_d ** (1.0/6.0)
+temperature_weak_scaling = (temperature_safe/1.0e4)**0.3
 hyd_np = dict(
-    t3nhe = t43 * xnf_he1, t3nh2 = t43 * xnf_h2,      # perturber factors (van der Waals)
-    fo    = x16**4 * 1.25e-9,                         # Holtsmark field, (x16)^4 == ne^(2/3)
-    dopph = np.sqrt((np.sqrt(2.0*KBOLTZ*temp/(MASS_H*AMU))/C_CMS)**2
+    t3nhe = temperature_weak_scaling * xnf_he1, t3nh2 = temperature_weak_scaling * xnf_h2,
+    fo    = electron_density_sixth_root_np**4 * 1.25e-9,
+    dopph = np.sqrt((np.sqrt(2.0*KBOLTZ*temperature_safe/(MASS_H*AMU))/C_CMS)**2
                     + ((vturb_cms/1e5)/C_KMS)**2),    # Doppler width / c (thermal + turbulence)
-    c1d   = x16**4 * 1.25e-9 * 78940.0 / temp,        # impact-width T-coefficient
-    c2d   = (x16**4 * 1.25e-9)**2 / 5.96e-23 / ne_d,  # impact-width ne-coefficient
-    y1s   = t43 / x16,                                # low-density impact factor
-    y1b   = 2.0/(1.0 + 0.012/temp*np.sqrt(ne_d/temp)),# high-density blend factor
-    gcon1 = 0.2 + 0.09*np.sqrt(np.maximum(temp/1e4, 1e-12))/(1.0 + ne_d/1.0e13),
-    gcon2 = 0.2/(1.0 + ne_d/1.0e15),                  # small high-density corrections
-    pp    = x16 * 0.08989 / np.sqrt(temp),            # pressure parameter (Stark-table index)
-    ne    = ne_d, xnfph_0 = xnfph[:, 0])              # electron density; ground-state neutral-H pop
+    c1d   = electron_density_sixth_root_np**4 * 1.25e-9 * 78940.0 / temperature_safe,
+    c2d   = (electron_density_sixth_root_np**4 * 1.25e-9)**2 / 5.96e-23 / electron_density_d,
+    y1s   = temperature_weak_scaling / electron_density_sixth_root_np,
+    y1b   = 2.0/(1.0 + 0.012/temperature_safe*np.sqrt(electron_density_d/temperature_safe)),
+    gcon1 = 0.2 + 0.09*np.sqrt(np.maximum(temperature_safe/1e4, 1e-12))/(1.0 + electron_density_d/1.0e13),
+    gcon2 = 0.2/(1.0 + electron_density_d/1.0e15),
+    pp    = electron_density_sixth_root_np * 0.08989 / np.sqrt(temperature_safe),
+    ne    = electron_density_d, xnfph_0 = xnfph[:, 0])
 
 # hand each field to the profile as a [D,1] column tensor on the device
 hyd = {k: _as_col(v) for k, v in hyd_np.items()}
@@ -635,9 +636,9 @@ phi_np = phi_grid.detach().cpu().to(torch.float64).numpy()
 print("profile grid:", tuple(phi_grid.shape), f"  device = {phi_grid.device.type}")
 
 fig, ax = plt.subplots()
-for di, c in [(int(np.argmin(np.abs(T-12000))), "C0"), (n_depths-1, "C3")]:
+for di, c in [(int(np.argmin(np.abs(temperature-12000))), "C0"), (n_depths-1, "C3")]:
     ax.semilogy(line_wl_nm + dl, np.maximum(phi_np[di], 1e-12), color=c, lw=1.3,
-                label=f"T = {T[di]:.0f} K")
+                label=f"T = {temperature[di]:.0f} K")
 ax.axvspan(500, 510, color="C2", alpha=0.12, label="our 500-510 nm window")
 ax.axvline(line_wl_nm, color="0.5", ls=":", lw=1); ax.set_ylim(1e-5, None)
 ax.set_xlabel("wavelength [nm]"); ax.set_ylabel(r"profile $\phi$  [relative]")
@@ -802,7 +803,7 @@ def ehyd_cm(nn):
     return (float(_EHYD_CM[nn-1]) if nn-1 < _EHYD_CM.size
             else _EINF_CM - _RYD_CM/float(nn*nn))
 
-inglis = 1600.0 / np.power(xne, 2.0/15.0)
+inglis = 1600.0 / np.power(electron_density, 2.0/15.0)
 nmerge = np.maximum(inglis - 1.5, 1.0)
 emerge_h = _RYD_CM / np.maximum(nmerge*nmerge, 1.0e-12)
 
@@ -857,21 +858,23 @@ code(r'''def compute_hydrogen_opacity_gpu():
             hyd64 = {k: torch.as_tensor(np.asarray(v, dtype=np.float64)[:, None],
                                         dtype=torch.float64)
                      for k, v in hyd_np.items()}
-            delta = np.broadcast_to((wl-line_center)[None, :], (n_depths, wl.size)).copy()
+            delta = np.broadcast_to((wavelength_nm-line_center)[None, :], (n_depths, wavelength_nm.size)).copy()
             phi64 = hydrogen_profile_grid(nl, nu, delta, hyd64, tabs, off, wt, nf)
         finally:
             DEVICE, DTYPE = keep_device, keep_dtype
         return phi64.to(device=keep_device, dtype=keep_dtype)
 
-    grid = _to_tensor(wl)
+    grid = _to_tensor(wavelength_nm)
     grid2d = grid[None, :].expand(n_depths, -1)
-    cont_t = _to_tensor(cont)
+    cont_t = _to_tensor(continuum_extinction)
     cut = cont_t * CUTOFF
     # These cheap setup arrays are formed in host fp64, exactly like the scalar
     # reference, then uploaded. This avoids spending the fp32 budget before the
     # dense HPROF4 kernel even begins.
-    hkt_np = H_PLANCK / (K_BOLTZ*np.asarray(T, dtype=np.float64))
-    stim = _to_tensor(1.0 - np.exp(-(C_LIGHT_NM/wl)[None, :] * hkt_np[:, None]))
+    h_over_kT_np = H_PLANCK / (K_BOLTZ*np.asarray(temperature, dtype=np.float64))
+    stimulated_emission_factor = _to_tensor(
+        1.0 - np.exp(-(C_LIGHT_NM/wavelength_nm)[None, :] * h_over_kT_np[:, None])
+    )
 
     pop_np = np.asarray(A["population_per_ion"][:, 0, 0], dtype=np.float64)
     dop_np = np.asarray(A["doppler_per_ion"][:, 0, 0], dtype=np.float64)
@@ -885,7 +888,7 @@ code(r'''def compute_hydrogen_opacity_gpu():
 
     for li in hidx:
         line_wl = float(C["cat_wl"][li])
-        ci = center_index(wl, float(C["cat_index_wl"][li]))
+        ci = center_index(wavelength_nm, float(C["cat_index_wl"][li]))
         nl = max(int(C["cat_n_lower"][li]), 1)
         nu = max(int(C["cat_n_upper"][li]), nl+1)
         simple = nu <= nl+2
@@ -901,7 +904,7 @@ code(r'''def compute_hydrogen_opacity_gpu():
         conth_val = float(conth[max(1, min(nl, conth.size))-1])
         wshift = 1.0e7/(conth_val - _RYD_CM/81.0**2)
 
-        ci_cut = max(0, min(ci, wl.size-1))
+        ci_cut = max(0, min(ci, wavelength_nm.size-1))
         k0pre_np = cgf * xnfdop_np
         boltz_np = fast_ex_array(float(C["cat_elow"][li]) * hckt)
         kappa0_np = k0pre_np * boltz_np
@@ -915,7 +918,7 @@ code(r'''def compute_hydrogen_opacity_gpu():
         off_main, wt_main, nf_main = fine_map.get(
             (nl, nu), (np.zeros(1), np.zeros(1), 0))
         phi = profile_precision_island(nl, nu, line_wl, off_main, wt_main, nf_main)
-        value = kappa0[:, None] * phi * stim
+        value = kappa0[:, None] * phi * stimulated_emission_factor
 
         wcon_np, wtail_np = merge_limits_all(conth_val, wshift)
         wcon = _as_col(wcon_np); wtail = _as_col(wtail_np)
@@ -937,8 +940,8 @@ code(r'''def compute_hydrogen_opacity_gpu():
                 (nl, up2), (np.zeros(1), np.zeros(1), 0))
             phi_m2 = profile_precision_island(nl, um2, wlm2, off_m2, wt_m2, nf_m2)
             phi_p2 = profile_precision_island(nl, up2, wlp2, off_p2, wt_p2, nf_p2)
-            neighbour_red = kappa0[:, None] * phi_m2 * stim
-            neighbour_blue = kappa0[:, None] * phi_p2 * stim
+            neighbour_red = kappa0[:, None] * phi_m2 * stimulated_emission_factor
+            neighbour_blue = kappa0[:, None] * phi_p2 * stimulated_emission_factor
             neighbour_red = torch.where(in_taper, neighbour_red*ramp, neighbour_red)
             neighbour_blue = torch.where(in_taper, neighbour_blue*ramp, neighbour_blue)
 

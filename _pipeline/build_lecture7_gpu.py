@@ -61,7 +61,7 @@ The physics is a single first-order equation, and in LTE — when scattering is 
 
 The GPU story of this lecture is one of **shape**, not of new physics. The formal solution is *embarrassingly parallel over wavelength* — every wavelength's flux is an independent depth integral against the same source structure — so the natural object is the $[\text{depth}, \text{wavelength}]$ tensor, and every step below is one batched tensor op on it. Two precision lessons make the lecture earn its GPU keep: the optical-depth integral is a **long cumulative sum** whose fp32 accumulation drifts in the deep photosphere, and the $E_2$ kernel's outer branch is a **difference of two nearly-equal numbers** that loses its leading digits in fp32. Both are fixed the same surgical way — promote *just that reduction* to fp64 — and the lecture makes that budget explicit.""")
 
-md(r"""We begin by loading the products this lecture builds on. Everything we need was saved at the end of Lecture 6 into `reference/L6.npz` (hence the name `REF`): the wavelength grid `wl`, the atmosphere's temperature and column-mass profiles (`T`, `rhox`), and — the new ingredient — the assembled opacity, split two ways. The arrays `total_abs`/`total_scat` hold the *full* opacity (continuum plus all the lines), while `cont_abs`/`cont_scat` hold the *continuum alone*; carrying both lets us form the line spectrum and the continuum it sits on from the same machinery.
+md(r"""We begin by loading the products this lecture builds on. Everything we need was saved at the end of Lecture 6 into `reference/L6.npz` (hence the name `REF`): the wavelength grid, the atmosphere's temperature and column-mass profiles, and — the new ingredient — the assembled opacity, split two ways. The arrays `total_abs`/`total_scat` hold the *full* opacity (continuum plus all the lines), while `cont_abs`/`cont_scat` hold the *continuum alone*; at the load boundary we translate those fixture keys into readable local names such as `wavelength_nm_np`, `temperature_np`, `column_mass_np`, `total_extinction`, and `continuum_extinction`.
 
 We then pick the **device and working dtype once**: MPS (Apple) or CUDA in fp32, else CPU in fp64. The opacity slabs move onto the device as the $[\text{depth},\text{wavelength}]$ batch, and from here on every computation is a tensor op on that grid.""")
 
@@ -89,22 +89,26 @@ H_C, C, K = 6.62607015e-27, 2.99792458e10, 1.380649e-16
 
 # Lecture 7 starts from the opacity products saved at the end of Lecture 6 (hence "L6").
 REF = np.load(pathlib.Path("..") / "reference" / "L6.npz")
-wl_np = REF["wl"].astype(float); T_np = REF["T"].astype(float); rhox_np = REF["rhox"].astype(float)
+wavelength_nm_np = REF["wl"].astype(float)
+temperature_np = REF["T"].astype(float)
+column_mass_np = REF["rhox"].astype(float)
 
 # Opacity assembled in the continuum (Lecture 3) and line (Lectures 4-6) lectures, per depth and
 # wavelength [cm^2/g]. cont_* are continuum processes only; total_* add the lines on top.
-total_abs  = REF["total_abs"].astype(float);  total_scat = REF["total_scat"].astype(float)
-cont_abs   = REF["cont_abs"].astype(float);   cont_scat  = REF["cont_scat"].astype(float)
+total_absorption = REF["total_abs"].astype(float)
+total_scattering = REF["total_scat"].astype(float)
+continuum_absorption = REF["cont_abs"].astype(float)
+continuum_scattering = REF["cont_scat"].astype(float)
 
 # the full and continuum-only extinction (absorption + scattering), as the device batch
-total = torch.as_tensor(total_abs + total_scat, device=DEVICE, dtype=DTYPE)   # [D, n_wl]
-cont  = torch.as_tensor(cont_abs  + cont_scat,  device=DEVICE, dtype=DTYPE)    # [D, n_wl]
-wl    = torch.as_tensor(wl_np,   device=DEVICE, dtype=DTYPE)
-T     = torch.as_tensor(T_np,    device=DEVICE, dtype=DTYPE)
-rhox  = torch.as_tensor(rhox_np, device=DEVICE, dtype=DTYPE)
+total_extinction = torch.as_tensor(total_absorption + total_scattering, device=DEVICE, dtype=DTYPE)   # [D, n_wl]
+continuum_extinction = torch.as_tensor(continuum_absorption + continuum_scattering, device=DEVICE, dtype=DTYPE)    # [D, n_wl]
+wavelength_nm = torch.as_tensor(wavelength_nm_np, device=DEVICE, dtype=DTYPE)
+temperature = torch.as_tensor(temperature_np, device=DEVICE, dtype=DTYPE)
+column_mass = torch.as_tensor(column_mass_np, device=DEVICE, dtype=DTYPE)
 
-print(f"opacity grid: {total.shape[0]} depths x {total.shape[1]} wavelengths, "
-      f"{wl_np[0]:.1f}-{wl_np[-1]:.1f} nm")''')
+print(f"opacity grid: {total_extinction.shape[0]} depths x {total_extinction.shape[1]} wavelengths, "
+      f"{wavelength_nm_np[0]:.1f}-{wavelength_nm_np[-1]:.1f} nm")''')
 
 # ── transfer equation ───────────────────────────────────────────────────
 md(r"""## The transfer equation and its formal solution
@@ -151,32 +155,32 @@ code(r'''def _cpu_f64(x):
     return torch.as_tensor(x, device="cpu", dtype=torch.float64)
 
 
-def optical_depth(kappa, rhox):
+def optical_depth(extinction, column_mass):
     """Cumulative optical depth over column mass: tau[depth, wl], vectorized over wavelength.
 
     tau = int kappa dm by the trapezoid, seeded with kappa[0]*rhox[0] (the column above the top
     layer), accumulated inward by a single cumsum over the DEPTH axis. The long accumulation is
     fp64-promoted (the first GPU precision trap) — a tiny [D, n_wl] object, so the cost is nil."""
-    kappa64 = _cpu_f64(kappa)
-    rhox64 = _cpu_f64(rhox)
+    extinction64 = _cpu_f64(extinction)
+    column_mass64 = _cpu_f64(column_mass)
 
     # trapezoid contribution of each layer: mean kappa times the column step between layers
-    dtau = 0.5 * (kappa64[1:, :] + kappa64[:-1, :]) * (rhox64[1:] - rhox64[:-1]).unsqueeze(1)
+    optical_depth_steps = 0.5 * (extinction64[1:, :] + extinction64[:-1, :]) * (column_mass64[1:] - column_mass64[:-1]).unsqueeze(1)
 
     # seed the top layer, then accumulate inward with a prefix sum (cumsum) over depth
-    seed = kappa64[0, :] * rhox64[0]
-    tail = seed.unsqueeze(0) + torch.cumsum(dtau, dim=0)
-    return torch.cat((seed.unsqueeze(0), tail), dim=0)
+    surface_optical_depth = extinction64[0, :] * column_mass64[0]
+    interior_optical_depth = surface_optical_depth.unsqueeze(0) + torch.cumsum(optical_depth_steps, dim=0)
+    return torch.cat((surface_optical_depth.unsqueeze(0), interior_optical_depth), dim=0)
 
 
 # full optical depth uses the total extinction; the continuum-only version drops the lines
-tau_line = optical_depth(total, rhox)
-tau_cont = optical_depth(cont,  rhox)
+total_optical_depth = optical_depth(total_extinction, column_mass)
+continuum_optical_depth = optical_depth(continuum_extinction, column_mass)
 
 # sanity: at 505 nm the scale runs from optically thin at the top to deep below the photosphere
-k505 = torch.argmin(torch.abs(wl - 505.0))
-print(f"at {wl[k505]:.1f} nm, full optical depth spans "
-      f"{tau_line[:, k505].min():.1e} .. {tau_line[:, k505].max():.1e}")''')
+k505 = torch.argmin(torch.abs(wavelength_nm - 505.0))
+print(f"at {wavelength_nm[k505]:.1f} nm, full optical depth spans "
+      f"{total_optical_depth[:, k505].min():.1e} .. {total_optical_depth[:, k505].max():.1e}")''')
 
 # ── source + E2 kernel ─────────────────────────────────────────────────────
 md(r"""## The emergent flux
@@ -187,20 +191,20 @@ Now the formal solution, built in three short steps: the source function, the $E
 
 First the source function. In LTE, with scattering neglected, it is the **Planck function** evaluated at each depth's temperature and each wavelength's frequency. The code uses the per-frequency Kurucz source array $B_\nu(T)$ on a grid labelled by wavelength; the normalized spectrum is unaffected by this bookkeeping because the $c/\lambda^2$ Jacobian cancels between total and continuum flux at each wavelength. To avoid mixing spectral-density conventions, read the symbol below as the source value at the wavelength point, stored in frequency units: $S(\lambda_j)=B_{\nu_j}(T)$.""")
 
-code(r'''def planck_nu(nu, T):
+code(r'''def planck_nu(frequency_hz, temperature):
     """Planck B_nu(T) [CGS], overflow-safe Kurucz form, broadcast over (depth, wl). Torch-native."""
-    nu_t = torch.as_tensor(nu, device=DEVICE, dtype=DTYPE)
-    T_t = torch.as_tensor(T, device=DEVICE, dtype=DTYPE)
-    x = (H_C * nu_t) / (K * T_t)             # dimensionless h nu / kT
-    emx = torch.exp(-x)                       # <= 1: the Wien tail never overflows
-    return 1.47439e-2 * torch.pow(nu_t / 1.0e15, 3) * emx / (1.0 - emx)
+    frequency_t = torch.as_tensor(frequency_hz, device=DEVICE, dtype=DTYPE)
+    temperature_t = torch.as_tensor(temperature, device=DEVICE, dtype=DTYPE)
+    hnu_over_kT = (H_C * frequency_t) / (K * temperature_t)
+    exp_minus_hnu_over_kT = torch.exp(-hnu_over_kT)        # <= 1: the Wien tail never overflows
+    return 1.47439e-2 * torch.pow(frequency_t / 1.0e15, 3) * exp_minus_hnu_over_kT / (1.0 - exp_minus_hnu_over_kT)
 
 
 # frequency at each wavelength (wl in nm -> cm), then S = B_nu(T) on the whole grid
-nu = C / (wl * 1e-7)                          # [n_wl], Hz
-S = planck_nu(nu[None, :], T[:, None])        # [D, n_wl] source function
+frequency_hz = C / (wavelength_nm * 1e-7)                 # [n_wl], Hz
+source_function = planck_nu(frequency_hz[None, :], temperature[:, None])  # [D, n_wl] source function
 
-print(f"source function S: {tuple(S.shape)}  (depth x wavelength)")''')
+print(f"source function S: {tuple(source_function.shape)}  (depth x wavelength)")''')
 
 md(r"""Next the kernel. The angle integral left us with the second exponential integral $E_2$; we supply it from scratch with the standard Abramowitz & Stegun rational approximations — one polynomial form for $x\le1$, a rational form for $x>1$, then $E_2(x) = e^{-x} - x\,E_1(x)$, with the limit $E_2(0)=1$ handled explicitly. No SciPy needed.
 
@@ -251,22 +255,22 @@ def _expint2_work(x):
 
 md(r"""Finally the depth integral. With $S$ and $E_2$ in hand, the emergent flux $F_\lambda = 2\pi\int S_\lambda E_2(\tau_\lambda)\,d\tau_\lambda$ is a trapezoidal sum of $S\,E_2$ over the optical-depth grid, evaluated independently at every wavelength — and so it is *one* tensor reduction over the depth axis, with the wavelengths riding along as the batch. Running it on the full opacity gives the line spectrum; on the continuum alone, the continuum flux. Their ratio is the **normalised spectrum** — the rectified line depths a spectroscopist actually measures.""")
 
-code(r'''def emergent_flux(tau, S):
+code(r'''def emergent_flux(optical_depth_grid, source_function_grid):
     """F_lambda = 2*pi * trapezoid(S * E2(tau), tau, axis=depth), batched over wavelength."""
-    tau_t = torch.as_tensor(tau, device=DEVICE, dtype=DTYPE)
-    S_t = torch.as_tensor(S, device=DEVICE, dtype=DTYPE)
-    y = S_t * _expint2_work(tau_t)                       # the weighted integrand on the grid
-    dtau = tau_t[1:, :] - tau_t[:-1, :]                  # non-uniform tau steps per wavelength
-    trap = 0.5 * (y[1:, :] + y[:-1, :]) * dtau           # trapezoid contributions
-    return (2.0 * math.pi) * torch.sum(trap, dim=0)      # integrate over depth -> [n_wl]
+    optical_depth_t = torch.as_tensor(optical_depth_grid, device=DEVICE, dtype=DTYPE)
+    source_function_t = torch.as_tensor(source_function_grid, device=DEVICE, dtype=DTYPE)
+    weighted_source = source_function_t * _expint2_work(optical_depth_t)
+    optical_depth_step = optical_depth_t[1:, :] - optical_depth_t[:-1, :]
+    trapezoid_terms = 0.5 * (weighted_source[1:, :] + weighted_source[:-1, :]) * optical_depth_step
+    return (2.0 * math.pi) * torch.sum(trapezoid_terms, dim=0)      # integrate over depth -> [n_wl]
 
 
 # run the formal solution twice: full opacity -> line flux; continuum opacity -> the flux it sits on
-flux_line = emergent_flux(tau_line, S)
-flux_cont = emergent_flux(tau_cont, S)
+total_flux = emergent_flux(total_optical_depth, source_function)
+continuum_flux = emergent_flux(continuum_optical_depth, source_function)
 
 # normalised (rectified) spectrum
-spectrum = flux_line / flux_cont
+spectrum = total_flux / continuum_flux
 print(f"emergent flux computed for {spectrum.numel()} wavelengths")''')
 
 # ── comparison cell ────────────────────────────────────────────────────────
@@ -276,8 +280,11 @@ The per-part check. We rebuild an **exact fp64 reference** inline (the parity or
 
 code(r'''# --- the exact fp64 NumPy formal solution, inline (the parity oracle) ---
 def _np_od(kappa):
-    dt = 0.5*(kappa[1:]+kappa[:-1])*np.diff(rhox_np)[:, None]
-    t = np.empty_like(kappa); t[0] = kappa[0]*rhox_np[0]; t[1:] = t[0] + np.cumsum(dt, axis=0); return t
+    optical_depth_steps = 0.5*(kappa[1:]+kappa[:-1])*np.diff(column_mass_np)[:, None]
+    optical_depth_grid = np.empty_like(kappa)
+    optical_depth_grid[0] = kappa[0]*column_mass_np[0]
+    optical_depth_grid[1:] = optical_depth_grid[0] + np.cumsum(optical_depth_steps, axis=0)
+    return optical_depth_grid
 
 def _np_bnu(nuu, TT):
     x = H_C*nuu/(K*TT); return 1.47439e-2*(nuu/1e15)**3*np.exp(-x)/(1.0-np.exp(-x))
@@ -290,11 +297,13 @@ def _np_e2(x):
     el = np.exp(-xp)/xp*(xp*xp + a1*xp + a2)/(xp*xp + b1*xp + b2)
     E1 = np.where(x <= 1.0, es, el); return np.where(x > 0, np.exp(-x)-x*E1, 1.0)
 
-nu_np = C / (wl_np*1e-7); S_np = _np_bnu(nu_np[None, :], T_np[:, None])
-tau_l_np = _np_od(total_abs + total_scat); tau_c_np = _np_od(cont_abs + cont_scat)
-fl_np = 2*np.pi*np.trapezoid(S_np*_np_e2(tau_l_np), tau_l_np, axis=0)
-fc_np = 2*np.pi*np.trapezoid(S_np*_np_e2(tau_c_np), tau_c_np, axis=0)
-spec_np = fl_np / fc_np
+frequency_hz_np = C / (wavelength_nm_np*1e-7)
+source_function_np = _np_bnu(frequency_hz_np[None, :], temperature_np[:, None])
+total_optical_depth_np = _np_od(total_absorption + total_scattering)
+continuum_optical_depth_np = _np_od(continuum_absorption + continuum_scattering)
+total_flux_np = 2*np.pi*np.trapezoid(source_function_np*_np_e2(total_optical_depth_np), total_optical_depth_np, axis=0)
+continuum_flux_np = 2*np.pi*np.trapezoid(source_function_np*_np_e2(continuum_optical_depth_np), continuum_optical_depth_np, axis=0)
+spec_np = total_flux_np / continuum_flux_np
 ref = REF["flux_total"] / REF["flux_continuum"]                      # the pykurucz reference
 
 
@@ -320,8 +329,8 @@ print("PASS — the GPU formal solution reproduces the inline fp64 reference to 
 md(r"""The from-scratch torch radiative transfer reproduces the fp64 reference to the fp32 float floor, and tracks the pykurucz reference at the expected formal-solution scale. The agreement loosens only in the deepest line cores, where the source function is steepest near the surface; the next lecture (the JOSH solver) supplies the production engine that closes that gap. First, the payoff: the spectrum itself.""")
 
 code(r'''fig, ax = plt.subplots(figsize=(11, 4.2))
-ax.plot(wl_np, ref, color="0.6", lw=1.4, label="pykurucz reference")
-ax.plot(wl_np, spec_gpu, color="C3", lw=0.6, label="computed here")
+ax.plot(wavelength_nm_np, ref, color="0.6", lw=1.4, label="pykurucz reference")
+ax.plot(wavelength_nm_np, spec_gpu, color="C3", lw=0.6, label="computed here")
 ax.set_xlabel("wavelength  [nm]"); ax.set_ylabel("normalised flux")
 ax.set_title("The solar spectrum, 500-510 nm — built from scratch on the GPU, matched to the reference")
 ax.set_ylim(0, 1.05); ax.legend(loc="lower right")
@@ -342,40 +351,41 @@ This is why a spectrum is a thermometer of depth: at each wavelength we read the
 
 The scalar way to read $T(\tau=2/3)$ is a Python interpolation loop over wavelengths. Here that loop is the one thing to remove: we find, *for all wavelengths at once*, the depth bracket where $\tau_\lambda$ crosses $2/3$ with a single **`torch.sum(tau < 2/3, dim=0)`** (a vectorized searchsorted), gather the bracketing $(\tau, T)$ pairs, and linearly interpolate — one tensor expression, no loop over the 3000+ wavelengths.""")
 
-code(r'''def eddington_barbier_T(tau, T):
+code(r'''def eddington_barbier_T(optical_depth_grid, temperature):
     """Read T where tau_lambda = 2/3 at every wavelength, fully vectorized (no per-wl loop)."""
-    tau_t = torch.as_tensor(tau, device=DEVICE, dtype=DTYPE)
-    T_t = torch.as_tensor(T, device=DEVICE, dtype=DTYPE)
+    optical_depth_t = torch.as_tensor(optical_depth_grid, device=DEVICE, dtype=DTYPE)
+    temperature_t = torch.as_tensor(temperature, device=DEVICE, dtype=DTYPE)
     target = torch.as_tensor(2.0/3.0, device=DEVICE, dtype=DTYPE)
-    Dn = tau_t.shape[0]
+    n_depths = optical_depth_t.shape[0]
 
     # count depths below 2/3 per wavelength -> the upper bracket index (a vectorized searchsorted)
-    hi = torch.clamp(torch.sum(tau_t < target, dim=0).to(torch.long), 1, Dn - 1)
+    hi = torch.clamp(torch.sum(optical_depth_t < target, dim=0).to(torch.long), 1, n_depths - 1)
     lo = hi - 1
-    kw = torch.arange(tau_t.shape[1], device=DEVICE, dtype=torch.long)
+    wavelength_index = torch.arange(optical_depth_t.shape[1], device=DEVICE, dtype=torch.long)
 
-    tau_lo, tau_hi = tau_t[lo, kw], tau_t[hi, kw]        # gather the bracketing tau pairs
-    T_lo, T_hi = T_t[lo], T_t[hi]                         # and the bracketing temperatures
+    tau_lo = optical_depth_t[lo, wavelength_index]
+    tau_hi = optical_depth_t[hi, wavelength_index]
+    temperature_lo, temperature_hi = temperature_t[lo], temperature_t[hi]
     denom = tau_hi - tau_lo
     frac = torch.where(denom != 0.0, (target - tau_lo) / denom, torch.zeros_like(denom))
-    interp = T_lo + frac * (T_hi - T_lo)                  # linear interpolation onto 2/3
+    interp = temperature_lo + frac * (temperature_hi - temperature_lo)
 
     # clamp the ends (grid above 2/3 at the top, or below it at the base)
-    interp = torch.where(target <= tau_t[0, :], T_t[0].expand_as(interp), interp)
-    interp = torch.where(target >= tau_t[-1, :], T_t[-1].expand_as(interp), interp)
+    interp = torch.where(target <= optical_depth_t[0, :], temperature_t[0].expand_as(interp), interp)
+    interp = torch.where(target >= optical_depth_t[-1, :], temperature_t[-1].expand_as(interp), interp)
     return interp
 
 
 # Eddington-Barbier flux: pi * B at the tau = 2/3 layer, for the line and the continuum
-T23_line = eddington_barbier_T(tau_line, T)
-T23_cont = eddington_barbier_T(tau_cont, T)
-flux_EB = math.pi * planck_nu(nu, T23_line)
-spectrum_EB = flux_EB / (math.pi * planck_nu(nu, T23_cont))
+temperature_tau23_total = eddington_barbier_T(total_optical_depth, temperature)
+temperature_tau23_continuum = eddington_barbier_T(continuum_optical_depth, temperature)
+flux_EB = math.pi * planck_nu(frequency_hz, temperature_tau23_total)
+spectrum_EB = flux_EB / (math.pi * planck_nu(frequency_hz, temperature_tau23_continuum))
 
 dev_EB = float(torch.median(torch.abs(spectrum_EB - spectrum) / spectrum))
 print(f"Eddington-Barbier vs full formal solution: median |rel diff| = {dev_EB:.2e}")
-print(f"in a deep line core the tau=2/3 surface sits at T = {float(T23_line.min()):.0f} K "
-      f"(vs {float(T23_line.max()):.0f} K in the continuum)")''')
+print(f"in a deep line core the tau=2/3 surface sits at T = {float(temperature_tau23_total.min()):.0f} K "
+      f"(vs {float(temperature_tau23_total.max()):.0f} K in the continuum)")''')
 
 md(r"""The Eddington–Barbier flux tracks the full solution to a few percent — good enough to read the physics off by eye, though we use the exact integral for the spectrum. It makes the line-formation picture concrete: in a deep core the $\tau=2/3$ surface climbs to a layer hundreds — in the deepest cores, more than a thousand — kelvin cooler than the continuum-forming layer, and the Planck function, steeply temperature-sensitive in the blue, drops accordingly.
 
@@ -465,7 +475,7 @@ F=2\pi\int_0^\infty S(\tau)E_2(\tau)\,d\tau
 $$
 and show analytically that the result equals $\pi S(\tau=2/3)$. That is where $2/3$ actually comes from.
 
-**2. A line-depth thermometer.** For the deepest line in the window, read $T(\tau_\lambda=2/3)$ at line centre and in the nearby continuum. Using the Planck function, predict the line's central depth and compare with the computed spectrum. Why are blue lines deeper than red ones at the same opacity contrast? In the GPU notebook, try to do this with the already-vectorized `T23_line`, `T23_cont`, and `planck_nu` arrays, rather than writing a Python loop over wavelength.
+**2. A line-depth thermometer.** For the deepest line in the window, read $T(\tau_\lambda=2/3)$ at line centre and in the nearby continuum. Using the Planck function, predict the line's central depth and compare with the computed spectrum. Why are blue lines deeper than red ones at the same opacity contrast? In the GPU notebook, try to do this with the already-vectorized `temperature_tau23_total`, `temperature_tau23_continuum`, and `planck_nu` arrays, rather than writing a Python loop over wavelength.
 
 **3. What limits the deep cores.** At the deepest line core in the window, compute the local scattering fraction
 $$
