@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-"""Assemble content/Lecture13.ipynb (unexecuted) — the GPU EDITION. Execute + render via build.py.
+"""Assemble content/Lecture13.ipynb (unexecuted). Execute + render via build.py.
 
-Lecture 13 (GPU) — Molecular Chemistry: the Coupled Equilibrium and Continuous Opacity, ported to
+Lecture 13 — Molecular Chemistry: the Coupled Equilibrium and Continuous Opacity, written in
 clean torch/MPS. TWO parts.
 
 PART 1 — the coupled molecular-equilibrium NMOLEC solve. A Newton-Raphson fixed-point solve finds the
@@ -13,18 +13,18 @@ structure (`MolStructure`); the DEPTH LOOP stays as a pressure-continuation warm
 (depth j seeded from converged depth j-1 x the pressure ratio). The depths are physically local, but
 naive cold-start batching is not the robust accepted path. The solve runs
 on CPU fp64 (the reference path): the autodiff Newton + column-scaled solve reaches the SAME
-equilibrium as the production Fortran DEQ+SOLVIT, and CPU-fp64 gives machine-precision parity; the
-MPS-fp32 budget is documented for the GPU path. Parity-gated to max|rel| = 1.19e-13 vs the NumPy twin.
+equilibrium as the production Fortran DEQ+SOLVIT, and CPU-fp64 gives parity at the float64 floor; the
+MPS-fp32 budget is documented for the GPU path. Parity-gated to max|rel| = 1.19e-13 vs the inline fp64 reference.
 
 PART 2 — molecular CONTINUOUS opacity (CHOP CH-photodissociation, OHOP OH-photodissociation, H2-CIA
 Borysow collision-induced absorption). Depth-batched tabulated interpolation over a [80, 600] grid,
-fully vectorized [D, F] tensor ops. Parity-gated to max|rel| = 5.94e-08 vs the NumPy twin.
+fully vectorized [D, F] tensor ops. Parity-gated to max|rel| = 5.94e-08 vs the inline fp64 reference.
 
 The torch kernels below are transcribed VERBATIM (split into readable cells) from the two accepted,
 parity-gated ports produced by the external-API port worker (_pipeline/port_worker.py):
   - _pipeline/_ports/_accepted/lecture13_port.py   (PART 1, nmolec_solve)
   - _pipeline/_ports/_accepted/lecture13b_port.py   (PART 2, mol_continuum)
-The notebook imports neither kgpu nor pykurucz. The inline NumPy twin (the parity oracle) is the
+The notebook imports neither kgpu nor pykurucz. The inline fp64 reference (the parity oracle) is the
 reference solver from ~/Stellar_Spectroscopy_From_Scratch/_pipeline/{verify_nmolec.py,
 verify_mol_continuum.py}, transcribed for the comparison cells.
 """
@@ -42,15 +42,15 @@ def code(s): cells.append(new_code_cell(s))
 # ════════════════════════════════════════════════════════════════════════════
 #  TITLE
 # ════════════════════════════════════════════════════════════════════════════
-md(r"""# Lecture 13 — Molecular Chemistry: the Coupled Equilibrium and Continuous Opacity *(GPU Edition)*
+md(r"""# Lecture 13 — Molecular Chemistry: the Coupled Equilibrium and Continuous Opacity
 
-*Stellar Spectroscopy from Scratch — GPU Edition: the torch/MPS vectorized companion, each part validated against the NumPy edition*
+*Stellar Spectroscopy from Scratch — a torch/MPS implementation, with each part validated against reference calculations*
 
 *Yuan-Sen Ting*
 
 *Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
 
-*This is the **GPU edition** of Lecture 13. The physics, the formulas, the tables, and the constants are identical to the [NumPy edition](https://github.com/tingyuansen/stellar-spectroscopy-from-scratch); the production **NMOLEC** coupled-equilibrium solver and the **CHOP / OHOP / H$_2$-CIA** molecular continuum are rebuilt in clean **`torch`**. The lecture's added pedagogy is the **vectorization**, and it is a sharp lesson in *what vectorizes and what does not*. In Part 1 the Newton **iteration** over the $n_{\rm equa}$ unknowns is fully vectorized — an **autodiff Jacobian** (`torch.func.jacrev`) replaces the hand-coded `DEQ`, the residual is built **branchlessly in log space** from a precomputed incidence structure, and the linear step is a **column-scaled** `torch.linalg.solve` — but the **depth loop stays a loop** because this implementation uses a robust pressure-continuation warm start from the converged depth above; the depths are physically local, but naive batched cold starts are unreliable for this stiff system. In Part 2 the continuum is a clean depth-batched `[D, F]` tabulated interpolation, fully vectorized. Each part ships a **comparison cell** validating the torch result against an inline NumPy twin (and the ground truth) to the documented float floor: $\sim10^{-13}$ for the equilibrium solve (run on CPU-fp64, the reference path), $\sim6\times10^{-8}$ for the continuum (fp32 on MPS). The clean torch ports are pedagogical reductions of the production `kgpu` engine — the notebook imports neither `kgpu` nor pykurucz.*
+*The production **NMOLEC** coupled-equilibrium solver and the **CHOP / OHOP / H$_2$-CIA** molecular continuum are rebuilt in clean **`torch`**. The lecture's added pedagogy is the **vectorization**, and it is a sharp lesson in *what vectorizes and what does not*. In Part 1 the Newton **iteration** over the $n_{\rm equa}$ unknowns is vectorized — an **autodiff Jacobian** (`torch.func.jacrev`) replaces the hand-coded `DEQ`, the residual is built **branchlessly in log space** from a precomputed incidence structure, and the linear step is a **column-scaled** `torch.linalg.solve` — but the **depth loop stays a loop** because this implementation uses a robust pressure-continuation warm start from the converged depth above; the depths are physically local, but naive batched cold starts are unreliable for this stiff system. This stiff solve is deliberately CPU/fp64. In Part 2 the continuum is a clean depth-batched `[D, F]` tabulated interpolation, vectorized over the grid and run in the notebook's working dtype. Each part ships a **comparison cell** validating the torch result against an inline fp64 reference (and the ground truth) to the documented float floor: $\sim10^{-13}$ for the equilibrium solve (CPU-fp64 reference path), $\sim6\times10^{-8}$ for the continuum (fp32 on MPS). The clean torch implementations are pedagogical reductions of the production `kgpu` engine — the notebook imports neither `kgpu` nor pykurucz.*
 
 ---
 
@@ -59,8 +59,8 @@ md(r"""# Lecture 13 — Molecular Chemistry: the Coupled Equilibrium and Continu
 - Explain why molecular chemistry is a **coupled** problem — every molecule competes for the same atom pool and the negative ions tie the chemistry to $n_e$ — so a single $K_f$ per molecule is an *input*, not the answer; the balances must be solved **together**.
 - Assemble the coupled system the production code solves: one **total-particle** equation, one **number-conservation** equation per element, and one **charge-balance** equation, with every molecule's mass-action term.
 - Recast the production **NMOLEC** solver into its torch form: a **Newton iteration vectorized over the unknowns** with an **autodiff (`jacrev`) Jacobian** replacing the hand-built `DEQ`, a **branchless log-space residual** from a precomputed incidence structure, and a **column-scaled** `torch.linalg.solve` conditioning the $\sim$25-dex Jacobian — and say precisely **why this implementation keeps the depth loop** (a pressure-continuation warm-start strategy, not a physical nonlocal coupling).
-- Compute the **molecular continuous opacity** of a cool dwarf — **CH** (CHOP) and **OH** (OHOP) photodissociation and **H$_2$ collision-induced absorption** (H$_2$-CIA, the Borysow tables) — as one fully vectorized depth-batched `[D, F]` table interpolation.
-- Show that **H$_2$-CIA dominates the molecular continuum across 1–2.2 $\mu$m in this model**, and **validate** both the torch/CPU-fp64 equilibrium solver and the GPU continuum against the NumPy twin to the documented float floor.""")
+- Compute the **molecular continuous opacity** of a cool dwarf — **CH** (CHOP) and **OH** (OHOP) photodissociation and **H$_2$ collision-induced absorption** (H$_2$-CIA, the Borysow tables) — as one depth-batched `[D, F]` table interpolation.
+- Show that **H$_2$-CIA dominates the molecular continuum across 1–2.2 $\mu$m in this model**, and **validate** both the torch/CPU-fp64 equilibrium solver and the torch continuum against the inline fp64 reference to the documented float floor.""")
 
 # ════════════════════════════════════════════════════════════════════════════
 #  INTRODUCTION
@@ -71,11 +71,11 @@ Lecture 12 synthesised a cool M dwarf's TiO band, and to do it we made two purch
 
 The first half is the chemistry. In Lecture 12 we wrote the formation balance of a single molecule, Ti + O $\rightleftharpoons$ TiO, as a Saha-like law with one equilibrium constant $K_f(T)$. That is correct but incomplete, because the molecules are not independent. Oxygen is also pulled into CO, OH, H$_2$O, SiO, and a dozen other species, all drawing on the **same** finite supply of oxygen nuclei; carbon competes for it through CO; hydrogen becomes strongly molecular in cool, sufficiently dense layers; and negative ions, including atomic H$^-$ and any molecular ions in the table, tie the network to the **electron density**. So the populations are the solution of a **coupled** nonlinear system, solved by the production routine **NMOLEC** — a Newton–Raphson iteration with a linear solve and step damping. The second half is the continuum: **CH and OH** add bound-free photodissociation absorption in the blue, and **H$_2$ collision-induced absorption** (a transient collision complex with an induced dipole) dominates the *molecular* near-infrared continuum from 1 to 2.2 $\mu$m in this model.
 
-This is the GPU edition, and Lecture 13 makes the cleanest case in the book for the principle **"vectorize what is independent; keep the loop where the robust numerical strategy needs continuation."** The coupled solve has two nested loops in the NumPy edition: an **inner Newton iteration** over the $n_{\rm equa}$ unknowns at a fixed depth, and an **outer depth loop**. The inner iteration is the place to vectorize — at one depth, the residual and Jacobian are dense tensor algebra over the unknowns, and we will replace the hand-coded Jacobian `DEQ` with **automatic differentiation** (`torch.func.jacrev`), build the residual **branchlessly in log space** from a precomputed incidence structure, and solve the Newton step with a **column-scaled** `torch.linalg.solve` that conditions a Jacobian spanning $\sim$25 decades. The depths are physically independent local equilibrium problems, but this implementation seeds depth $j$ from the converged solution at depth $j-1$ scaled by the pressure ratio; naive batched cold starts often fail or slow dramatically. We keep that depth loop because it is the robust production-style continuation strategy. Part 2's continuum has no such dependency: it is a direct table interpolation, fully depth-batched `[D, F]` tensor ops. Both halves are validated against an inline NumPy twin to the documented float floor.""")
+Lecture 13 makes the cleanest case in the book for the principle **"vectorize what is independent; keep the loop where the robust numerical strategy needs continuation."** The coupled solve has two nested loops in its scalar form: an **inner Newton iteration** over the $n_{\rm equa}$ unknowns at a fixed depth, and an **outer depth loop**. The inner iteration is the place to vectorize — at one depth, the residual and Jacobian are dense tensor algebra over the unknowns, and we will replace the hand-coded Jacobian `DEQ` with **automatic differentiation** (`torch.func.jacrev`), build the residual **branchlessly in log space** from a precomputed incidence structure, and solve the Newton step with a **column-scaled** `torch.linalg.solve` that conditions a Jacobian spanning $\sim$25 decades. The depths are physically independent local equilibrium problems, but this implementation seeds depth $j$ from the converged solution at depth $j-1$ scaled by the pressure ratio; naive batched cold starts often fail or slow dramatically. We keep that depth loop because it is the robust production-style continuation strategy. Part 2's continuum has no such dependency: it is a direct table interpolation, fully depth-batched `[D, F]` tensor ops. Both halves are validated against an inline fp64 reference to the documented float floor.""")
 
 md(r"""![Left: the coupled equilibrium network — a central pool of element nuclei (O, C, H, Ti, ...) and a shared electron reservoir, with arrows pulling atoms into competing molecules (CO, OH, H2O, TiO, H2, H-), every molecule a node tied back to the pools it draws from, illustrating that no single molecule can be solved alone. Right: two H2 molecules drifting into a momentary collision complex with a transient induced dipole, absorbing an infrared photon — collision-induced absorption — beside a smooth opacity-vs-wavelength curve peaking in the near-infrared, overlapping much of an M dwarf's emergent flux.](resources/figures/s13_molchem.png)""")
 
-md(r"""**Setup — the device and the precision budget.** We pick the compute device once: **MPS** on Apple Silicon, **CUDA** on an NVIDIA box, otherwise **CPU**. The two parts sit on opposite sides of the precision question. Part 2's continuum is a benign table interpolation and runs **fp32 on the GPU** with a $\sim10^{-7}$ floor. Part 1's coupled solve is *stiff* — its Jacobian spans $\sim$25 decades and the Newton iteration is a difference of large competing terms — so the accepted port runs the **solve itself on CPU in fp64** (the reference path), where the autodiff Newton reaches the *same* equilibrium as the production Fortran DEQ+SOLVIT to machine precision; the MPS-fp32 budget is documented but not the shipped path for the stiff inner solve. We carry NumPy and Matplotlib alongside `torch` — NumPy holds the twin we validate against, and the comparisons are done in NumPy.""")
+md(r"""**Setup — the device and the precision budget.** We pick the compute device once: **MPS** on Apple Silicon, **CUDA** on an NVIDIA box, otherwise **CPU**. The two parts sit on opposite sides of the precision question. Part 2's continuum is a benign table interpolation and runs **fp32 on the GPU** with a $\sim10^{-7}$ floor. Part 1's coupled solve is *stiff* — its Jacobian spans $\sim$25 decades and the Newton iteration is a difference of large competing terms — so the accepted port runs the **solve itself on CPU in fp64** (the reference path), where the autodiff Newton reaches the *same* equilibrium as the production Fortran DEQ+SOLVIT to the float64 floor; the MPS-fp32 budget is documented but not the shipped path for the stiff inner solve. We carry NumPy and Matplotlib alongside `torch` — NumPy holds the twin we validate against, and the comparisons are done in NumPy.""")
 
 code(r'''import pathlib, time
 import numpy as np
@@ -99,7 +99,7 @@ plt.rcParams.update({"figure.figsize": (7.2, 4.3), "figure.dpi": 120, "savefig.f
     "axes.grid": True, "grid.alpha": 0.25, "axes.axisbelow": True,
     "font.size": 11, "axes.titlesize": 12.5, "axes.labelsize": 11.5})''')
 
-md(r"""One helper, `compare`, moves a result back to NumPy/fp64 and reports the maximum relative deviation from the reference over the genuinely-nonzero points — the per-part check, used here exactly as the NumPy edition used it.""")
+md(r"""One helper, `compare`, moves a result back to NumPy/fp64 and reports the maximum relative deviation from the reference over the genuinely-nonzero points — the per-part check used throughout the book.""")
 
 code(r'''REF = pathlib.Path("..") / "reference"
 
@@ -135,7 +135,7 @@ where $K_f(T)$ is the formation constant. If there were one molecule and unlimit
 - **number conservation** — the nuclei of each element, summed over its free atom and every molecule that contains it, must equal the element's total abundance;
 - **charge conservation** — the total negative charge (free electrons plus negative ions like H$^-$) must balance the total positive charge.
 
-This is a coupled nonlinear system. The unknowns are a total-nuclei scaling variable $x_0$, the free neutral-atom density of each included element, and the electron density. The equations are an ideal-gas total-particle/pressure closure, one nuclei-conservation equation per element, and charge balance. The production routine that solves it is **NMOLEC**, and the rest of Part 1 builds its torch form. **The GPU thesis, stated up front:** at a fixed depth this is dense tensor algebra over the $n_{\rm equa}$ unknowns — exactly what vectorizes; the depth loop is retained for the robust pressure-continuation warm start.""")
+This is a coupled nonlinear system. The unknowns are a total-nuclei scaling variable $x_0$, the free neutral-atom density of each included element, and the electron density. The equations are an ideal-gas total-particle/pressure closure, one nuclei-conservation equation per element, and charge balance. The production routine that solves it is **NMOLEC**, and the rest of Part 1 builds its torch form. **The tensor thesis, stated up front:** at a fixed depth this is dense tensor algebra over the $n_{\rm equa}$ unknowns — exactly what vectorizes; the depth loop is retained for the robust pressure-continuation warm start.""")
 
 md(r"""### Loading the cool-dwarf atmosphere and the molecular data
 
@@ -315,7 +315,7 @@ assert worst_poly == 0.0, "molecular formation physics must be bit-exact"''')
 
 md(r"""### The incidence structure: turning the molecule table into branchless tensors
 
-Here is the first piece of genuine GPU re-engineering. The NumPy edition assembles the residual and Jacobian inside the Newton loop with **Python loops over molecules and their components**, branching on whether each component is an inverse electron, whether a molecule is a negative ion, and so on — natural on a CPU but the wrong shape for the GPU. The accepted port instead **precomputes a static incidence structure once**, `MolStructure`, that encodes the entire molecule table as dense tensors:
+Here is the first piece of genuine tensor re-engineering. A scalar implementation assembles the residual and Jacobian inside the Newton loop with **Python loops over molecules and their components**, branching on whether each component is an inverse electron, whether a molecule is a negative ion, and so on — natural on a CPU but the wrong shape for the GPU. The accepted port instead **precomputes a static incidence structure once**, `MolStructure`, that encodes the entire molecule table as dense tensors:
 
 - `count[jmol, k]` — how many times equation-$k$'s atom appears in molecule `jmol` (its stoichiometric exponent), so a molecule's log density is a single matrix–vector contraction `count @ log_xn` instead of a per-component loop;
 - `inv_e[jmol]` — how many inverse electrons the molecule carries (the "divide by $n_e$" exponent);
@@ -408,10 +408,10 @@ print("_residual (branchless, log-space) ready")''')
 
 md(r"""### The linear solve: SOLVIT, complete-pivoting Gauss–Jordan — recast as an autodiff Jacobian and column-scaled `torch.linalg.solve`
 
-This is the heart of the GPU recasting, and it replaces two NumPy-edition pieces at once. The NumPy edition hand-codes the Jacobian `DEQ` term by term inside the molecule loop, then solves $J\,\delta = r$ with **SOLVIT**, a complete-pivoting Gauss–Jordan elimination written out as a tight scalar Fortran-style loop. The GPU edition discards both:
+This is the heart of the tensor recasting, and it replaces two scalar pieces at once. The production-style scalar solver hand-codes the Jacobian `DEQ` term by term inside the molecule loop, then solves $J\,\delta = r$ with **SOLVIT**, a complete-pivoting Gauss–Jordan elimination written out as a tight Fortran-style loop. The torch implementation replaces both:
 
 - **The Jacobian is automatic differentiation.** `torch.func.jacrev(resid_one)` differentiates the residual we just wrote with respect to the unknowns, producing a derivative consistent with the implemented residual to floating-point precision away from clamps and masks. No hand-coded `DEQ`, no risk of the analytic derivative drifting out of sync with the residual. This is the single biggest simplification: the residual *is* the model, and the Jacobian is generated from it.
-- **The solve is `torch.linalg.solve`, conditioned by column scaling.** The Jacobian spans $\sim$25 decades (hydrogen's $\sim10^{20}$ down to a trace metal's $\sim10^{-5}$), so a naive solve loses precision exactly as the NumPy edition's complete pivoting was designed to prevent. `_newton_step` scales each column by the current magnitude of its unknown ($J_s = J\,\mathrm{diag}(|x_n|)$), solves the well-conditioned $J_s\,d = r$, and rescales the step $\delta = |x_n|\,d$. Column scaling plays a similar stabilizing role for the differently scaled unknowns, expressed as one LAPACK call instead of a scalar elimination loop. **This is what vectorizes the inner iteration:** at one depth, the whole Newton step is a `jacrev` + a `solve`, dense tensor ops over the $n_{\rm equa}$ unknowns.""")
+- **The solve is `torch.linalg.solve`, conditioned by column scaling.** The Jacobian spans $\sim$25 decades (hydrogen's $\sim10^{20}$ down to a trace metal's $\sim10^{-5}$), so a naive solve loses precision exactly as complete pivoting was designed to prevent. `_newton_step` scales each column by the current magnitude of its unknown ($J_s = J\,\mathrm{diag}(|x_n|)$), solves the well-conditioned $J_s\,d = r$, and rescales the step $\delta = |x_n|\,d$. Column scaling plays a similar stabilizing role for the differently scaled unknowns, expressed as one LAPACK call instead of a scalar elimination loop. **This is what vectorizes the inner iteration:** at one depth, the whole Newton step is a `jacrev` + a `solve`, dense tensor ops over the $n_{\rm equa}$ unknowns.""")
 
 code(r'''def _newton_step(J, eq, xn):
     """Column-scaled Newton step: condition the ~25-dex Jacobian, then torch.linalg.solve."""
@@ -439,7 +439,7 @@ The driver chains the pieces. For each layer it **seeds** the unknowns (top dept
 - **the inner Newton iteration** is fully vectorized — each iteration is the `jacrev` + `torch.linalg.solve` over the $n_{\rm equa}$ unknowns, a handful of dense tensor ops; there is nothing scalar left in it;
 - **the outer depth loop stays a loop in this implementation.** Each depth is physically local, but depth $j$ is seeded from the *converged* solution of depth $j-1$ scaled by the pressure ratio $P_j/P_{j-1}$. That pressure-continuation warm start makes the stiff Newton solve robust; batching all 80 depths with naive cold seeds often diverges or slows dramatically. So we vectorize the iteration and **keep the depth loop** — the honest division of labour is: tensorize the independent per-depth Newton algebra, and retain the continuation loop that makes the solve reliable.
 
-**The precision honesty.** The accepted port runs the solve on **CPU in fp64** (`solve_device = cpu`, `solve_dtype = float64`), regardless of the notebook's device handle. The reason is exactly the stiffness: the $\sim$25-dex Jacobian and the difference-of-large-terms residual need fp64 to converge to the production answer. The autodiff Newton + column-scaled solve reaches the **same equilibrium** as the Fortran DEQ+SOLVIT, and in fp64 it matches to machine precision; the MPS-fp32 budget is documented but the stiff inner solve is not the fp32 path. This is the same `GATED`-on-precision lesson the atmosphere lectures carry. The kernel is transcribed verbatim from the accepted port.""")
+**The precision honesty.** The accepted port runs the solve on **CPU in fp64** (`solve_device = cpu`, `solve_dtype = float64`), regardless of the notebook's device handle. The reason is exactly the stiffness: the $\sim$25-dex Jacobian and the difference-of-large-terms residual need fp64 to converge to the production answer. The autodiff Newton + column-scaled solve reaches the **same equilibrium** as the Fortran DEQ+SOLVIT, and in fp64 it matches to the float64 floor; the MPS-fp32 budget is documented but the stiff inner solve is not the fp32 path. This is the same `GATED`-on-precision lesson the atmosphere lectures carry. The kernel is transcribed verbatim from the accepted port.""")
 
 code(r'''def nmolec_solve(T, gas_pressure, electron_density, xabund,
                  nummol, code_mol, equil, locj, kcomps, idequa, nequa, equilj_ion):
@@ -545,7 +545,7 @@ code(r'''def _nmolec_driver(struct, ne, log_equilj, ed_np, xabund_np, gp_np, T_n
 
 print("_nmolec_driver (the warm-start depth loop) ready")''')
 
-md(r"""Run the solver. The 80-depth solve takes a few seconds — each depth's stiff Newton converges in a handful of warm-started iterations. We will benchmark the result against the inline NumPy twin and the ground truth in the next cells.""")
+md(r"""Run the solver. The 80-depth solve takes a few seconds — each depth's stiff Newton converges in a handful of warm-started iterations. We will benchmark the result against the inline fp64 reference and the ground truth in the next cells.""")
 
 code(r'''t0 = time.time()
 xnatom, xnmol, xnz, electron = nmolec_solve(
@@ -556,11 +556,13 @@ print(f"coupled equilibrium solved at all {n_layers} depths in {time.time()-t0:.
 print("shapes:", tuple(xnatom.shape), tuple(xnmol.shape), tuple(xnz.shape), tuple(electron.shape))''')
 
 # ── PART 1 comparison: inline numpy twin ─────────────────────────────────────
-md(r"""### Benchmark: the torch equilibrium solver against the NumPy twin and pykurucz
+md(r"""### Benchmark: the torch equilibrium solver against the inline fp64 reference and pykurucz
 
-This is the per-part check that defines the GPU edition's equilibrium section. We validate the torch `nmolec_solve` two ways: against the **inline NumPy twin** (the production reference solver — SOLVIT Gauss–Jordan with hand-coded `DEQ` and the double-double residual — transcribed from `verify_nmolec.py`, the parity oracle) and against the shipped **ground truth** `nmolec_groundtruth.npz`. Both validate the *same* converged equilibrium, reached by two different algorithms (autodiff-Newton + column-scaled solve vs hand-DEQ + complete-pivot SOLVIT) — which is the strong test that the torch recasting is correct, not merely self-consistent. First the inline NumPy twin's SOLVIT and helpers.""")
+This is the per-part equilibrium check. We validate the torch `nmolec_solve` two ways: against the **inline fp64 reference** (the production reference solver — SOLVIT Gauss–Jordan with hand-coded `DEQ` and the double-double residual — transcribed from `verify_nmolec.py`, the parity oracle) and against the shipped **ground truth** `nmolec_groundtruth.npz`. Both validate the *same* converged equilibrium, reached by two different algorithms (autodiff-Newton + column-scaled solve vs hand-DEQ + complete-pivot SOLVIT) — which is the strong test that the torch recasting is correct, not merely self-consistent.
 
-code(r'''# --- the NumPy twin: SOLVIT (complete-pivoting Gauss-Jordan) + damping helpers; the parity oracle ---
+The comparison path starts with the reference linear solver. `solvit` is the complete-pivot Gauss-Jordan solve used by the scalar reference; it is intentionally kept separate from the damping helpers that follow so the parity oracle is easier to audit.""")
+
+code(r'''# --- the inline fp64 reference: SOLVIT (complete-pivoting Gauss-Jordan); the parity oracle ---
 def solvit(a2d, n, b):
     """Solve a2d @ x = b by Gauss-Jordan with COMPLETE pivoting (the production reference)."""
     a = np.asarray(a2d, dtype=np.float64, order="F")   # numpy-ref
@@ -599,6 +601,11 @@ def solvit(a2d, n, b):
                 l1l += n; icl += n; a_work[l1l] = a_work[l1l] - a_work[icl] * t
             b_work[l1] = b_work[l1] - b_work[icolum] * t
     return b_work[1:]
+print("fp64 reference: SOLVIT ready")''')
+
+md(r"""The next two helpers reproduce the scalar reference's damping arithmetic. `_stable_subtract` avoids losing the step when two large nearby numbers are subtracted, and `_ratio_pp` measures the step size without overflowing.""")
+
+code(r'''# --- fp64 reference damping helpers ---
 
 def _stable_subtract(a, b):
     a = float(a); b = float(b)
@@ -614,7 +621,9 @@ def _ratio_pp(num, den):
     try: return float(abs(np.ldexp(mant, exp)))   # numpy-ref
     except (OverflowError, OSError): return float(np.inf)   # numpy-ref
 
-print("NumPy twin: solvit + damping helpers ready")''')
+print("fp64 reference: damping helpers ready")''')
+
+md(r"""Now the full scalar NMOLEC reference. It is deliberately left as one function: the Newton residual, hand-coded Jacobian, complete-pivot solve, and damped update share local state inside each depth iteration. Splitting through that loop would hide the algorithm rather than clarify it.""")
 
 code(r'''def nmolec_solve_numpy():
     """The production NMOLEC reference: hand-coded DEQ + complete-pivot SOLVIT, in pure NumPy."""
@@ -712,7 +721,7 @@ code(r'''def nmolec_solve_numpy():
 
 print("nmolec_solve_numpy (the inline reference solver) ready")''')
 
-md(r"""Run the NumPy twin, load the ground truth, and report `max|rel|` on the molecular densities, the neutral atoms, the electron density, and TiO specifically — both GPU-vs-twin and GPU-vs-truth. We assert below the documented float floor.""")
+md(r"""Run the inline fp64 reference, load the ground truth, and report `max|rel|` on the molecular densities, the neutral atoms, the electron density, and TiO specifically — both GPU-vs-twin and GPU-vs-truth. We assert below the documented float floor.""")
 
 code(r'''# the inline twin (the parity oracle) -- a second, independent algorithm for the same equilibrium
 xnatom_np, xnz_np, electron_np, xnmol_np = nmolec_solve_numpy()
@@ -728,7 +737,7 @@ xnmol_g = xnmol.detach().cpu().double().numpy()[:, :nummol]  # JUSTIFY: parity-o
 xnz_g   = xnz.detach().cpu().double().numpy()[:, :nequa]  # JUSTIFY: parity-oracle boundary
 xnatom_g = xnatom.detach().cpu().double().numpy(); electron_g = electron.detach().cpu().double().numpy()  # JUSTIFY: parity-oracle boundary
 
-print("GPU torch nmolec_solve  vs  inline NumPy twin (two algorithms, same equilibrium):")
+print("GPU torch nmolec_solve  vs  inline fp64 reference (two algorithms, same equilibrium):")
 compare("all molecular densities", xnmol_g, xnmol_np[:, :nummol])
 compare("neutral-atom densities ", xnz_g, xnz_np[:, :nequa])
 compare("electron density n_e   ", electron_g, electron_np)
@@ -744,7 +753,7 @@ print(f"\nNMOLEC max relative error = {worst:.3e}   floor = {floor:.0e}   ->",
       "[PASS]" if worst < floor else "[CHECK]")
 assert worst < floor, f"coupled solve deviates by {worst:.2e}, above the float floor {floor:.0e}"''')
 
-md(r"""**What the number means.** The GPU `nmolec_solve` matches both the inline NumPy twin and pykurucz to a $\sim10^{-13}$ **float64 non-associativity floor** — not a physics error. The two algorithms are genuinely different (autodiff-Newton + column-scaled `torch.linalg.solve` vs hand-DEQ + complete-pivot SOLVIT), yet they converge to the *same* equilibrium, which is the strong evidence that the GPU recasting is correct in general, not tuned to the test case. The residual is the order of floating-point additions: two mathematically identical sums in different instruction orders disagree at the $10^{-16}$ level per op, compounded over up to 200 Newton iterations across 80 depths. The molecular formation constants $K_f(T)$ themselves we already checked bit-exact.
+md(r"""**What the number means.** The torch `nmolec_solve` matches both the inline fp64 reference and pykurucz to a $\sim10^{-13}$ **float64 non-associativity floor** — not a physics error. The two algorithms are genuinely different (autodiff-Newton + column-scaled `torch.linalg.solve` vs hand-DEQ + complete-pivot SOLVIT), yet they converge to the *same* equilibrium, which is the strong evidence that the torch recasting is correct in general, not tuned to the test case. The residual is the order of floating-point additions: two mathematically identical sums in different instruction orders disagree at the $10^{-16}$ level per op, compounded over up to 200 Newton iterations across 80 depths. The molecular formation constants $K_f(T)$ themselves we already checked bit-exact.
 
 **The vectorization lesson, paid in full.** Part 1 is the book's clearest illustration of *vectorize-what-is-independent, loop-over-what-is-sequential*. The inner Newton iteration became dense tensor algebra — an **autodiff `jacrev` Jacobian** in place of the hand-coded `DEQ`, a **branchless log-space residual** built from the precomputed incidence structure, a **column-scaled `torch.linalg.solve`** conditioning the $\sim$25-dex Jacobian in one LAPACK call rather than a scalar elimination loop. The depth loop **stayed a loop**, because the warm-start chain is a real sequential dependency a cold-started batch solve cannot replace. And we ran the stiff solve in **fp64 on CPU** — honest about the precision the equilibrium needs.""")
 
@@ -776,7 +785,7 @@ md(r"""## Part 2 — Molecular continuous opacity
 
 A warm star's continuum is H$^-$ — bound-free and free-free absorption by the negative hydrogen ion (Lecture 3). That source weakens in a cool dwarf (less ionisation means fewer free electrons to make H$^-$), while molecular continuum terms become important. In the **blue and ultraviolet**, the CH and OH radicals add true **bound-free** continuous absorption — molecular photodissociation, in which a photon energetic enough to break the bond ejects the molecule into unbound fragments (CH$\,+\,h\nu \rightarrow$ C$\,+\,$H). Because the final state is a continuum of relative energies, the cross-section is smooth rather than a forest of lines. In the **near-infrared**, where an M dwarf radiates much of its luminosity, the dominant *molecular* continuum source included here is **collision-induced absorption by molecular hydrogen** (H$_2$-CIA). A lone H$_2$ is symmetric with no permanent dipole, so its transitions are electric-dipole forbidden; but during a collision (two H$_2$, or H$_2$+He) the transient pair has an **induced dipole** for the femtoseconds of the encounter, and that dipole-allowed channel is the strong absorber. At fixed temperature and composition, because two particles must meet, the *volume* coefficient scales as density-squared; expressed as a mass opacity it grows about linearly. We build all three molecular terms (CHOP, OHOP, H$_2$-CIA) from the atmosphere state and Borysow tables.
 
-**The GPU shape of Part 2.** Unlike Part 1, there is no sequential dependency here — each opacity is a direct table interpolation, independent at every depth and frequency. So the entire continuum is one **fully vectorized, depth-batched `[D, F]` tensor computation**: where the NumPy edition looped over frequency and over depth inside each species function (a double Python loop), the GPU evaluates the whole $[80, 600]$ grid at once. Every band-index bracket, table gather, and bilinear interpolation is a batched tensor op, and the inactive-region cutoffs ($T \ge 9000$ K, energy outside the band, wavenumber $> 20000$ cm$^{-1}$) are branchless `torch.where` masks. This runs fp32 on the GPU at the $\sim10^{-7}$ floor.""")
+**The tensor shape of Part 2.** Unlike Part 1, there is no sequential dependency here — each opacity is a direct table interpolation, independent at every depth and frequency. So the continuum becomes one **depth-batched `[D, F]` tensor computation**: instead of looping over frequency and over depth inside each species function, torch evaluates the whole $[80, 600]$ grid at once. Every band-index bracket, table gather, and bilinear interpolation is a batched tensor op, and the inactive-region cutoffs ($T \ge 9000$ K, energy outside the band, wavenumber $> 20000$ cm$^{-1}$) are branchless `torch.where` masks. This runs fp32 on the GPU at the $\sim10^{-7}$ floor.""")
 
 md(r"""### Loading the continuum inputs and the coefficient tables
 
@@ -818,7 +827,7 @@ print("continuum constants + device adapters ready")''')
 
 md(r"""### CH and OH continuous opacity (CHOP / OHOP): the frequency-row interpolation
 
-CHOP and OHOP share one structure, so the port factors it into `_band_frequency_rows`: given the whole frequency grid it forms the photon energy in eV, computes the band-energy index branchlessly (`_trunc_i64(ev*10)` with a per-species shift — CH starts at 0.2 eV, OH at 2.1 eV), brackets the cross-section table in energy, and **gathers two adjacent table rows and linearly interpolates** them — `lo + (hi - lo)*frac` — for *every* frequency at once. The inactive region (energy outside the band) is zeroed by a `torch.where` over the `valid` mask, not skipped by a Python `if/return`. This is the loop-over-frequency of the NumPy edition collapsed into one batched gather + interpolation. Transcribed verbatim.""")
+CHOP and OHOP share one structure, so the port factors it into `_band_frequency_rows`: given the whole frequency grid it forms the photon energy in eV, computes the band-energy index branchlessly (`_trunc_i64(ev*10)` with a per-species shift — CH starts at 0.2 eV, OH at 2.1 eV), brackets the cross-section table in energy, and **gathers two adjacent table rows and linearly interpolates** them — `lo + (hi - lo)*frac` — for *every* frequency at once. The inactive region (energy outside the band) is zeroed by a `torch.where` over the `valid` mask, not skipped by a Python `if/return`. This collapses the loop over frequency into one batched gather + interpolation. Transcribed verbatim.""")
 
 code(r'''def _band_frequency_rows(freq, cross_table, species):
     """Interpolate the CH/OH cross-section table in PHOTON ENERGY for all frequencies at once."""
@@ -961,11 +970,13 @@ print(f"molecular continuum computed over the {nlc}x{nfreq} grid in {time.time()
       f"(device {DEVICE.type})")''')
 
 # ── PART 2 comparison ────────────────────────────────────────────────────────
-md(r"""### Benchmark: the GPU continuum against the NumPy twin
+md(r"""### Benchmark: the torch continuum against the inline fp64 reference
 
-We validate the torch `mol_continuum` against the inline NumPy twin (the scalar reference from `verify_mol_continuum.py` — CHOP/OHOP/H2COLLOP with their Python frequency loops — the parity oracle) and against the shipped ground truth, reporting `max|rel|` on chop, ohop, h2cia, and the total. First the scalar NumPy twin.""")
+We validate the torch `mol_continuum` against the inline fp64 reference (the scalar reference from `verify_mol_continuum.py` — CHOP/OHOP/H2COLLOP with their Python frequency loops — the parity oracle) and against the shipped ground truth, reporting `max|rel|` on chop, ohop, h2cia, and the total.
 
-code(r'''# --- the NumPy twin: scalar CHOP/OHOP/H2COLLOP, the parity oracle ---
+First we prepare the scalar reference tables and the shared thermodynamic factors. The CH/OH cross-section helper and the H$_2$-CIA helper are defined in separate cells below because they are independent pieces of physics.""")
+
+code(r'''# --- the inline fp64 reference: scalar CHOP/OHOP/H2COLLOP, the parity oracle ---
 temp_np = mc["temperature"].astype(float); rho_np = mc["mass_density"].astype(float)
 xnfph1_np = mc["xnfph1"].astype(float); bhyd1_np = mc["bhyd1"].astype(float)
 xnfhe1_np = mc["xnfhe1"].astype(float); xnfpch_np = mc["xnfpch"].astype(float)
@@ -978,6 +989,11 @@ stim_np = 1.0 - np.exp(-H_PLANCK * freq[None, :] / (K_BOLTZ * temp_np[:, None]))
 _poly_t = (1.63660e-3 + (-4.93992e-7 + (1.11822e-10 + (-1.49567e-14
            + (1.06206e-18 - 3.08720e-23 * temp_np) * temp_np) * temp_np) * temp_np) * temp_np) * temp_np
 XNH2_np = (xnfph1_np * 2.0 * bhyd1_np) ** 2 * np.exp(np.clip(4.478 / tkev_np - 46.4584 + _poly_t - 1.5 * tlog_np, -100, 100))
+print("fp64 reference: continuum tables and thermodynamic factors ready")''')
+
+md(r"""The CH/OH reference helper is the scalar version of the same table interpolation used by the torch path: choose the photon-energy bracket, interpolate the cross-section table, then interpolate the partition function and temperature row at each depth.""")
+
+code(r'''# --- fp64 reference: scalar CHOP/OHOP band interpolation ---
 
 def _band_xsect_np(freq_scalar, CROSS, PART, n_off, idx_off, en_off, n_lo, n_hi, idx_hi):
     out = np.zeros(temp_np.size); wn = freq_scalar / C_LIGHT_CM; ev = wn / 8065.479   # numpy-ref
@@ -995,6 +1011,11 @@ def _band_xsect_np(freq_scalar, CROSS, PART, n_off, idx_off, en_off, n_lo, n_hi,
         log_x = cross[it_c] + (cross[it_c + 1] - cross[it_c]) * (tj - tn_c) / 500.0
         out[j] = np.exp(log_x * LN10) * part   # numpy-ref
     return out
+print("fp64 reference: scalar CHOP/OHOP helper ready")''')
+
+md(r"""The H$_2$-CIA helper is the scalar Borysow-table lookup: interpolate in wavenumber, then in temperature, and multiply by the H$_2$ and He perturber densities.""")
+
+code(r'''# --- fp64 reference: scalar H2 collision-induced absorption ---
 
 def h2cia_np(freq_scalar, stim_col):
     out = np.zeros(temp_np.size); wn = freq_scalar / C_LIGHT_CM   # numpy-ref
@@ -1011,9 +1032,9 @@ def h2cia_np(freq_scalar, stim_col):
         out[j] = (10.0 ** xh2he * xnfhe1_np[j] + 10.0 ** xh2h2 * XNH2_np[j]) * XNH2_np[j] / rho_np[j] * stim_col[j]
     return out
 
-print("NumPy twin: scalar CHOP/OHOP/H2COLLOP ready")''')
+print("fp64 reference: scalar H2-CIA helper ready")''')
 
-code(r'''# numpy-ref: assemble the NumPy-twin reference arrays (the parity targets) over the frequency grid
+code(r'''# numpy-ref: assemble the fp64-reference reference arrays (the parity targets) over the frequency grid
 chop_ref = np.zeros((nlc, nfreq)); ohop_ref = np.zeros((nlc, nfreq)); h2cia_ref = np.zeros((nlc, nfreq))
 for j in range(nfreq):   # numpy-ref: the scalar twin's frequency loop (the oracle, not the shipped torch path)
     f = freq[j]; stim_j = stim_np[:, j]
@@ -1024,7 +1045,7 @@ total_ref = chop_ref + ohop_ref + h2cia_ref
 
 # COMPARISON ONLY: pykurucz ground truth, never used in the computation
 truth = np.load(REF / "mol_continuum_truth.npz")
-print("GPU torch mol_continuum  vs  inline NumPy twin:")
+print("GPU torch mol_continuum  vs  inline fp64 reference:")
 compare("CHOP   (CH)     ", chop, chop_ref, tol=1e-6, floor=0.0)
 compare("OHOP   (OH)     ", ohop, ohop_ref, tol=1e-6, floor=0.0)
 compare("H2-CIA (Borysow)", h2cia, h2cia_ref, tol=1e-6, floor=0.0)
@@ -1041,7 +1062,7 @@ print(f"\nmolecular continuum max relative error = {worst_c:.3e}   floor = {floo
       "[PASS]" if worst_c < floor_c else "[CHECK]")
 assert worst_c < floor_c, f"continuum deviates by {worst_c:.2e}, above the float floor {floor_c:.0e}"''')
 
-md(r"""**What the number means.** The GPU `mol_continuum` matches both the NumPy twin and pykurucz to $\sim6\times10^{-8}$ (fp32 on MPS) — single-precision round-off of the table interpolation and the exponentiation, *not* a physics difference. On a CPU/fp64 run it is bit-exact, as the NumPy edition is. The branchless `torch.where` band cutoffs select the same active region as the scalar `if/return`, the flat-gather table reads reproduce the same bilinear interpolation, and the whole $[80, 600]$ grid is evaluated in one vectorized pass where the NumPy edition ran a double Python loop over frequency and depth.""")
+md(r"""**What the number means.** The torch `mol_continuum` matches both the inline fp64 reference and pykurucz to $\sim6\times10^{-8}$ (fp32 on MPS) — single-precision round-off of the table interpolation and the exponentiation, *not* a physics difference. On a CPU/fp64 run it is bit-exact. The branchless `torch.where` band cutoffs select the same active region as the scalar `if/return`, the flat-gather table reads reproduce the same bilinear interpolation, and the whole $[80, 600]$ grid is evaluated in one vectorized pass instead of a double Python loop over frequency and depth.""")
 
 md(r"""### H$_2$-CIA is the dominant molecular near-infrared continuum here
 
@@ -1068,7 +1089,7 @@ ax.plot(wl_nm, h2cia_g[jdeep], label="H$_2$-CIA (Borysow)")
 ax.plot(wl_nm, total_g[jdeep], "k--", lw=0.9, label="molecular total")
 ax.set_yscale("log"); ax.set_xlabel("wavelength [nm]")
 ax.set_ylabel("molecular continuum opacity [cm$^2$/g]")
-ax.set_title(f"Molecular continuum (GPU), $T_{{\\rm eff}}=3500$ K dwarf, deep layer T = {temp_c[jdeep]:.0f} K")
+ax.set_title(f"Molecular continuum, $T_{{\\rm eff}}=3500$ K dwarf, deep layer T = {temp_c[jdeep]:.0f} K")
 ax.set_ylim(1e-12, None); ax.legend()
 fig.tight_layout(); plt.show()''')
 
@@ -1081,7 +1102,7 @@ The two halves of this lecture are the two pieces Lecture 12 took on credit, now
 
 **The chemistry is coupled, and we vectorized exactly the right part of it.** A single formation constant $K_f(T)$ gives one molecule's density *if* you already know the free-atom densities — but you do not, because every element is shared among competing molecules and $n_e$ feeds back through negative ions. The honest object is the coupled system: a total-particle/pressure closure, one nuclei-conservation equation per element, charge balance, every molecule's mass-action term. We solved it the production way — Newton–Raphson with damping — but recast the solver into its torch form: the **inner Newton iteration** became dense tensor algebra, with an **autodiff `jacrev` Jacobian** replacing the hand-coded `DEQ`, a **branchless log-space residual** built from a precomputed incidence structure, and a **column-scaled `torch.linalg.solve`** conditioning the $\sim$25-dex Jacobian in one LAPACK call instead of SOLVIT's scalar elimination loop. The **depth loop stayed a loop** because this implementation uses the converged previous depth as a warm start; the depths are physically local, but the continuation strategy is robust. That division — *vectorize what is independent, keep the continuation loop that makes the stiff solve converge* — is the lecture's central GPU lesson, and we were honest about the precision: the stiff solve runs in **fp64 on CPU**, the reference path, where the autodiff Newton reaches the same equilibrium as the Fortran DEQ+SOLVIT to a $\sim10^{-13}$ float64 floor.
 
-**The continuum is molecular, and fully vectorizes.** A cool dwarf's continuum is not the Sun's H$^-$. CH and OH add bound-free photodissociation absorption in the blue; H$_2$ collision-induced absorption — a transient collision complex with an induced dipole — dominates the *molecular* near-infrared continuum from 1 to 2.2 $\mu$m in this model. With no sequential dependency, the entire continuum is one fully vectorized depth-batched `[80, 600]` tensor computation: every band-index bracket, table gather, and bilinear interpolation a batched op, every inactive-region cutoff a branchless `torch.where`. It runs fp32 on the GPU and matches the NumPy twin to $\sim6\times10^{-8}$.
+**The continuum is molecular, and vectorizes cleanly.** A cool dwarf's continuum is not the Sun's H$^-$. CH and OH add bound-free photodissociation absorption in the blue; H$_2$ collision-induced absorption — a transient collision complex with an induced dipole — dominates the *molecular* near-infrared continuum from 1 to 2.2 $\mu$m in this model. With no sequential dependency, the continuum becomes one depth-batched `[80, 600]` tensor computation: every band-index bracket, table gather, and bilinear interpolation a batched op, every inactive-region cutoff a branchless `torch.where`. It runs fp32 on the GPU and matches the inline fp64 reference to $\sim6\times10^{-8}$.
 
 With these in hand, the cool-star molecular physics is no longer just quoted from the reference. The remaining integration boundary is stated plainly: this continuum cell still consumes reference atmosphere-state populations for parity, and the full capstone must wire those state producers into the synthesis path. **Lecture 14** assembles every component built so far — the equation of state, the continuum, the atomic and hydrogen and helium lines, these molecular bands and continuum, and the JOSH transfer — into one lean synthesiser and runs the **emergent spectrum end to end** across stars spanning the HR diagram.""")
 
@@ -1091,7 +1112,7 @@ md(r"""## Summary
 - **The Newton iteration vectorizes; the depth loop is retained for robust continuation.** At one depth the step is an **autodiff (`jacrev`) Jacobian** + a **column-scaled `torch.linalg.solve`** over the $n_{\rm equa}$ unknowns, with the residual built **branchlessly in log space** from a precomputed incidence structure (`MolStructure`). The depth loop **stays a loop** because depth $j$ is warm-started from converged depth $j-1$; that is a numerical convergence strategy, not a physical cross-depth coupling.
 - **Autodiff replaces the hand-coded Jacobian.** `jacrev` differentiates the implemented residual, so the Jacobian cannot drift out of sync with that model away from clamps/masks; column scaling conditions the $\sim$25-dex Jacobian in one LAPACK call and plays a similar stabilizing role to the legacy pivoting strategy for this validated system.
 - **Precision honesty.** The stiff coupled solve runs in **fp64 on CPU** (the reference path); it reaches the same equilibrium as the production Fortran DEQ+SOLVIT to a $\sim10^{-13}$ float64 non-associativity floor, with $K_f(T)$ **bit-exact**.
-- **The molecular continuum fully vectorizes.** **CH** (CHOP) and **OH** (OHOP) photodissociation and **H$_2$-CIA** (Borysow) are one depth-batched `[80, 600]` table interpolation, all cutoffs branchless; it runs fp32 on the GPU and matches the twin to $\sim6\times10^{-8}$.
+- **The molecular continuum vectorizes cleanly.** **CH** (CHOP) and **OH** (OHOP) photodissociation and **H$_2$-CIA** (Borysow) are one depth-batched `[80, 600]` table interpolation, all cutoffs branchless; it runs fp32 on the GPU and matches the twin to $\sim6\times10^{-8}$.
 - **H$_2$-CIA dominates the molecular continuum from 1 to 2.2 $\mu$m in this model**, overlapping much of the M dwarf's emergent flux — a two-body induced-dipole process whose *volume* coefficient goes as density-squared at fixed temperature and composition (the mass opacity, $\div\rho$, then rises only about linearly).""")
 
 md(r"""## Practice exercises
@@ -1100,7 +1121,7 @@ md(r"""## Practice exercises
 
 **2. The depth loop really is sequential.** Modify `_nmolec_driver` to **cold-seed every depth** (use the $j=0$ seed at all depths instead of the warm-start `xn_prev_conv * ratio`). Watch the deep, stiff layers take far more iterations — or fail to converge in 200 — and time the slowdown. This is the experiment that justifies keeping the depth loop: the warm-start chain is load-bearing.
 
-**3. Autodiff vs hand-DEQ.** Pick one depth and one iteration. Print the `jacrev` Jacobian `J` and the NumPy twin's hand-coded `DEQ` for the same state. Confirm they agree to fp64 round-off away from clamps/masks — the autodiff Jacobian is the derivative of the implemented residual.
+**3. Autodiff vs hand-DEQ.** Pick one depth and one iteration. Print the `jacrev` Jacobian `J` and the inline fp64 reference's hand-coded `DEQ` for the same state. Confirm they agree to fp64 round-off away from clamps/masks — the autodiff Jacobian is the derivative of the implemented residual.
 
 **4. Column scaling matters.** In `_newton_step`, drop the column scaling (solve `J @ d = eq` directly) and re-run the solve. Watch the residual stall or the populations degrade at the depths where the Jacobian's dynamic range is widest. Explain how scaling by $|x_n|$ stabilizes the differently scaled unknowns, and how that differs from SOLVIT's complete pivoting.
 

@@ -112,7 +112,7 @@ Nothing reads the opacity answer: the continuum and line opacity are *computed* 
 
 **The radiative transfer, computed from scratch, every star.** The book's own JOSH moment solver (Lecture 8) carries that from-scratch opacity to the surface for all four stars — the same float32 Gauss–Seidel scattering iteration the production code uses. The *thermal* source for true absorption is the LTE Planck function $B_\nu(T)$, which we compute inline from the temperature, not read; the total source function the solver converges to is $S=(1-\alpha)B_\nu+\alpha J_\nu$, the thermal Planck term plus the coherent-scattering term that couples to the mean intensity $J_\nu$ through the JOSH iteration.
 
-**The model atmosphere, from scratch for the Sun.** The solar structure is the line-blanketed Part-VI atmosphere: the real solar model, with the blanket switched on and the full per-iteration state built in Lectures 15–16. Its deep base is `RHOX = 12.1439` in the pykurucz reference, and the independent from-scratch fixed point documented in Part VI / passdown sits in the same 12.3-class regime; the stale continuum-only `RHOX = 10.5` capstone state is no longer used. We also run the book's own temperature-correction *operator* — inlined here — from the grey-start reference step to match the production code's single step to $\sim10^{-9}$. For the other three stars the grey start does **not** converge — and we document exactly why, falling back to the production emulator's warm-start atmosphere for those.
+**The model atmosphere boundary.** The solar structure consumed by this capstone is the line-blanketed Part-VI atmosphere: the real solar model, with the blanket switched on and the full per-iteration state built and audited in Lectures 15–16, then loaded here as the solar atmosphere input. Its deep base is `RHOX = 12.1439` in the pykurucz reference, and the independent from-scratch fixed point documented in Part VI / passdown sits in the same 12.3-class regime; the stale continuum-only `RHOX = 10.5` capstone state is no longer used. We also run the book's own temperature-correction *operator* — inlined here — from the grey-start reference step to match the production code's single step to $\sim10^{-9}$. For the other three stars the grey start does **not** converge — and we document exactly why, falling back to the production emulator's warm-start atmosphere for those.
 
 **The one stage still given (the atmosphere structure, for three stars) — and why it is *not* the opacity.** Self-driving the grey$\rightarrow$converged loop from a cold start needs, each iteration, the full multi-element population dictionary *finite-differenced* with respect to temperature and pressure to provide the thermodynamic derivatives, such as specific heat and the adiabatic gradient, that the convection step requires. Lectures 15–16 build that state for the solar line-blanketed atmosphere, so the Sun is no longer the old borrowed continuum-only structure. The hot dwarf, giant, and M dwarf remain warm-started structures in this capstone because their grey starts fail in the regimes printed below. That is a property of the convergence loop, not of the opacity: the opacity is computed from scratch on every atmosphere, converged or warm-started alike.""")
 
@@ -577,7 +577,9 @@ def hydrogen_partition(temp):
         U += H_STAT_WEIGHT[i] * np.exp(-H_ENERGY_EV[i] / kt)
     return U''')
 
-md(r"""Now the engine itself. `compute_kapp` takes a frequency array and the population dictionary `pops`, and returns the continuum absorption `acont` and the scattering `sigmac`, each `(n_layers, nfreq)`. Read it block by block — each block is one continuum source from Lecture 3, evaluated from its population times its cross-section, summed at the end into `acont` (true absorption) and `sigmac` (scattering). The departure coefficients (`bhyd`, `bmin`, …) are all unity in LTE, exactly as the model assumes.""")
+md(r"""Now the engine itself. `compute_kapp` takes a frequency array and the population dictionary `pops`, and returns the continuum absorption `acont` and the scattering `sigmac`, each `(n_layers, nfreq)`. Read it block by block — each block is one continuum source from Lecture 3, evaluated from its population times its cross-section, summed at the end into `acont` (true absorption) and `sigmac` (scattering). The departure coefficients (`bhyd`, `bmin`, …) are all unity in LTE, exactly as the model assumes.
+
+This cell is intentionally still a single function definition. The continuum terms share the same local thermodynamic arrays (`stim`, `bnu`, `rho`, population slices, and departure coefficients), and splitting the body across cells would either duplicate those arrays or obscure the accumulation. The short cells above isolate the reusable lookup routines; this cell is the one long ledger where the absorbers are added.""")
 
 code(r'''def compute_kapp(freq, pops, ifop):
     """Reproduce kapp.compute_kapp_continuum for the given frequency array.
@@ -1109,7 +1111,53 @@ code(r'''def continuum_on_grid(d, ifop):
 # ══════════════════════════════════════════════════════════════════════════════
 md(r"""## Step 3 (continued) — the molecular continuum (cool stars)
 
-For completeness we also inline the cool-star **molecular continuum** of Lecture 13 — CH (CHOP), OH (OHOP), and H$_2$ collision-induced absorption — computed from the CH/OH populations and the H ground state plus the shipped Borysow/CH/OH tables. We include it so the assembly is complete and the gating is honest. In the four visible/red windows of this lecture it is **negligible** ($<3\times10^{-6}$ of the continuum) and is *not* folded into the production diagnostic we compare against, so the component gate below leaves it off the end-to-end sum for all four stars; including it here would break parity with that specific production diagnostic, which gates it off for these windows. It is verified bit-exact on its own in Lecture 13.""")
+For completeness we also inline the cool-star **molecular continuum** of Lecture 13 — CH (CHOP), OH (OHOP), and H$_2$ collision-induced absorption — computed from the CH/OH populations and the H ground state plus the shipped Borysow/CH/OH tables. We include it so the assembly is complete and the gating is honest. In the four visible/red windows of this lecture it is **negligible** ($<3\times10^{-6}$ of the continuum) and is *not* folded into the production diagnostic we compare against, so the component gate below leaves it off the end-to-end sum for all four stars; including it here would break parity with that specific production diagnostic, which gates it off for these windows. It is verified bit-exact on its own in Lecture 13.
+
+The helper cells separate the three physical lookups from the driver: CH and OH bound-free table interpolation first, H$_2$-CIA second, then the short loop that assembles the opacity grid.""")
+
+code(r'''def _molc_band_xU(fscalar, T, CROSS, PART, n_off, idx_off, en_off, n_lo, n_hi, idx_hi):
+    """Scalar CH/OH bound-free table interpolation for one frequency, all depths."""
+    out = np.zeros(T.size)
+    wn = fscalar / C_LIGHT_CM; ev = wn / 8065.479
+    n = int(ev * 10) - n_off
+    if n <= n_lo or n >= n_hi:
+        return out
+    en = n * 0.1 + en_off; idx = n - idx_off
+    if idx < 0 or idx >= idx_hi:
+        return out
+    cross = CROSS[idx] + (CROSS[idx + 1] - CROSS[idx]) * (ev - en) / 0.1
+    for j in range(T.size):
+        tj = T[j]
+        if tj >= 9000.0:
+            continue
+        it_p = max(0, min(int((tj - 1000.0) / 200.0), 39)); tn_p = it_p * 200.0 + 1000.0
+        part = PART[it_p] + (PART[it_p + 1] - PART[it_p]) * (tj - tn_p) / 200.0
+        it_c = max(0, min(int((tj - 2000.0) / 500.0), 13)); tn_c = it_c * 500.0 + 2000.0
+        log_x = cross[it_c] + (cross[it_c + 1] - cross[it_c]) * (tj - tn_c) / 500.0
+        out[j] = np.exp(log_x * LN10) * part
+    return out''')
+
+md(r"""H$_2$-CIA is a separate Borysow lookup: interpolate the H$_2$-H$_2$ and H$_2$-He tables in wavenumber, interpolate in temperature at each depth, and scale by the collider densities and stimulated-emission factor.""")
+
+code(r'''def _molc_h2cia(fscalar, stim_col, T, rho, XNH2, xnfhe1, H2H2, H2HE):
+    """Scalar H2 collision-induced absorption for one frequency, all depths."""
+    out = np.zeros(T.size)
+    wn = fscalar / C_LIGHT_CM
+    if wn > 20000.0:
+        return out
+    nu = min(79, int(wn / 250.0)); delnu = (wn - 250.0 * nu) / 250.0
+    idx1 = min(nu, 80); idx2 = min(nu + 1, 80)
+    h2h2_nu = H2H2[idx1] * delnu + H2H2[idx2] * (1.0 - delnu)
+    h2he_nu = H2HE[idx1] * delnu + H2HE[idx2] * (1.0 - delnu)
+    for j in range(T.size):
+        tj = T[j]
+        it = max(1, min(6, int(tj / 1000.0))); delt = max(0.0, min(1.0, (tj - 1000.0 * it) / 1000.0))
+        xh2h2 = h2h2_nu[it - 1] * delt + h2h2_nu[it] * (1.0 - delt)
+        xh2he = h2he_nu[it - 1] * delt + h2he_nu[it] * (1.0 - delt)
+        out[j] = (10.0 ** xh2he * xnfhe1[j] + 10.0 ** xh2h2 * XNH2[j]) * XNH2[j] / rho[j] * stim_col[j]
+    return out''')
+
+md(r"""The driver now has only the atmosphere/population setup and the frequency loop. It calls the three helpers above and returns the total molecular-continuum absorption grid.""")
 
 code(r'''def molecular_continuum(d):
     """CH (CHOP) + OH (OHOP) + H2 collision-induced absorption on the spectrum grid.
@@ -1137,76 +1185,17 @@ code(r'''def molecular_continuum(d):
     tlog = np.log(T)
     stim = 1.0 - np.exp(-H_PLANCK * freq[None, :] / (K_BOLTZ * T[:, None]))
 
-    def chop_xU(fscalar):
-        out = np.zeros(n_layers)
-        wn = fscalar / C_LIGHT_CM; ev = wn / 8065.479
-        n = int(ev * 10)
-        if n < 20 or n >= 105:
-            return out
-        en = n * 0.1; idx = n - 2
-        if idx < 0 or idx >= 104:
-            return out
-        cross = CH_CROSSSECT[idx] + (CH_CROSSSECT[idx + 1] - CH_CROSSSECT[idx]) * (ev - en) / 0.1
-        for j in range(n_layers):
-            tj = T[j]
-            if tj >= 9000.0:
-                continue
-            it_p = max(0, min(int((tj - 1000.0) / 200.0), 39)); tn_p = it_p * 200.0 + 1000.0
-            part = CH_PARTITION[it_p] + (CH_PARTITION[it_p + 1] - CH_PARTITION[it_p]) * (tj - tn_p) / 200.0
-            it_c = max(0, min(int((tj - 2000.0) / 500.0), 13)); tn_c = it_c * 500.0 + 2000.0
-            log_x = cross[it_c] + (cross[it_c + 1] - cross[it_c]) * (tj - tn_c) / 500.0
-            out[j] = np.exp(log_x * LN10) * part
-        return out
-
-    def ohop_xU(fscalar):
-        out = np.zeros(n_layers)
-        wn = fscalar / C_LIGHT_CM; ev = wn / 8065.479
-        n = int(ev * 10) - 20
-        if n <= 0 or n >= 130:
-            return out
-        en = n * 0.1 + 2.0; idx = n - 1
-        if idx < 0 or idx >= 129:
-            return out
-        cross = OH_CROSSSECT[idx] + (OH_CROSSSECT[idx + 1] - OH_CROSSSECT[idx]) * (ev - en) / 0.1
-        for j in range(n_layers):
-            tj = T[j]
-            if tj >= 9000.0:
-                continue
-            it_p = max(0, min(int((tj - 1000.0) / 200.0), 39)); tn_p = it_p * 200.0 + 1000.0
-            part = OH_PARTITION[it_p] + (OH_PARTITION[it_p + 1] - OH_PARTITION[it_p]) * (tj - tn_p) / 200.0
-            it_c = max(0, min(int((tj - 2000.0) / 500.0), 13)); tn_c = it_c * 500.0 + 2000.0
-            log_x = cross[it_c] + (cross[it_c + 1] - cross[it_c]) * (tj - tn_c) / 500.0
-            out[j] = np.exp(log_x * LN10) * part
-        return out
-
     poly_t = (1.63660e-3 + (-4.93992e-7 + (1.11822e-10 + (-1.49567e-14
               + (1.06206e-18 - 3.08720e-23 * T) * T) * T) * T) * T) * T
     exp_term = np.clip(4.478 / tkev - 46.4584 + poly_t - 1.5 * tlog, -100, 100)
     XNH2 = (xnfph1 * 2.0 * bhyd1) ** 2 * np.exp(exp_term)
 
-    def h2cia(fscalar, stim_col):
-        out = np.zeros(n_layers)
-        wn = fscalar / C_LIGHT_CM
-        if wn > 20000.0:
-            return out
-        nu = min(79, int(wn / 250.0)); delnu = (wn - 250.0 * nu) / 250.0
-        idx1 = min(nu, 80); idx2 = min(nu + 1, 80)
-        h2h2_nu = H2H2[idx1] * delnu + H2H2[idx2] * (1.0 - delnu)
-        h2he_nu = H2HE[idx1] * delnu + H2HE[idx2] * (1.0 - delnu)
-        for j in range(n_layers):
-            tj = T[j]
-            it = max(1, min(6, int(tj / 1000.0))); delt = max(0.0, min(1.0, (tj - 1000.0 * it) / 1000.0))
-            xh2h2 = h2h2_nu[it - 1] * delt + h2h2_nu[it] * (1.0 - delt)
-            xh2he = h2he_nu[it - 1] * delt + h2he_nu[it] * (1.0 - delt)
-            out[j] = (10.0 ** xh2he * xnfhe1[j] + 10.0 ** xh2h2 * XNH2[j]) * XNH2[j] / rho[j] * stim_col[j]
-        return out
-
     chop = np.zeros((n_layers, nfreq)); ohop = np.zeros((n_layers, nfreq)); cia = np.zeros((n_layers, nfreq))
     for j in range(nfreq):
         sj = stim[:, j]; f = freq[j]
-        chop[:, j] = chop_xU(f) * xnfpch / rho * sj
-        ohop[:, j] = ohop_xU(f) * xnfpoh / rho * sj
-        cia[:, j] = h2cia(f, sj)
+        chop[:, j] = _molc_band_xU(f, T, CH_CROSSSECT, CH_PARTITION, 0, 2, 0.0, 19, 105, 104) * xnfpch / rho * sj
+        ohop[:, j] = _molc_band_xU(f, T, OH_CROSSSECT, OH_PARTITION, 20, 1, 2.0, 0, 130, 129) * xnfpoh / rho * sj
+        cia[:, j] = _molc_h2cia(f, sj, T, rho, XNH2, xnfhe1, H2H2, H2HE)
     return chop + ohop + cia''')
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3721,12 +3710,13 @@ print("  COMPUTED here : the ENTIRE opacity (continuum KAPP + atomic/H/He lines 
 print("                  bands) from the EOS populations + line data, all 4 stars;")
 print("                  the radiative transfer (all stars); the LTE Planck source B_nu")
 print("                  (Note A); the atmosphere operator + its radiation pressure (Sun)")
-print("  GIVEN : the atmosphere STRUCTURE for 3 stars (emulator warm-start; the Sun is")
-print("          from scratch). EOS populations are the verified Lecture-2 state.")
+print("  GIVEN : atmosphere STRUCTURE for all 4 stars (Sun = Part-VI line-blanketed")
+print("          solar state; other 3 = emulator warm-start). EOS populations/Doppler")
+print("          state are verified inputs, not re-solved in this capstone.")
 print("  TARGET (read only to compare): the production opacity + emergent spectrum")
 print("=" * 84)''')
 
-md(r"""The table is the synthesis half's score. The **production-gated opacity** — continuum, atomic lines, hydrogen Stark wings, helium wings, and molecular bands active in this diagnostic, with molecular continuum computed but gated off as in the reference — is computed from scratch for every star from the verified equation-of-state populations and the line data, and the transfer carries it to the surface with its source function (the LTE Planck $B_\nu$) computed inline; both match the production code to the float floor. The temperature-correction operator is run from scratch for the Sun, with its radiation-pressure profile accumulated inline, and matches the production code's step to one part in $10^9$. Only the atmosphere *structure* is warm-started for three stars — and the tamper check below is the negative control that the Fe-line opacity is genuinely recomputed from its input population: perturb one population and the spectrum moves by a few parts in $10^3$, five orders of magnitude above the floor. The solar structure is the line-blanketed Part-VI state, not the stale continuum-only capstone bundle.""")
+md(r"""The table is the synthesis half's score. The **production-gated opacity** — continuum, atomic lines, hydrogen Stark wings, helium wings, and molecular bands active in this diagnostic, with molecular continuum computed but gated off as in the reference — is computed from scratch for every star from the verified equation-of-state populations and the line data, and the transfer carries it to the surface with its source function (the LTE Planck $B_\nu$) computed inline; both match the production code to the float floor. The temperature-correction operator is run from scratch for the Sun, with its radiation-pressure profile accumulated inline, and matches the production code's step to one part in $10^9$. The atmosphere structures themselves are inputs here: the Sun uses the line-blanketed Part-VI state, and the three non-solar stars use documented emulator warm starts. The tamper check below is the negative control that the Fe-line opacity is genuinely recomputed from its input population: perturb one population and the spectrum moves by a few parts in $10^3$, five orders of magnitude above the floor. The solar structure is not the stale continuum-only capstone bundle.""")
 
 # ── tamper check ────────────────────────────────────────────────────────────────
 md(r"""## The tamper check (negative control)
@@ -3780,13 +3770,13 @@ This lecture closed the **synthesis** loop — given an atmosphere and verified 
 
 We **ran the Sun's atmosphere operator from scratch** for a grey-reference step, with its radiation pressure accumulated inline from the JOSH flux moments, and reproduced the production single step to one part in $10^9$. The solar atmosphere consumed by the synthesis is the line-blanketed Part-VI state, with base `RHOX = 12.1439`; the hot dwarf, giant, and M dwarf do *not* converge from a grey start in this capstone run, each failing in a physically sensible way, so their *structures* are warm-started from the production emulator and documented. On every atmosphere we then **built the production-gated opacity from scratch** — the continuum (KAPP), the metal forest (ASYNTH), the hydrogen Stark wings (HPROF4), the helium wings, and the TiO bands — from the verified equation-of-state populations and the line data, and carried it to the surface with the book's own JOSH transfer and an inline LTE Planck source, matching the full production code to the single-precision float floor — $\sim10^{-8}$ for the Sun, giant, and M dwarf, and a broad $\sim10^{-7}$ for the hot dwarf, whose deep-hot-layer continuum residual lifts its whole window. A tamper check confirmed the Fe-line opacity depends on the supplied population: perturbing Fe I by 1% moves the spectrum by five orders of magnitude above the floor.
 
-The gallery showed the physics each star exercises — and each feature was *computed* here, not read: the Stark-broadened Balmer wing of the hot dwarf, the metal forest of the Sun, the narrow, pressure-sensitive Mg b lines of the low-gravity giant, the TiO band of the M dwarf. One set of engines, four stars, four kinds of spectrum — the differences entirely upstream, in which absorbers exist and how they are broadened and how the atmosphere is structured. And we drew the honest map: the opacity and transfer computed from scratch on every star, the atmosphere structure from scratch where it converges (the Sun) and warm-started where it does not, with the one named wall — the convergence loop's need for full equation-of-state thermodynamic derivatives — where a fully self-driving atmosphere stops; the 1D plane-parallel geometry; and above all the LTE assumption that underlies every population and begins to break down in the cores of strong lines and the thin outer layers of hot and luminous stars.
+The gallery showed the physics each star exercises — and each spectral feature's opacity was *computed* here, not read: the Stark-broadened Balmer wing of the hot dwarf, the metal forest of the Sun, the narrow, pressure-sensitive Mg b lines of the low-gravity giant, the TiO band of the M dwarf. One set of engines, four stars, four kinds of spectrum — the differences upstream, in which absorbers exist, how they are broadened, and which atmosphere structure is supplied. And we drew the honest map: the opacity and transfer computed from scratch on every star; the solar structure loaded from the line-blanketed Part-VI state; the other three structures warm-started; the loaded EOS/population/Doppler state named as an input; the 1D plane-parallel geometry; and above all the LTE assumption that underlies every population and begins to break down in the cores of strong lines and the thin outer layers of hot and luminous stars.
 
 **How this connects to the book's finale.** The book set out to rebuild a synthetic spectrum from first principles, benchmarked against a working production code to the documented floor of each stage — bit-exact where the arithmetic allows, the single-precision float floor where it does not — and the *synthesis half* now stands complete: for the Sun and for stars across the HR diagram, the opacity is computed from scratch on every one, in a single self-contained notebook.
 
-Part VI supplies the atmosphere half that this capstone points to. **Lecture 15** builds the line-deposit kernel and the line-blanketed Rosseland mean; **Lecture 16** builds the full per-iteration equation-of-state state — populations, Doppler widths, continuum-cutoff table, and convective heat capacity — so the line-blanketed convergence can run without using pykurucz as a hidden computed path. This capstone now consumes that solar state for the Sun and assembles the spectrum on top of it. The two halves meet cleanly: line-blanketed atmosphere in, from-scratch opacity and transfer out.
+Part VI supplies the atmosphere half that this capstone points to. **Lecture 15** builds the line-deposit kernel and the line-blanketed Rosseland mean, while **Lecture 16** builds and audits the per-iteration equation-of-state state — populations, Doppler widths, continuum-cutoff table, and convective heat-capacity samples — with its clean-room helper boundaries stated. This capstone consumes that solar state for the Sun and assembles the spectrum on top of it. The two halves meet cleanly at the current boundary: line-blanketed atmosphere and verified EOS state in, from-scratch opacity and transfer out.
 
-Two genuine frontiers lie *beyond* the book. **Breadth**: synthesising a full optical spectrum rather than representative windows is primarily a computational problem of compiled kernels and parallelism for the LTE components exercised here, though a full band would also test additional opacity gates and edge cases. And **depth**: relaxing LTE, replacing the Saha–Boltzmann populations with the coupled statistical-equilibrium solution, the real physics frontier. Both stand on the scaffold this book builds: a complete, verified, from-scratch stellar-atmosphere code, assembled one engine at a time.""")
+Two genuine frontiers lie *beyond* this capstone. **Breadth**: synthesising a full optical spectrum rather than representative windows is primarily a computational problem of compiled kernels and parallelism for the LTE components exercised here, though a full band would also test additional opacity gates and edge cases. And **depth**: relaxing LTE, replacing the Saha–Boltzmann populations with the coupled statistical-equilibrium solution, the real physics frontier. Both stand on the scaffold this book builds: verified atmosphere and synthesis engines, assembled one boundary at a time.""")
 
 # ── summary ─────────────────────────────────────────────────────────────────────────
 md(r"""## Summary
@@ -3795,9 +3785,9 @@ md(r"""## Summary
 - This **synthesis assembly** is **self-contained**: it imports only NumPy, Matplotlib, and `pathlib`, and **inlines the whole engine** — the JOSH transfer, the KAPP continuum, the ASYNTH metal kernel, the HPROF4 hydrogen-Stark engine, the helium wings, the TiO bands, and the temperature-correction operator — as a step-by-step walk-through, each engine's output feeding the next.
 - The **Sun's atmosphere is the line-blanketed Part-VI state**: base `RHOX = 12.1439`, base `T = 11425 K`, not the old continuum-only `RHOX \simeq 10.5` bundle. The book's own temperature-correction operator — run here for a grey-reference step, with its radiation pressure $\texttt{prad}$ integrated over column mass from the gradient $\tfrac{4\pi}{c}\sum_\nu\kappa_\nu H_\nu\,d\nu$ inline — reproduces the production single step to $\sim10^{-9}$ (T) and the table floor (RHOX).
 - The grey start does **not** converge for the **hot dwarf** (surface electron-density divergence), the **giant** (molecular-EOS assertion), or the **M dwarf** (no convergence in 50 iterations) — exactly the extremes a production emulator exists to warm-start. Those three use the emulator atmosphere, documented.
-- Run on **four stars across the HR diagram**, the synthesiser **computes each star's production-gated opacity from scratch** — continuum (L3), atomic lines (L5), hydrogen Stark wings (L6), helium wings, TiO bands (L12), with molecular continuum computed but gated off as in the reference diagnostic — from the verified equation-of-state populations and the line data, computes the **LTE Planck source $B_\nu$ inline**, carries it to the surface with the book's JOSH transfer, and reproduces every production spectrum to a **median $\lesssim10^{-9}$**, a **99th percentile $\sim10^{-8}$**, and a **maximum $\sim10^{-8}$** (the hot dwarf rides broadly at $\sim1.3\times10^{-7}$ across its window, lifted by the deep-hot-layer continuum residual and peaking at the saturated H$\beta$ core where the line flux no longer cancels it) — on the Sun's from-scratch atmosphere and the warm-started ones alike. A **tamper check** (perturb a population by 1%, the spectrum moves $\sim10^{-3}$) verifies that the Fe-line opacity is recomputed from that population, not bypassed.
+- Run on **four stars across the HR diagram**, the synthesiser **computes each star's production-gated opacity from scratch** — continuum (L3), atomic lines (L5), hydrogen Stark wings (L6), helium wings, TiO bands (L12), with molecular continuum computed but gated off as in the reference diagnostic — from the verified equation-of-state populations and the line data, computes the **LTE Planck source $B_\nu$ inline**, carries it to the surface with the book's JOSH transfer, and reproduces every production spectrum to a **median $\lesssim10^{-9}$**, a **99th percentile $\sim10^{-8}$**, and a **maximum $\sim10^{-8}$** (the hot dwarf rides broadly at $\sim1.3\times10^{-7}$ across its window, lifted by the deep-hot-layer continuum residual and peaking at the saturated H$\beta$ core where the line flux no longer cancels it) — on the supplied solar Part-VI atmosphere and the warm-started non-solar ones alike. A **tamper check** (perturb a population by 1%, the spectrum moves $\sim10^{-3}$) verifies that the Fe-line opacity is recomputed from that population, not bypassed.
 - Each star **exercises different physics**: the hot dwarf the Balmer linear-Stark wing (L6), the Sun the metal-line forest (L4–5), the giant the narrow, pressure-sensitive Mg b triplet (gravity in the line shapes), the M dwarf the TiO molecular bands (L12–13).
-- The **simplifications** are honest and bounded: the opacity and transfer are computed from scratch on every star; only the atmosphere *structure* is given for three stars (from scratch for the Sun) — **the wall this lecture leaves standing, the convergence loop's need for full equation-of-state derivatives, is exactly what Part VI tears down** (Lecture 16 builds them, Lecture 15 blankets the atmosphere); the geometry is 1D plane-parallel; and the populations are **LTE**, which breaks down in the cores of strong lines and the thin outer layers of hot and luminous stars — the **NLTE** frontier beyond this book.""")
+- The **simplifications** are honest and bounded: the opacity and transfer are computed from scratch on every star; the capstone loads the atmosphere structure and verified EOS/population/Doppler state rather than regenerating them from stellar parameters; Part VI builds and audits the solar line-blanketed state that L14 consumes; the geometry is 1D plane-parallel; and the populations are **LTE**, which breaks down in the cores of strong lines and the thin outer layers of hot and luminous stars — the **NLTE** frontier beyond this book.""")
 
 # ── practice exercises ───────────────────────────────────────────────────────────────
 md(r"""## Practice exercises
