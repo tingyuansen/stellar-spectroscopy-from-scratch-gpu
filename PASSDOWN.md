@@ -92,6 +92,10 @@ synthesis path.
   and
   `python _pipeline/build.py 9 10 11 12 13 14 15 16`.
 - Code-cell hygiene audit: `total bad=0` for leading/trailing blank code cells.
+- Function-docstring audit: `lowdoc>=20 = 0` under the current rule (functions/classes at least
+  20 lines must have useful docstrings).
+- Remaining long-cell audit: five cells at `>=120` lines remain, all in L14/L15. These are
+  structural capstone/line-blanketing cells and should be split only with matching parity reruns.
 - `git diff --check`: clean.
 - `python _pipeline/verify_josh.py`: normalised spectrum max `8.94e-09`, median `1.13e-11`.
 - `python _pipeline/verify_lineblanket.py`: PASS, values listed above.
