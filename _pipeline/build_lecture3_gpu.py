@@ -352,9 +352,13 @@ code(r'''def numpy_twin():
 
     continuum_absorption_np = kappa_boundfree + kappa_freefree
     continuum_scattering_np = kappa_rayleigh + kappa_thomson
-    return continuum_absorption_np, continuum_scattering_np
+    return continuum_absorption_np, continuum_scattering_np''')
 
-def floor_rel(name, got, ref, floor):
+md(r"""The implementation twin above returns the two continuum fields. The validation cell below keeps the
+reporting separate: first the analytic model is compared to the shipped production reference, then
+the GPU result is compared to the fp64 twin to isolate tensor round-off.""")
+
+code(r'''def floor_rel(name, got, ref, floor):
     """Max relative deviation against max(|ref|, floor) — the absolute floor protects zero-crossings."""
     rel = np.abs(got - ref) / np.maximum(np.abs(ref), floor)
     print(f"{name:36s} max|rel| = {rel.max():.2e}   median = {np.median(rel):.2e}")

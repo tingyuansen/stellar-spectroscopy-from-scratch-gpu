@@ -499,39 +499,7 @@ fig.tight_layout(); plt.show()</code></pre>
 
     continuum_absorption_np = kappa_boundfree + kappa_freefree
     continuum_scattering_np = kappa_rayleigh + kappa_thomson
-    return continuum_absorption_np, continuum_scattering_np
-
-def floor_rel(name, got, ref, floor):
-    &quot;&quot;&quot;Max relative deviation against max(|ref|, floor) — the absolute floor protects zero-crossings.&quot;&quot;&quot;
-    rel = np.abs(got - ref) / np.maximum(np.abs(ref), floor)
-    print(f&quot;{name:36s} max|rel| = {rel.max():.2e}   median = {np.median(rel):.2e}&quot;)
-    return float(rel.max())
-
-print(f&quot;Validating the GPU continuum against L3.npz and the GPU&#39;s own fp64 twin&quot;)
-print(f&quot;  device = {DEVICE.type}   dtype = {str(DTYPE).split(&#39;.&#39;)[-1]}\n&quot;)
-
-print(&quot;-- (1) vs PRODUCTION reference L3.npz (the analytic model&#39;s physics fidelity) --&quot;)
-denom_a = np.where(REF[&quot;absorption&quot;]!=0, np.abs(REF[&quot;absorption&quot;]), 1.0)
-denom_s = np.where(REF[&quot;scattering&quot;]!=0, np.abs(REF[&quot;scattering&quot;]), 1.0)
-phys_abs  = float(np.max(np.abs(absn[form]-REF[&quot;absorption&quot;][form])/denom_a[form]))
-phys_scat = float(np.max(np.abs(scatn-REF[&quot;scattering&quot;])/denom_s))
-print(f&quot;  absorption (H-), forming layers       max|rel| = {phys_abs:.2e}   (~few-percent: the analytic fit)&quot;)
-print(f&quot;  scattering (Rayleigh+Thomson)         max|rel| = {phys_scat:.2e}&quot;)
-
-print(&quot;\n-- (2) vs the fp64 reference (the fp32 float floor: tensor implementation correctness) --&quot;)
-abs_twin, scat_twin = numpy_twin()
-# absolute floor at 1e-6 of the per-array median opacity (protects the bf zero-crossing)
-afloor = 1e-6 * np.median(np.abs(abs_twin)); sfloor = 1e-6 * np.median(np.abs(scat_twin))
-fa = floor_rel(&quot;absorption  GPU vs fp64-twin&quot;, absn,  abs_twin,  afloor)
-fs = floor_rel(&quot;scattering  GPU vs fp64-twin&quot;, scatn, scat_twin, sfloor)
-
-max_floor = max(fa, fs)
-floor = 5e-5 if DTYPE == torch.float32 else 1e-10
-print(f&quot;\nfp32 float floor (GPU vs its own fp64 twin) = {max_floor:.2e}&quot;)
-status = &quot;PASS&quot; if max_floor &lt; floor else &quot;CHECK&quot;
-print(f&quot;documented float floor = {floor:.1e}   -&gt;   [{status}]&quot;)
-assert max_floor &lt; floor, f&quot;GPU continuum deviates from its fp64 twin by {max_floor:.2e}, above {floor:.1e}&quot;
-print(&quot;\nThe GPU continuum matches its fp64 twin to the float floor — the vectorization is bit-correct.&quot;)" aria-label="Copy code">
+    return continuum_absorption_np, continuum_scattering_np" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">numpy_twin</span>():
@@ -612,9 +580,47 @@ print(&quot;\nThe GPU continuum matches its fp64 twin to the float floor — the
 
     continuum_absorption_np = kappa_boundfree + kappa_freefree
     continuum_scattering_np = kappa_rayleigh + kappa_thomson
-    <span class="hljs-keyword">return</span> continuum_absorption_np, continuum_scattering_np
+    <span class="hljs-keyword">return</span> continuum_absorption_np, continuum_scattering_np</code></pre>
+    </div></div><div class="prose"><p>The implementation twin above returns the two continuum fields. The validation cell below keeps the
+reporting separate: first the analytic model is compared to the shipped production reference, then
+the GPU result is compared to the fp64 twin to isolate tensor round-off.</p>
+</div><div class="nb-cell"><div class="code-card">
+      <div class="code-top">
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[12]</span>Python</span>
+        <button class="copy-btn" type="button" data-code="def floor_rel(name, got, ref, floor):
+    &quot;&quot;&quot;Max relative deviation against max(|ref|, floor) — the absolute floor protects zero-crossings.&quot;&quot;&quot;
+    rel = np.abs(got - ref) / np.maximum(np.abs(ref), floor)
+    print(f&quot;{name:36s} max|rel| = {rel.max():.2e}   median = {np.median(rel):.2e}&quot;)
+    return float(rel.max())
 
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">floor_rel</span>(<span class="hljs-params">name, got, ref, floor</span>):
+print(f&quot;Validating the GPU continuum against L3.npz and the GPU&#39;s own fp64 twin&quot;)
+print(f&quot;  device = {DEVICE.type}   dtype = {str(DTYPE).split(&#39;.&#39;)[-1]}\n&quot;)
+
+print(&quot;-- (1) vs PRODUCTION reference L3.npz (the analytic model&#39;s physics fidelity) --&quot;)
+denom_a = np.where(REF[&quot;absorption&quot;]!=0, np.abs(REF[&quot;absorption&quot;]), 1.0)
+denom_s = np.where(REF[&quot;scattering&quot;]!=0, np.abs(REF[&quot;scattering&quot;]), 1.0)
+phys_abs  = float(np.max(np.abs(absn[form]-REF[&quot;absorption&quot;][form])/denom_a[form]))
+phys_scat = float(np.max(np.abs(scatn-REF[&quot;scattering&quot;])/denom_s))
+print(f&quot;  absorption (H-), forming layers       max|rel| = {phys_abs:.2e}   (~few-percent: the analytic fit)&quot;)
+print(f&quot;  scattering (Rayleigh+Thomson)         max|rel| = {phys_scat:.2e}&quot;)
+
+print(&quot;\n-- (2) vs the fp64 reference (the fp32 float floor: tensor implementation correctness) --&quot;)
+abs_twin, scat_twin = numpy_twin()
+# absolute floor at 1e-6 of the per-array median opacity (protects the bf zero-crossing)
+afloor = 1e-6 * np.median(np.abs(abs_twin)); sfloor = 1e-6 * np.median(np.abs(scat_twin))
+fa = floor_rel(&quot;absorption  GPU vs fp64-twin&quot;, absn,  abs_twin,  afloor)
+fs = floor_rel(&quot;scattering  GPU vs fp64-twin&quot;, scatn, scat_twin, sfloor)
+
+max_floor = max(fa, fs)
+floor = 5e-5 if DTYPE == torch.float32 else 1e-10
+print(f&quot;\nfp32 float floor (GPU vs its own fp64 twin) = {max_floor:.2e}&quot;)
+status = &quot;PASS&quot; if max_floor &lt; floor else &quot;CHECK&quot;
+print(f&quot;documented float floor = {floor:.1e}   -&gt;   [{status}]&quot;)
+assert max_floor &lt; floor, f&quot;GPU continuum deviates from its fp64 twin by {max_floor:.2e}, above {floor:.1e}&quot;
+print(&quot;\nThe GPU continuum matches its fp64 twin to the float floor — the vectorization is bit-correct.&quot;)" aria-label="Copy code">
+          <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
+      </div>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">floor_rel</span>(<span class="hljs-params">name, got, ref, floor</span>):
     <span class="hljs-string">&quot;&quot;&quot;Max relative deviation against max(|ref|, floor) — the absolute floor protects zero-crossings.&quot;&quot;&quot;</span>
     rel = np.<span class="hljs-built_in">abs</span>(got - ref) / np.maximum(np.<span class="hljs-built_in">abs</span>(ref), floor)
     <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;<span class="hljs-subst">{name:36s}</span> max|rel| = <span class="hljs-subst">{rel.<span class="hljs-built_in">max</span>():<span class="hljs-number">.2</span>e}</span>   median = <span class="hljs-subst">{np.median(rel):<span class="hljs-number">.2</span>e}</span>&quot;</span>)
@@ -680,7 +686,7 @@ The GPU continuum matches its fp64 twin to the float floor — the vectorization
 <p><strong>The exact engine&#39;s precision budget.</strong> This is the one place in the book where the working dtype changes, and it is worth saying why. The analytic continuum above is a smooth few-line formula, perfectly happy in fp32 on the GPU. The <strong>tabulated KAPP engine is different</strong>: its hydrogen and helium bound-free terms are <em>differences of nearly-equal exponentials</em> of large quantities — <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mi>e</mi><mrow><mo>−</mo><msub><mi>E</mi><mn>1</mn></msub><mi>h</mi><mi>c</mi><mi>k</mi><mi>t</mi></mrow></msup><mo>−</mo><msup><mi>e</mi><mrow><mo>−</mo><msub><mi>E</mi><mn>2</mn></msub><mi>h</mi><mi>c</mi><mi>k</mi><mi>t</mi></mrow></msup></mrow><annotation encoding="application/x-tex">e^{-E_1 hckt} - e^{-E_2 hckt}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.9324em;vertical-align:-0.0833em;"></span><span class="mord"><span class="mord mathnormal">e</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8491em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight"><span class="mord mathnormal mtight" style="margin-right:0.05764em;">E</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3173em;"><span style="top:-2.357em;margin-left:-0.0576em;margin-right:0.0714em;"><span class="pstrut" style="height:2.5em;"></span><span class="sizing reset-size3 size1 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.143em;"><span></span></span></span></span></span></span><span class="mord mathnormal mtight">h</span><span class="mord mathnormal mtight">c</span><span class="mord mathnormal mtight" style="margin-right:0.03148em;">k</span><span class="mord mathnormal mtight">t</span></span></span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.8491em;"></span><span class="mord"><span class="mord mathnormal">e</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8491em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight"><span class="mord mathnormal mtight" style="margin-right:0.05764em;">E</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3173em;"><span style="top:-2.357em;margin-left:-0.0576em;margin-right:0.0714em;"><span class="pstrut" style="height:2.5em;"></span><span class="sizing reset-size3 size1 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.143em;"><span></span></span></span></span></span></span><span class="mord mathnormal mtight">h</span><span class="mord mathnormal mtight">c</span><span class="mord mathnormal mtight" style="margin-right:0.03148em;">k</span><span class="mord mathnormal mtight">t</span></span></span></span></span></span></span></span></span></span></span></span> with <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>E</mi><mo>∼</mo><mn>1</mn><msup><mn>0</mn><mn>5</mn></msup><mtext> </mtext><mrow><mi mathvariant="normal">c</mi><msup><mi mathvariant="normal">m</mi><mrow><mo>−</mo><mn>1</mn></mrow></msup></mrow></mrow><annotation encoding="application/x-tex">E\sim10^5\ \mathrm{cm^{-1}}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.05764em;">E</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">∼</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">5</span></span></span></span></span></span></span></span><span class="mspace"> </span><span class="mord"><span class="mord mathrm">c</span><span class="mord"><span class="mord mathrm">m</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mathrm mtight">1</span></span></span></span></span></span></span></span></span></span></span></span></span> — and its table lookups select a cell from a <em>bracket</em> in <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>log</mi><mo>⁡</mo><mi>ν</mi></mrow><annotation encoding="application/x-tex">\log\nu</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mop">lo<span style="margin-right:0.01389em;">g</span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.06366em;">ν</span></span></span></span>. In the deep, hot layers (<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>T</mi><mo>≳</mo><mn>1</mn><msup><mn>0</mn><mn>4</mn></msup><mtext> </mtext></mrow><annotation encoding="application/x-tex">T\gtrsim10^4\,</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.9592em;vertical-align:-0.2296em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel amsrm">≳</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">4</span></span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span></span></span></span>K) that cancellation and that bracketing lose 1–2 significant digits in fp32, so a pure-fp32 engine drifts from the reference by ~<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>2</mn></mrow></msup></mrow><annotation encoding="application/x-tex">10^{-2}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">2</span></span></span></span></span></span></span></span></span></span></span></span> in the hottest layers — far above any float floor. This is exactly the trap the production engine <code>kgpu</code> documents: <em>the discrete table lookups and the per-depth opacity sums of the continuum engine run in fp64</em>, because a slipped bracket or a cancelled exponential there is a real error, not round-off. The engine is tiny — 80 depths <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>×</mo></mrow><annotation encoding="application/x-tex">\times</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6667em;vertical-align:-0.0833em;"></span><span class="mord">×</span></span></span></span> 3 sampled frequencies — so we follow the same discipline: <strong>evaluate the entire exact engine, and its <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mrow><mi>log</mi><mo>⁡</mo></mrow><mn>10</mn></msub><mi>κ</mi></mrow><annotation encoding="application/x-tex">\log_{10}\kappa</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.9386em;vertical-align:-0.2441em;"></span><span class="mop"><span class="mop">lo<span style="margin-right:0.01389em;">g</span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.207em;"><span style="top:-2.4559em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">10</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2441em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal">κ</span></span></span></span> Lagrange reconstruction, in fp64</strong> (here on the CPU host, the parity path), then hand the result back to the GPU. The payoff is the continuum reproduced to the float floor across <strong>every</strong> depth, not just the photosphere — a faithful representation of the production engine, which is the whole point of this validation. (The big batched axes — depth and wavelength — are still vectorized; only the <em>dtype</em> of this one precision-critical engine is promoted, exactly the §2.4 rule.)</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[12]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[13]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Production diagnostic files for the exact KAPP-engine half.
 A_np = np.load(pathlib.Path(&quot;..&quot;) / &quot;reference&quot; / &quot;atmosphere.npz&quot;, allow_pickle=True)  # numpy-ref
 D_np = np.load(pathlib.Path(&quot;..&quot;) / &quot;reference&quot; / &quot;diag.npz&quot;)                           # numpy-ref
@@ -745,7 +751,7 @@ n_layers_k = Tk.shape[<span class="hljs-number">0</span>]
 </pre></div></div><div class="prose"><p>The constants are repeated with the production engine&#39;s names so the correspondence to KAPP is one-to-one. They are the same CGS values already used above, but the explicit names make the tabulated section easier to audit.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[13]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[14]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Fortran/Kurucz constants, CGS.
 C_LIGHT_CM_k = 2.99792458e10
 C_LIGHT_NM_k = 2.99792458e17
@@ -770,7 +776,7 @@ LN10_k = torch.log(torch.tensor(<span class="hljs-number">10.0</span>, dtype=EDT
 </pre></div></div><div class="prose"><p>The hydrogen-group tables are the most important ones: H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mo>−</mo></msup></mrow><annotation encoding="application/x-tex">^-</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7713em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7713em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mbin mtight">−</span></span></span></span></span></span></span></span></span></span></span> bound-free, H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mo>−</mo></msup></mrow><annotation encoding="application/x-tex">^-</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7713em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7713em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mbin mtight">−</span></span></span></span></span></span></span></span></span></span></span> free-free, and Karzas--Latter H I bound-free.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[14]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[15]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Hydrogen / H- tables.
 FREQ_LOG_t = dev64(KT_np[&quot;FREQ_LOG&quot;])
 XN_LOG_t = dev64(KT_np[&quot;XN_LOG&quot;])
@@ -801,7 +807,7 @@ HMINOP_FFEND_t = dev64(KT_np[<span class="hljs-string">&quot;HMINOP_FFEND&quot;<
 </pre></div></div><div class="prose"><p>The second group supplies the scattering factors, Coulomb free-free Gaunt factors, metal and hot-star opacity tables, and the hydrogen partition-function inputs.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[15]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[16]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Scattering / free-free / minor tables.
 HRAYOP_GAVRILAM_t = dev64(KT_np[&quot;HRAYOP_GAVRILAM&quot;])
 COULFF_Z4LOG_t = dev64(KT_np[&quot;COULFF_Z4LOG&quot;])
@@ -833,7 +839,7 @@ H_STAT_WEIGHT_t = dev64(KT_np[<span class="hljs-string">&quot;H_STAT_WEIGHT&quot
 grid at the working precision. This is a setup sanity check, not a physics comparison.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[16]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[17]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Comparison: table transfer to the device is exact to the working dtype.
 wlk_np_ref = D_np[&quot;wavelength&quot;]  # numpy-ref
 wlk_rt = to_np(wlk)
@@ -851,7 +857,7 @@ rel = np.<span class="hljs-built_in">max</span>(np.<span class="hljs-built_in">a
 <p>The continuum is smooth between photo-ionization edges. For each edge interval the engine samples the opacity at three frequencies: just inside the high-frequency edge, at the wavelength midpoint, and just inside the low-frequency edge. The factor <code>1.0000001</code> is not decorative; it nudges the samples away from the discontinuity and is part of the reference algorithm.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[17]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[18]</span>Python</span>
         <button class="copy-btn" type="button" data-code="frqedg_t = dev64(A_np[&quot;frqedg&quot;])
 wledge_signed_t = dev64(A_np[&quot;wledge&quot;])
 wledge_t = torch.abs(wledge_signed_t)
@@ -894,7 +900,7 @@ this window uses 1 edge interval(s), 3 sampled frequencies
 reference construction before evaluating any continuum opacity on it.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[18]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[19]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Comparison: edge-triplet grid against the NumPy construction.
 frqedg_np = A_np[&quot;frqedg&quot;]                              # numpy-ref
 wledge_signed_np = A_np[&quot;wledge&quot;]                       # numpy-ref
@@ -917,12 +923,12 @@ freq_np = np.empty(<span class="hljs-number">3</span> * (frqedg_np.size - <span 
     freq_np[<span class="hljs-number">3</span>*i + <span class="hljs-number">2</span>] = <span class="hljs-built_in">abs</span>(frqedg_np[i+<span class="hljs-number">1</span>]) * <span class="hljs-number">1.0000001</span>   <span class="hljs-comment"># numpy-ref</span>
 rel = np.<span class="hljs-built_in">max</span>(np.<span class="hljs-built_in">abs</span>(to_np(freqset_t) - freq_np) / np.maximum(np.<span class="hljs-built_in">abs</span>(freq_np), <span class="hljs-number">1.0</span>))  <span class="hljs-comment"># numpy-ref</span>
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;edge-triplet frequency grid GPU vs NumPy oracle: max|rel| = <span class="hljs-subst">{rel:<span class="hljs-number">.2</span>e}</span>&quot;</span>)</code></pre>
-    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">edge-triplet frequency grid GPU vs NumPy oracle: max|rel| = 2.15e-16</pre></div><div class="out-block"><pre class="out-stream">
+    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">edge-triplet frequency grid GPU vs NumPy oracle: max|rel| = 2.15e-16
 </pre></div></div><div class="prose"><h2>The populations the engine reads</h2>
 <p>Each continuum source is a cross-section times a population divided by the mass density. The atmosphere file stores the equation-of-state output in the same conventions as the production code: hydrogen ground-state populations in <code>xnfph</code>, stage totals for Rayleigh, helium stages, metal bound-free populations, and the charge-weighted sums needed by the hot-star free-free term.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[19]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[20]</span>Python</span>
         <button class="copy-btn" type="button" data-code="pop_t = dev64(A_np[&quot;population_per_ion&quot;])
 
 xnfph_t = dev64(A_np[&quot;xnfph&quot;])
@@ -956,7 +962,7 @@ xnfpfe_t = dev64(A_np[<span class="hljs-string">&quot;xnfpfe&quot;</span>])
 <p>The hot-star term is tiny here, but the exact engine carries it. We gather its per-transition population matrix and its charge-weighted free-free population sums in vector form.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[20]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[21]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Legacy converter convention used by HEMIOP/HERAOP and the He bound-free routines.
 xnf_he1_mode11_t = pop_t[:, 0, 1]
 xnf_he2_mode11_t = pop_t[:, 1, 1]
@@ -993,12 +999,12 @@ stage_hot = torch.arange(<span class="hljs-number">1</span>, <span class="hljs-n
 charge2 = (stage_hot.to(EDTYPE) ** <span class="hljs-number">2</span>)[<span class="hljs-literal">None</span>, :, <span class="hljs-literal">None</span>]
 xnf_sumqq_t = torch.<span class="hljs-built_in">sum</span>(pop_t[:, stage_hot[:, <span class="hljs-literal">None</span>], elem_hot[<span class="hljs-literal">None</span>, :]] * charge2, dim=<span class="hljs-number">2</span>)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;HOTOP population vectors built&quot;</span>)</code></pre>
-    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">HOTOP population vectors built</pre></div><div class="out-block"><pre class="out-stream">
+    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">HOTOP population vectors built
 </pre></div></div><div class="prose"><p>The HOTOP population gathers are fixed slices through the population tensor. Validate the gathered
 columns once before they feed the minor metal and hot-star continuum terms.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[21]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[22]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Comparison: population gather against the NumPy oracle.
 pop_np = A_np[&quot;population_per_ion&quot;]                                           # numpy-ref
 hot_np = np.zeros((pop_np.shape[0], 21))                                      # numpy-ref
@@ -1030,7 +1036,7 @@ r2 = np.<span class="hljs-built_in">max</span>(np.<span class="hljs-built_in">ab
 <p>The exact engine&#39;s table interpolation is part of the model. The full Fortran <code>MAP1</code> rule is a curvature-weighted parabolic interpolator; for the compact tensor implementation below we use the same local three-point parabolic reconstruction on the H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mo>−</mo></msup></mrow><annotation encoding="application/x-tex">^-</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7713em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7713em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mbin mtight">−</span></span></span></span></span></span></span></span></span></span></span> bound-free table. The linear interpolation (<code>linter</code>) is implemented with <code>torch.searchsorted</code> and <code>gather</code>, so a whole vector of frequencies or temperatures is interpolated in one call. The Karzas--Latter lookup is likewise vectorized over the selected frequencies.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[22]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[23]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def linter_torch(xold, yold, xnew):
     &quot;&quot;&quot;Linear interpolation/extrapolation, vectorized over xnew; xold is increasing.&quot;&quot;&quot;
     idx = torch.clamp(torch.searchsorted(xold, xnew, right=True), 1, xold.shape[0] - 1)
@@ -1090,7 +1096,7 @@ def parabolic_table_torch(xold, yold, xnew):
     </div></div><div class="prose"><p>The Karzas--Latter hydrogenic cross-section is a lookup in descending <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mrow><mi>log</mi><mo>⁡</mo></mrow><mn>10</mn></msub><mi>ν</mi></mrow><annotation encoding="application/x-tex">\log_{10}\nu</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.9386em;vertical-align:-0.2441em;"></span><span class="mop"><span class="mop">lo<span style="margin-right:0.01389em;">g</span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.207em;"><span style="top:-2.4559em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">10</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2441em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.06366em;">ν</span></span></span></span> columns. The vectorized version below forms all comparisons at once and uses <code>argmax</code>/<code>gather</code> rather than a binary-search loop over frequencies.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[23]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[24]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def xkarsas_vec(freq_vec, zeff_squared, n, ell):
     &quot;&quot;&quot;Karzas-Latter hydrogenic bound-free cross-section for one level.
 
@@ -1195,7 +1201,7 @@ def parabolic_table_torch(xold, yold, xnew):
 the same helper is used inside the full continuum engine.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[24]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[25]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Comparison: linear interpolation helper on a small fixed grid.
 xold_np = np.array([1.0, 2.0, 4.0, 7.0], dtype=float)              # numpy-ref
 yold_np = np.array([3.0, 5.0, 9.0, 15.0], dtype=float)             # numpy-ref
@@ -1218,7 +1224,7 @@ rel = np.<span class="hljs-built_in">max</span>(np.<span class="hljs-built_in">a
 </pre></div></div><div class="prose"><p>The Coulomb free-free Gaunt factor is the other important interpolator. It maps charge, temperature, and frequency into the <code>COULFF_A_TABLE</code> grid and performs the bilinear blend as a single <code>(frequency, depth)</code> tensor expression.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[25]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[26]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def coulff_table_torch(nz, freq_vec, temp, tlog, freqlg_override=None):
     &quot;&quot;&quot;Interpolate the COULFF free-free Gaunt-factor table.
 
@@ -1298,7 +1304,7 @@ rel = np.<span class="hljs-built_in">max</span>(np.<span class="hljs-built_in">a
     </div></div><div class="prose"><p>The Planck function and hydrogen partition function are frequency/depth helpers. The source-function bookkeeping in the full code carries <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>B</mi><mi>ν</mi></msub></mrow><annotation encoding="application/x-tex">B_\nu</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05017em;">B</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.0502em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>; in LTE the continuum source collapses to the Planck function, but the opacity terms still need the partition function for the Rayleigh ground-state population.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[26]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[27]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def hydrogen_partition_torch(temp):
     kt = KBOLTZ_EV_k * temp
     return torch.sum(H_STAT_WEIGHT_t[:6][None, :] * torch.exp(-H_ENERGY_EV_t[:6][None, :] / kt[:, None]), dim=1)
@@ -1333,7 +1339,7 @@ print(&quot;COULFF, Planck, and partition helpers ready&quot;)" aria-label="Copy
 </pre></div></div><div class="prose"><p>The H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mo>−</mo></msup></mrow><annotation encoding="application/x-tex">^-</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7713em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7713em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mbin mtight">−</span></span></span></span></span></span></span></span></span></span></span> free-free table is stored in two halves. We join them on device, transform to the logarithmic table used by the engine, and keep the wavelength-grid logarithm ready for interpolation.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[27]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[28]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# H- free-free log table, built on the device.
 nthetaff = HMINOP_THETAFF_t.shape[0]
 iw = torch.arange(22, dtype=torch.int64, device=EDEV)
@@ -1356,11 +1362,11 @@ ff_full = torch.where(iw[:, <span class="hljs-literal">None</span>] &lt; <span c
 FFLOG_t = torch.log(ff_full / HMINOP_THETAFF_t[<span class="hljs-literal">None</span>, :] * <span class="hljs-number">5040.0</span> * K_BOLTZ_k)
 WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;H- free-free log table assembled&quot;</span>)</code></pre>
-    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">H- free-free log table assembled</pre></div><div class="out-block"><pre class="out-stream">
+    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">H- free-free log table assembled
 </pre></div></div><div class="prose"><p>The H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mo>−</mo></msup></mrow><annotation encoding="application/x-tex">^-</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7713em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7713em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mbin mtight">−</span></span></span></span></span></span></span></span></span></span></span> opacity routine is the dominant source. Bound-free is the tabulated photodetachment cross-section times the H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mo>−</mo></msup></mrow><annotation encoding="application/x-tex">^-</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7713em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7713em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mbin mtight">−</span></span></span></span></span></span></span></span></span></span></span> Saha population and the stimulated-emission factor; free-free is the two-dimensional table interpolation in wavelength and <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>θ</mi><mo>=</mo><mn>5040</mn><mi mathvariant="normal">/</mi><mi>T</mi></mrow><annotation encoding="application/x-tex">\theta=5040/T</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal" style="margin-right:0.02778em;">θ</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">5040/</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span></span></span></span>.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[28]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[29]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def hminus_opacity_torch(sample_frequency_hz, exp_minus_hnu_over_kT, stimulated_emission):
     &quot;&quot;&quot;Return tabulated H- bound-free plus free-free opacity.
 
@@ -1504,7 +1510,7 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
     </div></div><div class="prose"><p>The hydrogen continuum adds H I bound-free from the Karzas--Latter levels and proton free-free using the charge-1 Coulomb Gaunt factor.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[29]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[30]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def hydrogen_opacity_torch(
     sample_frequency_hz,
     exp_minus_hnu_over_kT,
@@ -1627,7 +1633,7 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
 <p>The long tail of continuum sources is small in the solar optical but essential for the exact budget. The routine returns two tensors: minor true absorption and minor scattering. Thresholds are applied with <code>torch.where</code>; every lane evaluates the same algebra.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[30]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[31]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def minor_terms_torch(freq_vec, ehvkt, stim, hckt):
     &quot;&quot;&quot;Compute the smaller continuum absorbers and minor scattering sources.
 
@@ -1761,7 +1767,7 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
 <p>One historical source-order detail matters at the <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>7</mn></mrow></msup></mrow><annotation encoding="application/x-tex">10^{-7}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">7</span></span></span></span></span></span></span></span></span></span></span></span> level in the deepest layer. In the production routine that generated this reference, <code>FREQLG</code> was assigned in the He I loop but not reassigned in the following He II loop. Consequently the He II free-free <code>COULFF</code> lookup used the logarithm of the <strong>last frequency in the full edge grid</strong>, while the explicit <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mi>f</mi><mrow><mo>−</mo><mn>3</mn></mrow></msup></mrow><annotation encoding="application/x-tex">f^{-3}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1.0085em;vertical-align:-0.1944em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.10764em;">f</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">3</span></span></span></span></span></span></span></span></span></span></span></span> factor still used the current frequency. This is recoverable directly from the generating source and regenerating the converter reproduces the shipped coefficients exactly. We preserve that deterministic legacy evaluation here; no fitted constant or reference-derived correction is involved.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[31]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[32]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def helium_opacity_torch(freq_vec, ehvkt, stim, hckt, cff1, cff2):
     &quot;&quot;&quot;Compute He I and He II bound-free/free-free opacity.
 
@@ -1867,7 +1873,7 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
     </div></div><div class="prose"><p>The Si II Peach-table term is a two-axis interpolation: first in frequency, then in temperature. The frequency bracket is common to all layers, while the temperature bracket is a depth vector.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[32]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[33]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def si2op_torch(freq_vec, tlog):
     &quot;&quot;&quot;Interpolate the Si II Peach opacity table over frequency and temperature.
 
@@ -1933,7 +1939,7 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
     </div></div><div class="prose"><p>The HOTOP term combines multi-charge free-free with a table of bound-free transitions. The tensor shapes are explicit: transitions <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>×</mo></mrow><annotation encoding="application/x-tex">\times</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6667em;vertical-align:-0.0833em;"></span><span class="mord">×</span></span></span></span> depth <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>×</mo></mrow><annotation encoding="application/x-tex">\times</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6667em;vertical-align:-0.0833em;"></span><span class="mord">×</span></span></span></span> frequency for the bound-free addends, reduced over the transition axis.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[33]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[34]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def hot_and_si2_torch(freq_vec, stim, tkev, tlog, cff_tabs):
     &quot;&quot;&quot;Compute HOTOP free/free-bound opacity plus the Si II Peach term.
 
@@ -2003,7 +2009,7 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
     </div></div><div class="prose"><p>Rayleigh and Thomson are the scattering part of the continuum. In this optical window the Gavrila hydrogen Rayleigh table is the active branch; the code below keeps the branch as a branchless tensor selection.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[34]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[35]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def rayleigh_G_torch(freq_vec):
     FREQ_LYMAN = 3.288051e15
     FREQ_STEP = 3.288051e13
@@ -2046,7 +2052,7 @@ def scattering_opacity_torch(freq_vec):
 <p>The driver computes all frequency-dependent and temperature-dependent invariants once, batches the Coulomb Gaunt factor over all selected sample frequencies, and then adds every opacity source. The returned budget dictionary is for inspection; the arrays used downstream are the two genuine sums <code>acont</code> and <code>sigmac</code>.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[35]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[36]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def compute_kapp_at_freqs_torch(sample_frequency_hz):
     &quot;&quot;&quot;Evaluate the exact continuum engine at selected sample frequencies.
 
@@ -2186,7 +2192,7 @@ acont_sel_gpu, sigmac_sel_gpu, budget_gpu = compute_kapp_at_freqs_torch(freq_sel
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">computed exact-engine sources at 3 sampled frequencies on cpu
 </pre></div></div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[36]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[37]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Comparison/check: sampled arrays are finite and positive before interpolation.
 finite_ok = bool(torch.all(torch.isfinite(acont_sel_gpu)) and torch.all(torch.isfinite(sigmac_sel_gpu)))
 amin = float(torch.min(acont_sel_gpu)); smin = float(torch.min(sigmac_sel_gpu))
@@ -2202,7 +2208,7 @@ amin = <span class="hljs-built_in">float</span>(torch.<span class="hljs-built_in
 <p>At a representative photospheric layer the tabulated budget should look like the physical story: H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mo>−</mo></msup></mrow><annotation encoding="application/x-tex">^-</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7713em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7713em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mbin mtight">−</span></span></span></span></span></span></span></span></span></span></span> dominates the absorption, H I and molecular/metal/helium terms fill in the remaining few percent, and scattering is mostly Rayleigh plus Thomson. The numbers are computed from the source tensors above, before any comparison to the diagnostic continuum.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[37]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[38]</span>Python</span>
         <button class="copy-btn" type="button" data-code="layer_budget = int(torch.argmin(torch.abs(Tk - 6400.0)))
 jfreq_budget = 0
 a_tot_b = acont_sel_gpu[layer_budget, jfreq_budget]
@@ -2240,7 +2246,7 @@ s_tot_b = sigmac_sel_gpu[layer_budget, jfreq_budget]
 <p>KAPP stores <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mrow><mi>log</mi><mo>⁡</mo></mrow><mn>10</mn></msub><mi>κ</mi></mrow><annotation encoding="application/x-tex">\log_{10}\kappa</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.9386em;vertical-align:-0.2441em;"></span><span class="mop"><span class="mop">lo<span style="margin-right:0.01389em;">g</span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.207em;"><span style="top:-2.4559em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">10</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2441em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal">κ</span></span></span></span> at the three sample frequencies of each edge interval. For every synthesis wavelength we build the three Lagrange basis coefficients from the edge wavelengths and the midpoint, multiply them by the stored logs, and exponentiate back to the opacity. This is a pure tensor reconstruction over all layers and all wavelengths in the window.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[38]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[39]</span>Python</span>
         <button class="copy-btn" type="button" data-code="half_edge_t = dev64(A_np[&quot;half_edge&quot;])
 delta_edge_t = dev64(A_np[&quot;delta_edge&quot;])
 
@@ -2296,7 +2302,7 @@ scattering_exact_gpu = <span class="hljs-number">10.0</span> ** torch.<span clas
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">interpolated exact continuum to 5941 synthesis wavelengths
 </pre></div></div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[39]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[40]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Comparison: Lagrange basis against the NumPy oracle.
 wledge_np = np.abs(A_np[&quot;wledge&quot;])                                      # numpy-ref
 edge_idx_np = np.clip(np.searchsorted(wledge_np, D_np[&quot;wavelength&quot;], side=&quot;right&quot;) - 1, 0, wledge_np.size - 2)  # numpy-ref
@@ -2330,7 +2336,7 @@ rel = np.<span class="hljs-built_in">max</span>(np.<span class="hljs-built_in">a
 <p>Now compare the assembled, from-scratch engine to the diagnostic continuum over <strong>all 80 layers and every wavelength</strong>. This is the honest residual of the table engine: no anchoring, no rescaling, no temperature mask, and no cloning of the reference arrays. The exact-engine path is fp64 because its table brackets and exponential differences require it; the acceptance assertion is therefore the full-computation <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>6</mn></mrow></msup></mrow><annotation encoding="application/x-tex">10^{-6}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">6</span></span></span></span></span></span></span></span></span></span></span></span> parity gate.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[40]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[41]</span>Python</span>
         <button class="copy-btn" type="button" data-code="abs_gpu_np = to_np(absorption_exact_gpu)
 sca_gpu_np = to_np(scattering_exact_gpu)
 abs_ref_np = D_np[&quot;continuum_absorption&quot;]          # numpy-ref
@@ -2366,7 +2372,7 @@ max_exact = <span class="hljs-built_in">max</span>(<span class="hljs-built_in">f
 <span class="hljs-keyword">assert</span> max_exact &lt;= floor_exact, <span class="hljs-string">f&quot;full-depth exact continuum parity <span class="hljs-subst">{max_exact:<span class="hljs-number">.3</span>e}</span> exceeds <span class="hljs-subst">{floor_exact:<span class="hljs-number">.1</span>e}</span>&quot;</span>
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;full-depth exact-engine floor = <span class="hljs-subst">{floor_exact:<span class="hljs-number">.1</span>e}</span>   -&gt;   [PASS]&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">continuum_absorption : max rel = 6.248e-15   median = 0.000e+00
-</pre></div><div class="out-block"><pre class="out-stream">continuum_scattering : max rel = 3.232e-15   median = 0.000e+00
+continuum_scattering : max rel = 3.232e-15   median = 0.000e+00
   worst absorption point: layer 2 (T = 4680 K), lambda = 502.929 nm
 full-depth exact-engine floor = 1.0e-06   -&gt;   [PASS]
 </pre></div></div><div class="prose"><p>The assertion spans the complete opacity arrays. The diagnostic appears only in this comparison; the computed result remains the sum of the physical source tensors. The recovered helium conventions remove the former deep-layer residual without changing a coefficient, fitting a correction, or substituting reference values.</p>
@@ -2374,7 +2380,7 @@ full-depth exact-engine floor = 1.0e-06   -&gt;   [PASS]
 <p>A single photospheric layer shows the structure of the calculation. The analytic continuum from the first half follows the right shape but is offset by the known table-vs-fit difference. The tabulated engine lies much closer to the diagnostic because it carries the missing sources and the edge-triplet reconstruction.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[41]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[42]</span>Python</span>
         <button class="copy-btn" type="button" data-code="layer_p = int(np.argmin(np.abs(to_np(Tk) - 6400.0)))
 analytic_total_np = to_np(kappa_Hminus + kappa_scat)
 la3 = int(np.argmin(np.abs(REF[&quot;T&quot;] - float(Tk[layer_p]))))
