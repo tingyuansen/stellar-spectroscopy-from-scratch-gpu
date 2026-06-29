@@ -67,9 +67,10 @@ Lectures 1-16 build and render. The local site is currently running at
 - Naming is now an explicit quality track. `BIBLE.md` contains the shared glossary; keep raw
   fixture/table keys stable at boundaries and translate to readable names in taught code.
 - Readability is not globally closed. Completed slices include L1 Planck naming, L2 PFSAHA boundary
-  aliases, L3 analytic continuum, L10 atmosphere/convergence terminology, and L12 molecular
-  Doppler/population-driver naming. Continue lecture-by-lecture in small builder/verifier-gated
-  commits before attempting the larger L14-L16 sequence refactor.
+  aliases, L3 analytic continuum, L4 single-line atmosphere/stimulated-emission naming, L10
+  atmosphere/convergence terminology, and L12 molecular Doppler/population-driver naming. Continue
+  lecture-by-lecture in small builder/verifier-gated commits before attempting the larger L14-L16
+  sequence refactor.
 
 ## L14 status
 

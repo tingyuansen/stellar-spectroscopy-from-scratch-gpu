@@ -129,15 +129,19 @@ $$
 The **excitation potential** $\chi_\ell$ is the lever: a ground-state line carries no excitation penalty, while a high-excitation line is populated only in the hotter, deeper layers — the lever that lets spectroscopy measure temperature. We take $n(\mathrm{Fe\,I})$ and $U_{\rm Fe\,I}$ straight from the equation of state, carried in the reference data, and pick the layer nearest $\tau = 2/3$ as the reference depth. (`KEV` is $k_B$ in eV K$^{-1}$, so $\chi_\ell/(k_B T)$ is dimensionless for $\chi_\ell$ in eV.)""")
 
 code(r'''# Atmospheric structure from Lectures 1-2 (CGS), moved onto the device as tensors.
-T = dev(REF["T"]); n_e = dev(REF["xne"]); rho = dev(REF["rho"])
-nHI = dev(REF["nHI"]); n_FeI = dev(REF["n_FeI"]); U_FeI = dev(REF["U_FeI"])
+temperature = dev(REF["T"])
+electron_density = dev(REF["xne"])
+mass_density = dev(REF["rho"])
+neutral_hydrogen_density = dev(REF["nHI"])
+n_FeI = dev(REF["n_FeI"])
+U_FeI = dev(REF["U_FeI"])
 tau = dev(REF["tau"])
 
 KEV = 1.0/11604.5    # Boltzmann k_B in eV per kelvin (NOT keV)
 
 # Photosphere layer: nearest tau ~ 2/3, the depth the continuum emerges from.
 jp = int(torch.argmin(torch.abs(tau - 2/3)))
-print(f"at the photosphere (T={float(T[jp]):.0f} K): "
+print(f"at the photosphere (T={float(temperature[jp]):.0f} K): "
       f"n(Fe I) = {float(n_FeI[jp]):.3e} cm^-3, U(Fe I) = {float(U_FeI[jp]):.1f}")''')
 
 # ── broadening + Voigt ──────────────────────────────────────────────────
@@ -248,10 +252,10 @@ xi = 2.0e5                       # microturbulence [cm/s]
 nu0 = C / (lam0_nm * 1e-7)       # line-centre frequency [Hz]
 
 # Doppler width (Gaussian 1/e half-width) at the photosphere layer jp.
-dnu_D = (nu0 / C) * torch.sqrt(2*K*T[jp]/m_Fe + xi**2)    # [Hz]
+dnu_D = (nu0 / C) * torch.sqrt(2*K*temperature[jp]/m_Fe + xi**2)    # [Hz]
 
 # The three broadening channels (rates), summed; Stark/vdW coefficients are toy placeholders.
-gamma = 2.0e8 + 1.0e-7*nHI[jp] + 1.0e-8*n_e[jp]          # [s^-1]
+gamma = 2.0e8 + 1.0e-7*neutral_hydrogen_density[jp] + 1.0e-8*electron_density[jp]  # [s^-1]
 a_damp = gamma / (4*math.pi*dnu_D)                        # damping parameter (Lorentzian/Doppler)
 print(f"Doppler width = {float(dnu_D):.3e} Hz;  damping a = {float(a_damp):.3f}")''')
 
@@ -271,11 +275,11 @@ nu = dev(nu_np)
 # Normalised Voigt profile (one branchless call; a_damp as a 1-element tensor -> grid [1, 800]).
 phi = voigt_H(a_damp.reshape(1), v)[0] / (math.sqrt(math.pi) * dnu_D)    # [s]
 
-stim = 1.0 - torch.exp(-H_C*nu/(K*T[jp]))                # stimulated-emission factor (Lecture 1)
-nl_over_gl = (n_FeI[jp]/U_FeI[jp]) * torch.exp(-chi_l/(KEV*T[jp]))       # Boltzmann (Lecture 2)
+stimulated_emission_factor = 1.0 - torch.exp(-H_C*nu/(K*temperature[jp]))  # Lecture 1
+nl_over_gl = (n_FeI[jp]/U_FeI[jp]) * torch.exp(-chi_l/(KEV*temperature[jp]))  # Boltzmann (Lecture 2)
 
-alpha_line = CLASSICAL * 10**loggf * nl_over_gl * phi * stim    # [cm^-1]
-kappa_line = alpha_line / rho[jp]                              # [cm^2/g]
+alpha_line = CLASSICAL * 10**loggf * nl_over_gl * phi * stimulated_emission_factor  # [cm^-1]
+kappa_line = alpha_line / mass_density[jp]                                           # [cm^2/g]
 print(f"line-centre opacity / continuum = {float(kappa_line.max())/0.027:.1f}  (continuum ~0.027 cm^2/g)")''')
 
 md(r"""Plot the line opacity stacked on a representative H$^-$ continuum ($\sim0.027\ \mathrm{cm^2/g}$) — the spike that carves the absorption feature.""")
@@ -330,17 +334,21 @@ def voigt_H_numpy(a, v):
     return np.where(aa < 0.2, h_low, np.where(far, h_high, h_mid))
 
 # rebuild the reference single-line kappa with an independent NumPy Harris assembly
-T_np, xne_np, rho_np, nHI_np = REF["T"], REF["xne"], REF["rho"], REF["nHI"]
+temperature_np = REF["T"]
+electron_density_np = REF["xne"]
+mass_density_np = REF["rho"]
+neutral_hydrogen_density_np = REF["nHI"]
 nFe_np, UFe_np, tau_np = REF["n_FeI"], REF["U_FeI"], REF["tau"]
 jpn = int(np.argmin(np.abs(tau_np - 2/3)))
-dnuD = (nu0/C)*np.sqrt(2*K*T_np[jpn]/m_Fe + xi**2)
-ad = (2.0e8 + 1.0e-7*nHI_np[jpn] + 1.0e-8*xne_np[jpn]) / (4*np.pi*dnuD)
+dnuD = (nu0/C)*np.sqrt(2*K*temperature_np[jpn]/m_Fe + xi**2)
+ad = (2.0e8 + 1.0e-7*neutral_hydrogen_density_np[jpn]
+      + 1.0e-8*electron_density_np[jpn]) / (4*np.pi*dnuD)
 lamn = np.linspace(lam0_nm-0.04, lam0_nm+0.04, 800); nun = C/(lamn*1e-7); vn = (nun-nu0)/dnuD
 Hn = voigt_H_numpy(np.array([ad]), vn)[0]
 phin = Hn/(np.sqrt(np.pi)*dnuD)
-stimn = 1.0 - np.exp(-H_C*nun/(K*T_np[jpn]))
-nlg = (nFe_np[jpn]/UFe_np[jpn])*np.exp(-chi_l/(KEV*T_np[jpn]))
-kappa_ref = (CLASSICAL*10**loggf*nlg*phin*stimn)/rho_np[jpn]
+stimulated_emission_factor_np = 1.0 - np.exp(-H_C*nun/(K*temperature_np[jpn]))
+nlg = (nFe_np[jpn]/UFe_np[jpn])*np.exp(-chi_l/(KEV*temperature_np[jpn]))
+kappa_ref = (CLASSICAL*10**loggf*nlg*phin*stimulated_emission_factor_np)/mass_density_np[jpn]
 
 devs = {
     "Voigt H(a,v) grid":   compare("Voigt H(a,v) grid", H_grid, H_ref, tol=floor),

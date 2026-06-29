@@ -142,28 +142,36 @@ CLASSICAL = math.pi * (<span class="hljs-number">4.803204e-10</span>)**<span cla
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[4]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Atmospheric structure from Lectures 1-2 (CGS), moved onto the device as tensors.
-T = dev(REF[&quot;T&quot;]); n_e = dev(REF[&quot;xne&quot;]); rho = dev(REF[&quot;rho&quot;])
-nHI = dev(REF[&quot;nHI&quot;]); n_FeI = dev(REF[&quot;n_FeI&quot;]); U_FeI = dev(REF[&quot;U_FeI&quot;])
+temperature = dev(REF[&quot;T&quot;])
+electron_density = dev(REF[&quot;xne&quot;])
+mass_density = dev(REF[&quot;rho&quot;])
+neutral_hydrogen_density = dev(REF[&quot;nHI&quot;])
+n_FeI = dev(REF[&quot;n_FeI&quot;])
+U_FeI = dev(REF[&quot;U_FeI&quot;])
 tau = dev(REF[&quot;tau&quot;])
 
 KEV = 1.0/11604.5    # Boltzmann k_B in eV per kelvin (NOT keV)
 
 # Photosphere layer: nearest tau ~ 2/3, the depth the continuum emerges from.
 jp = int(torch.argmin(torch.abs(tau - 2/3)))
-print(f&quot;at the photosphere (T={float(T[jp]):.0f} K): &quot;
+print(f&quot;at the photosphere (T={float(temperature[jp]):.0f} K): &quot;
       f&quot;n(Fe I) = {float(n_FeI[jp]):.3e} cm^-3, U(Fe I) = {float(U_FeI[jp]):.1f}&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># Atmospheric structure from Lectures 1-2 (CGS), moved onto the device as tensors.</span>
-T = dev(REF[<span class="hljs-string">&quot;T&quot;</span>]); n_e = dev(REF[<span class="hljs-string">&quot;xne&quot;</span>]); rho = dev(REF[<span class="hljs-string">&quot;rho&quot;</span>])
-nHI = dev(REF[<span class="hljs-string">&quot;nHI&quot;</span>]); n_FeI = dev(REF[<span class="hljs-string">&quot;n_FeI&quot;</span>]); U_FeI = dev(REF[<span class="hljs-string">&quot;U_FeI&quot;</span>])
+temperature = dev(REF[<span class="hljs-string">&quot;T&quot;</span>])
+electron_density = dev(REF[<span class="hljs-string">&quot;xne&quot;</span>])
+mass_density = dev(REF[<span class="hljs-string">&quot;rho&quot;</span>])
+neutral_hydrogen_density = dev(REF[<span class="hljs-string">&quot;nHI&quot;</span>])
+n_FeI = dev(REF[<span class="hljs-string">&quot;n_FeI&quot;</span>])
+U_FeI = dev(REF[<span class="hljs-string">&quot;U_FeI&quot;</span>])
 tau = dev(REF[<span class="hljs-string">&quot;tau&quot;</span>])
 
 KEV = <span class="hljs-number">1.0</span>/<span class="hljs-number">11604.5</span>    <span class="hljs-comment"># Boltzmann k_B in eV per kelvin (NOT keV)</span>
 
 <span class="hljs-comment"># Photosphere layer: nearest tau ~ 2/3, the depth the continuum emerges from.</span>
 jp = <span class="hljs-built_in">int</span>(torch.argmin(torch.<span class="hljs-built_in">abs</span>(tau - <span class="hljs-number">2</span>/<span class="hljs-number">3</span>)))
-<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;at the photosphere (T=<span class="hljs-subst">{<span class="hljs-built_in">float</span>(T[jp]):<span class="hljs-number">.0</span>f}</span> K): &quot;</span>
+<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;at the photosphere (T=<span class="hljs-subst">{<span class="hljs-built_in">float</span>(temperature[jp]):<span class="hljs-number">.0</span>f}</span> K): &quot;</span>
       <span class="hljs-string">f&quot;n(Fe I) = <span class="hljs-subst">{<span class="hljs-built_in">float</span>(n_FeI[jp]):<span class="hljs-number">.3</span>e}</span> cm^-3, U(Fe I) = <span class="hljs-subst">{<span class="hljs-built_in">float</span>(U_FeI[jp]):<span class="hljs-number">.1</span>f}</span>&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">at the photosphere (T=5892 K): n(Fe I) = 1.162e+10 cm^-3, U(Fe I) = 31.3
 </pre></div></div><div class="prose"><h2>The shape: Doppler core and Lorentzian wings</h2>
@@ -341,10 +349,10 @@ xi = 2.0e5                       # microturbulence [cm/s]
 nu0 = C / (lam0_nm * 1e-7)       # line-centre frequency [Hz]
 
 # Doppler width (Gaussian 1/e half-width) at the photosphere layer jp.
-dnu_D = (nu0 / C) * torch.sqrt(2*K*T[jp]/m_Fe + xi**2)    # [Hz]
+dnu_D = (nu0 / C) * torch.sqrt(2*K*temperature[jp]/m_Fe + xi**2)    # [Hz]
 
 # The three broadening channels (rates), summed; Stark/vdW coefficients are toy placeholders.
-gamma = 2.0e8 + 1.0e-7*nHI[jp] + 1.0e-8*n_e[jp]          # [s^-1]
+gamma = 2.0e8 + 1.0e-7*neutral_hydrogen_density[jp] + 1.0e-8*electron_density[jp]  # [s^-1]
 a_damp = gamma / (4*math.pi*dnu_D)                        # damping parameter (Lorentzian/Doppler)
 print(f&quot;Doppler width = {float(dnu_D):.3e} Hz;  damping a = {float(a_damp):.3f}&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
@@ -356,10 +364,10 @@ xi = <span class="hljs-number">2.0e5</span>                       <span class="h
 nu0 = C / (lam0_nm * <span class="hljs-number">1e-7</span>)       <span class="hljs-comment"># line-centre frequency [Hz]</span>
 
 <span class="hljs-comment"># Doppler width (Gaussian 1/e half-width) at the photosphere layer jp.</span>
-dnu_D = (nu0 / C) * torch.sqrt(<span class="hljs-number">2</span>*K*T[jp]/m_Fe + xi**<span class="hljs-number">2</span>)    <span class="hljs-comment"># [Hz]</span>
+dnu_D = (nu0 / C) * torch.sqrt(<span class="hljs-number">2</span>*K*temperature[jp]/m_Fe + xi**<span class="hljs-number">2</span>)    <span class="hljs-comment"># [Hz]</span>
 
 <span class="hljs-comment"># The three broadening channels (rates), summed; Stark/vdW coefficients are toy placeholders.</span>
-gamma = <span class="hljs-number">2.0e8</span> + <span class="hljs-number">1.0e-7</span>*nHI[jp] + <span class="hljs-number">1.0e-8</span>*n_e[jp]          <span class="hljs-comment"># [s^-1]</span>
+gamma = <span class="hljs-number">2.0e8</span> + <span class="hljs-number">1.0e-7</span>*neutral_hydrogen_density[jp] + <span class="hljs-number">1.0e-8</span>*electron_density[jp]  <span class="hljs-comment"># [s^-1]</span>
 a_damp = gamma / (<span class="hljs-number">4</span>*math.pi*dnu_D)                        <span class="hljs-comment"># damping parameter (Lorentzian/Doppler)</span>
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;Doppler width = <span class="hljs-subst">{<span class="hljs-built_in">float</span>(dnu_D):<span class="hljs-number">.3</span>e}</span> Hz;  damping a = <span class="hljs-subst">{<span class="hljs-built_in">float</span>(a_damp):<span class="hljs-number">.3</span>f}</span>&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">Doppler width = 4.793e+09 Hz;  damping a = 0.042
@@ -380,11 +388,11 @@ nu = dev(nu_np)
 # Normalised Voigt profile (one branchless call; a_damp as a 1-element tensor -&gt; grid [1, 800]).
 phi = voigt_H(a_damp.reshape(1), v)[0] / (math.sqrt(math.pi) * dnu_D)    # [s]
 
-stim = 1.0 - torch.exp(-H_C*nu/(K*T[jp]))                # stimulated-emission factor (Lecture 1)
-nl_over_gl = (n_FeI[jp]/U_FeI[jp]) * torch.exp(-chi_l/(KEV*T[jp]))       # Boltzmann (Lecture 2)
+stimulated_emission_factor = 1.0 - torch.exp(-H_C*nu/(K*temperature[jp]))  # Lecture 1
+nl_over_gl = (n_FeI[jp]/U_FeI[jp]) * torch.exp(-chi_l/(KEV*temperature[jp]))  # Boltzmann (Lecture 2)
 
-alpha_line = CLASSICAL * 10**loggf * nl_over_gl * phi * stim    # [cm^-1]
-kappa_line = alpha_line / rho[jp]                              # [cm^2/g]
+alpha_line = CLASSICAL * 10**loggf * nl_over_gl * phi * stimulated_emission_factor  # [cm^-1]
+kappa_line = alpha_line / mass_density[jp]                                           # [cm^2/g]
 print(f&quot;line-centre opacity / continuum = {float(kappa_line.max())/0.027:.1f}  (continuum ~0.027 cm^2/g)&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
@@ -400,11 +408,11 @@ nu = dev(nu_np)
 <span class="hljs-comment"># Normalised Voigt profile (one branchless call; a_damp as a 1-element tensor -&gt; grid [1, 800]).</span>
 phi = voigt_H(a_damp.reshape(<span class="hljs-number">1</span>), v)[<span class="hljs-number">0</span>] / (math.sqrt(math.pi) * dnu_D)    <span class="hljs-comment"># [s]</span>
 
-stim = <span class="hljs-number">1.0</span> - torch.exp(-H_C*nu/(K*T[jp]))                <span class="hljs-comment"># stimulated-emission factor (Lecture 1)</span>
-nl_over_gl = (n_FeI[jp]/U_FeI[jp]) * torch.exp(-chi_l/(KEV*T[jp]))       <span class="hljs-comment"># Boltzmann (Lecture 2)</span>
+stimulated_emission_factor = <span class="hljs-number">1.0</span> - torch.exp(-H_C*nu/(K*temperature[jp]))  <span class="hljs-comment"># Lecture 1</span>
+nl_over_gl = (n_FeI[jp]/U_FeI[jp]) * torch.exp(-chi_l/(KEV*temperature[jp]))  <span class="hljs-comment"># Boltzmann (Lecture 2)</span>
 
-alpha_line = CLASSICAL * <span class="hljs-number">10</span>**loggf * nl_over_gl * phi * stim    <span class="hljs-comment"># [cm^-1]</span>
-kappa_line = alpha_line / rho[jp]                              <span class="hljs-comment"># [cm^2/g]</span>
+alpha_line = CLASSICAL * <span class="hljs-number">10</span>**loggf * nl_over_gl * phi * stimulated_emission_factor  <span class="hljs-comment"># [cm^-1]</span>
+kappa_line = alpha_line / mass_density[jp]                                           <span class="hljs-comment"># [cm^2/g]</span>
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;line-centre opacity / continuum = <span class="hljs-subst">{<span class="hljs-built_in">float</span>(kappa_line.<span class="hljs-built_in">max</span>())/<span class="hljs-number">0.027</span>:<span class="hljs-number">.1</span>f}</span>  (continuum ~0.027 cm^2/g)&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">line-centre opacity / continuum = 115.4  (continuum ~0.027 cm^2/g)
 </pre></div></div><div class="prose"><p>Plot the line opacity stacked on a representative H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mo>−</mo></msup></mrow><annotation encoding="application/x-tex">^-</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7713em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7713em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mbin mtight">−</span></span></span></span></span></span></span></span></span></span></span> continuum (<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>∼</mo><mn>0.027</mn><mtext> </mtext><mrow><mi mathvariant="normal">c</mi><msup><mi mathvariant="normal">m</mi><mn>2</mn></msup><mi mathvariant="normal">/</mi><mi mathvariant="normal">g</mi></mrow></mrow><annotation encoding="application/x-tex">\sim0.027\ \mathrm{cm^2/g}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">∼</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1.0641em;vertical-align:-0.25em;"></span><span class="mord">0.027</span><span class="mspace"> </span><span class="mord"><span class="mord mathrm">c</span><span class="mord"><span class="mord mathrm">m</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathrm mtight">2</span></span></span></span></span></span></span></span><span class="mord mathrm" style="margin-right:0.01389em;">/g</span></span></span></span></span>) — the spike that carves the absorption feature.</p>
@@ -467,17 +475,21 @@ def voigt_H_numpy(a, v):
     return np.where(aa &lt; 0.2, h_low, np.where(far, h_high, h_mid))
 
 # rebuild the reference single-line kappa with an independent NumPy Harris assembly
-T_np, xne_np, rho_np, nHI_np = REF[&quot;T&quot;], REF[&quot;xne&quot;], REF[&quot;rho&quot;], REF[&quot;nHI&quot;]
+temperature_np = REF[&quot;T&quot;]
+electron_density_np = REF[&quot;xne&quot;]
+mass_density_np = REF[&quot;rho&quot;]
+neutral_hydrogen_density_np = REF[&quot;nHI&quot;]
 nFe_np, UFe_np, tau_np = REF[&quot;n_FeI&quot;], REF[&quot;U_FeI&quot;], REF[&quot;tau&quot;]
 jpn = int(np.argmin(np.abs(tau_np - 2/3)))
-dnuD = (nu0/C)*np.sqrt(2*K*T_np[jpn]/m_Fe + xi**2)
-ad = (2.0e8 + 1.0e-7*nHI_np[jpn] + 1.0e-8*xne_np[jpn]) / (4*np.pi*dnuD)
+dnuD = (nu0/C)*np.sqrt(2*K*temperature_np[jpn]/m_Fe + xi**2)
+ad = (2.0e8 + 1.0e-7*neutral_hydrogen_density_np[jpn]
+      + 1.0e-8*electron_density_np[jpn]) / (4*np.pi*dnuD)
 lamn = np.linspace(lam0_nm-0.04, lam0_nm+0.04, 800); nun = C/(lamn*1e-7); vn = (nun-nu0)/dnuD
 Hn = voigt_H_numpy(np.array([ad]), vn)[0]
 phin = Hn/(np.sqrt(np.pi)*dnuD)
-stimn = 1.0 - np.exp(-H_C*nun/(K*T_np[jpn]))
-nlg = (nFe_np[jpn]/UFe_np[jpn])*np.exp(-chi_l/(KEV*T_np[jpn]))
-kappa_ref = (CLASSICAL*10**loggf*nlg*phin*stimn)/rho_np[jpn]
+stimulated_emission_factor_np = 1.0 - np.exp(-H_C*nun/(K*temperature_np[jpn]))
+nlg = (nFe_np[jpn]/UFe_np[jpn])*np.exp(-chi_l/(KEV*temperature_np[jpn]))
+kappa_ref = (CLASSICAL*10**loggf*nlg*phin*stimulated_emission_factor_np)/mass_density_np[jpn]
 
 devs = {
     &quot;Voigt H(a,v) grid&quot;:   compare(&quot;Voigt H(a,v) grid&quot;, H_grid, H_ref, tol=floor),
@@ -527,17 +539,21 @@ floor = <span class="hljs-number">1e-6</span> <span class="hljs-keyword">if</spa
     <span class="hljs-keyword">return</span> np.where(aa &lt; <span class="hljs-number">0.2</span>, h_low, np.where(far, h_high, h_mid))
 
 <span class="hljs-comment"># rebuild the reference single-line kappa with an independent NumPy Harris assembly</span>
-T_np, xne_np, rho_np, nHI_np = REF[<span class="hljs-string">&quot;T&quot;</span>], REF[<span class="hljs-string">&quot;xne&quot;</span>], REF[<span class="hljs-string">&quot;rho&quot;</span>], REF[<span class="hljs-string">&quot;nHI&quot;</span>]
+temperature_np = REF[<span class="hljs-string">&quot;T&quot;</span>]
+electron_density_np = REF[<span class="hljs-string">&quot;xne&quot;</span>]
+mass_density_np = REF[<span class="hljs-string">&quot;rho&quot;</span>]
+neutral_hydrogen_density_np = REF[<span class="hljs-string">&quot;nHI&quot;</span>]
 nFe_np, UFe_np, tau_np = REF[<span class="hljs-string">&quot;n_FeI&quot;</span>], REF[<span class="hljs-string">&quot;U_FeI&quot;</span>], REF[<span class="hljs-string">&quot;tau&quot;</span>]
 jpn = <span class="hljs-built_in">int</span>(np.argmin(np.<span class="hljs-built_in">abs</span>(tau_np - <span class="hljs-number">2</span>/<span class="hljs-number">3</span>)))
-dnuD = (nu0/C)*np.sqrt(<span class="hljs-number">2</span>*K*T_np[jpn]/m_Fe + xi**<span class="hljs-number">2</span>)
-ad = (<span class="hljs-number">2.0e8</span> + <span class="hljs-number">1.0e-7</span>*nHI_np[jpn] + <span class="hljs-number">1.0e-8</span>*xne_np[jpn]) / (<span class="hljs-number">4</span>*np.pi*dnuD)
+dnuD = (nu0/C)*np.sqrt(<span class="hljs-number">2</span>*K*temperature_np[jpn]/m_Fe + xi**<span class="hljs-number">2</span>)
+ad = (<span class="hljs-number">2.0e8</span> + <span class="hljs-number">1.0e-7</span>*neutral_hydrogen_density_np[jpn]
+      + <span class="hljs-number">1.0e-8</span>*electron_density_np[jpn]) / (<span class="hljs-number">4</span>*np.pi*dnuD)
 lamn = np.linspace(lam0_nm-<span class="hljs-number">0.04</span>, lam0_nm+<span class="hljs-number">0.04</span>, <span class="hljs-number">800</span>); nun = C/(lamn*<span class="hljs-number">1e-7</span>); vn = (nun-nu0)/dnuD
 Hn = voigt_H_numpy(np.array([ad]), vn)[<span class="hljs-number">0</span>]
 phin = Hn/(np.sqrt(np.pi)*dnuD)
-stimn = <span class="hljs-number">1.0</span> - np.exp(-H_C*nun/(K*T_np[jpn]))
-nlg = (nFe_np[jpn]/UFe_np[jpn])*np.exp(-chi_l/(KEV*T_np[jpn]))
-kappa_ref = (CLASSICAL*<span class="hljs-number">10</span>**loggf*nlg*phin*stimn)/rho_np[jpn]
+stimulated_emission_factor_np = <span class="hljs-number">1.0</span> - np.exp(-H_C*nun/(K*temperature_np[jpn]))
+nlg = (nFe_np[jpn]/UFe_np[jpn])*np.exp(-chi_l/(KEV*temperature_np[jpn]))
+kappa_ref = (CLASSICAL*<span class="hljs-number">10</span>**loggf*nlg*phin*stimulated_emission_factor_np)/mass_density_np[jpn]
 
 devs = {
     <span class="hljs-string">&quot;Voigt H(a,v) grid&quot;</span>:   compare(<span class="hljs-string">&quot;Voigt H(a,v) grid&quot;</span>, H_grid, H_ref, tol=floor),
