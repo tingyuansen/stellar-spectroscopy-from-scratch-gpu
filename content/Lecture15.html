@@ -412,7 +412,7 @@ dep_work_np = VLB._deposit_window(R, H0f, H1f, H2f)
 dep_work = torch.as_tensor(dep_work_np, dtype=DTYPE, device=DEVICE)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;validated LINOP1 deposit: <span class="hljs-subst">{iwl.size}</span> lines x <span class="hljs-subst">{n_depth}</span> depths in &quot;</span>
       <span class="hljs-string">f&quot;<span class="hljs-subst">{time.perf_counter()-t0:<span class="hljs-number">.1</span>f}</span>s; xlines max = <span class="hljs-subst">{<span class="hljs-built_in">float</span>(dep_work.<span class="hljs-built_in">max</span>()):<span class="hljs-number">.3</span>e}</span>&quot;</span>)</code></pre>
-    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">validated LINOP1 deposit: 8149 lines x 80 depths in 0.5s; xlines max = 5.941e+00
+    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">validated LINOP1 deposit: 8149 lines x 80 depths in 0.4s; xlines max = 5.941e+00
 </pre></div></div><div class="prose"><h3>Comparison cell — the deposit, full-support parity</h3>
 <p>The line deposit is accepted only if the computed window opacity matches the shipped production <code>LINOP1</code> window over the full nonzero support. The earlier clean depth-batched approximation is not used as a parity result: changing the 8-stride depth probe/fill-in or the float32 addition order is an algorithm change, and this lecture is gated against the exact shipped reference recurrence.</p>
 </div><div class="nb-cell"><div class="code-card">
@@ -1162,7 +1162,7 @@ adamp_grid_gpu = torch.where(species_valid_gpu[<span class="hljs-literal">None</
 </code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">profile ingredients computed as tensors with shape (depth, line): (80, 8149)
   center opacity range: tensor(1.6981e-21, device='mps:0') tensor(47974.3398, device='mps:0')
-  damping a range: tensor(2.7435e-06, device='mps:0') tensor(6208.4785, device='mps:0')
+  damping a range: tensor(2.7435e-06, device='mps:0') </pre></div><div class="out-block"><pre class="out-stream">tensor(6208.4785, device='mps:0')
 </pre></div></div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[18]</span>Python</span>

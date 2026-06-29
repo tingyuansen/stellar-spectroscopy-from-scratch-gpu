@@ -1146,7 +1146,7 @@ status = <span class="hljs-string">&quot;PASS&quot;</span> <span class="hljs-key
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">Validating mol_band_opacity against the production molecular reference
   accumulation path = cpu/float64; 1,170,738 lines x 80 depths
 
-</pre></div><div class="out-block"><pre class="out-stream">band opacity computed in 23.5 s; shape (80, 9136), max 1.2910e+01
+</pre></div><div class="out-block"><pre class="out-stream">band opacity computed in 26.0 s; shape (80, 9136), max 1.2910e+01
 
   ref max 1.2910e+01   reproduced max 1.2910e+01
   abs diff max 2.83e-14
@@ -1438,7 +1438,7 @@ rel_l = np.<span class="hljs-built_in">abs</span>(B_nu - DT[<span class="hljs-st
 <span class="hljs-keyword">assert</span> rel_c.<span class="hljs-built_in">max</span>() &lt; <span class="hljs-number">1e-12</span> <span class="hljs-keyword">and</span> rel_l.<span class="hljs-built_in">max</span>() &lt; <span class="hljs-number">1e-12</span></code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">inline B_nu vs reference slinec     : max rel diff = 3.60e-15
 inline B_nu vs reference line_source: max rel diff = 3.60e-15
-reference line_scattering is exactly zero: True
+</pre></div><div class="out-block"><pre class="out-stream">reference line_scattering is exactly zero: True
 </pre></div></div><div class="prose"><p>With the source verified, the last solve combines the molecules-off atomic background with the molecular opacity we computed above. The production spectrum appears only in the final ratio check, after the transfer solve has produced <code>spectrum</code>.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
