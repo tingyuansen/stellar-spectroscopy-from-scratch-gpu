@@ -1511,17 +1511,19 @@ _EHYD_CM = np.array([0.0, 82259.105, 97492.302, 102823.893, 105291.651,
 _HYD_RYD_CM = 109677.576             # cm^-1
 _HYD_EINF_CM = 109678.764            # cm^-1''')
 
-md(r"""`compute_metal_opacity` is the driver for the metal-line forest: it selects the visible lines for the star from the catalog, loops over depth, and accumulates each line with the ASYNTH wing kernel above. This is the dense neutral- and ionised-metal forest the Sun's window exercises.""")
+md(r"""The metal-line engine has two pieces. `_metal_opacity_inputs` prepares the catalog,
+population, damping, continuum, and grid arrays in the exact shapes the wing driver needs. Keeping
+this setup separate makes the driver below read as the physical algorithm: gate the line, compute
+the center opacity, then walk the wings.""")
 
-code(r'''
-def compute_metal_opacity(cat, atm, diag, L4):
-    """Accumulate all type-0 metal-line opacity on the diagnostic grid.
+code(r'''def _metal_opacity_inputs(cat, atm, diag, L4):
+    """Return the prepared arrays consumed by `compute_metal_opacity`.
 
-    The catalog supplies wavelength, oscillator strength, damping constants,
-    species, and lower-level excitation data.  For each usable Z>=3 line this
-    routine forms the depth-dependent ASYNTH line-center opacity, applies the
-    local continuum cutoff, deposits the center pixel, then walks the red and
-    blue Voigt wings until they fall below the cutoff.
+    The input catalog supplies line wavelengths, oscillator strengths, damping
+    constants, species, and lower-level excitation data. Atmosphere arrays supply
+    per-ion populations and Doppler widths, while `diag` supplies the continuum
+    cutoff grid. The returned dictionary is still all local, checked-in data; no
+    precomputed line opacity is loaded.
     """
     wl = cat["cat_wl"]
     loggf = cat["cat_loggf"]
@@ -1576,6 +1578,37 @@ def compute_metal_opacity(cat, atm, diag, L4):
     center_valid = line_ok & (center_idx >= 0) & (center_idx < n_w)
     M = MAX_PROFILE_STEPS
     wing_active = line_ok & (wing_idx >= -M) & (wing_idx <= n_w - 1 + M)
+
+    return dict(
+        wl=wl, grad=grad, gstark=gstark, gvdw=gvdw, grid=grid,
+        h0tab=h0tab, h1tab=h1tab, h2tab=h2tab, pop3=pop3, dop3=dop3,
+        rho=rho, xne=xne, T=T, txnxn=txnxn, cont=cont, n_depths=n_depths,
+        n_lines=n_lines, n_w=n_w, asynth=asynth, cgf=cgf, elem_idx=elem_idx,
+        ion_idx=ion_idx, center_idx=center_idx, wing_idx=wing_idx,
+        resolu=resolu, line_ok=line_ok, boltz=boltz,
+        center_valid=center_valid, wing_active=wing_active,
+    )''')
+
+md(r"""`compute_metal_opacity` is the driver for the metal-line forest: it selects the visible lines for the star from the catalog, loops over depth, and accumulates each line with the ASYNTH wing kernel above. This is the dense neutral- and ionised-metal forest the Sun's window exercises.""")
+
+code(r'''
+def compute_metal_opacity(cat, atm, diag, L4):
+    """Accumulate all type-0 metal-line opacity on the diagnostic grid.
+
+    For each usable Z>=3 line this routine forms the depth-dependent ASYNTH
+    line-center opacity, applies the local continuum cutoff, deposits the center
+    pixel, then walks the red and blue Voigt wings until they fall below the
+    cutoff.
+    """
+    m = _metal_opacity_inputs(cat, atm, diag, L4)
+    wl = m["wl"]; grad = m["grad"]; gstark = m["gstark"]; gvdw = m["gvdw"]
+    grid = m["grid"]; h0tab = m["h0tab"]; h1tab = m["h1tab"]; h2tab = m["h2tab"]
+    pop3 = m["pop3"]; dop3 = m["dop3"]; rho = m["rho"]; xne = m["xne"]
+    T = m["T"]; txnxn = m["txnxn"]; cont = m["cont"]; n_depths = m["n_depths"]
+    n_lines = m["n_lines"]; n_w = m["n_w"]; asynth = m["asynth"]; cgf = m["cgf"]
+    elem_idx = m["elem_idx"]; ion_idx = m["ion_idx"]; center_idx = m["center_idx"]
+    wing_idx = m["wing_idx"]; resolu = m["resolu"]; line_ok = m["line_ok"]
+    boltz = m["boltz"]; center_valid = m["center_valid"]; wing_active = m["wing_active"]
 
     for i in range(n_lines):
         if not line_ok[i]:

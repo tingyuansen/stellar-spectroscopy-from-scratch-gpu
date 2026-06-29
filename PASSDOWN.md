@@ -94,9 +94,9 @@ synthesis path.
 - Code-cell hygiene audit: `total bad=0` for leading/trailing blank code cells.
 - Function-docstring audit: `lowdoc>=20 = 0` under the current rule (functions/classes at least
   20 lines must have useful docstrings).
-- Remaining long-cell audit: four cells at `>=120` lines remain, all in L14. L15's exact LINOP1
-  deposit has been split into scalar Voigt, FASTEX/wing, driver, and execution cells and reverified.
-  The remaining L14 cells are structural capstone cells and should be split only with matching
+- Remaining long-cell audit: three cells at `>=120` lines remain, all in L14. L15's exact LINOP1
+  deposit and L14's metal-line setup/driver have been split and reverified. The remaining L14
+  cells are structural continuum/hydrogen capstone cells and should be split only with matching
   parity reruns.
 - `git diff --check`: clean.
 - `python _pipeline/verify_josh.py`: normalised spectrum max `8.94e-09`, median `1.13e-11`.
