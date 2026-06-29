@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Lecture 14 — A Spectrum from an Atmosphere, End to End (the synthesis half).
+"""Lecture 16 — A Spectrum from an Atmosphere, End to End (the synthesis half).
 
 A SELF-CONTAINED, step-by-step assembly walk-through of the lean-kurucz engine.  The
 notebook imports ONLY numpy / matplotlib / pathlib: the whole LTE opacity + transfer
@@ -34,7 +34,7 @@ def md(s): cells.append(new_markdown_cell(s))
 def code(s): cells.append(new_code_cell(s.strip("\n")))
 
 # ── title + objectives ───────────────────────────────────────────────────────
-md(r"""# Lecture 14 — A Spectrum from an Atmosphere, End to End
+md(r"""# Lecture 16 — A Spectrum from an Atmosphere, End to End
 
 *Stellar Spectroscopy from Scratch — rebuilding the physics of ATLAS and SYNTHE from first principles*
 
@@ -89,7 +89,7 @@ A stellar spectrum synthesiser is two halves joined in the middle. The **atmosph
 | Mixing-length convection + convergence | L11 | `convec` / driver loop | FLXCNV $2\times10^{-10}$ |
 | Molecular equilibrium + bands (TiO) | L12 | molecular ASYNTH | spectrum $\sim10^{-8}$ |
 | Coupled molecular chemistry + molecular continuum | L13 | `nmolec` + CHOP/OHOP/H$_2$-CIA | NMOLEC $10^{-13}$; continuum bit-exact |
-| **End to end: atmosphere + EOS state $\rightarrow$ spectrum** | **L14** | **the ATLAS/SYNTHE LTE opacity–transfer pipeline, representative windows, same atmospheres** | **this lecture** |
+| **End to end: atmosphere + EOS state $\rightarrow$ spectrum** | **L16** | **the ATLAS/SYNTHE LTE opacity–transfer pipeline, representative windows, same atmospheres** | **this lecture** |
 
 Every row above was a lecture, and every lecture closed with the benchmark in that last column. For the LTE, 1D, plane-parallel windows tested here, every active opacity and transfer operator the production diagnostic uses is represented by a verified notebook implementation; the atmosphere structures, EOS state, physical tables, and line catalogs are supplied inputs as stated. The boundaries are stated plainly below and do not enter these spectra — the atmosphere *structure* is warm-started for three stars, NLTE statistical equilibrium is out of scope, and the synthesis runs on representative windows rather than the full optical band. What remains is to **assemble** the rows and run them together — and in this lecture we do exactly that, here in the notebook: the continuous opacity (L3), atomic and hydrogen and helium line opacity (L4–6), and molecular bands (L12) are all **run from scratch in the cells below**, layer by layer, from the verified EOS arrays to build the opacity that the JOSH transfer (L7–8) carries to the surface. The rows we still *feed* from reference data are the EOS state for every star and the atmosphere structure for three of the four stars — and that is a property of the convergence *loop*, not of the opacity, as we make precise next.""")
 
@@ -597,7 +597,7 @@ def hydrogen_partition(temp):
     return U''')
 
 md(r"""The continuum engine is easiest to audit source-by-source. The first helper computes the H I
-bound-free/free-free opacity and H$_2^+$ contribution. It is still NumPy in L14 because L14 is the
+bound-free/free-free opacity and H$_2^+$ contribution. It is still NumPy in this capstone because it is the
 same-atmosphere capstone; the later GPU closure will port each helper independently.""")
 
 code(r'''HOP_LEVELS = [
@@ -4010,7 +4010,7 @@ One table collects every claim of this lecture with its measured floor, and mark
 
 code(r'''# assemble the end-to-end precision summary
 print("=" * 84)
-print("LEAN-KURUCZ END-TO-END PRECISION - Lecture 14")
+print("LEAN-KURUCZ END-TO-END PRECISION - Lecture 16")
 print("=" * 84)
 
 # (a) the atmosphere operator, run from scratch here (Sun); prad computed inline (Note B)
@@ -4101,7 +4101,7 @@ The gallery showed the physics each star exercises — and each spectral feature
 
 **How this connects to the book's finale.** The book set out to rebuild a synthetic spectrum from first principles, benchmarked against a working production code to the documented floor of each stage — bit-exact where the arithmetic allows, the single-precision float floor where it does not — and the *synthesis half* now stands complete: for the Sun and for stars across the HR diagram, the opacity is computed from scratch on every one, in a single self-contained notebook.
 
-Part VI supplies the atmosphere half that this capstone points to. **Lecture 15** builds the line-deposit kernel and the line-blanketed Rosseland mean, while **Lecture 16** builds and audits the per-iteration equation-of-state state — populations, Doppler widths, continuum-cutoff table, and convective heat-capacity samples — with its clean-room helper boundaries stated. This capstone consumes that solar state for the Sun and assembles the spectrum on top of it. The two halves meet cleanly at the current boundary: line-blanketed atmosphere and verified EOS state in, from-scratch opacity and transfer out.
+Part VI supplies the atmosphere half that this capstone points to. **Lecture 14** builds and audits the per-iteration equation-of-state state — populations, Doppler widths, continuum-cutoff table, and convective heat-capacity samples — while **Lecture 15** builds the line-deposit kernel and the line-blanketed Rosseland mean. This capstone consumes that solar state for the Sun and assembles the spectrum on top of it. The two halves meet cleanly at the current boundary: line-blanketed atmosphere and verified EOS state in, from-scratch opacity and transfer out.
 
 Two genuine frontiers lie *beyond* this capstone. **Breadth**: synthesising a full optical spectrum rather than representative windows is primarily a computational problem of compiled kernels and parallelism for the LTE components exercised here, though a full band would also test additional opacity gates and edge cases. And **depth**: relaxing LTE, replacing the Saha–Boltzmann populations with the coupled statistical-equilibrium solution, the real physics frontier. Both stand on the scaffold this book builds: verified atmosphere and synthesis engines, assembled one boundary at a time.""")
 
@@ -4114,14 +4114,14 @@ md(r"""## Summary
 - The grey start does **not** converge for the **hot dwarf** (surface electron-density divergence), the **giant** (molecular-EOS assertion), or the **M dwarf** (no convergence in 50 iterations) — exactly the extremes a production emulator exists to warm-start. Those three use the emulator atmosphere, documented.
 - Run on **four stars across the HR diagram**, the synthesiser **computes each star's production-gated opacity from scratch** — continuum (L3), atomic lines (L5), hydrogen Stark wings (L6), helium wings, TiO bands (L12), with molecular continuum computed but gated off as in the reference diagnostic — from the verified equation-of-state populations and the line data, computes the **LTE Planck source $B_\nu$ inline**, carries it to the surface with the book's JOSH transfer, and reproduces every production spectrum to a **median $\lesssim10^{-9}$**, a **99th percentile $\sim10^{-8}$**, and a **maximum $\sim10^{-8}$** (the hot dwarf rides broadly at $\sim1.3\times10^{-7}$ across its window, lifted by the deep-hot-layer continuum residual and peaking at the saturated H$\beta$ core where the line flux no longer cancels it) — on the supplied solar Part-VI atmosphere and the warm-started non-solar ones alike. A **tamper check** (perturb a population by 1%, the spectrum moves $\sim10^{-3}$) verifies that the Fe-line opacity is recomputed from that population, not bypassed.
 - Each star **exercises different physics**: the hot dwarf the Balmer linear-Stark wing (L6), the Sun the metal-line forest (L4–5), the giant the narrow, pressure-sensitive Mg b triplet (gravity in the line shapes), the M dwarf the TiO molecular bands (L12–13).
-- The **simplifications** are honest and bounded: the opacity and transfer are computed from scratch on every star; the capstone loads the atmosphere structure and verified EOS/population/Doppler state rather than regenerating them from stellar parameters; Part VI builds and audits the solar line-blanketed state that L14 consumes; the geometry is 1D plane-parallel; and the populations are **LTE**, which breaks down in the cores of strong lines and the thin outer layers of hot and luminous stars — the **NLTE** frontier beyond this book.""")
+- The **simplifications** are honest and bounded: the opacity and transfer are computed from scratch on every star; the capstone loads the atmosphere structure and verified EOS/population/Doppler state rather than regenerating them from stellar parameters; Part VI builds and audits the solar line-blanketed state that this capstone consumes; the geometry is 1D plane-parallel; and the populations are **LTE**, which breaks down in the cores of strong lines and the thin outer layers of hot and luminous stars — the **NLTE** frontier beyond this book.""")
 
 # ── practice exercises ───────────────────────────────────────────────────────────────
 md(r"""## Practice exercises
 
 **1. The continuum-only spectrum.** For each star, plot the *continuum* flux `flux_continuum` alone (or run `synthesise` with the line opacity zeroed). How does the continuum shape differ between the hot dwarf and the M dwarf, and why? Relate it to the Planck peak and the H$^-$ opacity of Lecture 3 (and, for the M dwarf, the molecular continuum of Lecture 13).
 
-**2. Closing the last wall (then read Part VI).** This lecture computes the opacity from scratch by *consuming* the equation-of-state populations. The convergence loop's Newton step needs those populations *finite-differenced* with respect to $T$ and $P$, plus the thermodynamic derivatives the convection/temperature-correction step consumes. Sketch what `eos_populations_and_derivatives(T, P, abundances)` would return (the populations plus $\partial n_i/\partial T$, $\partial n_i/\partial P$, heat capacity, and the adiabatic gradient) and how you would feed those derivatives into the grey-to-converged loop so it runs entirely from scratch with no warm start. Then compare your sketch against **Lecture 16**, which builds the full per-iteration equation-of-state state from scratch and runs the line-blanketed convergence onto the real Sun.
+**2. Closing the last wall.** This lecture computes the opacity from scratch by *consuming* the equation-of-state populations. The convergence loop's Newton step needs those populations *finite-differenced* with respect to $T$ and $P$, plus the thermodynamic derivatives the convection/temperature-correction step consumes. Sketch what `eos_populations_and_derivatives(T, P, abundances)` would return (the populations plus $\partial n_i/\partial T$, $\partial n_i/\partial P$, heat capacity, and the adiabatic gradient) and how you would feed those derivatives into the grey-to-converged loop so it runs entirely from scratch with no warm start. Then compare your sketch against **Lecture 14**, which builds the per-iteration equation-of-state state from scratch for the current loaded-atmosphere boundary.
 
 **3. Why does the grey start fail for the hot dwarf?** The recorded reason is "NELECT did not converge at depth index 0" — the *surface* electron density. Argue from the ionisation balance at 9000 K why the cold grey guess is a poor seed for the surface electron density, and why a warm start (a structure already near the solution) fixes it. What would you change about the grey start to make it converge?
 

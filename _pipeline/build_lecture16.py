@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Lecture 16 — EOS State for Line-Blanketed Convergence.
+"""Lecture 14 — EOS State for Line-Blanketed Convergence.
 
 The bridge that recomputes the per-iteration EOS state consumed by line-blanketed convergence.
 Self-contained: imports only numpy / matplotlib / pathlib + the from-scratch
@@ -16,7 +16,7 @@ cells = []
 def md(s): cells.append(new_markdown_cell(s))
 def code(s): cells.append(new_code_cell(s.strip("\n")))
 
-md(r"""# Lecture 16 — EOS State for Line-Blanketed Convergence
+md(r"""# Lecture 14 — EOS State for Line-Blanketed Convergence
 
 *Stellar Spectroscopy from Scratch — rebuilding the physics of ATLAS and SYNTHE from first principles*
 
@@ -26,7 +26,7 @@ md(r"""# Lecture 16 — EOS State for Line-Blanketed Convergence
 
 ---
 
-**Why this lecture exists — and where it sits.** This is the closing lecture of Part VI, and of the book. Lecture 15 switched the line blanket on and showed the temperature-correction operator on a verified solar step — but its deposit kernel *consumed* a per-iteration equation-of-state state (the populations the continuum needs, the Doppler widths and species populations the deposit indexes, the continuum-cutoff table, the convective heat-capacity samples) that it still read from a reference file, computed once by the production code. Lecture 11 leaned on the same convenience. That reference state is the **last borrowed intermediate inside one iteration**. This lecture removes that borrowed state: starting from the supplied solar atmosphere structure, it builds from scratch the EOS-derived state that the line-blanketed iteration needs, then compares those arrays against the production state. It does not yet make the whole atmosphere loop a live in-notebook, stellar-parameters-to-Sun solve.
+**Why this lecture exists — and where it sits.** This is the first lecture of the Part VI finale. Lecture 15 switches the line blanket on and shows the temperature-correction operator on a verified solar step — but its deposit kernel *consumes* a per-iteration equation-of-state state (the populations the continuum needs, the Doppler widths and species populations the deposit indexes, the continuum-cutoff table, the convective heat-capacity samples) that it still reads from a reference file, computed once by the production code. Lecture 11 leaned on the same convenience. That reference state is the **last borrowed intermediate inside one iteration**. This lecture removes that borrowed state: starting from the supplied solar atmosphere structure, it builds from scratch the EOS-derived state that the line-blanketed iteration needs, then compares those arrays against the production state. It does not yet make the whole atmosphere loop a live in-notebook, stellar-parameters-to-Sun solve.
 
 So Part VI has two halves that interlock. **Lecture 15** is the new *physics* — the line-deposit kernel and the back-warming it drives. **This lecture** is the *state that physics runs on* — the multi-element equation of state that Lecture 15's deposit and Lecture 11's convergence both quietly assumed. Built here, the dependency closes at the per-iteration state level: the deposit indexes slots this lecture fills, and the convergence steps a temperature this lecture's heat capacity makes adiabatically correct. What remains for a stricter capstone is to run the complete atmosphere loop live from stellar parameters in local textbook code. The production `kgpu` loop is the reference design, not something this notebook may import.
 
@@ -344,8 +344,8 @@ From honest inputs — the atmosphere structure for this state audit, the atomic
 line catalog — this lecture reconstructs the per-iteration state needed by the line-blanketed solar
 trajectory. The remaining stricter capstone is to rewrite the `kgpu`-style atmosphere loop locally
 inside the textbook, keep its live notebook gate to a runnable `max_iter=1` for now, and after the
-kgpu solver squeeze feed a full local convergence output directly into the L14 spectrum path without
-importing `kgpu`.""")
+kgpu solver squeeze feed a full local convergence output directly into the Lecture 16 spectrum path
+without importing `kgpu`.""")
 
 # ── synthesis ─────────────────────────────────────────────────────────────────
 md(r"""## Synthesis
@@ -366,7 +366,7 @@ md(r"""## Where this leaves the book
 
 The book now has both halves in verified form, with a boundary that should stay explicit.
 
-- **The spectrum half — Lecture 14.** Given a model atmosphere and EOS state, the emergent spectrum:
+- **The spectrum half — Lecture 16.** Given a model atmosphere and EOS state, the emergent spectrum:
   the equation of state, continuous opacity, line opacity, molecular opacity, and radiative transfer
   are assembled into one lean synthesiser and run across four stars spanning the HR diagram.
   *Atmosphere in, spectrum out.*
@@ -379,21 +379,21 @@ The book now has both halves in verified form, with a boundary that should stay 
   package.
 
 So the honest closure is: the scaffold needed for a complete live from-scratch solar model is in
-reach and partially verified, while the stricter capstone remains to rewrite the L15/L16 atmosphere
-loop in local textbook code and wire it live into L14 instead of loading/summarizing trajectory
-fixtures. Breadth (full optical bandwidth and compiled GPU
+reach and partially verified, while the stricter capstone remains to rewrite the Lecture 14/15
+atmosphere loop in local textbook code and wire it live into Lecture 16 instead of
+loading/summarizing trajectory fixtures. Breadth (full optical bandwidth and compiled GPU
 kernels) and depth (NLTE statistical equilibrium) remain the named frontiers beyond this LTE
 scaffold.""")
 
 md(r"""## Summary
 
-- Lecture 15 reached the solar line-blanketed model but **consumed a per-iteration equation-of-state state read from a reference**. This lecture builds that state from scratch and hands it back; the checked warm-start trajectory is summarized from a fixture rather than run live in the notebook.
+- Lecture 15 showed the line-blanketed correction step but **consumed a per-iteration equation-of-state state read from a reference**. This lecture builds that state from scratch and hands it back; the checked warm-start trajectory is summarized from a fixture rather than run live in the notebook.
 - The **`POPSALL` special-slot layout** extends Lecture 2's single-element Saha–Boltzmann equation of state to a flat, species-indexed array holding every ion of every element the opacity engines read; the electron density, mass density, and per-ion populations reproduce the production state to the float-64 floor.
 - The **Doppler widths** `dopple`, the line-center population factor `xnfdop`, and the **van der Waals perturber number** `txnxn` — the per-slot quantities the line deposit indexes — are built from the populations and atomic masses, each matching the production state to the float-64 floor.
 - The **`TABCONT` continuum-cutoff table** keys the deposit, and completing Lecture 3's continuum with the **far-UV metal bound-free forest** lifts the 90–150 nm opacity at the hot deep base — the lever that sets the deep Rosseland mean.
 - The **convective heat capacity** must carry the **ionization energy** in the internal energy: with it, the adiabatic gradient at the base is the partial-ionization value $\nabla_{\rm ad}\approx0.11$, not the ideal-gas $0.4$ — the difference that keeps the deep base from over-heating.
 - Assembled into the **per-iteration state** and handed to the line-blanketed loop, the checked trajectory moves from a warm start toward the solar reference model (`sun.npz`): surface $3691$ K, base $11460$ K, base $\rho x=12.35$, temperature median $7.7\times10^{-4}$ — a part in $10^3$, the float-32 deposit floor at the optically invisible deep base.
-- The remaining strict-capstone work is to rewrite that L15/L16 atmosphere loop locally, keep the live notebook gate to `max_iter=1` until the solver is fast enough, and later feed a full local convergence output directly into L14. `kgpu` is the design reference and parity target, not a runtime dependency for the lecture.""")
+- The remaining strict-capstone work is to rewrite that Lecture 14/15 atmosphere loop locally, keep the live notebook gate to `max_iter=1` until the solver is fast enough, and later feed a full local convergence output directly into Lecture 16. `kgpu` is the design reference and parity target, not a runtime dependency for the lecture.""")
 
 # ── exercises ─────────────────────────────────────────────────────────────────
 md(r"""## Exercises

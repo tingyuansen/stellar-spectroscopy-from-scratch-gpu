@@ -110,10 +110,8 @@
 
   /* ---- footer nav ---- */
   function navHtml(m) {
-    const order = window.BOOK.flat || [];
-    const idx = order.findIndex(c => c.n === m.n);
-    const prev = idx > 0 ? order[idx - 1] : null;
-    const next = idx >= 0 && idx < order.length - 1 ? order[idx + 1] : null;
+    const prev = window.BOOK.byN[m.n - 1];
+    const next = window.BOOK.byN[m.n + 1];
     const a = (c, dir, cls) => c
       ? `<a class="${cls}" href="reader.html?ch=${c.n}"><span class="dir">${dir}</span><span class="nm">${c.title}</span></a>`
       : `<a class="${cls} disabled"></a>`;

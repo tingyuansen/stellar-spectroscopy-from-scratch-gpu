@@ -11,14 +11,14 @@ shipped reference data at the documented float floor. Those references are produ
 independent NumPy/pykurucz validation chain and are used here only as parity targets. The taught path
 does not import pykurucz and does not import the production `kgpu` package.
 
-A stellar-atmosphere code has **two halves**, and the book now exposes both. The **spectrum half**
-(Part V, Lecture 14) takes a model atmosphere and assembles the whole opacity-and-transfer stack
-into a lean synthesiser, run across the HR diagram (a hot dwarf, the Sun, a giant, an M dwarf). The
-**atmosphere half** (Part VI, Lectures 15–16) switches on the line blanket and rebuilds much of the
-per-iteration state, including the exact line-deposit teaching window and EOS-derived species
-state. The remaining boundary is explicit: L14 still consumes loaded atmosphere/EOS state, L15
-still consumes some line-blanketing fixtures, and L16 is still partly helper-backed. The book is
-therefore honest and parity-tested, but not yet a fully closed stellar-parameters-to-spectrum
+A stellar-atmosphere code has **two halves**, and the book now exposes both. The **atmosphere half**
+(Part VI, Lectures 14–15) rebuilds much of the per-iteration state and switches on the line blanket,
+including the exact line-deposit teaching window and EOS-derived species state. The **spectrum
+half** (Lecture 16) takes a model atmosphere and assembles the whole opacity-and-transfer stack into
+a lean synthesiser, run across the HR diagram (a hot dwarf, the Sun, a giant, an M dwarf). The
+remaining boundary is explicit: Lecture 14 is still partly helper-backed, Lecture 15 still consumes
+some line-blanketing fixtures, and Lecture 16 still consumes loaded atmosphere/EOS state. The book
+is therefore honest and parity-tested, but not yet a fully closed stellar-parameters-to-spectrum
 torch capstone.
 
 The notebooks are **self-contained**: each imports `torch`, `numpy`, `matplotlib`, and `pathlib`
@@ -70,34 +70,30 @@ and recovers machine precision. The deviation is **quantified, not hidden**.
 13. **Molecular Chemistry: the Coupled Equilibrium and Continuous Opacity** — the coupled NMOLEC Newton solver and the molecular continuum (CH, OH, H₂ collision-induced absorption), from scratch.
 
 **Part VI — Line blanketing and the synthesis finale**
-Read this finale in the logical build order below. File numbers stay stable for links and
-verification, but the concepts flow from state, to blanketing, to the atmosphere-to-spectrum
-capstone.
+The concepts flow from state, to blanketing, to the atmosphere-to-spectrum capstone.
 
-16. **EOS State for Line-Blanketed Convergence** — the per-iteration state the line deposit and continuum consume: the multi-element `POPSALL`/`NELECT` species slots, Doppler widths, van-der-Waals perturber number, continuum-cutoff bridge, molecular slots, and `EDENS` convective heat-capacity inputs. It recomputes this state for a loaded atmosphere fixture and documents the remaining helper-backed boundaries.
+14. **EOS State for Line-Blanketed Convergence** — the per-iteration state the line deposit and continuum consume: the multi-element `POPSALL`/`NELECT` species slots, Doppler widths, van-der-Waals perturber number, continuum-cutoff bridge, molecular slots, and `EDENS` convective heat-capacity inputs. It recomputes this state for a loaded atmosphere fixture and documents the remaining helper-backed boundaries.
 15. **Line Blanketing: LINOP1 and the Atmosphere Correction** — the predicted line list and `SELECTLINES`, the `LINOP1` wing-walk deposit kernel (the asymmetric sub-pixel walk, the full Voigt, the cutoff reach) reproduced in a teaching window, the line-blanketed Rosseland mean, and the convergence-core precision audit. It still consumes loaded atmosphere/EOS/window/continuum/full-grid blanket fixtures, which are named in the lecture.
-14. **A Spectrum from an Atmosphere, End to End** — the **synthesis half**: the lean “kurucz” assembled from every component (EOS, continuum, atomic/hydrogen/helium lines, molecular bands, JOSH transfer) and run across the HR diagram, computing every spectrum from scratch given an atmosphere. *Atmosphere in, spectrum out.*
+16. **A Spectrum from an Atmosphere, End to End** — the **synthesis half**: the lean “kurucz” assembled from every component (EOS, continuum, atomic/hydrogen/helium lines, molecular bands, JOSH transfer) and run across the HR diagram, computing every spectrum from scratch given an atmosphere. *Atmosphere in, spectrum out.*
 
 ## How to read this book
 
-- **Read it front to back, with the finale ordered by concepts.** Parts I–III build the
-  microphysics (foundations, opacity, transfer) treating the atmosphere as given; Part IV builds the
-  atmosphere's structure; Part V adds cool-star chemistry. In Part VI, read L16 first for EOS state,
-  L15 second for line blanketing and the atmosphere correction, and L14 last for the
-  atmosphere-to-spectrum capstone.
+- **Read it front to back.** Parts I–III build the microphysics (foundations, opacity, transfer)
+  treating the atmosphere as given; Part IV builds the atmosphere's structure; Part V adds cool-star
+  chemistry. Part VI then closes in natural order: Lecture 14 EOS state, Lecture 15 line blanketing
+  and atmosphere correction, Lecture 16 atmosphere-to-spectrum capstone.
 - **Each lecture is self-contained and stands alone.** Every notebook imports `torch`, `numpy`,
   `matplotlib`, and `pathlib`, loads its own `reference/*.npz`, runs top to bottom on the GPU, and
   ends by benchmarking its arrays to the shipped reference. You can open any one
   lecture and understand what it achieves without flipping back; the cross-references are light
   signposts, not prerequisites you must chase.
-- **The two halves of "end to end."** A stellar-atmosphere code is two halves. **Lecture 14** is the
-  *spectrum* half — atmosphere in, spectrum out — assembled and run from scratch across the HR
-  diagram. **Part VI (Lectures 15–16)** is the *atmosphere-state* half: it switches the blanket on,
-  builds the per-iteration equation of state, and shows the correction machinery, but the live
-  notebook gate intentionally stops at a runnable one-iteration smoke boundary until the production
-  convergence loop is fast enough to teach cleanly. Lecture 14 now consumes the Part-VI
-  line-blanketed solar state for the Sun, while the hot dwarf, giant, and M dwarf remain documented
-  emulator warm-starts.
+- **The two halves of "end to end."** A stellar-atmosphere code is two halves. **Lectures 14–15**
+  are the *atmosphere-state* half: they build the per-iteration equation of state, switch the
+  blanket on, and show the correction machinery, but the live notebook gate intentionally stops at a
+  runnable one-iteration smoke boundary until the production convergence loop is fast enough to
+  teach cleanly. **Lecture 16** is the *spectrum* half — atmosphere in, spectrum out — assembled and
+  run from scratch across the HR diagram. Lecture 16 consumes the Part-VI line-blanketed solar state
+  for the Sun, while the hot dwarf, giant, and M dwarf remain documented emulator warm-starts.
 - **The boundaries are named, not hidden.** Out of scope, by design: full optical bandwidth (an
   engineering problem of compiled kernels and parallelism — the physics is all here), and NLTE
   statistical equilibrium (the real physics frontier). The geometry is 1D plane-parallel throughout,
@@ -132,7 +128,7 @@ data files are shipped references — the gold standard each lecture validates a
 generated once by the offline validation pipeline; this book never regenerates them and never imports
 pykurucz or the production `kgpu` engine in the taught path.
 
-Read **[PASSDOWN.md](PASSDOWN.md)** first for the current handoff state, especially the L14
+Read **[PASSDOWN.md](PASSDOWN.md)** first for the current handoff state, especially the Lecture 16
 line-blanketed Sun refresh and the no-`kgpu`/no-`pykurucz` self-containment rule. See
 **[PLAN.md](PLAN.md)** for the GPU-substitution roadmap. For L14-L16 reference-bundle edits, also
 read **[reference/MANIFEST_L14_L16.md](reference/MANIFEST_L14_L16.md)** so loaded computed state
@@ -146,7 +142,7 @@ _pipeline/      build_lecture*_gpu.py (assemble), build.py (execute+render), ver
 reference/      shipped benchmark data (*.npz)
 resources/      figures and schematics
 assets/         render.js / style.css / book-data.js — the reader
-PASSDOWN.md     current handoff: relationship to kgpu, L14 state, checks, delegation policy
+PASSDOWN.md     current handoff: relationship to kgpu, finale state, checks, delegation policy
 PLAN.md         the GPU-substitution roadmap (per-lecture pattern; now vs. deferred)
 BIBLE.md        lecture quality standard: GPU-native, pedagogical, parity-gated
 index.html      table of contents      reader.html  the lecture reader

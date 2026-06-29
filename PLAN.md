@@ -13,14 +13,15 @@ Current status:
 - L1-L7 and L9-L13 are mostly green GPU-native lecture paths.
 - L8 has a torch-native JOSH path fed by the preceding Lecture 6 opacity artifact; its fixed JOSH
   operator tables are documented as method constants rather than spectrum answers.
-- L14 is an honest same-atmosphere synthesis capstone: opacity and transfer are computed in the
-  notebook, while atmosphere/EOS/population/Doppler state is loaded.
+- Public L14 recomputes EOS-derived state for a loaded solar atmosphere structure and summarizes a
+  checked warm-start solar trajectory. For now, any live atmosphere cell should be a runnable
+  one-iteration smoke gate (`max_iter=1`).
 - L15 computes the exact LINOP1 teaching-window recurrence, but still loads atmosphere/EOS/window/
   continuum/full-grid blanket fixtures.
-- L16 recomputes EOS-derived state for a loaded solar atmosphere structure, and summarizes a checked
-  warm-start solar trajectory. For now, any live atmosphere cell should be a runnable one-iteration
-  smoke gate (`max_iter=1`). The full converged solar solve is parked until the kgpu squeeze makes
-  it pedagogically practical; the future target is the 12.3-class / pyk exact-LINOP
+- Public L16 is an honest same-atmosphere synthesis capstone: opacity and transfer are computed in
+  the notebook, while atmosphere/EOS/population/Doppler state is loaded. The full converged solar
+  solve is parked until the kgpu squeeze makes it pedagogically practical; the future target is the
+  12.3-class / pyk exact-LINOP
   `RHOX=12.1439331` solar base. The reference design is
   `~/pykurucz_gpu/bench/converge_kgpu_port.py` / `kgpu.atlas_loop.converge_atmosphere`, but the
   textbook path must not import `kgpu`; NumPy clean-room code is a parity gate, not the taught path.
@@ -36,9 +37,9 @@ Current status:
    - do not erase this roadmap until every lecture either passes the closure checklist or has a
      precise, honest boundary that remains as future work.
    - status: `PASSDOWN.md` now carries the per-lecture checkbox matrix. The remaining concrete
-     lecture fixes are L15 fixture reduction and L14 true capstone/torch promotion. L16's live
-     convergence closure is intentionally capped at a runnable `max_iter=1` smoke gate until kgpu
-     convergence is fast enough for the full pedagogical solve.
+     long-pole fixes are L15 fixture reduction and public L16 true capstone/torch promotion. Public
+     L14's live convergence closure is intentionally capped at a runnable `max_iter=1` smoke gate
+     until kgpu convergence is fast enough for the full pedagogical solve.
 
 1. Establish the shared naming/glossary pass:
    - define readable names in `BIBLE.md` and use them consistently across lectures and kgpu;
@@ -52,7 +53,7 @@ Current status:
      before claiming global readability closure. Leave remaining legacy names only where they are
      canonical table/routine labels, fixture keys, or scalar-reference transcriptions.
 
-2. Rework the L14-L16 curriculum order before major capstone promotion:
+2. Keep the public L14-L16 finale order clean:
    - collect the end-to-end ATLAS12+SYNTHE topics in `BIBLE.md`/`PLAN.md`;
    - make the sequence match the kgpu build: atmosphere/EOS state, line blanket/deposit,
      continuum+line synthesis, then capstone spectrum;
@@ -63,12 +64,13 @@ Current status:
    - preserve every current NumPy/reference parity check while moving topics;
    - keep `reference/MANIFEST_L14_L16.md` synchronized whenever arrays move between loaded,
      computed, and comparison-only roles.
-   - status: first low-risk pass complete. Public/site read order is now L16 EOS/state, L15 line
-     blanketing and atmosphere correction, then L14 atmosphere-to-spectrum capstone, with stable
-     lecture numbers and URLs. L14/L15/L16 rebuilt and verified after the prose/order move.
+   - status: public/site read order is now normal `N-1/N+1`: L14 EOS state, L15 line blanketing
+     and atmosphere correction, then L16 atmosphere-to-spectrum capstone. Source filenames remain
+     legacy-stable for git history (`content/Lecture16.*` is public L14; `content/Lecture14.*` is
+     public L16).
 
-3. Promote L14 from same-atmosphere synthesis to true capstone:
-   - wire or inline L15/L16 so the Sun state is regenerated from stellar parameters;
+3. Promote public L16 from same-atmosphere synthesis to true capstone:
+   - wire or inline public L14/L15 so the Sun state is regenerated from stellar parameters;
    - keep the four HR-window `verify_leankurucz.py` gate green;
    - do not claim non-solar atmosphere closure until kgpu has a corresponding four-star
      ATLAS12+SYNTHE gate.
@@ -78,7 +80,7 @@ Current status:
      parity-gated steps;
    - keep the exact LINOP1 recurrence and float32 accumulation-order gate intact.
 
-5. Reduce L16 helper boundaries:
+5. Reduce public L14 helper boundaries:
    - keep any live kgpu-style atmosphere loop in the lecture to `max_iter=1` for now, so the
      notebook remains runnable;
    - after the kgpu squeeze, extend that local loop to full convergence and target the 12.3-class /
@@ -89,11 +91,11 @@ Current status:
      cells where practical; use the NumPy clean-room solve only as a verifier for the GPU path;
    - retain scalar loops only for true recurrences or fixed table logic.
 
-6. Finish dense-code teaching cleanup after the L14-L16 restructure:
+6. Finish dense-code teaching cleanup after the finale restructure:
    - status: closed under the current `>=100` line audit; all L1-L16 code cells are below this
-     threshold after the L14 helper split;
-   - stricter optional cleanup remains for 80-99 line cells, especially L14, L15, L13, L11, L9,
-     L6, and L5, but this is readability work rather than a correctness blocker;
+     threshold after the capstone helper split;
+   - stricter optional cleanup remains for 80-99 line cells, especially the capstone, L15, L13,
+     L11, L9, L6, and L5, but this is readability work rather than a correctness blocker;
    - add reader-walkthrough comments/docstrings inside dense code blocks after the sequence is
      stable, so comments describe the final structure rather than a soon-to-move draft;
    - split or comment dense cells only when the corresponding verifier is rerun.

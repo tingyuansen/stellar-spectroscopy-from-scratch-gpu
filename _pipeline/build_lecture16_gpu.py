@@ -1,7 +1,9 @@
 #!/usr/bin/env python
-"""Assemble content/Lecture16.ipynb (unexecuted).
+"""Legacy alternate assembler for content/Lecture16.ipynb (unexecuted).
 
-Lecture 16 is the EOS-state counterpart to Lecture 15. Reference population
+The active builder is build_lecture16.py; keep this file aligned if it is retained.
+
+Public Lecture 14 is the EOS-state counterpart to Lecture 15. Reference population
 arrays are not used as computed state: the notebook computes PFSAHA/NELECT
 populations from shipped atomic data, then builds the kGPU-style tensor state
 for a loaded atmosphere fixture. The loaded atmosphere/radiation context is a
@@ -16,19 +18,19 @@ BOOK = Path(__file__).resolve().parent.parent
 OUT = BOOK / "content" / "Lecture16.ipynb"
 cells = []
 def md(s):
-    """Append markdown source `s` to the generated Lecture 16 notebook."""
+    """Append markdown source `s` to the generated public Lecture 14 notebook."""
     cells.append(new_markdown_cell(s))
 
 def code(s):
-    """Append executable code source `s` to the generated Lecture 16 notebook."""
+    """Append executable code source `s` to the generated public Lecture 14 notebook."""
     cells.append(new_code_cell(s.strip("\n")))
 
-md(r"""# Lecture 16 — EOS State for Line-Blanketed Convergence
+md(r"""# Lecture 14 — EOS State for Line-Blanketed Convergence
 
 *Stellar Spectroscopy from Scratch — a self-contained torch/MPS reconstruction of stellar-atmosphere and spectrum synthesis physics*
 
 This is the first conceptual step of the finale: build the state that line blanketing and the
-capstone synthesis consume. Lecture 16 recomputes the EOS state conditional on a loaded atmosphere
+capstone synthesis consume. Public Lecture 14 recomputes the EOS state conditional on a loaded atmosphere
 fixture. The computed path is:
 
 1. solve the multi-element PFSAHA/NELECT equation of state from the atomic data tables;

@@ -63,7 +63,7 @@ precision boundary that make the effect possible.""")
 
 md(r"""## Why the raw fp32 convergence core fails — and how the accepted path fixes it
 
-Up to Lecture 14 the torch/MPS kernels held fp32 parity with the shipped reference targets to a few $\times 10^{-6}$: the equation of state, the continuum, the lines, the molecular bands, the radiative transfer. Those are all **per-evaluation** computations — given the atmosphere, evaluate an opacity or a flux. Single precision handles them comfortably, because each number is computed *once* from well-conditioned inputs.
+Up to Lecture 13 the torch/MPS kernels held fp32 parity with the shipped reference targets to a few $\times 10^{-6}$: the equation of state, the continuum, the lines, the molecular bands, the radiative transfer. Those are all **per-evaluation** computations — given the atmosphere, evaluate an opacity or a flux. Single precision handles them comfortably, because each number is computed *once* from well-conditioned inputs.
 
 The **atmosphere convergence** is different. It is an *iteration*: start from a guess, compute the radiation field, correct the temperature and the column mass, repeat ~20–30 times until the structure stops moving. Two things make this fragile in fp32. First, the correction is a **finite difference** — it compares the pressure structure at temperature $T$ against the structure at a slightly perturbed $T+\delta T$, and a difference of two nearly-equal numbers loses significant digits (*catastrophic cancellation*). Second, the error **compounds**: a small bias in one iteration's column-mass update is carried into the next, and over twenty iterations a $10^{-3}$ bias can walk the deep-base structure far off course. In the production `kgpu` engine, running the fully-MPS fp32 path without care drives the base column mass to $\sim 8.5$ instead of the Sun's $12.14$ — a *diverged* model.
 
@@ -220,7 +220,7 @@ Depositing a line is not "evaluate the Voigt on a fixed window." The production 
 
 Here we port it as a **depth-batched** kernel: for one line, all 80 depths walk together. The center opacity, the Boltzmann factor, the damping $a$, and the per-pixel abscissa are tensor ops over the depth axis; the wing-walk steps the pixel offset, and a per-depth `active` mask carries the cutoff (a depth that has dropped below continuum stops contributing). The line center opacity is
 $$\kappa_0(j) = \underbrace{C_{gf}\,\lambda\,gf}_{\texttt{cgf}}\cdot\underbrace{\frac{n_{\rm sp}}{\Delta\nu_{\rm D}\,\rho}}_{\texttt{xnfdop}}\cdot\,e^{-\chi_{\rm low}\,hc/kT(j)},\qquad a(j)=\frac{\Gamma_{\rm rad}+\Gamma_{\rm Stark}\,n_e+\Gamma_{\rm vdW}\,\texttt{txnxn}}{\Delta\nu_{\rm D}}.$$
-The equation-of-state state ($n_{\rm sp}$, $\Delta\nu_{\rm D}$, $n_e$, `txnxn`) is shipped for the window's species. Lecture 16 recomputes this class of state conditional on a loaded atmosphere fixture, but this L15 notebook still consumes the shipped window state directly. The kernel `f(device,dtype)` runs in fp32 on the device and fp64 on the CPU so we can compare the deposit at both precisions.""")
+The equation-of-state state ($n_{\rm sp}$, $\Delta\nu_{\rm D}$, $n_e$, `txnxn`) is shipped for the window's species. Lecture 14 recomputes this class of state conditional on a loaded atmosphere fixture, but this L15 notebook still consumes the shipped window state directly. The kernel `f(device,dtype)` runs in fp32 on the device and fp64 on the CPU so we can compare the deposit at both precisions.""")
 
 code(r'''# window data (a small wavelength band so the deposit runs live), all host arrays
 RATIOLG = float(R["ratiolg"]); CGF_SCALE = float(R["cgf_scale"]); GAMMA_SCALE = float(R["gamma_scale"])
@@ -832,7 +832,7 @@ The fix follows from the localization and is **surgical**: promote *just* the se
 
 md(r"""## Boundary after this audit
 
-This lecture ported the line deposit recurrence and the convergence-core reductions, and localized the fp32 divergence to the temperature-correction secant. It ran on per-iteration **state** — the atmosphere structure, species populations, Doppler widths, continuum-cutoff table, opacity grids, and heat-capacity samples — loaded as fixtures. Lecture 16 recomputes part of that EOS state conditional on a loaded atmosphere fixture, but the combined L15/L16 boundary is not yet a strict from-physical-inputs atmosphere generator. The remaining work is to replace those fixtures with self-contained generators while keeping the one fp32-fragile reduction named and located.""")
+This lecture ported the line deposit recurrence and the convergence-core reductions, and localized the fp32 divergence to the temperature-correction secant. It ran on per-iteration **state** — the atmosphere structure, species populations, Doppler widths, continuum-cutoff table, opacity grids, and heat-capacity samples — loaded as fixtures. Lecture 14 recomputes part of that EOS state conditional on a loaded atmosphere fixture, but the combined L14/L15 boundary is not yet a strict from-physical-inputs atmosphere generator. The remaining work is to replace those fixtures with self-contained generators while keeping the one fp32-fragile reduction named and located.""")
 
 
 # ── CATCH-AND-FILL: appended sections (port_worker fill) ──
@@ -923,7 +923,7 @@ print("  gf range:", torch.min(gf_gpu), torch.max(gf_gpu))
 
 md(r"""## From a line record to a profile: center opacity, Doppler width, damping
 
-To deposit a line we need three numbers at each depth: the **line-center opacity** $\kappa_0$, the **Doppler width** $\Delta\lambda_{\rm D}$, and the **damping parameter** $a$. These come from the line record and the equation-of-state state at that depth — the species populations, Doppler widths, electron density, and neutral-perturber number. Lecture 16 recomputes this class of state for a loaded atmosphere fixture; here the audit bundle supplies it so Lecture 15 can focus on the line blanket itself. This is a remaining strict-boundary dependency, not a closed computation from physical inputs.
+To deposit a line we need three numbers at each depth: the **line-center opacity** $\kappa_0$, the **Doppler width** $\Delta\lambda_{\rm D}$, and the **damping parameter** $a$. These come from the line record and the equation-of-state state at that depth — the species populations, Doppler widths, electron density, and neutral-perturber number. Lecture 14 recomputes this class of state for a loaded atmosphere fixture; here the audit bundle supplies it so Lecture 15 can focus on the line blanket itself. This is a remaining strict-boundary dependency, not a closed computation from physical inputs.
 
 The line-center opacity is
 \[
@@ -1177,7 +1177,7 @@ The failure enters only when the convergence engine forms the pressure **secant*
 \]
 The two hydrostatic pressure structures are individually well conditioned, but they are close enough that their difference loses significant digits in fp32. That fractional pressure change updates the column mass, and the column mass is fed into the next iteration, so the error compounds. This is why a pure fp32 atmosphere convergence can diverge even though the expensive physics kernels are correct.
 
-The fix is surgical. Keep the bulk work — Voigt evaluation, line deposit, opacity sampling, Rosseland fold — on the GPU in fp32. Promote only the tiny convergence-core reductions, especially the secant and optionally the optical-depth prefix, to CPU/fp64. Lecture 16 carries this lesson forward by recomputing the EOS state for the loaded atmosphere fixture, but the strict atmosphere calculation is not closed until the loaded atmosphere, opacity, full-grid blanket, and window-state fixtures are regenerated in the taught path.""")
+The fix is surgical. Keep the bulk work — Voigt evaluation, line deposit, opacity sampling, Rosseland fold — on the GPU in fp32. Promote only the tiny convergence-core reductions, especially the secant and optionally the optical-depth prefix, to CPU/fp64. Lecture 14 carries this lesson forward by recomputing the EOS state for the loaded atmosphere fixture, but the strict atmosphere calculation is not closed until the loaded atmosphere, opacity, full-grid blanket, and window-state fixtures are regenerated in the taught path.""")
 
 md(r"""## Summary
 
@@ -1204,7 +1204,7 @@ md(r"""## Practice exercises
 
 **6. The cancellation experiment.** In the secant cell, change the temperature perturbation amplitude. Make it smaller by factors of 2, 4, and 8. The individual hydrostatic marches should remain accurate, while the relative error of $(p_2-p_1)/p_1$ should grow. This is catastrophic cancellation made visible.
 
-**7. Surgical fp64 promotion.** Recompute only the pressure secant in fp64 while leaving the hydrostatic inputs and the opacity arrays in fp32. How much does `rhox_new` improve? Then also promote the $\tau_{\rm Ross}$ prefix integral. This is the mixed-precision design Lecture 16 uses for the atmosphere convergence core.""")
+**7. Surgical fp64 promotion.** Recompute only the pressure secant in fp64 while leaving the hydrostatic inputs and the opacity arrays in fp32. How much does `rhox_new` improve? Then also promote the $\tau_{\rm Ross}$ prefix integral. This is the mixed-precision design Lecture 14 uses for the atmosphere convergence core.""")
 
 md(r"""## Further reading
 

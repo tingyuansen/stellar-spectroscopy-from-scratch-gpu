@@ -37,6 +37,11 @@ longer carry stale collaborator/API/title-page framing.
 Legend: checked means the current lecture has been audited against the criterion and no known
 blocking miss remains. Unchecked means it is the next fix target, not a vague concern.
 
+Public site numbering is now logical: **L14 EOS state -> L15 line blanketing -> L16 spectrum
+capstone**. Some source filenames remain legacy-stable for git/history:
+`content/Lecture16.*` is public L14, `content/Lecture15.*` is public L15, and
+`content/Lecture14.*` is public L16. Keep this mapping in mind when running builders/verifiers.
+
 | Lecture | NumPy/material coverage | Self-contained / honest inputs | Logical flow | Readable names | Dense-code pedagogy | GPU/vectorized taught path | Gate |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | L1 | [x] | [x] | [x] | [x] | [x] | [x] | [x] build |
@@ -52,22 +57,28 @@ blocking miss remains. Unchecked means it is the next fix target, not a vague co
 | L11 | [x] | [x] comparison oracles are local verifier modules, not taught inputs | [x] | [x] | [x] | [x] | [x] `verify_convec_gaps.py`, `verify_converged.py` |
 | L12 | [x] | [x] | [x] | [x] | [x] | [x] | [x] `verify_molecules.py` |
 | L13 | [x] | [x] | [x] | [x] | [x] split one-depth Newton solve from pressure-continuation driver | [x] | [x] `verify_nmolec.py`, `verify_mol_continuum.py` |
-| L14 | [x] | [ ] loads atmosphere/EOS/population/Doppler state; not yet stellar-parameters-to-spectrum | [x] after L16 -> L15 -> L14 public read-order repair | [x] partial | [x] split continuum, line, molecular, JOSH, and TCORR helpers below 100-line threshold | [ ] capstone is not yet torch/MPS throughout | [x] `verify_leankurucz.py` |
+| L14 | [x] | [ ] loaded solar atmosphere fixture; helper-backed state cells remain | [x] public first finale lecture | [x] | [x] | [ ] helper-backed NumPy islands remain | [x] `build.py 14` via public/site mapping |
 | L15 | [x] | [ ] still consumes production-derived atmosphere/EOS/window/continuum/full-grid blanket fixtures | [x] | [x] | [x] | [ ] exact accepted teaching-window recurrence is scalar for parity; torch approximation is not the accepted gate | [x] `verify_lineblanket.py` |
-| L16 | [x] | [ ] current notebook computes per-iteration state and should keep only a runnable `max_iter=1` live-smoke gate; full converged solar solve is parked until kgpu convergence is fast enough for pedagogy | [x] | [x] | [x] | [ ] live solve must be torch/device-first; NumPy clean-room code is verifier only | [x] `build.py 16`, L15/L14 downstream gates |
+| L16 | [x] | [ ] loads atmosphere/EOS/population/Doppler state; not yet stellar-parameters-to-spectrum | [x] public capstone | [x] partial | [x] split continuum, line, molecular, JOSH, and TCORR helpers below 100-line threshold | [ ] capstone is not yet torch/MPS throughout | [x] `verify_leankurucz.py` |
 
 ### Honest remaining blockers
 
+- Parked on `kgpu`: do not try to fully close public L14/L15 inside the textbook before the production
+  line-blanketed atmosphere convergence path is corrected/squeezed. L15's exact scalar LINOP1
+  teaching-window recurrence and public L14's `max_iter=1` live-smoke boundary are the honest
+  current representation. The final all-local, GPU-native finale closure should follow the kgpu
+  solver fix, then be ported back here with parity gates.
 - Dense pedagogical code cells are closed under the current `>=100` line audit: no lecture has a
   code cell at or above this threshold. A stricter readability pass can still target 80-99 line
   cells, led by L14 and followed by L15/L13/L11/L9/L6/L5; this is not a current parity blocker.
-- L14 is numerically honest but not the final capstone. It computes opacity + JOSH spectra from a
+- Public L16 is numerically honest but not the final capstone. It computes opacity + JOSH spectra from a
   supplied atmosphere/EOS/population/Doppler state. It does not yet regenerate the stellar
   atmosphere and EOS state from stellar parameters inside the capstone, and it is not yet a
-  torch/MPS builder throughout.
+  torch/MPS builder throughout. The stellar-parameters-to-spectrum version depends on the parked
+  public L14/L15/`kgpu` convergence closure.
 - L15 still consumes production-derived fixtures for the converged atmosphere, per-iteration
   EOS/window state, continuum opacity/scattering/source arrays, and full-grid line blanket.
-- L16 is scientifically scoped but not final capstone closure. Keep the live atmosphere code, when
+- Public L14 is scientifically scoped but not final atmosphere closure. Keep the live atmosphere code, when
   added to the notebook, as a **runnable one-iteration smoke gate** (`max_iter=1`) so readers can
   execute it. The converged solar gate remains future work: target a 12.3-class / pyk exact-LINOP
   `RHOX=12.1439331` solar base after the kgpu squeeze makes the loop fast enough for pedagogy. When
@@ -77,9 +88,9 @@ blocking miss remains. Unchecked means it is the next fix target, not a vague co
   fixture/table keys stable at boundaries and translate to readable names in taught code. Continue
   aggressive local-name cleanup in small gated slices before calling readability closed.
 
-## L14 status
+## Public L16 Capstone Status
 
-L14 has been repaired away from the stale continuum-only Sun bundle. Its current solar capstone
+Public L16 has been repaired away from the stale continuum-only Sun bundle. Its current solar capstone
 uses the Part-VI line-blanketed solar atmosphere as an input:
 
 - base `RHOX = 12.1439331`
@@ -98,17 +109,16 @@ guardrail against regression.
 - M dwarf max rel `1.06e-08`
 - tamper check: Fe I population x1.01 moves the spectrum by `4.867e-03`
 
-The final L14 target is stricter: inline or call the L15/L16 line-blanketed atmosphere + EOS-state
-path so the Sun state is regenerated from stellar parameters, then feed that state into the L14
+The final public L16 target is stricter: inline or call the public L14/L15 line-blanketed atmosphere
+and EOS-state path so the Sun state is regenerated from stellar parameters, then feed that state into the
 synthesis path.
 
-L14's public title has been narrowed to **"A Spectrum from an Atmosphere, End to End"**. Do not
+Public L16's title has been narrowed to **"A Spectrum from an Atmosphere, End to End"**. Do not
 restore "from stellar parameters" until the atmosphere and EOS state are actually regenerated in
-the capstone path. The public/site reading order now presents the finale in conceptual order while
-preserving stable lecture numbers and URLs: L16 EOS/state first, L15 line blanketing and ATLAS12
-correction second, L14 atmosphere-to-spectrum SYNTHE capstone last. If the capstone remains much
-longer than the other lectures, split it naturally into synthesis ingredients/opacity and transfer
-plus HR comparison.
+the capstone path. The public/site reading order is now normal `N-1/N+1`: L14 EOS state, L15 line
+blanketing and ATLAS12 correction, L16 atmosphere-to-spectrum SYNTHE capstone. If the capstone
+remains much longer than the other lectures, split it naturally into synthesis ingredients/opacity
+and transfer plus HR comparison.
 
 ## Checks just run
 
@@ -192,20 +202,20 @@ misses have either been fixed with a passing gate or explicitly marked as a real
 
 ## Next useful work
 
-1. Run the final-mile closure audit for every lecture (L1-L16) against the checklist above; fix
+1. Textbook-only closeout before the parked kgpu round: run the final-mile closure audit for every
+   lecture (L1-L16) against the checklist above; fix
    misses in gated slices and record the result lecture by lecture.
-2. Promote L14 to a torch/MPS builder while keeping the current no-leakage/parity guardrails.
-3. Replace L15's production-derived atmosphere/EOS/window/continuum/full-grid blanket fixtures with
-   computed lecture cells in small parity-gated steps.
-4. Move L16 helper-backed clean-room NumPy pieces into pedagogical torch cells where practical;
-   keep NumPy only as the parity oracle for the GPU-native lecture path.
-5. Break up or add reader-walkthrough comments to the remaining 80-99 line cells, starting with
-   L14/L15, and rerun parity after each chunk.
-6. Continue the shared naming pass: use the `BIBLE.md` glossary, avoid destructive fixture/schema
+2. Break up or add reader-walkthrough comments to the remaining 80-99 line cells, starting with the
+   capstone and L15, and rerun parity after each chunk.
+3. Continue the shared naming pass: use the `BIBLE.md` glossary, avoid destructive fixture/schema
    renames, and verify each pure readability slice with the touched lecture's builder/verifier.
-7. For L16, add or keep only a local `max_iter=1` live-smoke atmosphere cell until the loop is fast;
-   after kgpu convergence is squeezed, extend it to the full converged solar solve with no runtime
-   `kgpu` import, targeting the 12.3-class / `RHOX=12.1439331` solar base before wiring L15/L16 into
-   L14.
-8. Use the exact-LINOP L15/L16 material to design the future `kgpu` squeeze from the 12.3-class
+4. After kgpu convergence is fixed/squeezed, return to the parked finale closure:
+   - promote public L16 to a torch/MPS builder and true stellar-parameters-to-spectrum capstone;
+   - replace L15's production-derived atmosphere/EOS/window/continuum/full-grid blanket fixtures
+     with computed lecture cells;
+   - move public L14 helper-backed clean-room NumPy pieces into pedagogical torch cells where practical;
+   - extend the local public L14 loop beyond the `max_iter=1` live-smoke gate, with no runtime
+     `kgpu` import, targeting the 12.3-class / `RHOX=12.1439331` solar base before wiring public
+     L14/L15 into public L16.
+5. Use the exact-LINOP public L14/L15 material to design the future `kgpu` squeeze from the 12.3-class
    coarse-deposit fixed point toward the pyk exact-LINOP `RHOX=12.1439331` target.
