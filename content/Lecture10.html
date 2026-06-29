@@ -119,7 +119,7 @@ target: temperature correction for Teff = 5770 K, log g = 4.44
 <p>A true grey atmosphere <em>does</em> hold constant flux — but only for its own idealized grey opacity. The moment we evaluate the grey starting model&#39;s flux with the <strong>actual frequency-dependent continuum opacity</strong>, it no longer satisfies radiative equilibrium. We will <em>measure</em> that flux layer by layer and watch it drift with depth — proof that the grey-start temperature is wrong for the real opacity. ATLAS fixes it with a <strong>temperature correction</strong>: at each depth it computes how far the flux is off, works out which way and by how much the temperature must move to push the flux back toward constancy, and applies that shift. Iterating the correction (recomputing opacities and fluxes on the new temperature, correcting again) drives the model to radiative equilibrium. This lecture builds <strong>one step</strong> of that correction engine — Kurucz&#39;s <code>TCORR</code>, sketched below — and benchmarks it to the pipeline&#39;s <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>∼</mo><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>9</mn></mrow></msup></mrow><annotation encoding="application/x-tex">\sim10^{-9}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">∼</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">9</span></span></span></span></span></span></span></span></span></span></span></span> roundoff floor. It reuses two engines we have already built from scratch: the <strong>JOSH</strong> moment solver (Lecture 8) for the per-frequency flux, and the <strong>continuum opacity</strong> (Lecture 3), which we take as a given input so we can spend our effort on the genuinely new physics: the Rosseland mean and the correction itself.</p>
 <p><img src="resources/figures/s9_tcorr.png" alt="The temperature-correction loop: measure the depth-dependent flux, build the Rosseland scale, assemble the three-term correction <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>T</mi><mn>1</mn></msub></mrow><annotation encoding="application/x-tex">T_1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.1389em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>, restore hydrostatic balance, and remap — one ATLAS <code>TCORR</code> iteration toward radiative equilibrium."></p>
 <h3>Constants and the depth grid</h3>
-<p>We use exactly the constants ATLAS uses (the last digits matter for a bit-level match): the Stefan–Boltzmann constant <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>σ</mi></mrow><annotation encoding="application/x-tex">\sigma</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">σ</span></span></span></span>, Planck&#39;s <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>h</mi></mrow><annotation encoding="application/x-tex">h</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal">h</span></span></span></span>, and Boltzmann&#39;s <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>k</mi></mrow><annotation encoding="application/x-tex">k</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal" style="margin-right:0.03148em;">k</span></span></span></span>. The grey starting model has <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi><mo>=</mo><mn>80</mn></mrow><annotation encoding="application/x-tex">N=80</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">80</span></span></span></span> layers. We pull out the starting temperature <code>T_in</code>, column mass <code>rhox</code>, and gas pressure <code>p_in</code> as <code>torch</code> tensors, and form the combination <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>h</mi><mi mathvariant="normal">/</mi><mo stretchy="false">(</mo><mi>k</mi><mi>T</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">h/(kT)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal">h</span><span class="mord">/</span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.03148em;">k</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mclose">)</span></span></span></span> at every layer — call it <code>hkt</code> — which becomes the dimensionless <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>h</mi><mi>ν</mi><mi mathvariant="normal">/</mi><mo stretchy="false">(</mo><mi>k</mi><mi>T</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">h\nu/(kT)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal">h</span><span class="mord mathnormal" style="margin-right:0.06366em;">ν</span><span class="mord">/</span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.03148em;">k</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mclose">)</span></span></span></span> only once it is multiplied by a frequency <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>ν</mi></mrow><annotation encoding="application/x-tex">\nu</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal" style="margin-right:0.06366em;">ν</span></span></span></span> inside the sweep.</p>
+<p>We use exactly the constants ATLAS uses (the last digits matter for a bit-level match): the Stefan–Boltzmann constant <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>σ</mi></mrow><annotation encoding="application/x-tex">\sigma</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">σ</span></span></span></span>, Planck&#39;s <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>h</mi></mrow><annotation encoding="application/x-tex">h</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal">h</span></span></span></span>, and Boltzmann&#39;s <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>k</mi></mrow><annotation encoding="application/x-tex">k</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal" style="margin-right:0.03148em;">k</span></span></span></span>. The grey starting model has <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi><mo>=</mo><mn>80</mn></mrow><annotation encoding="application/x-tex">N=80</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">80</span></span></span></span> layers. We pull out the starting temperature <code>temperature_in</code>, column mass <code>column_mass</code>, and gas pressure <code>gas_pressure_in</code> as <code>torch</code> tensors, and form the combination <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>h</mi><mi mathvariant="normal">/</mi><mo stretchy="false">(</mo><mi>k</mi><mi>T</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">h/(kT)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal">h</span><span class="mord">/</span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.03148em;">k</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mclose">)</span></span></span></span> at every layer — <code>h_over_kT</code> — which becomes the dimensionless <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>h</mi><mi>ν</mi><mi mathvariant="normal">/</mi><mo stretchy="false">(</mo><mi>k</mi><mi>T</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">h\nu/(kT)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal">h</span><span class="mord mathnormal" style="margin-right:0.06366em;">ν</span><span class="mord">/</span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.03148em;">k</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mclose">)</span></span></span></span> only once it is multiplied by a frequency <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>ν</mi></mrow><annotation encoding="application/x-tex">\nu</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal" style="margin-right:0.06366em;">ν</span></span></span></span> inside the sweep.</p>
 <p>One number sets the whole game: the <strong>target flux</strong>. The Eddington flux that must emerge from a star of effective temperature <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>T</mi><mrow><mi mathvariant="normal">e</mi><mi mathvariant="normal">f</mi><mi mathvariant="normal">f</mi></mrow></msub></mrow><annotation encoding="application/x-tex">T_{\rm eff}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3361em;"><span style="top:-2.55em;margin-left:-0.1389em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight" style="margin-right:0.07778em;">eff</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> is <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>H</mi><mo>=</mo><mi>σ</mi><msubsup><mi>T</mi><mrow><mi mathvariant="normal">e</mi><mi mathvariant="normal">f</mi><mi mathvariant="normal">f</mi></mrow><mn>4</mn></msubsup><mi mathvariant="normal">/</mi><mo stretchy="false">(</mo><mn>4</mn><mi>π</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">H = \sigma T_{\rm eff}^4/(4\pi)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.08125em;">H</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1.0972em;vertical-align:-0.2831em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">σ</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-2.4169em;margin-left:-0.1389em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight" style="margin-right:0.07778em;">eff</span></span></span></span></span><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">4</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2831em;"><span></span></span></span></span></span></span><span class="mord">/</span><span class="mopen">(</span><span class="mord">4</span><span class="mord mathnormal" style="margin-right:0.03588em;">π</span><span class="mclose">)</span></span></span></span>. Radiative equilibrium is the statement that the depth-dependent flux <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>H</mi><mo stretchy="false">(</mo><mi>τ</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">H(\tau)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.08125em;">H</span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="mclose">)</span></span></span></span> equals this constant <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>H</mi></mrow><annotation encoding="application/x-tex">H</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.08125em;">H</span></span></span></span> at every layer.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
@@ -128,13 +128,16 @@ target: temperature correction for Teff = 5770 K, log g = 4.44
 PLANCK = 6.6256e-27
 KBOLTZ = 1.38054e-16
 
-T_in = t(REF[&quot;T_in&quot;])
-rhox = t(REF[&quot;rhox_in&quot;])
-p_in = t(REF[&quot;p_in&quot;])
-n = int(T_in.shape[0])
+temperature_in = t(REF[&quot;T_in&quot;])
+column_mass = t(REF[&quot;rhox_in&quot;])
+gas_pressure_in = t(REF[&quot;p_in&quot;])
+n = int(temperature_in.shape[0])
 
-# h/(kT) per layer; note this does NOT yet include the frequency nu
-hkt = PLANCK / torch.clamp(T_in * KBOLTZ, min=1e-300)
+# h/(kT) per layer; note this does NOT yet include the frequency nu.
+h_over_kT = PLANCK / torch.clamp(temperature_in * KBOLTZ, min=1e-300)
+
+# Compatibility aliases for formulas that still quote ATLAS variable names.
+T_in, rhox, p_in, hkt = temperature_in, column_mass, gas_pressure_in, h_over_kT
 
 # the target: Eddington flux H = sigma Teff^4 / (4 pi)
 flux = SIGMA / 12.5664 * TEFF**4
@@ -145,13 +148,16 @@ print(f&quot;target Eddington flux  H = sigma Teff^4 / (4 pi) = {flux:.4e} erg c
 PLANCK = <span class="hljs-number">6.6256e-27</span>
 KBOLTZ = <span class="hljs-number">1.38054e-16</span>
 
-T_in = t(REF[<span class="hljs-string">&quot;T_in&quot;</span>])
-rhox = t(REF[<span class="hljs-string">&quot;rhox_in&quot;</span>])
-p_in = t(REF[<span class="hljs-string">&quot;p_in&quot;</span>])
-n = <span class="hljs-built_in">int</span>(T_in.shape[<span class="hljs-number">0</span>])
+temperature_in = t(REF[<span class="hljs-string">&quot;T_in&quot;</span>])
+column_mass = t(REF[<span class="hljs-string">&quot;rhox_in&quot;</span>])
+gas_pressure_in = t(REF[<span class="hljs-string">&quot;p_in&quot;</span>])
+n = <span class="hljs-built_in">int</span>(temperature_in.shape[<span class="hljs-number">0</span>])
 
-<span class="hljs-comment"># h/(kT) per layer; note this does NOT yet include the frequency nu</span>
-hkt = PLANCK / torch.clamp(T_in * KBOLTZ, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-300</span>)
+<span class="hljs-comment"># h/(kT) per layer; note this does NOT yet include the frequency nu.</span>
+h_over_kT = PLANCK / torch.clamp(temperature_in * KBOLTZ, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-300</span>)
+
+<span class="hljs-comment"># Compatibility aliases for formulas that still quote ATLAS variable names.</span>
+T_in, rhox, p_in, hkt = temperature_in, column_mass, gas_pressure_in, h_over_kT
 
 <span class="hljs-comment"># the target: Eddington flux H = sigma Teff^4 / (4 pi)</span>
 flux = SIGMA / <span class="hljs-number">12.5664</span> * TEFF**<span class="hljs-number">4</span>
@@ -169,7 +175,7 @@ flux = SIGMA / <span class="hljs-number">12.5664</span> * TEFF**<span class="hlj
 </tr>
 </thead>
 <tbody><tr>
-<td><code>T_in</code>, <code>rhox</code>, <code>p_in</code></td>
+<td><code>temperature_in</code>, <code>column_mass</code>, <code>gas_pressure_in</code></td>
 <td><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi></mrow><annotation encoding="application/x-tex">N</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span></span></span></span></td>
 <td>K, g cm<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mrow><mo>−</mo><mn>2</mn></mrow></msup></mrow><annotation encoding="application/x-tex">^{-2}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">2</span></span></span></span></span></span></span></span></span></span></span></span>, dyn cm<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mrow><mo>−</mo><mn>2</mn></mrow></msup></mrow><annotation encoding="application/x-tex">^{-2}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">2</span></span></span></span></span></span></span></span></span></span></span></span></td>
 <td>grey-start temperature, column mass, gas pressure</td>
@@ -187,19 +193,19 @@ flux = SIGMA / <span class="hljs-number">12.5664</span> * TEFF**<span class="hlj
 <td>frequency grid and its quadrature weights <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>d</mi><mi>ν</mi></mrow><annotation encoding="application/x-tex">d\nu</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal">d</span><span class="mord mathnormal" style="margin-right:0.06366em;">ν</span></span></span></span></td>
 </tr>
 <tr>
-<td><code>abtot</code>, <code>alpha</code></td>
+<td><code>total_extinction</code>, <code>scattering_fraction</code></td>
 <td><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>F</mi><mo>×</mo><mi>N</mi></mrow><annotation encoding="application/x-tex">F\times N</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">F</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span></span></span></span></td>
 <td>cm<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mn>2</mn></msup></mrow><annotation encoding="application/x-tex">^2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span></span></span></span> g<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mrow><mo>−</mo><mn>1</mn></mrow></msup></mrow><annotation encoding="application/x-tex">^{-1}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">1</span></span></span></span></span></span></span></span></span></span></span></span>, —</td>
 <td>per-frequency total extinction <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>κ</mi><mi>ν</mi></msub></mrow><annotation encoding="application/x-tex">\kappa_\nu</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">κ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> and scattering fraction</td>
 </tr>
 <tr>
-<td><code>abross</code>, <code>tauros</code></td>
+<td><code>rosseland_opacity</code>, <code>rosseland_optical_depth</code></td>
 <td><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi></mrow><annotation encoding="application/x-tex">N</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span></span></span></span></td>
 <td>cm<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mn>2</mn></msup></mrow><annotation encoding="application/x-tex">^2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span></span></span></span> g<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mrow><mo>−</mo><mn>1</mn></mrow></msup></mrow><annotation encoding="application/x-tex">^{-1}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">1</span></span></span></span></span></span></span></span></span></span></span></span>, —</td>
 <td>Rosseland mean opacity and optical depth</td>
 </tr>
 <tr>
-<td><code>flxrad</code>, <code>rjmins</code>, <code>rdabh</code>, <code>rdiagj</code></td>
+<td><code>radiative_flux_integral</code>, <code>net_heating_integral</code>, <code>opacity_gradient_flux_integral</code>, <code>lambda_diagonal_integral</code></td>
 <td><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi></mrow><annotation encoding="application/x-tex">N</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span></span></span></span></td>
 <td>ATLAS conventions (<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>H</mi></mrow><annotation encoding="application/x-tex">H</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.08125em;">H</span></span></span></span>-like; opacity-weighted <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>J</mi><mo>−</mo><mi>S</mi></mrow><annotation encoding="application/x-tex">J-S</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal" style="margin-right:0.09618em;">J</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.05764em;">S</span></span></span></span>; gradient-weighted flux; temperature-response denominator)</td>
 <td>the four frequency-integrated correction accumulators</td>
@@ -542,61 +548,73 @@ COEFH = t(REF[<span class="hljs-string">&quot;josh_coefh&quot;</span>])
 COEFJ_DIAG = torch.diag(COEFJ).to(torch.float32)
 NX = XTAU.shape[<span class="hljs-number">0</span>]</code></pre>
     </div></div><div class="prose"><h3>(a) Per-frequency optics</h3>
-<p>The first stage builds the total extinction <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>κ</mi><mi>ν</mi></msub></mrow><annotation encoding="application/x-tex">\kappa_\nu</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">κ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> (<code>abtot</code>), the scattering fraction <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>α</mi><mi>ν</mi></msub></mrow><annotation encoding="application/x-tex">\alpha_\nu</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.0037em;">α</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.0037em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>, the non-scattering emissivity source <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mover accent="true"><mi>S</mi><mo>ˉ</mo></mover><mi>ν</mi></msub></mrow><annotation encoding="application/x-tex">\bar S_\nu</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.9701em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord accent"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8201em;"><span style="top:-3em;"><span class="pstrut" style="height:3em;"></span><span class="mord mathnormal" style="margin-right:0.05764em;">S</span></span><span style="top:-3.2523em;"><span class="pstrut" style="height:3em;"></span><span class="accent-body" style="left:-0.1667em;"><span class="mord">ˉ</span></span></span></span></span></span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.0576em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> (<code>snubar</code>), and the monochromatic optical depth <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>τ</mi><mi>ν</mi></msub></mrow><annotation encoding="application/x-tex">\tau_\nu</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.1132em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>. Notice this takes tensors shaped <code>[F, N]</code> and evaluates the optics for the entire spectral grid at once.</p>
+<p>The first stage builds the total extinction <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>κ</mi><mi>ν</mi></msub></mrow><annotation encoding="application/x-tex">\kappa_\nu</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">κ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> (<code>total_extinction</code>), the scattering fraction <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>α</mi><mi>ν</mi></msub></mrow><annotation encoding="application/x-tex">\alpha_\nu</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.0037em;">α</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.0037em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> (<code>scattering_fraction</code>), the non-scattering emissivity source <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mover accent="true"><mi>S</mi><mo>ˉ</mo></mover><mi>ν</mi></msub></mrow><annotation encoding="application/x-tex">\bar S_\nu</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.9701em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord accent"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8201em;"><span style="top:-3em;"><span class="pstrut" style="height:3em;"></span><span class="mord mathnormal" style="margin-right:0.05764em;">S</span></span><span style="top:-3.2523em;"><span class="pstrut" style="height:3em;"></span><span class="accent-body" style="left:-0.1667em;"><span class="mord">ˉ</span></span></span></span></span></span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.0576em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> (<code>thermal_source_bar</code>), and the monochromatic optical depth <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>τ</mi><mi>ν</mi></msub></mrow><annotation encoding="application/x-tex">\tau_\nu</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.1132em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> (<code>monochromatic_optical_depth</code>). Notice this takes tensors shaped <code>[F, N]</code> and evaluates the optics for the entire spectral grid at once.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[8]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="def josh_optics(acont, scont, sigmac, rhox, bnu):
-    abtot = torch.clamp(acont + sigmac, min=1e-300)
-    alpha = sigmac / abtot
-    snubar = torch.where(acont &gt; 0, acont * scont / acont, bnu)
-    start = abtot[:, 0] * rhox[0]
-    taunu = integ(rhox, abtot, start)
-    return abtot, alpha, snubar, taunu" aria-label="Copy code">
+        <button class="copy-btn" type="button" data-code="def josh_optics(continuum_absorption, continuum_source, continuum_scattering,
+                column_mass, planck_source):
+    &quot;&quot;&quot;Build per-frequency extinction, scattering fraction, source, and optical depth.&quot;&quot;&quot;
+    total_extinction = torch.clamp(continuum_absorption + continuum_scattering, min=1e-300)
+    scattering_fraction = continuum_scattering / total_extinction
+    thermal_source_bar = torch.where(
+        continuum_absorption &gt; 0,
+        continuum_absorption * continuum_source / continuum_absorption,
+        planck_source,
+    )
+    start = total_extinction[:, 0] * column_mass[0]
+    monochromatic_optical_depth = integ(column_mass, total_extinction, start)
+    return total_extinction, scattering_fraction, thermal_source_bar, monochromatic_optical_depth" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">josh_optics</span>(<span class="hljs-params">acont, scont, sigmac, rhox, bnu</span>):
-    abtot = torch.clamp(acont + sigmac, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-300</span>)
-    alpha = sigmac / abtot
-    snubar = torch.where(acont &gt; <span class="hljs-number">0</span>, acont * scont / acont, bnu)
-    start = abtot[:, <span class="hljs-number">0</span>] * rhox[<span class="hljs-number">0</span>]
-    taunu = integ(rhox, abtot, start)
-    <span class="hljs-keyword">return</span> abtot, alpha, snubar, taunu</code></pre>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">josh_optics</span>(<span class="hljs-params">continuum_absorption, continuum_source, continuum_scattering,
+                column_mass, planck_source</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Build per-frequency extinction, scattering fraction, source, and optical depth.&quot;&quot;&quot;</span>
+    total_extinction = torch.clamp(continuum_absorption + continuum_scattering, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-300</span>)
+    scattering_fraction = continuum_scattering / total_extinction
+    thermal_source_bar = torch.where(
+        continuum_absorption &gt; <span class="hljs-number">0</span>,
+        continuum_absorption * continuum_source / continuum_absorption,
+        planck_source,
+    )
+    start = total_extinction[:, <span class="hljs-number">0</span>] * column_mass[<span class="hljs-number">0</span>]
+    monochromatic_optical_depth = integ(column_mass, total_extinction, start)
+    <span class="hljs-keyword">return</span> total_extinction, scattering_fraction, thermal_source_bar, monochromatic_optical_depth</code></pre>
     </div></div><div class="prose"><h3>(b) The float32 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi mathvariant="normal">Λ</mi></mrow><annotation encoding="application/x-tex">\Lambda</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord">Λ</span></span></span></span>-iteration on the JOSH grid</h3>
 <p>We map the inputs to the fixed <code>XTAU</code> grid, dropping precision strictly to <code>float32</code> (the hardware-enforced convergence baseline from <code>kgpu</code>). Then, rather than a single-threaded Python host loop, we compute the Gauss-Seidel solver directly on the device using <code>torch.matmul</code>. The iterations sweep backward in depth, maintaining the exact data dependencies of Gauss-Seidel while batching effortlessly over frequency <code>[F, G]</code>. We cap this at 12 fixed sweeps — safely converging the continuum layers uniformly.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[9]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="def josh_grid_setup(snubar, alpha, taunu):
-    xsbar = map1(taunu, snubar, XTAU)
-    xalpha = map1(taunu, alpha, XTAU)
+        <button class="copy-btn" type="button" data-code="def josh_grid_setup(thermal_source_bar, scattering_fraction, monochromatic_optical_depth):
+    xsbar = map1(monochromatic_optical_depth, thermal_source_bar, XTAU)
+    xalpha = map1(monochromatic_optical_depth, scattering_fraction, XTAU)
     xsbar = torch.clamp(xsbar, min=1e-38)
     xalpha = torch.clamp(xalpha, min=0.0, max=1.0)
     
-    above = XTAU[None, :] &lt; taunu[:, 0:1]
-    snubar0 = torch.clamp(snubar[:, 0:1], min=1e-38)
-    alpha0 = torch.clamp(alpha[:, 0:1], min=0.0, max=1.0)
-    xsbar = torch.where(above, snubar0.expand_as(xsbar), xsbar)
-    xalpha = torch.where(above, alpha0.expand_as(xalpha), xalpha)
+    above = XTAU[None, :] &lt; monochromatic_optical_depth[:, 0:1]
+    source_surface = torch.clamp(thermal_source_bar[:, 0:1], min=1e-38)
+    scatter_surface = torch.clamp(scattering_fraction[:, 0:1], min=0.0, max=1.0)
+    xsbar = torch.where(above, source_surface.expand_as(xsbar), xsbar)
+    xalpha = torch.where(above, scatter_surface.expand_as(xalpha), xalpha)
     
-    in_grid = taunu &lt; XTAU[-1]
+    in_grid = monochromatic_optical_depth &lt; XTAU[-1]
     maxj = in_grid.to(torch.int64).sum(dim=1)
     return xsbar, xalpha, maxj" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">josh_grid_setup</span>(<span class="hljs-params">snubar, alpha, taunu</span>):
-    xsbar = map1(taunu, snubar, XTAU)
-    xalpha = map1(taunu, alpha, XTAU)
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">josh_grid_setup</span>(<span class="hljs-params">thermal_source_bar, scattering_fraction, monochromatic_optical_depth</span>):
+    xsbar = map1(monochromatic_optical_depth, thermal_source_bar, XTAU)
+    xalpha = map1(monochromatic_optical_depth, scattering_fraction, XTAU)
     xsbar = torch.clamp(xsbar, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-38</span>)
     xalpha = torch.clamp(xalpha, <span class="hljs-built_in">min</span>=<span class="hljs-number">0.0</span>, <span class="hljs-built_in">max</span>=<span class="hljs-number">1.0</span>)
     
-    above = XTAU[<span class="hljs-literal">None</span>, :] &lt; taunu[:, <span class="hljs-number">0</span>:<span class="hljs-number">1</span>]
-    snubar0 = torch.clamp(snubar[:, <span class="hljs-number">0</span>:<span class="hljs-number">1</span>], <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-38</span>)
-    alpha0 = torch.clamp(alpha[:, <span class="hljs-number">0</span>:<span class="hljs-number">1</span>], <span class="hljs-built_in">min</span>=<span class="hljs-number">0.0</span>, <span class="hljs-built_in">max</span>=<span class="hljs-number">1.0</span>)
-    xsbar = torch.where(above, snubar0.expand_as(xsbar), xsbar)
-    xalpha = torch.where(above, alpha0.expand_as(xalpha), xalpha)
+    above = XTAU[<span class="hljs-literal">None</span>, :] &lt; monochromatic_optical_depth[:, <span class="hljs-number">0</span>:<span class="hljs-number">1</span>]
+    source_surface = torch.clamp(thermal_source_bar[:, <span class="hljs-number">0</span>:<span class="hljs-number">1</span>], <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-38</span>)
+    scatter_surface = torch.clamp(scattering_fraction[:, <span class="hljs-number">0</span>:<span class="hljs-number">1</span>], <span class="hljs-built_in">min</span>=<span class="hljs-number">0.0</span>, <span class="hljs-built_in">max</span>=<span class="hljs-number">1.0</span>)
+    xsbar = torch.where(above, source_surface.expand_as(xsbar), xsbar)
+    xalpha = torch.where(above, scatter_surface.expand_as(xalpha), xalpha)
     
-    in_grid = taunu &lt; XTAU[-<span class="hljs-number">1</span>]
+    in_grid = monochromatic_optical_depth &lt; XTAU[-<span class="hljs-number">1</span>]
     maxj = in_grid.to(torch.int64).<span class="hljs-built_in">sum</span>(dim=<span class="hljs-number">1</span>)
     <span class="hljs-keyword">return</span> xsbar, xalpha, maxj</code></pre>
     </div></div><div class="prose"><p>With the physical-grid source and scattering mapped to <code>XTAU</code>, the remaining solve is a fixed-size Gauss-Seidel iteration. The depth dependency is real, so the loop stays; the expensive frequency axis is still a batch axis.</p>
@@ -642,7 +660,8 @@ NX = XTAU.shape[<span class="hljs-number">0</span>]</code></pre>
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[11]</span>Python</span>
         <button class="copy-btn" type="button" data-code="ITER_TOL = 1.0e-3
 
-def josh_profiles(acont, scont, sigmac, rhox, bnu):
+def josh_profiles(continuum_absorption, continuum_source, continuum_scattering,
+                  column_mass, planck_source):
     &quot;&quot;&quot;Solve JOSH transfer profiles for every sampled frequency at once.
 
     Returns physical-grid optical depth, Eddington flux, mean intensity, J-S,
@@ -650,18 +669,28 @@ def josh_profiles(acont, scont, sigmac, rhox, bnu):
     in float32 to match the kgpu/JOSH baseline; physical-grid thin layers are
     then stitched back onto the remapped deep solution with ``shallow_mask``.
     &quot;&quot;&quot;
-    F, N = acont.shape; dt = acont.dtype
-    abtot, alpha, snubar, taunu = josh_optics(acont, scont, sigmac, rhox, bnu)
+    F, N = continuum_absorption.shape; dt = continuum_absorption.dtype
+    total_extinction, scattering_fraction, thermal_source_bar, monochromatic_optical_depth = (
+        josh_optics(continuum_absorption, continuum_source, continuum_scattering,
+                    column_mass, planck_source)
+    )
     
-    xsbar, xalpha, maxj = josh_grid_setup(snubar, alpha, taunu)
+    xsbar, xalpha, maxj = josh_grid_setup(
+        thermal_source_bar, scattering_fraction, monochromatic_optical_depth,
+    )
+    # Short ATLAS aliases kept inside this recurrence to match the equations below.
+    abtot, alpha, snubar, taunu, bnu = (
+        total_extinction, scattering_fraction, thermal_source_bar,
+        monochromatic_optical_depth, planck_source,
+    )
     xs = josh_lambda_iteration(xsbar.to(torch.float32), xalpha.to(torch.float32)).to(dt)
     
     xjs_grid = torch.matmul(xs, COEFJ.T) - xs
     xh_grid = torch.matmul(xs, COEFH.T)
     
-    jmins_grid = map1(XTAU, xjs_grid, taunu)
-    hnu_grid = map1(XTAU, xh_grid, taunu)
-    snu_grid = map1(XTAU, xs.to(dt), taunu)
+    jmins_grid = map1(XTAU, xjs_grid, monochromatic_optical_depth)
+    hnu_grid = map1(XTAU, xh_grid, monochromatic_optical_depth)
+    snu_grid = map1(XTAU, xs.to(dt), monochromatic_optical_depth)
     
     j_idx = torch.arange(N, device=DEVICE).unsqueeze(0)
     shallow_mask = j_idx &lt; maxj.unsqueeze(1)
@@ -727,12 +756,14 @@ def josh_profiles(acont, scont, sigmac, rhox, bnu):
     jnu = torch.clamp(jmins + snu_sel, min=1e-99)
     hnu = torch.clamp(hnu, min=1e-99)
     
-    return taunu, hnu, jnu, jmins, abtot, alpha" aria-label="Copy code">
+    return (monochromatic_optical_depth, hnu, jnu, jmins,
+            total_extinction, scattering_fraction)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python">ITER_TOL = <span class="hljs-number">1.0e-3</span>
 
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">josh_profiles</span>(<span class="hljs-params">acont, scont, sigmac, rhox, bnu</span>):
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">josh_profiles</span>(<span class="hljs-params">continuum_absorption, continuum_source, continuum_scattering,
+                  column_mass, planck_source</span>):
     <span class="hljs-string">&quot;&quot;&quot;Solve JOSH transfer profiles for every sampled frequency at once.
 
     Returns physical-grid optical depth, Eddington flux, mean intensity, J-S,
@@ -740,18 +771,28 @@ def josh_profiles(acont, scont, sigmac, rhox, bnu):
     in float32 to match the kgpu/JOSH baseline; physical-grid thin layers are
     then stitched back onto the remapped deep solution with ``shallow_mask``.
     &quot;&quot;&quot;</span>
-    F, N = acont.shape; dt = acont.dtype
-    abtot, alpha, snubar, taunu = josh_optics(acont, scont, sigmac, rhox, bnu)
+    F, N = continuum_absorption.shape; dt = continuum_absorption.dtype
+    total_extinction, scattering_fraction, thermal_source_bar, monochromatic_optical_depth = (
+        josh_optics(continuum_absorption, continuum_source, continuum_scattering,
+                    column_mass, planck_source)
+    )
     
-    xsbar, xalpha, maxj = josh_grid_setup(snubar, alpha, taunu)
+    xsbar, xalpha, maxj = josh_grid_setup(
+        thermal_source_bar, scattering_fraction, monochromatic_optical_depth,
+    )
+    <span class="hljs-comment"># Short ATLAS aliases kept inside this recurrence to match the equations below.</span>
+    abtot, alpha, snubar, taunu, bnu = (
+        total_extinction, scattering_fraction, thermal_source_bar,
+        monochromatic_optical_depth, planck_source,
+    )
     xs = josh_lambda_iteration(xsbar.to(torch.float32), xalpha.to(torch.float32)).to(dt)
     
     xjs_grid = torch.matmul(xs, COEFJ.T) - xs
     xh_grid = torch.matmul(xs, COEFH.T)
     
-    jmins_grid = map1(XTAU, xjs_grid, taunu)
-    hnu_grid = map1(XTAU, xh_grid, taunu)
-    snu_grid = map1(XTAU, xs.to(dt), taunu)
+    jmins_grid = map1(XTAU, xjs_grid, monochromatic_optical_depth)
+    hnu_grid = map1(XTAU, xh_grid, monochromatic_optical_depth)
+    snu_grid = map1(XTAU, xs.to(dt), monochromatic_optical_depth)
     
     j_idx = torch.arange(N, device=DEVICE).unsqueeze(<span class="hljs-number">0</span>)
     shallow_mask = j_idx &lt; maxj.unsqueeze(<span class="hljs-number">1</span>)
@@ -817,7 +858,8 @@ def josh_profiles(acont, scont, sigmac, rhox, bnu):
     jnu = torch.clamp(jmins + snu_sel, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-99</span>)
     hnu = torch.clamp(hnu, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-99</span>)
     
-    <span class="hljs-keyword">return</span> taunu, hnu, jnu, jmins, abtot, alpha</code></pre>
+    <span class="hljs-keyword">return</span> (monochromatic_optical_depth, hnu, jnu, jmins,
+            total_extinction, scattering_fraction)</code></pre>
     </div></div><div class="prose"><h3>What the four correction integrals mean</h3>
 <p>Before we run the sweep, here is what each correction integral is for:</p>
 <ul>
@@ -983,71 +1025,127 @@ def josh_profiles(acont, scont, sigmac, rhox, bnu):
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[14]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Batched inputs: transpose from [N, F] to [F, N]
-acont_t = t(REF[&quot;acont&quot;]).T; sigmac_t = t(REF[&quot;sigmac&quot;]).T
-scont_t = t(REF[&quot;scont&quot;]).T; freq_hz = t(REF[&quot;freq_hz&quot;]); rco_t = t(REF[&quot;rco&quot;])
+continuum_absorption = t(REF[&quot;acont&quot;]).T
+continuum_scattering = t(REF[&quot;sigmac&quot;]).T
+continuum_source = t(REF[&quot;scont&quot;]).T
+freq_hz = t(REF[&quot;freq_hz&quot;]); rco_t = t(REF[&quot;rco&quot;])
 w = rco_t[:, None]
 
 # Broadcast Planck function and stimulated emission
-hfkt = freq_hz[:, None] * hkt[None, :]
-ehvkt = torch.exp(-hfkt)
-stim = torch.clamp(1.0 - ehvkt, min=1e-300)
-bnu = 1.47439e-2 * ((freq_hz[:, None] / 1e15) ** 3) * ehvkt / stim
-dbdt = bnu * hfkt / torch.clamp(T_in[None, :] * stim, min=1e-300)
+dimensionless_photon_energy = freq_hz[:, None] * h_over_kT[None, :]
+exp_minus_hnu_over_kT = torch.exp(-dimensionless_photon_energy)
+stimulated_emission_factor = torch.clamp(1.0 - exp_minus_hnu_over_kT, min=1e-300)
+planck_source = (1.47439e-2 * ((freq_hz[:, None] / 1e15) ** 3)
+                 * exp_minus_hnu_over_kT / stimulated_emission_factor)
+dBnu_dT = (planck_source * dimensionless_photon_energy
+           / torch.clamp(temperature_in[None, :] * stimulated_emission_factor, min=1e-300))
 
 print(f&quot;Sweeping {freq_hz.shape[0]} continuum frequencies x {n} layers (fully batched) ...&quot;)
-taunu, hnu, jnu, jmins, abtot, alpha = josh_profiles(acont_t, scont_t, sigmac_t, rhox, bnu)
+monochromatic_optical_depth, eddington_flux_profile, mean_intensity_profile, \
+    mean_intensity_minus_source, total_extinction, scattering_fraction = josh_profiles(
+        continuum_absorption, continuum_source, continuum_scattering, column_mass, planck_source,
+    )
 
 # The Rosseland HARMONIC fold — requires fp64 promotion
-ross_contrib = dbdt / torch.clamp(abtot, min=1e-30) * w
+ross_contrib = dBnu_dT / torch.clamp(total_extinction, min=1e-30) * w
 ross_acc64 = ross_contrib.detach().cpu().to(torch.float64).sum(dim=0)
-T64 = T_in.detach().cpu().to(torch.float64)
-rhox64 = rhox.detach().cpu().to(torch.float64)
-abross64 = (4.0 * SIGMA / 3.14159) * T64**3 / torch.clamp(ross_acc64, min=1e-300)
-tauros64 = integ(rhox64, abross64, abross64[0] * rhox64[0])
-abross = abross64.to(device=DEVICE, dtype=DTYPE)
-tauros = tauros64.to(device=DEVICE, dtype=DTYPE)" aria-label="Copy code">
+temperature64 = temperature_in.detach().cpu().to(torch.float64)
+column_mass64 = column_mass.detach().cpu().to(torch.float64)
+rosseland_opacity64 = (4.0 * SIGMA / 3.14159) * temperature64**3 / torch.clamp(ross_acc64, min=1e-300)
+rosseland_optical_depth64 = integ(column_mass64, rosseland_opacity64, rosseland_opacity64[0] * column_mass64[0])
+rosseland_opacity = rosseland_opacity64.to(device=DEVICE, dtype=DTYPE)
+rosseland_optical_depth = rosseland_optical_depth64.to(device=DEVICE, dtype=DTYPE)
+
+# Compatibility aliases for the original ATLAS names used in comparisons below.
+taunu, hnu, jnu, jmins, abtot, alpha = (
+    monochromatic_optical_depth, eddington_flux_profile, mean_intensity_profile,
+    mean_intensity_minus_source, total_extinction, scattering_fraction,
+)
+abross, tauros = rosseland_opacity, rosseland_optical_depth
+T64, rhox64 = temperature64, column_mass64
+abross64, tauros64 = rosseland_opacity64, rosseland_optical_depth64
+bnu, stim, dbdt = planck_source, stimulated_emission_factor, dBnu_dT" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># Batched inputs: transpose from [N, F] to [F, N]</span>
-acont_t = t(REF[<span class="hljs-string">&quot;acont&quot;</span>]).T; sigmac_t = t(REF[<span class="hljs-string">&quot;sigmac&quot;</span>]).T
-scont_t = t(REF[<span class="hljs-string">&quot;scont&quot;</span>]).T; freq_hz = t(REF[<span class="hljs-string">&quot;freq_hz&quot;</span>]); rco_t = t(REF[<span class="hljs-string">&quot;rco&quot;</span>])
+continuum_absorption = t(REF[<span class="hljs-string">&quot;acont&quot;</span>]).T
+continuum_scattering = t(REF[<span class="hljs-string">&quot;sigmac&quot;</span>]).T
+continuum_source = t(REF[<span class="hljs-string">&quot;scont&quot;</span>]).T
+freq_hz = t(REF[<span class="hljs-string">&quot;freq_hz&quot;</span>]); rco_t = t(REF[<span class="hljs-string">&quot;rco&quot;</span>])
 w = rco_t[:, <span class="hljs-literal">None</span>]
 
 <span class="hljs-comment"># Broadcast Planck function and stimulated emission</span>
-hfkt = freq_hz[:, <span class="hljs-literal">None</span>] * hkt[<span class="hljs-literal">None</span>, :]
-ehvkt = torch.exp(-hfkt)
-stim = torch.clamp(<span class="hljs-number">1.0</span> - ehvkt, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-300</span>)
-bnu = <span class="hljs-number">1.47439e-2</span> * ((freq_hz[:, <span class="hljs-literal">None</span>] / <span class="hljs-number">1e15</span>) ** <span class="hljs-number">3</span>) * ehvkt / stim
-dbdt = bnu * hfkt / torch.clamp(T_in[<span class="hljs-literal">None</span>, :] * stim, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-300</span>)
+dimensionless_photon_energy = freq_hz[:, <span class="hljs-literal">None</span>] * h_over_kT[<span class="hljs-literal">None</span>, :]
+exp_minus_hnu_over_kT = torch.exp(-dimensionless_photon_energy)
+stimulated_emission_factor = torch.clamp(<span class="hljs-number">1.0</span> - exp_minus_hnu_over_kT, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-300</span>)
+planck_source = (<span class="hljs-number">1.47439e-2</span> * ((freq_hz[:, <span class="hljs-literal">None</span>] / <span class="hljs-number">1e15</span>) ** <span class="hljs-number">3</span>)
+                 * exp_minus_hnu_over_kT / stimulated_emission_factor)
+dBnu_dT = (planck_source * dimensionless_photon_energy
+           / torch.clamp(temperature_in[<span class="hljs-literal">None</span>, :] * stimulated_emission_factor, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-300</span>))
 
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;Sweeping <span class="hljs-subst">{freq_hz.shape[<span class="hljs-number">0</span>]}</span> continuum frequencies x <span class="hljs-subst">{n}</span> layers (fully batched) ...&quot;</span>)
-taunu, hnu, jnu, jmins, abtot, alpha = josh_profiles(acont_t, scont_t, sigmac_t, rhox, bnu)
+monochromatic_optical_depth, eddington_flux_profile, mean_intensity_profile, \
+    mean_intensity_minus_source, total_extinction, scattering_fraction = josh_profiles(
+        continuum_absorption, continuum_source, continuum_scattering, column_mass, planck_source,
+    )
 
 <span class="hljs-comment"># The Rosseland HARMONIC fold — requires fp64 promotion</span>
-ross_contrib = dbdt / torch.clamp(abtot, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-30</span>) * w
+ross_contrib = dBnu_dT / torch.clamp(total_extinction, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-30</span>) * w
 ross_acc64 = ross_contrib.detach().cpu().to(torch.float64).<span class="hljs-built_in">sum</span>(dim=<span class="hljs-number">0</span>)
-T64 = T_in.detach().cpu().to(torch.float64)
-rhox64 = rhox.detach().cpu().to(torch.float64)
-abross64 = (<span class="hljs-number">4.0</span> * SIGMA / <span class="hljs-number">3.14159</span>) * T64**<span class="hljs-number">3</span> / torch.clamp(ross_acc64, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-300</span>)
-tauros64 = integ(rhox64, abross64, abross64[<span class="hljs-number">0</span>] * rhox64[<span class="hljs-number">0</span>])
-abross = abross64.to(device=DEVICE, dtype=DTYPE)
-tauros = tauros64.to(device=DEVICE, dtype=DTYPE)</code></pre>
+temperature64 = temperature_in.detach().cpu().to(torch.float64)
+column_mass64 = column_mass.detach().cpu().to(torch.float64)
+rosseland_opacity64 = (<span class="hljs-number">4.0</span> * SIGMA / <span class="hljs-number">3.14159</span>) * temperature64**<span class="hljs-number">3</span> / torch.clamp(ross_acc64, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-300</span>)
+rosseland_optical_depth64 = integ(column_mass64, rosseland_opacity64, rosseland_opacity64[<span class="hljs-number">0</span>] * column_mass64[<span class="hljs-number">0</span>])
+rosseland_opacity = rosseland_opacity64.to(device=DEVICE, dtype=DTYPE)
+rosseland_optical_depth = rosseland_optical_depth64.to(device=DEVICE, dtype=DTYPE)
+
+<span class="hljs-comment"># Compatibility aliases for the original ATLAS names used in comparisons below.</span>
+taunu, hnu, jnu, jmins, abtot, alpha = (
+    monochromatic_optical_depth, eddington_flux_profile, mean_intensity_profile,
+    mean_intensity_minus_source, total_extinction, scattering_fraction,
+)
+abross, tauros = rosseland_opacity, rosseland_optical_depth
+T64, rhox64 = temperature64, column_mass64
+abross64, tauros64 = rosseland_opacity64, rosseland_optical_depth64
+bnu, stim, dbdt = planck_source, stimulated_emission_factor, dBnu_dT</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">Sweeping 30000 continuum frequencies x 80 layers (fully batched) ...
 </pre></div></div><div class="prose"><p>Those tensors now contain the monochromatic transfer profiles and the Rosseland depth scale. The next cell performs the frequency folds that feed the temperature correction; the wide reductions are intentionally done in fp64 on the CPU because they are small per-depth vectors and numerically fragile.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[15]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# The JOSH profiles stay MPS/fp32; NumPy&#39;s wide frequency accumulators are float64.
-dabtot = deriv(rhox, abtot)
-rdabh64 = (dabtot / torch.clamp(abtot, min=1e-30) * hnu * w).detach().cpu().to(torch.float64).sum(dim=0)
-rjmins64 = (abtot * jmins * w).detach().cpu().to(torch.float64).sum(dim=0)
-flxrad64 = (hnu * w).detach().cpu().to(torch.float64).sum(dim=0)
-accrad64 = (abtot * hnu * w).detach().cpu().to(torch.float64).sum(dim=0)
-rdiagj64 = accumulate_rdiagj(taunu, abtot, alpha, dbdt, rco_t, TEFF)
-rdabh = rdabh64.to(device=DEVICE, dtype=DTYPE)
-rjmins = rjmins64.to(device=DEVICE, dtype=DTYPE)
-flxrad = flxrad64.to(device=DEVICE, dtype=DTYPE)
-rdiagj = rdiagj64.to(device=DEVICE, dtype=DTYPE)
+d_total_extinction_d_column_mass = deriv(column_mass, total_extinction)
+opacity_gradient_flux_integral64 = (
+    d_total_extinction_d_column_mass / torch.clamp(total_extinction, min=1e-30)
+    * eddington_flux_profile * w
+).detach().cpu().to(torch.float64).sum(dim=0)
+net_heating_integral64 = (
+    total_extinction * mean_intensity_minus_source * w
+).detach().cpu().to(torch.float64).sum(dim=0)
+radiative_flux_integral64 = (
+    eddington_flux_profile * w
+).detach().cpu().to(torch.float64).sum(dim=0)
+radiation_pressure_integral64 = (
+    total_extinction * eddington_flux_profile * w
+).detach().cpu().to(torch.float64).sum(dim=0)
+lambda_diagonal_integral64 = accumulate_rdiagj(
+    monochromatic_optical_depth, total_extinction, scattering_fraction, dBnu_dT, rco_t, TEFF,
+)
+opacity_gradient_flux_integral = opacity_gradient_flux_integral64.to(device=DEVICE, dtype=DTYPE)
+net_heating_integral = net_heating_integral64.to(device=DEVICE, dtype=DTYPE)
+radiative_flux_integral = radiative_flux_integral64.to(device=DEVICE, dtype=DTYPE)
+lambda_diagonal_integral = lambda_diagonal_integral64.to(device=DEVICE, dtype=DTYPE)
+
+# Compatibility aliases for ATLAS comparison labels and later formulas.
+rdabh, rjmins, flxrad, rdiagj = (
+    opacity_gradient_flux_integral, net_heating_integral,
+    radiative_flux_integral, lambda_diagonal_integral,
+)
+rdabh64, rjmins64, flxrad64, rdiagj64 = (
+    opacity_gradient_flux_integral64, net_heating_integral64,
+    radiative_flux_integral64, lambda_diagonal_integral64,
+)
+accrad64 = radiation_pressure_integral64
 
 e_abross = compare(&quot;kappa_Rosseland&quot;, abross, &quot;abross_ref&quot;)
 e_tauros = compare(&quot;tau_Rosseland&quot;, tauros, &quot;tauros_ref&quot;)
@@ -1064,16 +1162,38 @@ assert e_rjmins &lt; 1e-5" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># The JOSH profiles stay MPS/fp32; NumPy&#x27;s wide frequency accumulators are float64.</span>
-dabtot = deriv(rhox, abtot)
-rdabh64 = (dabtot / torch.clamp(abtot, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-30</span>) * hnu * w).detach().cpu().to(torch.float64).<span class="hljs-built_in">sum</span>(dim=<span class="hljs-number">0</span>)
-rjmins64 = (abtot * jmins * w).detach().cpu().to(torch.float64).<span class="hljs-built_in">sum</span>(dim=<span class="hljs-number">0</span>)
-flxrad64 = (hnu * w).detach().cpu().to(torch.float64).<span class="hljs-built_in">sum</span>(dim=<span class="hljs-number">0</span>)
-accrad64 = (abtot * hnu * w).detach().cpu().to(torch.float64).<span class="hljs-built_in">sum</span>(dim=<span class="hljs-number">0</span>)
-rdiagj64 = accumulate_rdiagj(taunu, abtot, alpha, dbdt, rco_t, TEFF)
-rdabh = rdabh64.to(device=DEVICE, dtype=DTYPE)
-rjmins = rjmins64.to(device=DEVICE, dtype=DTYPE)
-flxrad = flxrad64.to(device=DEVICE, dtype=DTYPE)
-rdiagj = rdiagj64.to(device=DEVICE, dtype=DTYPE)
+d_total_extinction_d_column_mass = deriv(column_mass, total_extinction)
+opacity_gradient_flux_integral64 = (
+    d_total_extinction_d_column_mass / torch.clamp(total_extinction, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-30</span>)
+    * eddington_flux_profile * w
+).detach().cpu().to(torch.float64).<span class="hljs-built_in">sum</span>(dim=<span class="hljs-number">0</span>)
+net_heating_integral64 = (
+    total_extinction * mean_intensity_minus_source * w
+).detach().cpu().to(torch.float64).<span class="hljs-built_in">sum</span>(dim=<span class="hljs-number">0</span>)
+radiative_flux_integral64 = (
+    eddington_flux_profile * w
+).detach().cpu().to(torch.float64).<span class="hljs-built_in">sum</span>(dim=<span class="hljs-number">0</span>)
+radiation_pressure_integral64 = (
+    total_extinction * eddington_flux_profile * w
+).detach().cpu().to(torch.float64).<span class="hljs-built_in">sum</span>(dim=<span class="hljs-number">0</span>)
+lambda_diagonal_integral64 = accumulate_rdiagj(
+    monochromatic_optical_depth, total_extinction, scattering_fraction, dBnu_dT, rco_t, TEFF,
+)
+opacity_gradient_flux_integral = opacity_gradient_flux_integral64.to(device=DEVICE, dtype=DTYPE)
+net_heating_integral = net_heating_integral64.to(device=DEVICE, dtype=DTYPE)
+radiative_flux_integral = radiative_flux_integral64.to(device=DEVICE, dtype=DTYPE)
+lambda_diagonal_integral = lambda_diagonal_integral64.to(device=DEVICE, dtype=DTYPE)
+
+<span class="hljs-comment"># Compatibility aliases for ATLAS comparison labels and later formulas.</span>
+rdabh, rjmins, flxrad, rdiagj = (
+    opacity_gradient_flux_integral, net_heating_integral,
+    radiative_flux_integral, lambda_diagonal_integral,
+)
+rdabh64, rjmins64, flxrad64, rdiagj64 = (
+    opacity_gradient_flux_integral64, net_heating_integral64,
+    radiative_flux_integral64, lambda_diagonal_integral64,
+)
+accrad64 = radiation_pressure_integral64
 
 e_abross = compare(<span class="hljs-string">&quot;kappa_Rosseland&quot;</span>, abross, <span class="hljs-string">&quot;abross_ref&quot;</span>)
 e_tauros = compare(<span class="hljs-string">&quot;tau_Rosseland&quot;</span>, tauros, <span class="hljs-string">&quot;tauros_ref&quot;</span>)

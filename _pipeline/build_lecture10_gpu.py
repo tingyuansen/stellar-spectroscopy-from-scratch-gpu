@@ -132,7 +132,7 @@ A true grey atmosphere *does* hold constant flux — but only for its own ideali
 
 md(r"""### Constants and the depth grid
 
-We use exactly the constants ATLAS uses (the last digits matter for a bit-level match): the Stefan–Boltzmann constant $\sigma$, Planck's $h$, and Boltzmann's $k$. The grey starting model has $N=80$ layers. We pull out the starting temperature `T_in`, column mass `rhox`, and gas pressure `p_in` as `torch` tensors, and form the combination $h/(kT)$ at every layer — call it `hkt` — which becomes the dimensionless $h\nu/(kT)$ only once it is multiplied by a frequency $\nu$ inside the sweep.
+We use exactly the constants ATLAS uses (the last digits matter for a bit-level match): the Stefan–Boltzmann constant $\sigma$, Planck's $h$, and Boltzmann's $k$. The grey starting model has $N=80$ layers. We pull out the starting temperature `temperature_in`, column mass `column_mass`, and gas pressure `gas_pressure_in` as `torch` tensors, and form the combination $h/(kT)$ at every layer — `h_over_kT` — which becomes the dimensionless $h\nu/(kT)$ only once it is multiplied by a frequency $\nu$ inside the sweep.
 
 One number sets the whole game: the **target flux**. The Eddington flux that must emerge from a star of effective temperature $T_{\rm eff}$ is $H = \sigma T_{\rm eff}^4/(4\pi)$. Radiative equilibrium is the statement that the depth-dependent flux $H(\tau)$ equals this constant $H$ at every layer.""")
 
@@ -140,13 +140,16 @@ code(r'''SIGMA  = 5.6697e-5
 PLANCK = 6.6256e-27
 KBOLTZ = 1.38054e-16
 
-T_in = t(REF["T_in"])
-rhox = t(REF["rhox_in"])
-p_in = t(REF["p_in"])
-n = int(T_in.shape[0])
+temperature_in = t(REF["T_in"])
+column_mass = t(REF["rhox_in"])
+gas_pressure_in = t(REF["p_in"])
+n = int(temperature_in.shape[0])
 
-# h/(kT) per layer; note this does NOT yet include the frequency nu
-hkt = PLANCK / torch.clamp(T_in * KBOLTZ, min=1e-300)
+# h/(kT) per layer; note this does NOT yet include the frequency nu.
+h_over_kT = PLANCK / torch.clamp(temperature_in * KBOLTZ, min=1e-300)
+
+# Compatibility aliases for formulas that still quote ATLAS variable names.
+T_in, rhox, p_in, hkt = temperature_in, column_mass, gas_pressure_in, h_over_kT
 
 # the target: Eddington flux H = sigma Teff^4 / (4 pi)
 flux = SIGMA / 12.5664 * TEFF**4
@@ -158,12 +161,12 @@ This lecture juggles many similarly named arrays. For reference, here are the on
 
 | code name | shape | units | meaning |
 |---|---|---|---|
-| `T_in`, `rhox`, `p_in` | $N$ | K, g cm$^{-2}$, dyn cm$^{-2}$ | grey-start temperature, column mass, gas pressure |
+| `temperature_in`, `column_mass`, `gas_pressure_in` | $N$ | K, g cm$^{-2}$, dyn cm$^{-2}$ | grey-start temperature, column mass, gas pressure |
 | `acont`, `sigmac`, `scont` | $F\times N$ | cm$^2$ g$^{-1}$ (abs/scat), source units | continuum absorption, scattering, source (Lecture 3) |
 | `freq`, `rco` | $F$ | Hz, Hz | frequency grid and its quadrature weights $d\nu$ |
-| `abtot`, `alpha` | $F\times N$ | cm$^2$ g$^{-1}$, — | per-frequency total extinction $\kappa_\nu$ and scattering fraction |
-| `abross`, `tauros` | $N$ | cm$^2$ g$^{-1}$, — | Rosseland mean opacity and optical depth |
-| `flxrad`, `rjmins`, `rdabh`, `rdiagj` | $N$ | ATLAS conventions ($H$-like; opacity-weighted $J-S$; gradient-weighted flux; temperature-response denominator) | the four frequency-integrated correction accumulators |
+| `total_extinction`, `scattering_fraction` | $F\times N$ | cm$^2$ g$^{-1}$, — | per-frequency total extinction $\kappa_\nu$ and scattering fraction |
+| `rosseland_opacity`, `rosseland_optical_depth` | $N$ | cm$^2$ g$^{-1}$, — | Rosseland mean opacity and optical depth |
+| `radiative_flux_integral`, `net_heating_integral`, `opacity_gradient_flux_integral`, `lambda_diagonal_integral` | $N$ | ATLAS conventions ($H$-like; opacity-weighted $J-S$; gradient-weighted flux; temperature-response denominator) | the four frequency-integrated correction accumulators |
 | `t1`, `tnew` | $N$ | K | the temperature correction $T_1$ and the corrected temperature |
 
 Keep this handy; the meaning of each is spelled out again where it is first built.""")
@@ -343,33 +346,39 @@ NX = XTAU.shape[0]''')
 
 md(r"""### (a) Per-frequency optics
 
-The first stage builds the total extinction $\kappa_\nu$ (`abtot`), the scattering fraction $\alpha_\nu$, the non-scattering emissivity source $\bar S_\nu$ (`snubar`), and the monochromatic optical depth $\tau_\nu$. Notice this takes tensors shaped `[F, N]` and evaluates the optics for the entire spectral grid at once.""")
+The first stage builds the total extinction $\kappa_\nu$ (`total_extinction`), the scattering fraction $\alpha_\nu$ (`scattering_fraction`), the non-scattering emissivity source $\bar S_\nu$ (`thermal_source_bar`), and the monochromatic optical depth $\tau_\nu$ (`monochromatic_optical_depth`). Notice this takes tensors shaped `[F, N]` and evaluates the optics for the entire spectral grid at once.""")
 
-code(r'''def josh_optics(acont, scont, sigmac, rhox, bnu):
-    abtot = torch.clamp(acont + sigmac, min=1e-300)
-    alpha = sigmac / abtot
-    snubar = torch.where(acont > 0, acont * scont / acont, bnu)
-    start = abtot[:, 0] * rhox[0]
-    taunu = integ(rhox, abtot, start)
-    return abtot, alpha, snubar, taunu''')
+code(r'''def josh_optics(continuum_absorption, continuum_source, continuum_scattering,
+                column_mass, planck_source):
+    """Build per-frequency extinction, scattering fraction, source, and optical depth."""
+    total_extinction = torch.clamp(continuum_absorption + continuum_scattering, min=1e-300)
+    scattering_fraction = continuum_scattering / total_extinction
+    thermal_source_bar = torch.where(
+        continuum_absorption > 0,
+        continuum_absorption * continuum_source / continuum_absorption,
+        planck_source,
+    )
+    start = total_extinction[:, 0] * column_mass[0]
+    monochromatic_optical_depth = integ(column_mass, total_extinction, start)
+    return total_extinction, scattering_fraction, thermal_source_bar, monochromatic_optical_depth''')
 
 md(r"""### (b) The float32 $\Lambda$-iteration on the JOSH grid
 
 We map the inputs to the fixed `XTAU` grid, dropping precision strictly to `float32` (the hardware-enforced convergence baseline from `kgpu`). Then, rather than a single-threaded Python host loop, we compute the Gauss-Seidel solver directly on the device using `torch.matmul`. The iterations sweep backward in depth, maintaining the exact data dependencies of Gauss-Seidel while batching effortlessly over frequency `[F, G]`. We cap this at 12 fixed sweeps — safely converging the continuum layers uniformly.""")
 
-code(r'''def josh_grid_setup(snubar, alpha, taunu):
-    xsbar = map1(taunu, snubar, XTAU)
-    xalpha = map1(taunu, alpha, XTAU)
+code(r'''def josh_grid_setup(thermal_source_bar, scattering_fraction, monochromatic_optical_depth):
+    xsbar = map1(monochromatic_optical_depth, thermal_source_bar, XTAU)
+    xalpha = map1(monochromatic_optical_depth, scattering_fraction, XTAU)
     xsbar = torch.clamp(xsbar, min=1e-38)
     xalpha = torch.clamp(xalpha, min=0.0, max=1.0)
     
-    above = XTAU[None, :] < taunu[:, 0:1]
-    snubar0 = torch.clamp(snubar[:, 0:1], min=1e-38)
-    alpha0 = torch.clamp(alpha[:, 0:1], min=0.0, max=1.0)
-    xsbar = torch.where(above, snubar0.expand_as(xsbar), xsbar)
-    xalpha = torch.where(above, alpha0.expand_as(xalpha), xalpha)
+    above = XTAU[None, :] < monochromatic_optical_depth[:, 0:1]
+    source_surface = torch.clamp(thermal_source_bar[:, 0:1], min=1e-38)
+    scatter_surface = torch.clamp(scattering_fraction[:, 0:1], min=0.0, max=1.0)
+    xsbar = torch.where(above, source_surface.expand_as(xsbar), xsbar)
+    xalpha = torch.where(above, scatter_surface.expand_as(xalpha), xalpha)
     
-    in_grid = taunu < XTAU[-1]
+    in_grid = monochromatic_optical_depth < XTAU[-1]
     maxj = in_grid.to(torch.int64).sum(dim=1)
     return xsbar, xalpha, maxj''')
 
@@ -397,7 +406,8 @@ The scalar reference iterates the shallow layers directly on the physical grid a
 
 code(r'''ITER_TOL = 1.0e-3
 
-def josh_profiles(acont, scont, sigmac, rhox, bnu):
+def josh_profiles(continuum_absorption, continuum_source, continuum_scattering,
+                  column_mass, planck_source):
     """Solve JOSH transfer profiles for every sampled frequency at once.
 
     Returns physical-grid optical depth, Eddington flux, mean intensity, J-S,
@@ -405,18 +415,28 @@ def josh_profiles(acont, scont, sigmac, rhox, bnu):
     in float32 to match the kgpu/JOSH baseline; physical-grid thin layers are
     then stitched back onto the remapped deep solution with ``shallow_mask``.
     """
-    F, N = acont.shape; dt = acont.dtype
-    abtot, alpha, snubar, taunu = josh_optics(acont, scont, sigmac, rhox, bnu)
+    F, N = continuum_absorption.shape; dt = continuum_absorption.dtype
+    total_extinction, scattering_fraction, thermal_source_bar, monochromatic_optical_depth = (
+        josh_optics(continuum_absorption, continuum_source, continuum_scattering,
+                    column_mass, planck_source)
+    )
     
-    xsbar, xalpha, maxj = josh_grid_setup(snubar, alpha, taunu)
+    xsbar, xalpha, maxj = josh_grid_setup(
+        thermal_source_bar, scattering_fraction, monochromatic_optical_depth,
+    )
+    # Short ATLAS aliases kept inside this recurrence to match the equations below.
+    abtot, alpha, snubar, taunu, bnu = (
+        total_extinction, scattering_fraction, thermal_source_bar,
+        monochromatic_optical_depth, planck_source,
+    )
     xs = josh_lambda_iteration(xsbar.to(torch.float32), xalpha.to(torch.float32)).to(dt)
     
     xjs_grid = torch.matmul(xs, COEFJ.T) - xs
     xh_grid = torch.matmul(xs, COEFH.T)
     
-    jmins_grid = map1(XTAU, xjs_grid, taunu)
-    hnu_grid = map1(XTAU, xh_grid, taunu)
-    snu_grid = map1(XTAU, xs.to(dt), taunu)
+    jmins_grid = map1(XTAU, xjs_grid, monochromatic_optical_depth)
+    hnu_grid = map1(XTAU, xh_grid, monochromatic_optical_depth)
+    snu_grid = map1(XTAU, xs.to(dt), monochromatic_optical_depth)
     
     j_idx = torch.arange(N, device=DEVICE).unsqueeze(0)
     shallow_mask = j_idx < maxj.unsqueeze(1)
@@ -482,7 +502,8 @@ def josh_profiles(acont, scont, sigmac, rhox, bnu):
     jnu = torch.clamp(jmins + snu_sel, min=1e-99)
     hnu = torch.clamp(hnu, min=1e-99)
     
-    return taunu, hnu, jnu, jmins, abtot, alpha''')
+    return (monochromatic_optical_depth, hnu, jnu, jmins,
+            total_extinction, scattering_fraction)''')
 
 md(r"""### What the four correction integrals mean
 
@@ -578,43 +599,82 @@ The frequency sweep computes everything across the `[F, N]` axes at once. We tra
 *(Note: we permit a slightly higher parity tolerance for the `rjmins` net-heating accumulator because its value intrinsically carries the precision floor left behind by the float32 Gauss-Seidel JOSH solve.)*""")
 
 code(r'''# Batched inputs: transpose from [N, F] to [F, N]
-acont_t = t(REF["acont"]).T; sigmac_t = t(REF["sigmac"]).T
-scont_t = t(REF["scont"]).T; freq_hz = t(REF["freq_hz"]); rco_t = t(REF["rco"])
+continuum_absorption = t(REF["acont"]).T
+continuum_scattering = t(REF["sigmac"]).T
+continuum_source = t(REF["scont"]).T
+freq_hz = t(REF["freq_hz"]); rco_t = t(REF["rco"])
 w = rco_t[:, None]
 
 # Broadcast Planck function and stimulated emission
-hfkt = freq_hz[:, None] * hkt[None, :]
-ehvkt = torch.exp(-hfkt)
-stim = torch.clamp(1.0 - ehvkt, min=1e-300)
-bnu = 1.47439e-2 * ((freq_hz[:, None] / 1e15) ** 3) * ehvkt / stim
-dbdt = bnu * hfkt / torch.clamp(T_in[None, :] * stim, min=1e-300)
+dimensionless_photon_energy = freq_hz[:, None] * h_over_kT[None, :]
+exp_minus_hnu_over_kT = torch.exp(-dimensionless_photon_energy)
+stimulated_emission_factor = torch.clamp(1.0 - exp_minus_hnu_over_kT, min=1e-300)
+planck_source = (1.47439e-2 * ((freq_hz[:, None] / 1e15) ** 3)
+                 * exp_minus_hnu_over_kT / stimulated_emission_factor)
+dBnu_dT = (planck_source * dimensionless_photon_energy
+           / torch.clamp(temperature_in[None, :] * stimulated_emission_factor, min=1e-300))
 
 print(f"Sweeping {freq_hz.shape[0]} continuum frequencies x {n} layers (fully batched) ...")
-taunu, hnu, jnu, jmins, abtot, alpha = josh_profiles(acont_t, scont_t, sigmac_t, rhox, bnu)
+monochromatic_optical_depth, eddington_flux_profile, mean_intensity_profile, \
+    mean_intensity_minus_source, total_extinction, scattering_fraction = josh_profiles(
+        continuum_absorption, continuum_source, continuum_scattering, column_mass, planck_source,
+    )
 
 # The Rosseland HARMONIC fold — requires fp64 promotion
-ross_contrib = dbdt / torch.clamp(abtot, min=1e-30) * w
+ross_contrib = dBnu_dT / torch.clamp(total_extinction, min=1e-30) * w
 ross_acc64 = ross_contrib.detach().cpu().to(torch.float64).sum(dim=0)
-T64 = T_in.detach().cpu().to(torch.float64)
-rhox64 = rhox.detach().cpu().to(torch.float64)
-abross64 = (4.0 * SIGMA / 3.14159) * T64**3 / torch.clamp(ross_acc64, min=1e-300)
-tauros64 = integ(rhox64, abross64, abross64[0] * rhox64[0])
-abross = abross64.to(device=DEVICE, dtype=DTYPE)
-tauros = tauros64.to(device=DEVICE, dtype=DTYPE)''')
+temperature64 = temperature_in.detach().cpu().to(torch.float64)
+column_mass64 = column_mass.detach().cpu().to(torch.float64)
+rosseland_opacity64 = (4.0 * SIGMA / 3.14159) * temperature64**3 / torch.clamp(ross_acc64, min=1e-300)
+rosseland_optical_depth64 = integ(column_mass64, rosseland_opacity64, rosseland_opacity64[0] * column_mass64[0])
+rosseland_opacity = rosseland_opacity64.to(device=DEVICE, dtype=DTYPE)
+rosseland_optical_depth = rosseland_optical_depth64.to(device=DEVICE, dtype=DTYPE)
+
+# Compatibility aliases for the original ATLAS names used in comparisons below.
+taunu, hnu, jnu, jmins, abtot, alpha = (
+    monochromatic_optical_depth, eddington_flux_profile, mean_intensity_profile,
+    mean_intensity_minus_source, total_extinction, scattering_fraction,
+)
+abross, tauros = rosseland_opacity, rosseland_optical_depth
+T64, rhox64 = temperature64, column_mass64
+abross64, tauros64 = rosseland_opacity64, rosseland_optical_depth64
+bnu, stim, dbdt = planck_source, stimulated_emission_factor, dBnu_dT''')
 
 md(r"""Those tensors now contain the monochromatic transfer profiles and the Rosseland depth scale. The next cell performs the frequency folds that feed the temperature correction; the wide reductions are intentionally done in fp64 on the CPU because they are small per-depth vectors and numerically fragile.""")
 
 code(r'''# The JOSH profiles stay MPS/fp32; NumPy's wide frequency accumulators are float64.
-dabtot = deriv(rhox, abtot)
-rdabh64 = (dabtot / torch.clamp(abtot, min=1e-30) * hnu * w).detach().cpu().to(torch.float64).sum(dim=0)
-rjmins64 = (abtot * jmins * w).detach().cpu().to(torch.float64).sum(dim=0)
-flxrad64 = (hnu * w).detach().cpu().to(torch.float64).sum(dim=0)
-accrad64 = (abtot * hnu * w).detach().cpu().to(torch.float64).sum(dim=0)
-rdiagj64 = accumulate_rdiagj(taunu, abtot, alpha, dbdt, rco_t, TEFF)
-rdabh = rdabh64.to(device=DEVICE, dtype=DTYPE)
-rjmins = rjmins64.to(device=DEVICE, dtype=DTYPE)
-flxrad = flxrad64.to(device=DEVICE, dtype=DTYPE)
-rdiagj = rdiagj64.to(device=DEVICE, dtype=DTYPE)
+d_total_extinction_d_column_mass = deriv(column_mass, total_extinction)
+opacity_gradient_flux_integral64 = (
+    d_total_extinction_d_column_mass / torch.clamp(total_extinction, min=1e-30)
+    * eddington_flux_profile * w
+).detach().cpu().to(torch.float64).sum(dim=0)
+net_heating_integral64 = (
+    total_extinction * mean_intensity_minus_source * w
+).detach().cpu().to(torch.float64).sum(dim=0)
+radiative_flux_integral64 = (
+    eddington_flux_profile * w
+).detach().cpu().to(torch.float64).sum(dim=0)
+radiation_pressure_integral64 = (
+    total_extinction * eddington_flux_profile * w
+).detach().cpu().to(torch.float64).sum(dim=0)
+lambda_diagonal_integral64 = accumulate_rdiagj(
+    monochromatic_optical_depth, total_extinction, scattering_fraction, dBnu_dT, rco_t, TEFF,
+)
+opacity_gradient_flux_integral = opacity_gradient_flux_integral64.to(device=DEVICE, dtype=DTYPE)
+net_heating_integral = net_heating_integral64.to(device=DEVICE, dtype=DTYPE)
+radiative_flux_integral = radiative_flux_integral64.to(device=DEVICE, dtype=DTYPE)
+lambda_diagonal_integral = lambda_diagonal_integral64.to(device=DEVICE, dtype=DTYPE)
+
+# Compatibility aliases for ATLAS comparison labels and later formulas.
+rdabh, rjmins, flxrad, rdiagj = (
+    opacity_gradient_flux_integral, net_heating_integral,
+    radiative_flux_integral, lambda_diagonal_integral,
+)
+rdabh64, rjmins64, flxrad64, rdiagj64 = (
+    opacity_gradient_flux_integral64, net_heating_integral64,
+    radiative_flux_integral64, lambda_diagonal_integral64,
+)
+accrad64 = radiation_pressure_integral64
 
 e_abross = compare("kappa_Rosseland", abross, "abross_ref")
 e_tauros = compare("tau_Rosseland", tauros, "tauros_ref")
