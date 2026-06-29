@@ -28,6 +28,25 @@ Each lecture should contain:
 4. a parity cell that computes first, then compares against the reference target;
 5. a short statement of precision floor and remaining boundary.
 
+## Shared Naming Standard
+
+Variable names are part of the teaching surface. Prefer readable physics names over inherited
+Kurucz/Fortran abbreviations whenever the name is local to the textbook path.
+
+- Use one spelling for the same concept across lectures and kgpu: for example `temperature`,
+  `column_mass`, `mass_density`, `electron_density`, `gas_pressure`, `wavelength_nm`,
+  `frequency_hz`, `continuum_absorption`, `continuum_scattering`, `line_opacity`,
+  `source_function`, `doppler_width`, `population_per_ion`, and `partition_function`.
+- Keep compact legacy names only when they are canonical table/file fields, external reference
+  labels, or parity-sensitive transcriptions. Add a nearby alias or comment instead of silently
+  changing those names.
+- When a lecture must use legacy names from a reference bundle, translate them once at the
+  boundary into readable local names, then use the readable names in the taught computation.
+- Function names should describe the physics operation, not the original routine mnemonic, unless
+  the mnemonic is the object being taught. If a mnemonic remains, define it at first use.
+- Rename in parity-gated slices. A pure rename still needs the lecture builder and the narrow
+  verifier because notebooks are generated artifacts.
+
 ## GPU-Native Standard
 
 - Prefer torch tensors on the selected device for taught compute paths.

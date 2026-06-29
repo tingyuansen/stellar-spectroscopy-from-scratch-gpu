@@ -21,27 +21,42 @@ Current status:
 
 ## Closure Roadmap
 
-1. Close L8's data boundary:
+1. Establish the shared naming/glossary pass:
+   - define readable names in `BIBLE.md` and use them consistently across lectures and kgpu;
+   - translate legacy bundle/table fields at input boundaries, not throughout taught code;
+   - keep canonical Kurucz table names only when changing them would obscure provenance or break
+     parity;
+   - rename in small builder/verifier-gated slices.
+
+2. Rework the L14-L16 curriculum order before major capstone promotion:
+   - collect the end-to-end ATLAS12+SYNTHE topics in `BIBLE.md`/`PLAN.md`;
+   - make the sequence match the kgpu build: atmosphere/EOS state, line blanket/deposit,
+     continuum+line synthesis, then capstone spectrum;
+   - preserve every current NumPy/reference parity check while moving topics;
+   - keep `reference/MANIFEST_L14_L16.md` synchronized whenever arrays move between loaded,
+     computed, and comparison-only roles.
+
+3. Close L8's data boundary:
    - feed opacity slabs from earlier torch lecture outputs;
    - derive, rebuild, or explicitly vendor-provenance fixed JOSH operator tables.
 
-2. Promote L14 from same-atmosphere synthesis to true capstone:
+4. Promote L14 from same-atmosphere synthesis to true capstone:
    - wire or inline L15/L16 so the Sun state is regenerated from stellar parameters;
    - keep the four HR-window `verify_leankurucz.py` gate green;
    - do not claim non-solar atmosphere closure until kgpu has a corresponding four-star
      ATLAS12+SYNTHE gate.
 
-3. Reduce L15 fixtures:
+5. Reduce L15 fixtures:
    - replace loaded atmosphere/EOS/window/continuum/full-grid blanket fixtures in small
      parity-gated steps;
    - keep the exact LINOP1 recurrence and float32 accumulation-order gate intact.
 
-4. Reduce L16 helper boundaries:
+6. Reduce L16 helper boundaries:
    - port clean-room NumPy PFSAHA/NELECT/continuum/molecular helper paths into pedagogical torch
      cells where practical;
    - retain scalar loops only for true recurrences or fixed table logic.
 
-5. Finish dense-cell cleanup:
+7. Finish dense-cell cleanup:
    - remaining long cell is L14 `compute_kapp`, the continuum opacity ledger;
    - split only when the capstone verifier is rerun.
 
@@ -54,6 +69,15 @@ Current status:
 - Avoid host pulls inside compute paths.
 - Use NumPy only for comparison, plotting, static table preparation, or explicitly named
   non-taught helper boundaries.
+
+## Naming Audit Rules
+
+- Prefer descriptive names in taught code even if the reference variable is terse.
+- Translate legacy fixture keys once near load time, then use the readable local names.
+- Keep compatibility names at serialization boundaries and public APIs unless a migration plan and
+  tests cover the change.
+- Avoid mass renames mixed with physics edits. Commit pure readability slices separately, with the
+  same parity gate as the touched lecture/module.
 
 ## Verification Roadmap
 
