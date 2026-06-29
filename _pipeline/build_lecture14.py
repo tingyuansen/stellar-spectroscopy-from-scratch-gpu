@@ -2192,6 +2192,74 @@ def _ehyd_cm(n):
         return float(_EHYD_CM[idx])
     return _HYD_EINF_CM - _HYD_RYD_CM / float(n * n)''')
 
+md(r"""Two short helpers keep the hydrogen driver focused on the line loop. `_hydrogen_depth_state`
+builds the per-depth HPROF4 microfield, broadening, and Doppler scalars; `_hydrogen_merge_limits`
+computes the continuum-merge/tail wavelengths from the Inglis-Teller relation.""")
+
+code(r'''def _hydrogen_depth_state(T, xne, xnf_he1, xnf_h2, xnfph, vturb_cms, di):
+    """Return the per-depth HPROF4 state dictionary for one atmospheric layer.
+
+    Inputs are atmosphere arrays plus depth index `di`. The returned values are
+    scalars used by `_hydrogen_line_profile`: microfield scale `fo`, Doppler
+    width `dopph`, broadening coefficients, neutral/proton H populations, and
+    electron density. No reference opacity is read here.
+    """
+    KBOLTZ = 1.380649e-16
+    AMU = 1.66054e-24
+    C_LIGHT_CMS = 2.99792458e10
+    C_LIGHT_KMS = 299792.458
+    MASS_H = 1.008
+
+    temp = max(float(T[di]), 1.0)
+    ne_d = float(xne[di])
+    xne16 = ne_d ** (1.0 / 6.0)
+    pp = xne16 * 0.08989 / np.sqrt(temp)
+    fo = (xne16 ** 4) * 1.25e-9
+    y1b = 2.0 / (1.0 + 0.012 / temp * np.sqrt(ne_d / temp))
+    t4 = temp / 10000.0
+    t43 = t4 ** 0.3
+    y1s = t43 / xne16
+    t3nhe = t43 * float(xnf_he1[di])
+    t3nh2 = t43 * float(xnf_h2[di])
+    c1d = fo * 78940.0 / temp
+    c2d = (fo ** 2) / 5.96e-23 / ne_d
+    gcon1 = 0.2 + 0.09 * np.sqrt(max(t4, 1e-12)) / (1.0 + ne_d / 1.0e13)
+    gcon2 = 0.2 / (1.0 + ne_d / 1.0e15)
+
+    thermal_vel_h = np.sqrt(2.0 * KBOLTZ * temp / (MASS_H * AMU)) / C_LIGHT_CMS
+    vturb_model = (float(vturb_cms[di]) / 1e5) / C_LIGHT_KMS
+    dopph = np.sqrt(thermal_vel_h * thermal_vel_h + vturb_model * vturb_model)
+    return dict(
+        t3nhe=t3nhe, t3nh2=t3nh2, fo=fo, dopph=dopph, c1d=c1d, c2d=c2d,
+        y1s=y1s, y1b=y1b, gcon1=gcon1, gcon2=gcon2, pp=pp,
+        xnfph_0=float(xnfph[di, 0]) if xnfph.shape[1] > 0 else 0.0,
+        xnfph_1=float(xnfph[di, 1]) if xnfph.shape[1] > 1 else 0.0,
+        ne=ne_d,
+    )
+
+def _hydrogen_merge_limits(conth_val, emerge_h_di, wshift):
+    """Return `(wcon, wtail)` for the H line continuum merge at one depth.
+
+    `conth_val` is the continuum limit for the lower series, `emerge_h_di` is the
+    Inglis-Teller dissolved-level energy for the depth, and `wshift` is the high-n
+    shift limit. The branch order mirrors HLINOP because it controls where the
+    hydrogen wing is tapered into the continuum.
+    """
+    denom = conth_val - emerge_h_di
+    wmerge = 1.0e7 / denom if denom > 0.0 else -1.0
+    if wmerge < 0.0:
+        wmerge = wshift + wshift
+    wcon = max(wshift, wmerge)
+    if wcon > 0.0:
+        inner = 1.0e7 / wcon - 500.0
+        wtail = 1.0e7 / inner if inner > 0.0 else wcon + wcon
+    else:
+        wtail = wcon + wcon
+    wcon = min(wshift + wshift, wcon)
+    if wtail < 0.0:
+        wtail = wcon + wcon
+    return wcon, min(wcon + wcon, wtail)''')
+
 md(r"""`compute_hydrogen_opacity` is the driver: it selects the visible hydrogen lines for the star, loops over depth, and deposits each line with the routines above, returning the hydrogen line opacity on the full grid. This is the Balmer-wing engine the hot dwarf's H$\beta$ exercises.""")
 
 code(r'''
@@ -2203,9 +2271,6 @@ def compute_hydrogen_opacity(cat, atm, diag, L4):
     T = atm["temperature"]
 
     # ── per-depth hydrogen state (populations._hydrogen_state + dopph fallback) ──
-    KBOLTZ = 1.380649e-16; AMU = 1.66054e-24
-    C_LIGHT_CMS = 2.99792458e10; C_LIGHT_KMS = 299792.458
-    MASS_H = 1.008
     xne = np.maximum(atm["electron_density"], 1e-40)
     xnf_he1 = atm["xnf_he1"]; xnf_h2 = atm["xnf_h2"]
     xnfph = atm["xnfph"]
@@ -2298,49 +2363,8 @@ def compute_hydrogen_opacity(cat, atm, diag, L4):
             if kappa0 < kapmin:
                 continue
 
-            # per-depth hydrogen state
-            temp = max(float(T[di]), 1.0)
-            ne_d = float(xne[di])
-            xne16 = ne_d ** (1.0 / 6.0)
-            pp = xne16 * 0.08989 / np.sqrt(temp)
-            fo = (xne16 ** 4) * 1.25e-9
-            y1b = 2.0 / (1.0 + 0.012 / temp * np.sqrt(ne_d / temp))
-            t4 = temp / 10000.0
-            t43 = t4 ** 0.3
-            y1s = t43 / xne16
-            t3nhe = t43 * float(xnf_he1[di])
-            t3nh2 = t43 * float(xnf_h2[di])
-            c1d = fo * 78940.0 / temp
-            c2d = (fo ** 2) / 5.96e-23 / ne_d
-            gcon1 = 0.2 + 0.09 * np.sqrt(max(t4, 1e-12)) / (1.0 + ne_d / 1.0e13)
-            gcon2 = 0.2 / (1.0 + ne_d / 1.0e15)
-            # dopph fallback (no atmosphere.dopph): H thermal + turbulence
-            thermal_vel_h = np.sqrt(2.0 * KBOLTZ * temp / (MASS_H * AMU)) / C_LIGHT_CMS
-            vturb_model = (float(vturb_cms[di]) / 1e5) / C_LIGHT_KMS
-            total_turb = vturb_model   # microturb_kms = 0
-            dopph = np.sqrt(thermal_vel_h * thermal_vel_h + total_turb * total_turb)
-
-            hyd = dict(t3nhe=t3nhe, t3nh2=t3nh2, fo=fo, dopph=dopph, c1d=c1d, c2d=c2d,
-                       y1s=y1s, y1b=y1b, gcon1=gcon1, gcon2=gcon2, pp=pp,
-                       xnfph_0=float(xnfph[di, 0]) if xnfph.shape[1] > 0 else 0.0,
-                       xnfph_1=float(xnfph[di, 1]) if xnfph.shape[1] > 1 else 0.0,
-                       ne=ne_d)
-
-            # wcon/wtail (engine: per depth)
-            denom = conth_val - emerge_h[di]
-            wmerge = 1.0e7 / denom if denom > 0.0 else -1.0
-            if wmerge < 0.0:
-                wmerge = wshift + wshift
-            wcon = max(wshift, wmerge)
-            if wcon > 0.0:
-                inner = 1.0e7 / wcon - 500.0
-                wtail = 1.0e7 / inner if inner > 0.0 else wcon + wcon
-            else:
-                wtail = wcon + wcon
-            wcon = min(wshift + wshift, wcon)
-            if wtail < 0.0:
-                wtail = wcon + wcon
-            wtail = min(wcon + wcon, wtail)
+            hyd = _hydrogen_depth_state(T, xne, xnf_he1, xnf_h2, xnfph, vturb_cms, di)
+            wcon, wtail = _hydrogen_merge_limits(conth_val, emerge_h[di], wshift)
 
             _accumulate_hyd_line_depth(
                 ahline[di], cont[di], stim[di], grid, center_idx, line_wavelength,
