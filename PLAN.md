@@ -44,6 +44,9 @@ Current status:
    - preserve every current NumPy/reference parity check while moving topics;
    - keep `reference/MANIFEST_L14_L16.md` synchronized whenever arrays move between loaded,
      computed, and comparison-only roles.
+   - status: first low-risk pass complete. Public/site read order is now L16 EOS/state, L15 line
+     blanketing and atmosphere correction, then L14 atmosphere-to-spectrum capstone, with stable
+     lecture numbers and URLs. L14/L15/L16 rebuilt and verified after the prose/order move.
 
 3. Close L8's data boundary:
    - feed opacity slabs from earlier torch lecture outputs;

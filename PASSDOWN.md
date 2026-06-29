@@ -102,10 +102,11 @@ synthesis path.
 
 L14's public title has been narrowed to **"A Spectrum from an Atmosphere, End to End"**. Do not
 restore "from stellar parameters" until the atmosphere and EOS state are actually regenerated in
-the capstone path. The preferred L14-L16 curriculum order is EOS/state first, line blanketing and
-ATLAS12 correction second, and the atmosphere-to-spectrum SYNTHE capstone last. If the capstone
-remains much longer than the other lectures, split it naturally into synthesis ingredients/opacity
-and transfer plus HR comparison.
+the capstone path. The public/site reading order now presents the finale in conceptual order while
+preserving stable lecture numbers and URLs: L16 EOS/state first, L15 line blanketing and ATLAS12
+correction second, L14 atmosphere-to-spectrum SYNTHE capstone last. If the capstone remains much
+longer than the other lectures, split it naturally into synthesis ingredients/opacity and transfer
+plus HR comparison.
 
 ## Checks just run
 
@@ -136,6 +137,12 @@ and transfer plus HR comparison.
   python _pipeline/verify_nmolec.py && python _pipeline/verify_mol_continuum.py`: L13 stricter
   molecular-equilibrium solver naming pass is green; NMOLEC max rel `9.920e-14`, molecular
   continuum max rel `0.000e+00`.
+- `python _pipeline/build_lecture16_gpu.py && python _pipeline/build_lecture15_gpu.py &&
+  python _pipeline/build_lecture14.py && python _pipeline/build.py 16 15 14 &&
+  python _pipeline/verify_lineblanket.py && python _pipeline/verify_leankurucz.py &&
+  python _pipeline/verify_converged.py`: finale read-order/prose restructure is green. L15 PASS;
+  L14 four-star capstone PASS with Sun base `RHOX=12.1439`, base `T=11425.0 K`; L11 converged
+  verifier PASS.
 - `python _pipeline/verify_josh.py`: normalised spectrum max `8.94e-09`, median `1.13e-11`.
 - `python _pipeline/verify_lineblanket.py`: PASS, values listed above.
 - `python _pipeline/verify_leankurucz.py`: PASS, values listed above.
