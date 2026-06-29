@@ -11,14 +11,15 @@ shipped reference data at the documented float floor. Those references are produ
 independent NumPy/pykurucz validation chain and are used here only as parity targets. The taught path
 does not import pykurucz and does not import the production `kgpu` package.
 
-A stellar-atmosphere code has **two halves**, and the book builds both. The **spectrum half**
+A stellar-atmosphere code has **two halves**, and the book now exposes both. The **spectrum half**
 (Part V, Lecture 14) takes a model atmosphere and assembles the whole opacity-and-transfer stack
 into a lean synthesiser, run across the HR diagram (a hot dwarf, the Sun, a giant, an M dwarf). The
-**atmosphere half** (Part VI, Lectures 15–16) — the book's finale — switches on the millions of
-spectral lines and builds the per-iteration equation of state from scratch, so the line-blanketed
-convergence reaches the *real* Sun's model atmosphere. Chain the two and a star's parameters
-$(T_{\rm eff}, \log g, [{\rm M/H}])$ become its converged line-blanketed structure and, from it,
-its emergent spectrum: the complete from-scratch Sun.
+**atmosphere half** (Part VI, Lectures 15–16) switches on the line blanket and rebuilds much of the
+per-iteration state, including the exact line-deposit teaching window and EOS-derived species
+state. The remaining boundary is explicit: L14 still consumes loaded atmosphere/EOS state, L15
+still consumes some line-blanketing fixtures, and L16 is still partly helper-backed. The book is
+therefore honest and parity-tested, but not yet a fully closed stellar-parameters-to-spectrum
+torch capstone.
 
 The notebooks are **self-contained**: each imports `torch`, `numpy`, `matplotlib`, and `pathlib`
 and loads small reference data files shipped beside it (`reference/*.npz`). They never import
@@ -73,8 +74,8 @@ and recovers machine precision. The deviation is **quantified, not hidden**.
 
 **Part VI — The line-blanketed atmosphere (the finale)**
 The other half of “end to end”: the model atmosphere itself, built genuinely from scratch.
-15. **Line Blanketing: the True Model Atmosphere** — the predicted line list and `SELECTLINES`, the `LINOP1` wing-walk deposit kernel (the asymmetric sub-pixel walk, the full Voigt, the cutoff reach) reproduced bit-exact, the line-blanketed Rosseland mean, and one iteration of the Lecture-11 convergence engine — unchanged, with the blanket switched on — reaching the **real Sun's** model atmosphere (`sun.npz`).
-16. **The Full Equation of State: Species Slots & the Convective Heat Capacity** — the per-iteration state the line deposit and the continuum actually consume (the last borrowed intermediate), now built from scratch: the multi-element `POPSALL`/`NELECT` species slots (the flat 1006-slot population layout, the Doppler widths, the van-der-Waals perturber number), the `TABCONT` continuum-cutoff table and its far-UV metal bound-free forest, the molecular deposit slots, and the `EDENS` convective heat capacity carrying the **ionization energy** (the partial-ionization adiabat that keeps the deep base from over-heating). With this, the full line-blanketed convergence runs end to end with **zero pykurucz in the computed path**, descending onto the real Sun's model atmosphere (`sun.npz`) to a temperature median of 7.7 × 10⁻⁴. *Parameters in, atmosphere out — the complete from-scratch Sun.*
+15. **Line Blanketing: the True Model Atmosphere** — the predicted line list and `SELECTLINES`, the `LINOP1` wing-walk deposit kernel (the asymmetric sub-pixel walk, the full Voigt, the cutoff reach) reproduced in a teaching window, the line-blanketed Rosseland mean, and the convergence-core precision audit. It still consumes loaded atmosphere/EOS/window/continuum/full-grid blanket fixtures, which are named in the lecture.
+16. **The Full Equation of State: Species Slots & the Convective Heat Capacity** — the per-iteration state the line deposit and continuum consume: the multi-element `POPSALL`/`NELECT` species slots, Doppler widths, van-der-Waals perturber number, continuum-cutoff bridge, molecular slots, and `EDENS` convective heat-capacity inputs. It recomputes this state for a loaded atmosphere fixture and documents the remaining helper-backed boundaries.
 
 ## How to read this book
 

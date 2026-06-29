@@ -702,7 +702,14 @@ MAX_PROFILE_STEPS = <span class="hljs-number">1_000_000</span>
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[11]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def harris_branch_oracle(a64, dvoigt64, W, device, h0tab, h1tab, h2tab):
-    &quot;&quot;&quot;CPU/fp64 branch masks plus sparse cancellation-prone intermediate-core values.&quot;&quot;&quot;
+    &quot;&quot;&quot;Build branch decisions for the Harris Voigt walk in CPU/fp64.
+
+    The production wing walk runs in fp32 on the active device, but the Harris
+    intermediate branch is sensitive to cancellation near the line core.  This
+    helper evaluates only the branch masks and those sparse intermediate values
+    in fp64, then ships compact tensors back to the profile kernel.  The returned
+    masks have the same broadcast shape as the offset block, [depth, line, W].
+    &quot;&quot;&quot;
     offs = torch.arange(1, W + 1, dtype=torch.float64, device=torch.device(&quot;cpu&quot;))
     x = dvoigt64[:, :, None] * offs.view(1, 1, -1)
     av = x.abs()
@@ -741,7 +748,13 @@ MAX_PROFILE_STEPS = <span class="hljs-number">1_000_000</span>
 
 def wing_walk_core(kline, ci, kappa0_wing, a_w, maxstep, use_far, n10dop, dvoigt, x_far, n_w,
                    h0tab, h1tab, h2tab, a64=None, dvoigt64=None):
-    &quot;&quot;&quot;Fixed-offset sweep + ONE batched scatter per red/blue (port _wing_walk_core).&quot;&quot;&quot;
+    &quot;&quot;&quot;Deposit one reach tier of ordinary-line opacity into both wavelength wings.
+
+    `maxstep` gives the per-depth/per-line outward reach for this tier.  The
+    function evaluates all offsets 1..W as one [depth, line, offset] block,
+    switches from the near Harris profile to the far 1/offset^2 continuation
+    where requested, and scatters the surviving red and blue pixels into `kline`.
+    &quot;&quot;&quot;
     if ci.numel() == 0:
         return
     # JUSTIFY: one scalar tier width orchestrates a batched MPS profile/scatter launch.
@@ -779,7 +792,14 @@ print(&quot;fixed-offset wing-walk core ready (two batched scatters)&quot;)" ari
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">harris_branch_oracle</span>(<span class="hljs-params">a64, dvoigt64, W, device, h0tab, h1tab, h2tab</span>):
-    <span class="hljs-string">&quot;&quot;&quot;CPU/fp64 branch masks plus sparse cancellation-prone intermediate-core values.&quot;&quot;&quot;</span>
+    <span class="hljs-string">&quot;&quot;&quot;Build branch decisions for the Harris Voigt walk in CPU/fp64.
+
+    The production wing walk runs in fp32 on the active device, but the Harris
+    intermediate branch is sensitive to cancellation near the line core.  This
+    helper evaluates only the branch masks and those sparse intermediate values
+    in fp64, then ships compact tensors back to the profile kernel.  The returned
+    masks have the same broadcast shape as the offset block, [depth, line, W].
+    &quot;&quot;&quot;</span>
     offs = torch.arange(<span class="hljs-number">1</span>, W + <span class="hljs-number">1</span>, dtype=torch.float64, device=torch.device(<span class="hljs-string">&quot;cpu&quot;</span>))
     x = dvoigt64[:, :, <span class="hljs-literal">None</span>] * offs.view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)
     av = x.<span class="hljs-built_in">abs</span>()
@@ -818,7 +838,13 @@ print(&quot;fixed-offset wing-walk core ready (two batched scatters)&quot;)" ari
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">wing_walk_core</span>(<span class="hljs-params">kline, ci, kappa0_wing, a_w, maxstep, use_far, n10dop, dvoigt, x_far, n_w,
                    h0tab, h1tab, h2tab, a64=<span class="hljs-literal">None</span>, dvoigt64=<span class="hljs-literal">None</span></span>):
-    <span class="hljs-string">&quot;&quot;&quot;Fixed-offset sweep + ONE batched scatter per red/blue (port _wing_walk_core).&quot;&quot;&quot;</span>
+    <span class="hljs-string">&quot;&quot;&quot;Deposit one reach tier of ordinary-line opacity into both wavelength wings.
+
+    `maxstep` gives the per-depth/per-line outward reach for this tier.  The
+    function evaluates all offsets 1..W as one [depth, line, offset] block,
+    switches from the near Harris profile to the far 1/offset^2 continuation
+    where requested, and scatters the surviving red and blue pixels into `kline`.
+    &quot;&quot;&quot;</span>
     <span class="hljs-keyword">if</span> ci.numel() == <span class="hljs-number">0</span>:
         <span class="hljs-keyword">return</span>
     <span class="hljs-comment"># JUSTIFY: one scalar tier width orchestrates a batched MPS profile/scatter launch.</span>
@@ -2160,8 +2186,8 @@ floor = <span class="hljs-number">1.0e-6</span> <span class="hljs-keyword">if</s
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;max ABSOLUTE residual everywhere: <span class="hljs-subst">{abs_resid.<span class="hljs-built_in">max</span>():<span class="hljs-number">.2</span>e}</span>&quot;</span>)  <span class="hljs-comment"># numpy-ref</span>
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;device = <span class="hljs-subst">{DEVICE.<span class="hljs-built_in">type</span>}</span>; float floor = <span class="hljs-subst">{floor:<span class="hljs-number">.1</span>e}</span>&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">reference nonzero points: 392246 / 475280
-all nonzero points     : max rel = 5.018e-07   median = 3.148e-08
-atomic-dominated points: max rel = 5.018e-07   median = 3.148e-08
+all nonzero points     : max rel = 5.018e-07   median = 3.147e-08
+atomic-dominated points: max rel = 5.018e-07   median = 3.147e-08
 max ABSOLUTE residual everywhere: 8.02e-05
 device = mps; float floor = 1.0e-06
 </pre></div></div><div class="prose"><h3>The per-component split</h3>
@@ -2202,7 +2228,7 @@ rel_h = np.<span class="hljs-built_in">abs</span>(he_gpu[hdom] - gt_he[hdom]) / 
 <span class="hljs-keyword">assert</span> rel_h.<span class="hljs-built_in">max</span>() &lt;= floor, <span class="hljs-string">f&quot;helium component max rel <span class="hljs-subst">{rel_h.<span class="hljs-built_in">max</span>():<span class="hljs-number">.3</span>e}</span> above <span class="hljs-subst">{floor:<span class="hljs-number">.1</span>e}</span>&quot;</span>  <span class="hljs-comment"># numpy-ref</span>
 <span class="hljs-keyword">assert</span> rel_all.<span class="hljs-built_in">max</span>() &lt;= floor, <span class="hljs-string">f&quot;combined atomic max rel <span class="hljs-subst">{rel_all.<span class="hljs-built_in">max</span>():<span class="hljs-number">.3</span>e}</span> above <span class="hljs-subst">{floor:<span class="hljs-number">.1</span>e}</span>&quot;</span>  <span class="hljs-comment"># numpy-ref</span></code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">[metals, all Z] 295990 points : max rel = 5.018e-07   median = 3.374e-08
-[helium]         51493 points : max rel = 5.939e-08   median = 2.105e-08
+</pre></div><div class="out-block"><pre class="out-stream">[helium]         51493 points : max rel = 5.939e-08   median = 2.105e-08
 [combined]                     : max ABS residual = 8.02e-05
 </pre></div></div><div class="prose"><h2>The missing piece: hydrogen</h2>
 <p>Hydrogen is deliberately not part of this lecture&#39;s ordinary Voigt accumulation. Its Balmer wings are dominated by the <strong>linear Stark effect</strong>: because hydrogen&#39;s levels are nearly degenerate, charged-particle microfields shift them linearly and produce broad non-Voigt wings. SYNTHE therefore routes hydrogen through its HPROF/HLINOP broadening machinery, not through the metal/helium Voigt wing walk.</p>
@@ -2342,6 +2368,13 @@ for i in range(n_auto):  # numpy-ref
     auto_cut[i] = float(lt_ref[f&quot;auto{i}_cutoff&quot;])        # numpy-ref
 
 def autoionizing_delta_torch():
+    &quot;&quot;&quot;Return the autoionizing-line opacity deltas on each recorded local slice.
+
+    Autoionizing profiles use the Shore form and stop independently on each
+    side of line centre once the profile is non-positive or below the continuum
+    cutoff.  The arithmetic is intentionally done in a tiny CPU/fp64 island
+    because the detuning subtracts nearly equal optical frequencies.
+    &quot;&quot;&quot;
     # The Shore detuning is a difference of two ~1e15-Hz frequencies.  Evaluate
     # this tiny special-record batch in CPU/fp64, then return the result to the
     # working device; the 12,568-line ordinary opacity remains MPS-resident.
@@ -2420,6 +2453,13 @@ auto_cut = np.empty(n_auto, dtype=np.float64)             <span class="hljs-comm
     auto_cut[i] = <span class="hljs-built_in">float</span>(lt_ref[<span class="hljs-string">f&quot;auto<span class="hljs-subst">{i}</span>_cutoff&quot;</span>])        <span class="hljs-comment"># numpy-ref</span>
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">autoionizing_delta_torch</span>():
+    <span class="hljs-string">&quot;&quot;&quot;Return the autoionizing-line opacity deltas on each recorded local slice.
+
+    Autoionizing profiles use the Shore form and stop independently on each
+    side of line centre once the profile is non-positive or below the continuum
+    cutoff.  The arithmetic is intentionally done in a tiny CPU/fp64 island
+    because the detuning subtracts nearly equal optical frequencies.
+    &quot;&quot;&quot;</span>
     <span class="hljs-comment"># The Shore detuning is a difference of two ~1e15-Hz frequencies.  Evaluate</span>
     <span class="hljs-comment"># this tiny special-record batch in CPU/fp64, then return the result to the</span>
     <span class="hljs-comment"># working device; the 12,568-line ordinary opacity remains MPS-resident.</span>
@@ -2522,6 +2562,12 @@ for i in range(n_cont):  # numpy-ref
     cont_idx_tail[i] = int(lt_ref[f&quot;cont{i}_idx_tail_g&quot;])    # numpy-ref
 
 def merged_continuum_delta_torch():
+    &quot;&quot;&quot;Return the merged-continuum ramp opacity deltas on each local slice.
+
+    Each record contributes a flat `kappa` section until its merge index and a
+    linear falloff toward the tail index.  The scalar walk&#39;s first-below-cutoff
+    stop condition is represented by a cumulative mask along the local slice.
+    &quot;&quot;&quot;
     wl = dev(cont_wl)
     cnt = dev(cont_cont)
     valid = torch.as_tensor(cont_valid, dtype=torch.bool, device=DEVICE)
@@ -2582,6 +2628,12 @@ cont_idx_tail = np.empty(n_cont, dtype=np.int64)          <span class="hljs-comm
     cont_idx_tail[i] = <span class="hljs-built_in">int</span>(lt_ref[<span class="hljs-string">f&quot;cont<span class="hljs-subst">{i}</span>_idx_tail_g&quot;</span>])    <span class="hljs-comment"># numpy-ref</span>
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">merged_continuum_delta_torch</span>():
+    <span class="hljs-string">&quot;&quot;&quot;Return the merged-continuum ramp opacity deltas on each local slice.
+
+    Each record contributes a flat `kappa` section until its merge index and a
+    linear falloff toward the tail index.  The scalar walk&#x27;s first-below-cutoff
+    stop condition is represented by a cumulative mask along the local slice.
+    &quot;&quot;&quot;</span>
     wl = dev(cont_wl)
     cnt = dev(cont_cont)
     valid = torch.as_tensor(cont_valid, dtype=torch.<span class="hljs-built_in">bool</span>, device=DEVICE)

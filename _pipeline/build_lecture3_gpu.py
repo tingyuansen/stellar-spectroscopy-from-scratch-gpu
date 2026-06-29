@@ -559,12 +559,23 @@ def parabolic_table_torch(xold, yold, xnew):
 md(r"""The Karzas--Latter hydrogenic cross-section is a lookup in descending $\log_{10}\nu$ columns. The vectorized version below forms all comparisons at once and uses `argmax`/`gather` rather than a binary-search loop over frequencies.""")
 
 code(r'''def xkarsas_vec(freq_vec, zeff_squared, n, ell):
-    """Karzas-Latter hydrogenic bound-free cross-section, vectorized over frequency."""
+    """Karzas-Latter hydrogenic bound-free cross-section for one level.
+
+    Parameters are the sampled frequencies, effective charge squared, principal
+    quantum number, and angular-momentum selector used by the production table.
+    The return value is a length-``nf`` cross-section row.  For tabulated
+    ``n <= 15`` levels this gathers from the Karzas--Latter log tables; for
+    higher levels it uses the asymptotic ``n=15`` table in the scaled energy
+    variable.  Frequencies below threshold are explicitly zeroed.
+    """
     freq_log = torch.log10(freq_vec / zeff_squared)
     if n <= 15:
         column = FREQ_LOG_t[:, n - 1]
         values = XN_LOG_t[:, n - 1] if (ell >= n or n > 6) else XL_LOG_ARRAY_t[ell, n - 1, :]
         active = freq_log >= column[-1]
+        # The table is ordered in descending log-frequency.  Compare every
+        # requested frequency against all interior breakpoints, then gather the
+        # first bracket index without a Python loop over frequencies.
         cmp = freq_log[:, None] > column[None, 1:]
         any_cmp = torch.any(cmp, dim=1)
         first = torch.argmax(cmp.to(torch.int64), dim=1) + 1
@@ -583,6 +594,7 @@ code(r'''def xkarsas_vec(freq_vec, zeff_squared, n, ell):
     active = freq_log >= f0
     egrid = EKARSAS_t[1:28]
     fcur = torch.log10((egrid + inv_n2) * ryd_c)
+    # Same bracket search as above, but in the scaled high-n energy grid.
     cmp = freq_log[:, None] > fcur[None, :]
     any_cmp = torch.any(cmp, dim=1)
     first = torch.argmax(cmp.to(torch.int64), dim=1) + 1
@@ -611,7 +623,15 @@ print(f"linear interpolation GPU vs NumPy oracle: max|rel| = {rel:.2e}")''')
 md(r"""The Coulomb free-free Gaunt factor is the other important interpolator. It maps charge, temperature, and frequency into the `COULFF_A_TABLE` grid and performs the bilinear blend as a single `(frequency, depth)` tensor expression.""")
 
 code(r'''def coulff_table_torch(nz, freq_vec, temp, tlog, freqlg_override=None):
-    """COULFF bilinear Gaunt factor over (frequency, depth)."""
+    """Interpolate the COULFF free-free Gaunt-factor table.
+
+    ``nz`` selects the ionic charge row, ``freq_vec`` is the sampled frequency
+    vector, and ``temp``/``tlog`` are depth vectors.  The returned tensor has
+    shape ``(nfreq, nlayer)`` so callers can transpose it into the usual
+    ``(depth, frequency)`` opacity shape.  ``freqlg_override`` preserves the
+    historical He II legacy path where the logarithmic lookup frequency is not
+    the same as the explicit frequency in the rest of the formula.
+    """
     if nz < 1 or nz > 6:
         return torch.ones((freq_vec.shape[0], temp.shape[0]), dtype=EDTYPE, device=EDEV)
     A_tab = COULFF_A_TABLE_t
@@ -624,6 +644,8 @@ code(r'''def coulff_table_torch(nz, freq_vec, temp, tlog, freqlg_override=None):
     p = gamlog - (igam.to(EDTYPE) - 7.0)
     q = hvktlg - (ihvkt.to(EDTYPE) - 9.0)
     ig = igam - 1; ih = ihvkt - 1
+    # Broadcast the depth-only gamma coordinate over the frequency axis, then
+    # use flattened gathers because advanced two-axis indexing is backend-fragile.
     ig_b = ig[None, :].expand(freq_vec.shape[0], -1)
     p_b = p[None, :].expand(freq_vec.shape[0], -1)
 
@@ -671,6 +693,15 @@ print("H- free-free log table assembled")''')
 md(r"""The H$^-$ opacity routine is the dominant source. Bound-free is the tabulated photodetachment cross-section times the H$^-$ Saha population and the stimulated-emission factor; free-free is the two-dimensional table interpolation in wavelength and $\theta=5040/T$.""")
 
 code(r'''def hminus_opacity_torch(freq_vec, ehvkt, stim):
+    """Return tabulated H- bound-free plus free-free opacity.
+
+    The result is a ``(depth, frequency)`` mass opacity.  Bound-free uses the
+    parabolic photodetachment cross-section table and the H- Saha abundance.
+    Free-free first interpolates the wavelength table for every frequency, then
+    linearly interpolates those values in ``theta = 5040/T`` for every depth.
+    ``stim`` is accepted for interface symmetry; the bound-free branch uses the
+    equivalent ``1 - ehvkt`` factor used by the reference engine.
+    """
     temp = Tk
     theta_k = 5040.0 / temp
     xnfph1 = xnfph_t[:, 0]
@@ -678,6 +709,8 @@ code(r'''def hminus_opacity_torch(freq_vec, ehvkt, stim):
     wave = C_LIGHT_NM_k / freq_vec
 
     fftt = torch.exp(linter_matrix_torch(WFFLOG_t, FFLOG_t, torch.log(wave)))              # (nf, ntheta)
+    # Temperature interpolation is depth-vectorized: each layer chooses its
+    # theta bracket, while all frequency rows are gathered in one tensor.
     idx = torch.clamp(torch.searchsorted(HMINOP_THETAFF_t, theta_k, right=True), 1, nthetaff - 1)
     th0 = HMINOP_THETAFF_t.index_select(0, idx - 1); th1 = HMINOP_THETAFF_t.index_select(0, idx)
     ff0 = fftt[:, idx - 1]; ff1 = fftt[:, idx]
@@ -694,6 +727,13 @@ code(r'''def hminus_opacity_torch(freq_vec, ehvkt, stim):
 md(r"""The hydrogen continuum adds H I bound-free from the Karzas--Latter levels and proton free-free using the charge-1 Coulomb Gaunt factor.""")
 
 code(r'''def hydrogen_opacity_torch(freq_vec, ehvkt, stim, hckt, cff1):
+    """Compute H I bound-free and proton free-free continuum opacity.
+
+    The hydrogenic bound-free terms are summed from the Karzas--Latter lookup
+    for the explicit levels carried by the reference engine, with threshold
+    masks in wavenumber.  The final addend is H+ free-free using the charge-1
+    COULFF table supplied as ``cff1``.  All terms return as ``(depth, frequency)``.
+    """
     temp = Tk
     f = freq_vec[None, :]
     wno = f / C_LIGHT_CM_k
@@ -702,6 +742,8 @@ code(r'''def hydrogen_opacity_torch(freq_vec, ehvkt, stim, hckt, cff1):
         torch.exp(-torch.maximum(torch.full_like(wno, 109250.336), 109678.764 - wno)*hckt[:, None]) -
         torch.exp(-109678.764*hckt[:, None])) * stim
 
+    # High-n and low-n edge lists mirror the production ordering; each loop
+    # updates a full depth-by-frequency tensor, not one scalar cell at a time.
     for n, thr, wt, e in [(15,487.456,450.0,109191.313),(14,559.579,392.0,109119.188),(13,648.980,338.0,109029.789),(12,761.649,288.0,108917.117),(11,906.426,242.0,108772.336),(10,1096.776,200.0,108581.992),(9,1354.044,162.0,108324.719),(8,1713.713,128.0,107965.051),(7,2238.320,98.0,107440.444)]:  # JUSTIFIED-LOOP: fixed H I high-level bf table.
         xs = xkarsas_vec(freq_vec, 1.0, n, n)[None, :]
         h = h + torch.where(wno >= thr, xs*wt*torch.exp(-e*hckt[:, None])*stim, torch.zeros_like(h))
@@ -725,6 +767,13 @@ md(r"""### The minor absorbers, in one routine
 The long tail of continuum sources is small in the solar optical but essential for the exact budget. The routine returns two tensors: minor true absorption and minor scattering. Thresholds are applied with `torch.where`; every lane evaluates the same algebra.""")
 
 code(r'''def minor_terms_torch(freq_vec, ehvkt, stim, hckt):
+    """Compute the smaller continuum absorbers and minor scattering sources.
+
+    Returns ``(abs_minor, scat_minor)``, both with shape ``(depth, frequency)``.
+    This routine collects H2+, He- free-free, C I, Mg I, Al I, Si I, He Rayleigh,
+    and H2 Rayleigh/CIA-like scattering terms that are small in the solar
+    optical window but needed for exact parity with the tabulated continuum.
+    """
     temp = Tk
     tkev = temp * KBOLTZ_EV_k
     tlog = torch.log(torch.clamp(temp, min=1e-10))
@@ -735,6 +784,7 @@ code(r'''def minor_terms_torch(freq_vec, ehvkt, stim, hckt):
     abs_minor = torch.zeros((n_layers_k, freq_vec.shape[0]), dtype=EDTYPE, device=EDEV)
     scat_minor = torch.zeros_like(abs_minor)
 
+    # H2+ photodissociation-like contribution, active only below the Lyman edge.
     freqlg = torch.log(f); freq15 = f / 1e15
     fr = -3.0233e3 + (3.7797e2 + (-1.82496e1 + (3.9207e-1 - 3.1672e-3*freqlg)*freqlg)*freqlg)*freqlg
     es = -7.342e-3 + (-2.409e0 + (1.028e0 + (-4.230e-1 + (1.224e-1 - 1.351e-2*freq15)*freq15)*freq15)*freq15)*freq15
@@ -746,6 +796,8 @@ code(r'''def minor_terms_torch(freq_vec, ehvkt, stim, hckt):
     cc = 5.081e08 + (-8.724e22 - 5.659e37/f)/f
     abs_minor = abs_minor + (ac*temp[:, None] + bc + cc/temp[:, None]) / 1e15 * ne_k[:, None]/1e15 * xnf_he1_mode11_t[:, None]/1e15 / rho_k[:, None]
 
+    # The following neutral metal edge lists are fixed-size production tables;
+    # torch.where keeps the thresholding lane-wise across the frequency row.
     c1 = 1e-30 * torch.ones_like(abs_minor)
     c1 = c1 + torch.where(wno >= 22006.370, 2.1e-18*(22006.370/wno)**1.5 * 3.0*torch.exp(-68856.33*hckt[:, None])*stim, torch.zeros_like(abs_minor))
     abs_minor = abs_minor + c1 * xnfpc_t[:, 0:1] / rho_k[:, None]
@@ -785,6 +837,14 @@ Helium and hot-star continua are negligible in this solar optical window but par
 One historical source-order detail matters at the $10^{-7}$ level in the deepest layer. In the production routine that generated this reference, `FREQLG` was assigned in the He I loop but not reassigned in the following He II loop. Consequently the He II free-free `COULFF` lookup used the logarithm of the **last frequency in the full edge grid**, while the explicit $f^{-3}$ factor still used the current frequency. This is recoverable directly from the generating source and regenerating the converter reproduces the shipped coefficients exactly. We preserve that deterministic legacy evaluation here; no fitted constant or reference-derived correction is involved.""")
 
 code(r'''def helium_opacity_torch(freq_vec, ehvkt, stim, hckt, cff1, cff2):
+    """Compute He I and He II bound-free/free-free opacity.
+
+    Returns the pair ``(ahe1, ahe2)`` in ``(depth, frequency)`` order.  The He I
+    and He II bound-free pieces are short fixed tables of thresholds and
+    coefficients.  Free-free uses the charge-1 and charge-2 COULFF tables
+    supplied by the driver; the charge-2 table may carry the legacy logarithmic
+    lookup described in the surrounding text.
+    """
     temp = Tk
     f = freq_vec[None, :]
     wno = f / C_LIGHT_CM_k
@@ -795,6 +855,8 @@ code(r'''def helium_opacity_torch(freq_vec, ehvkt, stim, hckt, cff1, cff2):
         torch.exp(-torch.maximum(torch.full_like(wno, 195262.919), 198310.76 - wno)*hckt[:, None]) -
         torch.exp(-198310.76*hckt[:, None])) * stim
 
+    # He I excited-level edge tables.  These loops are fixed physics records;
+    # each iteration adds the contribution for every layer and frequency.
     for thr, g, e, bi in [(4368.190,3.0,193942.57,28),(4388.260,9.0,193922.5,27),(4388.260,27.0,193922.5,26),(4389.390,7.0,193921.37,25),(4389.450,15.0,193921.31,24),(4392.369,5.0,193918.391,23),(4393.515,15.0,193917.245,22),(4509.980,9.0,193800.78,21),(4647.133,1.0,193663.627,20),(4963.671,3.0,193347.089,19),(6817.943,3.0,191492.817,18),(6858.680,7.0,191452.08,17),(6858.960,21.0,191451.80,16),(6864.201,5.0,191446.559,15),(6866.172,15.0,191444.588,14),(7093.620,9.0,191217.14,13),(7370.429,1.0,190940.331,12),(8012.550,3.0,190298.210,11)]:  # JUSTIFIED-LOOP: fixed He I n=5,4 level table.
         x = freq3 / (3125.0 if bi >= 19 else 1024.0)
         h = h + torch.where(wno >= thr, x*g*torch.exp(-e*hckt[:, None])*(1.0 - ehvkt), torch.zeros_like(h))
@@ -812,6 +874,8 @@ code(r'''def helium_opacity_torch(freq_vec, ehvkt, stim, hckt, cff1, cff2):
         torch.exp(-torch.maximum(torch.full_like(wno, 434519.959), 438908.85 - wno)*hckt[:, None]) -
         torch.exp(-438908.85*hckt[:, None])) * stim * xnf_he2_mode11_t[:, None] / rho_k[:, None]
 
+    # He II edge records use hydrogenic charge scaling plus fitted polynomial
+    # corrections near selected thresholds.
     for thr, wt, e, div in [(5418.390,162.0,433490.46,59049.0),(6857.660,128.0,432051.19,32768.0),(8956.950,98.0,429951.90,16807.0)]:  # JUSTIFIED-LOOP: three fixed He II levels.
         h2 = h2 + torch.where(wno >= thr, freq3*16.0/div*wt*torch.exp(-e*hckt[:, None])*stim*xnf_he2_mode11_t[:, None]/rho_k[:, None], torch.zeros_like(h2))
 
@@ -826,9 +890,17 @@ code(r'''def helium_opacity_torch(freq_vec, ehvkt, stim, hckt, cff1, cff2):
 md(r"""The Si II Peach-table term is a two-axis interpolation: first in frequency, then in temperature. The frequency bracket is common to all layers, while the temperature bracket is a depth vector.""")
 
 code(r'''def si2op_torch(freq_vec, tlog):
+    """Interpolate the Si II Peach opacity table over frequency and temperature.
+
+    The frequency bracket is chosen for every sampled frequency, the temperature
+    bracket for every depth, and the final result is transposed into
+    ``(depth, frequency)``.  The factor of six is the statistical-weight scale
+    used by the reference routine.
+    """
     nt = torch.clamp((Tk/2000.0).to(torch.int64) - 4, 1, 5)
     dt = (tlog - SI2_TLG_t.index_select(0, nt - 1)) / (SI2_TLG_t.index_select(0, nt) - SI2_TLG_t.index_select(0, nt - 1))
 
+    # First interpolate along the frequency axis of the Peach table.
     gt = (freq_vec[:, None] > SI2_FREQSI_t[None, :]).to(torch.int64)
     n_raw = torch.argmax(gt, dim=1) + 1
     n_raw = torch.where(torch.any(gt.bool(), dim=1), n_raw, torch.full_like(n_raw, 8))
@@ -843,6 +915,7 @@ code(r'''def si2op_torch(freq_vec, tlog):
     x_lo = SI2_PEACH_t.index_select(0, torch.clamp(n2 - 1, min=0))
     x = torch.where((n2 > 0)[:, None], x_hi*d[:, None] + x_lo*(1.0 - d[:, None]), x_hi)
 
+    # Then gather the two temperature rows needed by each atmospheric layer.
     row0 = torch.gather(x, 1, (nt - 1)[None, :].expand(freq_vec.shape[0], -1))
     row1 = torch.gather(x, 1, nt[None, :].expand(freq_vec.shape[0], -1))
     return (torch.exp(row0*(1.0 - dt[None, :]) + row1*dt[None, :]) * 6.0).T''')
@@ -850,6 +923,14 @@ code(r'''def si2op_torch(freq_vec, tlog):
 md(r"""The HOTOP term combines multi-charge free-free with a table of bound-free transitions. The tensor shapes are explicit: transitions $\times$ depth $\times$ frequency for the bound-free addends, reduced over the transition axis.""")
 
 code(r'''def hot_and_si2_torch(freq_vec, stim, tkev, tlog, cff_tabs):
+    """Compute HOTOP free/free-bound opacity plus the Si II Peach term.
+
+    ``cff_tabs`` supplies charge-indexed COULFF tensors from the driver.  HOTOP
+    starts with multi-charge free-free opacity, then adds bound-free transition
+    records where the transition cross-section is significant relative to the
+    free-free background.  The returned pair is ``(ahot, aluke)`` in
+    ``(depth, frequency)`` order.
+    """
     free = torch.zeros((n_layers_k, freq_vec.shape[0]), dtype=EDTYPE, device=EDEV)
     for q in range(1, 6):  # JUSTIFIED-LOOP: five fixed ionic charges; each is a full tensor add.
         free = free + cff_tabs[q].T * xnf_sumqq_t[:, q-1:q]
@@ -860,6 +941,7 @@ code(r'''def hot_and_si2_torch(freq_vec, stim, tkev, tlog, cff_tabs):
     f0 = tr[:, 0]; xs0 = tr[:, 1]; al0 = tr[:, 2]; pw0 = tr[:, 3]; mu0 = tr[:, 4]; e0 = tr[:, 5]
     hid = torch.clamp(tr[:, 6].to(torch.int64) - 1, 0, 20)
 
+    # Broadcast transitions x depth x frequency, then reduce over transitions.
     ratio = f0[:, None] / freq_vec[None, :]
     active = freq_vec[None, :] >= f0[:, None]
     xsect = xs0[:, None] * (al0[:, None] + ratio - al0[:, None]*ratio) * torch.sqrt(torch.pow(ratio, pw0[:, None]))
@@ -899,6 +981,13 @@ md(r"""## Assembling the engine: one driver over the sample frequencies
 The driver computes all frequency-dependent and temperature-dependent invariants once, batches the Coulomb Gaunt factor over all selected sample frequencies, and then adds every opacity source. The returned budget dictionary is for inspection; the arrays used downstream are the two genuine sums `acont` and `sigmac`.""")
 
 code(r'''def compute_kapp_at_freqs_torch(freq_vec):
+    """Evaluate the exact continuum engine at selected sample frequencies.
+
+    This is the driver that prepares shared thermal factors, computes all
+    charge-specific COULFF tables once, calls every source routine, and returns
+    the two physical sums: true absorption ``acont`` and scattering ``sigmac``.
+    The third return value is a named source budget for diagnostics and plots.
+    """
     temp = Tk
     hckt = H_PLANCK_k / (K_BOLTZ_k * temp) * C_LIGHT_CM_k
     tkev = temp * KBOLTZ_EV_k
@@ -906,6 +995,8 @@ code(r'''def compute_kapp_at_freqs_torch(freq_vec):
     ehvkt = torch.exp(-H_PLANCK_k * freq_vec[None, :] / (K_BOLTZ_k * temp[:, None]))
     stim_k = 1.0 - ehvkt
 
+    # Build the small set of charge-specific Gaunt-factor tables once and share
+    # them across hydrogen, helium, and HOTOP.
     cff_tabs = {q: coulff_table_torch(q, freq_vec, temp, tlog) for q in range(1, 6)}  # JUSTIFIED-LOOP: five fixed ionic charges.
     # Legacy HE2OP inherited FREQLG from the final HE1OP iteration over the full grid.
     cff2_legacy = coulff_table_torch(2, freq_vec, temp, tlog, torch.log(freqset_t[-1]))

@@ -604,7 +604,7 @@ n_layers_k = Tk.shape[<span class="hljs-number">0</span>]
 
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;exact continuum reference: <span class="hljs-subst">{cabs_ref_exact.shape[<span class="hljs-number">0</span>]}</span> layers x <span class="hljs-subst">{wlk.shape[<span class="hljs-number">0</span>]}</span> wavelengths, &quot;</span>
       <span class="hljs-string">f&quot;<span class="hljs-subst">{<span class="hljs-built_in">float</span>(wlk[<span class="hljs-number">0</span>]):<span class="hljs-number">.1</span>f}</span>-<span class="hljs-subst">{<span class="hljs-built_in">float</span>(wlk[-<span class="hljs-number">1</span>]):<span class="hljs-number">.1</span>f}</span> nm&quot;</span>)</code></pre>
-    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">exact continuum reference: 80 layers x 5941 wavelengths, 500.0-510.0 nm</pre></div><div class="out-block"><pre class="out-stream">
+    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">exact continuum reference: 80 layers x 5941 wavelengths, 500.0-510.0 nm
 </pre></div></div><div class="prose"><p>The constants are repeated with the production engine&#39;s names so the correspondence to KAPP is one-to-one. They are the same CGS values already used above, but the explicit names make the tabulated section easier to audit.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
@@ -955,12 +955,23 @@ def parabolic_table_torch(xold, yold, xnew):
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[23]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def xkarsas_vec(freq_vec, zeff_squared, n, ell):
-    &quot;&quot;&quot;Karzas-Latter hydrogenic bound-free cross-section, vectorized over frequency.&quot;&quot;&quot;
+    &quot;&quot;&quot;Karzas-Latter hydrogenic bound-free cross-section for one level.
+
+    Parameters are the sampled frequencies, effective charge squared, principal
+    quantum number, and angular-momentum selector used by the production table.
+    The return value is a length-``nf`` cross-section row.  For tabulated
+    ``n &lt;= 15`` levels this gathers from the Karzas--Latter log tables; for
+    higher levels it uses the asymptotic ``n=15`` table in the scaled energy
+    variable.  Frequencies below threshold are explicitly zeroed.
+    &quot;&quot;&quot;
     freq_log = torch.log10(freq_vec / zeff_squared)
     if n &lt;= 15:
         column = FREQ_LOG_t[:, n - 1]
         values = XN_LOG_t[:, n - 1] if (ell &gt;= n or n &gt; 6) else XL_LOG_ARRAY_t[ell, n - 1, :]
         active = freq_log &gt;= column[-1]
+        # The table is ordered in descending log-frequency.  Compare every
+        # requested frequency against all interior breakpoints, then gather the
+        # first bracket index without a Python loop over frequencies.
         cmp = freq_log[:, None] &gt; column[None, 1:]
         any_cmp = torch.any(cmp, dim=1)
         first = torch.argmax(cmp.to(torch.int64), dim=1) + 1
@@ -979,6 +990,7 @@ def parabolic_table_torch(xold, yold, xnew):
     active = freq_log &gt;= f0
     egrid = EKARSAS_t[1:28]
     fcur = torch.log10((egrid + inv_n2) * ryd_c)
+    # Same bracket search as above, but in the scaled high-n energy grid.
     cmp = freq_log[:, None] &gt; fcur[None, :]
     any_cmp = torch.any(cmp, dim=1)
     first = torch.argmax(cmp.to(torch.int64), dim=1) + 1
@@ -994,12 +1006,23 @@ def parabolic_table_torch(xold, yold, xnew):
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">xkarsas_vec</span>(<span class="hljs-params">freq_vec, zeff_squared, n, ell</span>):
-    <span class="hljs-string">&quot;&quot;&quot;Karzas-Latter hydrogenic bound-free cross-section, vectorized over frequency.&quot;&quot;&quot;</span>
+    <span class="hljs-string">&quot;&quot;&quot;Karzas-Latter hydrogenic bound-free cross-section for one level.
+
+    Parameters are the sampled frequencies, effective charge squared, principal
+    quantum number, and angular-momentum selector used by the production table.
+    The return value is a length-``nf`` cross-section row.  For tabulated
+    ``n &lt;= 15`` levels this gathers from the Karzas--Latter log tables; for
+    higher levels it uses the asymptotic ``n=15`` table in the scaled energy
+    variable.  Frequencies below threshold are explicitly zeroed.
+    &quot;&quot;&quot;</span>
     freq_log = torch.log10(freq_vec / zeff_squared)
     <span class="hljs-keyword">if</span> n &lt;= <span class="hljs-number">15</span>:
         column = FREQ_LOG_t[:, n - <span class="hljs-number">1</span>]
         values = XN_LOG_t[:, n - <span class="hljs-number">1</span>] <span class="hljs-keyword">if</span> (ell &gt;= n <span class="hljs-keyword">or</span> n &gt; <span class="hljs-number">6</span>) <span class="hljs-keyword">else</span> XL_LOG_ARRAY_t[ell, n - <span class="hljs-number">1</span>, :]
         active = freq_log &gt;= column[-<span class="hljs-number">1</span>]
+        <span class="hljs-comment"># The table is ordered in descending log-frequency.  Compare every</span>
+        <span class="hljs-comment"># requested frequency against all interior breakpoints, then gather the</span>
+        <span class="hljs-comment"># first bracket index without a Python loop over frequencies.</span>
         cmp = freq_log[:, <span class="hljs-literal">None</span>] &gt; column[<span class="hljs-literal">None</span>, <span class="hljs-number">1</span>:]
         any_cmp = torch.<span class="hljs-built_in">any</span>(cmp, dim=<span class="hljs-number">1</span>)
         first = torch.argmax(cmp.to(torch.int64), dim=<span class="hljs-number">1</span>) + <span class="hljs-number">1</span>
@@ -1018,6 +1041,7 @@ def parabolic_table_torch(xold, yold, xnew):
     active = freq_log &gt;= f0
     egrid = EKARSAS_t[<span class="hljs-number">1</span>:<span class="hljs-number">28</span>]
     fcur = torch.log10((egrid + inv_n2) * ryd_c)
+    <span class="hljs-comment"># Same bracket search as above, but in the scaled high-n energy grid.</span>
     cmp = freq_log[:, <span class="hljs-literal">None</span>] &gt; fcur[<span class="hljs-literal">None</span>, :]
     any_cmp = torch.<span class="hljs-built_in">any</span>(cmp, dim=<span class="hljs-number">1</span>)
     first = torch.argmax(cmp.to(torch.int64), dim=<span class="hljs-number">1</span>) + <span class="hljs-number">1</span>
@@ -1059,7 +1083,15 @@ rel = np.<span class="hljs-built_in">max</span>(np.<span class="hljs-built_in">a
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[25]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def coulff_table_torch(nz, freq_vec, temp, tlog, freqlg_override=None):
-    &quot;&quot;&quot;COULFF bilinear Gaunt factor over (frequency, depth).&quot;&quot;&quot;
+    &quot;&quot;&quot;Interpolate the COULFF free-free Gaunt-factor table.
+
+    ``nz`` selects the ionic charge row, ``freq_vec`` is the sampled frequency
+    vector, and ``temp``/``tlog`` are depth vectors.  The returned tensor has
+    shape ``(nfreq, nlayer)`` so callers can transpose it into the usual
+    ``(depth, frequency)`` opacity shape.  ``freqlg_override`` preserves the
+    historical He II legacy path where the logarithmic lookup frequency is not
+    the same as the explicit frequency in the rest of the formula.
+    &quot;&quot;&quot;
     if nz &lt; 1 or nz &gt; 6:
         return torch.ones((freq_vec.shape[0], temp.shape[0]), dtype=EDTYPE, device=EDEV)
     A_tab = COULFF_A_TABLE_t
@@ -1072,6 +1104,8 @@ rel = np.<span class="hljs-built_in">max</span>(np.<span class="hljs-built_in">a
     p = gamlog - (igam.to(EDTYPE) - 7.0)
     q = hvktlg - (ihvkt.to(EDTYPE) - 9.0)
     ig = igam - 1; ih = ihvkt - 1
+    # Broadcast the depth-only gamma coordinate over the frequency axis, then
+    # use flattened gathers because advanced two-axis indexing is backend-fragile.
     ig_b = ig[None, :].expand(freq_vec.shape[0], -1)
     p_b = p[None, :].expand(freq_vec.shape[0], -1)
 
@@ -1088,7 +1122,15 @@ rel = np.<span class="hljs-built_in">max</span>(np.<span class="hljs-built_in">a
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">coulff_table_torch</span>(<span class="hljs-params">nz, freq_vec, temp, tlog, freqlg_override=<span class="hljs-literal">None</span></span>):
-    <span class="hljs-string">&quot;&quot;&quot;COULFF bilinear Gaunt factor over (frequency, depth).&quot;&quot;&quot;</span>
+    <span class="hljs-string">&quot;&quot;&quot;Interpolate the COULFF free-free Gaunt-factor table.
+
+    ``nz`` selects the ionic charge row, ``freq_vec`` is the sampled frequency
+    vector, and ``temp``/``tlog`` are depth vectors.  The returned tensor has
+    shape ``(nfreq, nlayer)`` so callers can transpose it into the usual
+    ``(depth, frequency)`` opacity shape.  ``freqlg_override`` preserves the
+    historical He II legacy path where the logarithmic lookup frequency is not
+    the same as the explicit frequency in the rest of the formula.
+    &quot;&quot;&quot;</span>
     <span class="hljs-keyword">if</span> nz &lt; <span class="hljs-number">1</span> <span class="hljs-keyword">or</span> nz &gt; <span class="hljs-number">6</span>:
         <span class="hljs-keyword">return</span> torch.ones((freq_vec.shape[<span class="hljs-number">0</span>], temp.shape[<span class="hljs-number">0</span>]), dtype=EDTYPE, device=EDEV)
     A_tab = COULFF_A_TABLE_t
@@ -1101,6 +1143,8 @@ rel = np.<span class="hljs-built_in">max</span>(np.<span class="hljs-built_in">a
     p = gamlog - (igam.to(EDTYPE) - <span class="hljs-number">7.0</span>)
     q = hvktlg - (ihvkt.to(EDTYPE) - <span class="hljs-number">9.0</span>)
     ig = igam - <span class="hljs-number">1</span>; ih = ihvkt - <span class="hljs-number">1</span>
+    <span class="hljs-comment"># Broadcast the depth-only gamma coordinate over the frequency axis, then</span>
+    <span class="hljs-comment"># use flattened gathers because advanced two-axis indexing is backend-fragile.</span>
     ig_b = ig[<span class="hljs-literal">None</span>, :].expand(freq_vec.shape[<span class="hljs-number">0</span>], -<span class="hljs-number">1</span>)
     p_b = p[<span class="hljs-literal">None</span>, :].expand(freq_vec.shape[<span class="hljs-number">0</span>], -<span class="hljs-number">1</span>)
 
@@ -1181,6 +1225,15 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[28]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def hminus_opacity_torch(freq_vec, ehvkt, stim):
+    &quot;&quot;&quot;Return tabulated H- bound-free plus free-free opacity.
+
+    The result is a ``(depth, frequency)`` mass opacity.  Bound-free uses the
+    parabolic photodetachment cross-section table and the H- Saha abundance.
+    Free-free first interpolates the wavelength table for every frequency, then
+    linearly interpolates those values in ``theta = 5040/T`` for every depth.
+    ``stim`` is accepted for interface symmetry; the bound-free branch uses the
+    equivalent ``1 - ehvkt`` factor used by the reference engine.
+    &quot;&quot;&quot;
     temp = Tk
     theta_k = 5040.0 / temp
     xnfph1 = xnfph_t[:, 0]
@@ -1188,6 +1241,8 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
     wave = C_LIGHT_NM_k / freq_vec
 
     fftt = torch.exp(linter_matrix_torch(WFFLOG_t, FFLOG_t, torch.log(wave)))              # (nf, ntheta)
+    # Temperature interpolation is depth-vectorized: each layer chooses its
+    # theta bracket, while all frequency rows are gathered in one tensor.
     idx = torch.clamp(torch.searchsorted(HMINOP_THETAFF_t, theta_k, right=True), 1, nthetaff - 1)
     th0 = HMINOP_THETAFF_t.index_select(0, idx - 1); th1 = HMINOP_THETAFF_t.index_select(0, idx)
     ff0 = fftt[:, idx - 1]; ff1 = fftt[:, idx]
@@ -1203,6 +1258,15 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">hminus_opacity_torch</span>(<span class="hljs-params">freq_vec, ehvkt, stim</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Return tabulated H- bound-free plus free-free opacity.
+
+    The result is a ``(depth, frequency)`` mass opacity.  Bound-free uses the
+    parabolic photodetachment cross-section table and the H- Saha abundance.
+    Free-free first interpolates the wavelength table for every frequency, then
+    linearly interpolates those values in ``theta = 5040/T`` for every depth.
+    ``stim`` is accepted for interface symmetry; the bound-free branch uses the
+    equivalent ``1 - ehvkt`` factor used by the reference engine.
+    &quot;&quot;&quot;</span>
     temp = Tk
     theta_k = <span class="hljs-number">5040.0</span> / temp
     xnfph1 = xnfph_t[:, <span class="hljs-number">0</span>]
@@ -1210,6 +1274,8 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
     wave = C_LIGHT_NM_k / freq_vec
 
     fftt = torch.exp(linter_matrix_torch(WFFLOG_t, FFLOG_t, torch.log(wave)))              <span class="hljs-comment"># (nf, ntheta)</span>
+    <span class="hljs-comment"># Temperature interpolation is depth-vectorized: each layer chooses its</span>
+    <span class="hljs-comment"># theta bracket, while all frequency rows are gathered in one tensor.</span>
     idx = torch.clamp(torch.searchsorted(HMINOP_THETAFF_t, theta_k, right=<span class="hljs-literal">True</span>), <span class="hljs-number">1</span>, nthetaff - <span class="hljs-number">1</span>)
     th0 = HMINOP_THETAFF_t.index_select(<span class="hljs-number">0</span>, idx - <span class="hljs-number">1</span>); th1 = HMINOP_THETAFF_t.index_select(<span class="hljs-number">0</span>, idx)
     ff0 = fftt[:, idx - <span class="hljs-number">1</span>]; ff1 = fftt[:, idx]
@@ -1227,6 +1293,13 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[29]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def hydrogen_opacity_torch(freq_vec, ehvkt, stim, hckt, cff1):
+    &quot;&quot;&quot;Compute H I bound-free and proton free-free continuum opacity.
+
+    The hydrogenic bound-free terms are summed from the Karzas--Latter lookup
+    for the explicit levels carried by the reference engine, with threshold
+    masks in wavenumber.  The final addend is H+ free-free using the charge-1
+    COULFF table supplied as ``cff1``.  All terms return as ``(depth, frequency)``.
+    &quot;&quot;&quot;
     temp = Tk
     f = freq_vec[None, :]
     wno = f / C_LIGHT_CM_k
@@ -1235,6 +1308,8 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
         torch.exp(-torch.maximum(torch.full_like(wno, 109250.336), 109678.764 - wno)*hckt[:, None]) -
         torch.exp(-109678.764*hckt[:, None])) * stim
 
+    # High-n and low-n edge lists mirror the production ordering; each loop
+    # updates a full depth-by-frequency tensor, not one scalar cell at a time.
     for n, thr, wt, e in [(15,487.456,450.0,109191.313),(14,559.579,392.0,109119.188),(13,648.980,338.0,109029.789),(12,761.649,288.0,108917.117),(11,906.426,242.0,108772.336),(10,1096.776,200.0,108581.992),(9,1354.044,162.0,108324.719),(8,1713.713,128.0,107965.051),(7,2238.320,98.0,107440.444)]:  # JUSTIFIED-LOOP: fixed H I high-level bf table.
         xs = xkarsas_vec(freq_vec, 1.0, n, n)[None, :]
         h = h + torch.where(wno &gt;= thr, xs*wt*torch.exp(-e*hckt[:, None])*stim, torch.zeros_like(h))
@@ -1251,6 +1326,13 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">hydrogen_opacity_torch</span>(<span class="hljs-params">freq_vec, ehvkt, stim, hckt, cff1</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Compute H I bound-free and proton free-free continuum opacity.
+
+    The hydrogenic bound-free terms are summed from the Karzas--Latter lookup
+    for the explicit levels carried by the reference engine, with threshold
+    masks in wavenumber.  The final addend is H+ free-free using the charge-1
+    COULFF table supplied as ``cff1``.  All terms return as ``(depth, frequency)``.
+    &quot;&quot;&quot;</span>
     temp = Tk
     f = freq_vec[<span class="hljs-literal">None</span>, :]
     wno = f / C_LIGHT_CM_k
@@ -1259,6 +1341,8 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
         torch.exp(-torch.maximum(torch.full_like(wno, <span class="hljs-number">109250.336</span>), <span class="hljs-number">109678.764</span> - wno)*hckt[:, <span class="hljs-literal">None</span>]) -
         torch.exp(-<span class="hljs-number">109678.764</span>*hckt[:, <span class="hljs-literal">None</span>])) * stim
 
+    <span class="hljs-comment"># High-n and low-n edge lists mirror the production ordering; each loop</span>
+    <span class="hljs-comment"># updates a full depth-by-frequency tensor, not one scalar cell at a time.</span>
     <span class="hljs-keyword">for</span> n, thr, wt, e <span class="hljs-keyword">in</span> [(<span class="hljs-number">15</span>,<span class="hljs-number">487.456</span>,<span class="hljs-number">450.0</span>,<span class="hljs-number">109191.313</span>),(<span class="hljs-number">14</span>,<span class="hljs-number">559.579</span>,<span class="hljs-number">392.0</span>,<span class="hljs-number">109119.188</span>),(<span class="hljs-number">13</span>,<span class="hljs-number">648.980</span>,<span class="hljs-number">338.0</span>,<span class="hljs-number">109029.789</span>),(<span class="hljs-number">12</span>,<span class="hljs-number">761.649</span>,<span class="hljs-number">288.0</span>,<span class="hljs-number">108917.117</span>),(<span class="hljs-number">11</span>,<span class="hljs-number">906.426</span>,<span class="hljs-number">242.0</span>,<span class="hljs-number">108772.336</span>),(<span class="hljs-number">10</span>,<span class="hljs-number">1096.776</span>,<span class="hljs-number">200.0</span>,<span class="hljs-number">108581.992</span>),(<span class="hljs-number">9</span>,<span class="hljs-number">1354.044</span>,<span class="hljs-number">162.0</span>,<span class="hljs-number">108324.719</span>),(<span class="hljs-number">8</span>,<span class="hljs-number">1713.713</span>,<span class="hljs-number">128.0</span>,<span class="hljs-number">107965.051</span>),(<span class="hljs-number">7</span>,<span class="hljs-number">2238.320</span>,<span class="hljs-number">98.0</span>,<span class="hljs-number">107440.444</span>)]:  <span class="hljs-comment"># JUSTIFIED-LOOP: fixed H I high-level bf table.</span>
         xs = xkarsas_vec(freq_vec, <span class="hljs-number">1.0</span>, n, n)[<span class="hljs-literal">None</span>, :]
         h = h + torch.where(wno &gt;= thr, xs*wt*torch.exp(-e*hckt[:, <span class="hljs-literal">None</span>])*stim, torch.zeros_like(h))
@@ -1280,6 +1364,13 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[30]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def minor_terms_torch(freq_vec, ehvkt, stim, hckt):
+    &quot;&quot;&quot;Compute the smaller continuum absorbers and minor scattering sources.
+
+    Returns ``(abs_minor, scat_minor)``, both with shape ``(depth, frequency)``.
+    This routine collects H2+, He- free-free, C I, Mg I, Al I, Si I, He Rayleigh,
+    and H2 Rayleigh/CIA-like scattering terms that are small in the solar
+    optical window but needed for exact parity with the tabulated continuum.
+    &quot;&quot;&quot;
     temp = Tk
     tkev = temp * KBOLTZ_EV_k
     tlog = torch.log(torch.clamp(temp, min=1e-10))
@@ -1290,6 +1381,7 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
     abs_minor = torch.zeros((n_layers_k, freq_vec.shape[0]), dtype=EDTYPE, device=EDEV)
     scat_minor = torch.zeros_like(abs_minor)
 
+    # H2+ photodissociation-like contribution, active only below the Lyman edge.
     freqlg = torch.log(f); freq15 = f / 1e15
     fr = -3.0233e3 + (3.7797e2 + (-1.82496e1 + (3.9207e-1 - 3.1672e-3*freqlg)*freqlg)*freqlg)*freqlg
     es = -7.342e-3 + (-2.409e0 + (1.028e0 + (-4.230e-1 + (1.224e-1 - 1.351e-2*freq15)*freq15)*freq15)*freq15)*freq15
@@ -1301,6 +1393,8 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
     cc = 5.081e08 + (-8.724e22 - 5.659e37/f)/f
     abs_minor = abs_minor + (ac*temp[:, None] + bc + cc/temp[:, None]) / 1e15 * ne_k[:, None]/1e15 * xnf_he1_mode11_t[:, None]/1e15 / rho_k[:, None]
 
+    # The following neutral metal edge lists are fixed-size production tables;
+    # torch.where keeps the thresholding lane-wise across the frequency row.
     c1 = 1e-30 * torch.ones_like(abs_minor)
     c1 = c1 + torch.where(wno &gt;= 22006.370, 2.1e-18*(22006.370/wno)**1.5 * 3.0*torch.exp(-68856.33*hckt[:, None])*stim, torch.zeros_like(abs_minor))
     abs_minor = abs_minor + c1 * xnfpc_t[:, 0:1] / rho_k[:, None]
@@ -1335,6 +1429,13 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">minor_terms_torch</span>(<span class="hljs-params">freq_vec, ehvkt, stim, hckt</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Compute the smaller continuum absorbers and minor scattering sources.
+
+    Returns ``(abs_minor, scat_minor)``, both with shape ``(depth, frequency)``.
+    This routine collects H2+, He- free-free, C I, Mg I, Al I, Si I, He Rayleigh,
+    and H2 Rayleigh/CIA-like scattering terms that are small in the solar
+    optical window but needed for exact parity with the tabulated continuum.
+    &quot;&quot;&quot;</span>
     temp = Tk
     tkev = temp * KBOLTZ_EV_k
     tlog = torch.log(torch.clamp(temp, <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-10</span>))
@@ -1345,6 +1446,7 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
     abs_minor = torch.zeros((n_layers_k, freq_vec.shape[<span class="hljs-number">0</span>]), dtype=EDTYPE, device=EDEV)
     scat_minor = torch.zeros_like(abs_minor)
 
+    <span class="hljs-comment"># H2+ photodissociation-like contribution, active only below the Lyman edge.</span>
     freqlg = torch.log(f); freq15 = f / <span class="hljs-number">1e15</span>
     fr = -<span class="hljs-number">3.0233e3</span> + (<span class="hljs-number">3.7797e2</span> + (-<span class="hljs-number">1.82496e1</span> + (<span class="hljs-number">3.9207e-1</span> - <span class="hljs-number">3.1672e-3</span>*freqlg)*freqlg)*freqlg)*freqlg
     es = -<span class="hljs-number">7.342e-3</span> + (-<span class="hljs-number">2.409e0</span> + (<span class="hljs-number">1.028e0</span> + (-<span class="hljs-number">4.230e-1</span> + (<span class="hljs-number">1.224e-1</span> - <span class="hljs-number">1.351e-2</span>*freq15)*freq15)*freq15)*freq15)*freq15
@@ -1356,6 +1458,8 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
     cc = <span class="hljs-number">5.081e08</span> + (-<span class="hljs-number">8.724e22</span> - <span class="hljs-number">5.659e37</span>/f)/f
     abs_minor = abs_minor + (ac*temp[:, <span class="hljs-literal">None</span>] + bc + cc/temp[:, <span class="hljs-literal">None</span>]) / <span class="hljs-number">1e15</span> * ne_k[:, <span class="hljs-literal">None</span>]/<span class="hljs-number">1e15</span> * xnf_he1_mode11_t[:, <span class="hljs-literal">None</span>]/<span class="hljs-number">1e15</span> / rho_k[:, <span class="hljs-literal">None</span>]
 
+    <span class="hljs-comment"># The following neutral metal edge lists are fixed-size production tables;</span>
+    <span class="hljs-comment"># torch.where keeps the thresholding lane-wise across the frequency row.</span>
     c1 = <span class="hljs-number">1e-30</span> * torch.ones_like(abs_minor)
     c1 = c1 + torch.where(wno &gt;= <span class="hljs-number">22006.370</span>, <span class="hljs-number">2.1e-18</span>*(<span class="hljs-number">22006.370</span>/wno)**<span class="hljs-number">1.5</span> * <span class="hljs-number">3.0</span>*torch.exp(-<span class="hljs-number">68856.33</span>*hckt[:, <span class="hljs-literal">None</span>])*stim, torch.zeros_like(abs_minor))
     abs_minor = abs_minor + c1 * xnfpc_t[:, <span class="hljs-number">0</span>:<span class="hljs-number">1</span>] / rho_k[:, <span class="hljs-literal">None</span>]
@@ -1394,6 +1498,14 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[31]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def helium_opacity_torch(freq_vec, ehvkt, stim, hckt, cff1, cff2):
+    &quot;&quot;&quot;Compute He I and He II bound-free/free-free opacity.
+
+    Returns the pair ``(ahe1, ahe2)`` in ``(depth, frequency)`` order.  The He I
+    and He II bound-free pieces are short fixed tables of thresholds and
+    coefficients.  Free-free uses the charge-1 and charge-2 COULFF tables
+    supplied by the driver; the charge-2 table may carry the legacy logarithmic
+    lookup described in the surrounding text.
+    &quot;&quot;&quot;
     temp = Tk
     f = freq_vec[None, :]
     wno = f / C_LIGHT_CM_k
@@ -1404,6 +1516,8 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
         torch.exp(-torch.maximum(torch.full_like(wno, 195262.919), 198310.76 - wno)*hckt[:, None]) -
         torch.exp(-198310.76*hckt[:, None])) * stim
 
+    # He I excited-level edge tables.  These loops are fixed physics records;
+    # each iteration adds the contribution for every layer and frequency.
     for thr, g, e, bi in [(4368.190,3.0,193942.57,28),(4388.260,9.0,193922.5,27),(4388.260,27.0,193922.5,26),(4389.390,7.0,193921.37,25),(4389.450,15.0,193921.31,24),(4392.369,5.0,193918.391,23),(4393.515,15.0,193917.245,22),(4509.980,9.0,193800.78,21),(4647.133,1.0,193663.627,20),(4963.671,3.0,193347.089,19),(6817.943,3.0,191492.817,18),(6858.680,7.0,191452.08,17),(6858.960,21.0,191451.80,16),(6864.201,5.0,191446.559,15),(6866.172,15.0,191444.588,14),(7093.620,9.0,191217.14,13),(7370.429,1.0,190940.331,12),(8012.550,3.0,190298.210,11)]:  # JUSTIFIED-LOOP: fixed He I n=5,4 level table.
         x = freq3 / (3125.0 if bi &gt;= 19 else 1024.0)
         h = h + torch.where(wno &gt;= thr, x*g*torch.exp(-e*hckt[:, None])*(1.0 - ehvkt), torch.zeros_like(h))
@@ -1421,6 +1535,8 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
         torch.exp(-torch.maximum(torch.full_like(wno, 434519.959), 438908.85 - wno)*hckt[:, None]) -
         torch.exp(-438908.85*hckt[:, None])) * stim * xnf_he2_mode11_t[:, None] / rho_k[:, None]
 
+    # He II edge records use hydrogenic charge scaling plus fitted polynomial
+    # corrections near selected thresholds.
     for thr, wt, e, div in [(5418.390,162.0,433490.46,59049.0),(6857.660,128.0,432051.19,32768.0),(8956.950,98.0,429951.90,16807.0)]:  # JUSTIFIED-LOOP: three fixed He II levels.
         h2 = h2 + torch.where(wno &gt;= thr, freq3*16.0/div*wt*torch.exp(-e*hckt[:, None])*stim*xnf_he2_mode11_t[:, None]/rho_k[:, None], torch.zeros_like(h2))
 
@@ -1434,6 +1550,14 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">helium_opacity_torch</span>(<span class="hljs-params">freq_vec, ehvkt, stim, hckt, cff1, cff2</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Compute He I and He II bound-free/free-free opacity.
+
+    Returns the pair ``(ahe1, ahe2)`` in ``(depth, frequency)`` order.  The He I
+    and He II bound-free pieces are short fixed tables of thresholds and
+    coefficients.  Free-free uses the charge-1 and charge-2 COULFF tables
+    supplied by the driver; the charge-2 table may carry the legacy logarithmic
+    lookup described in the surrounding text.
+    &quot;&quot;&quot;</span>
     temp = Tk
     f = freq_vec[<span class="hljs-literal">None</span>, :]
     wno = f / C_LIGHT_CM_k
@@ -1444,6 +1568,8 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
         torch.exp(-torch.maximum(torch.full_like(wno, <span class="hljs-number">195262.919</span>), <span class="hljs-number">198310.76</span> - wno)*hckt[:, <span class="hljs-literal">None</span>]) -
         torch.exp(-<span class="hljs-number">198310.76</span>*hckt[:, <span class="hljs-literal">None</span>])) * stim
 
+    <span class="hljs-comment"># He I excited-level edge tables.  These loops are fixed physics records;</span>
+    <span class="hljs-comment"># each iteration adds the contribution for every layer and frequency.</span>
     <span class="hljs-keyword">for</span> thr, g, e, bi <span class="hljs-keyword">in</span> [(<span class="hljs-number">4368.190</span>,<span class="hljs-number">3.0</span>,<span class="hljs-number">193942.57</span>,<span class="hljs-number">28</span>),(<span class="hljs-number">4388.260</span>,<span class="hljs-number">9.0</span>,<span class="hljs-number">193922.5</span>,<span class="hljs-number">27</span>),(<span class="hljs-number">4388.260</span>,<span class="hljs-number">27.0</span>,<span class="hljs-number">193922.5</span>,<span class="hljs-number">26</span>),(<span class="hljs-number">4389.390</span>,<span class="hljs-number">7.0</span>,<span class="hljs-number">193921.37</span>,<span class="hljs-number">25</span>),(<span class="hljs-number">4389.450</span>,<span class="hljs-number">15.0</span>,<span class="hljs-number">193921.31</span>,<span class="hljs-number">24</span>),(<span class="hljs-number">4392.369</span>,<span class="hljs-number">5.0</span>,<span class="hljs-number">193918.391</span>,<span class="hljs-number">23</span>),(<span class="hljs-number">4393.515</span>,<span class="hljs-number">15.0</span>,<span class="hljs-number">193917.245</span>,<span class="hljs-number">22</span>),(<span class="hljs-number">4509.980</span>,<span class="hljs-number">9.0</span>,<span class="hljs-number">193800.78</span>,<span class="hljs-number">21</span>),(<span class="hljs-number">4647.133</span>,<span class="hljs-number">1.0</span>,<span class="hljs-number">193663.627</span>,<span class="hljs-number">20</span>),(<span class="hljs-number">4963.671</span>,<span class="hljs-number">3.0</span>,<span class="hljs-number">193347.089</span>,<span class="hljs-number">19</span>),(<span class="hljs-number">6817.943</span>,<span class="hljs-number">3.0</span>,<span class="hljs-number">191492.817</span>,<span class="hljs-number">18</span>),(<span class="hljs-number">6858.680</span>,<span class="hljs-number">7.0</span>,<span class="hljs-number">191452.08</span>,<span class="hljs-number">17</span>),(<span class="hljs-number">6858.960</span>,<span class="hljs-number">21.0</span>,<span class="hljs-number">191451.80</span>,<span class="hljs-number">16</span>),(<span class="hljs-number">6864.201</span>,<span class="hljs-number">5.0</span>,<span class="hljs-number">191446.559</span>,<span class="hljs-number">15</span>),(<span class="hljs-number">6866.172</span>,<span class="hljs-number">15.0</span>,<span class="hljs-number">191444.588</span>,<span class="hljs-number">14</span>),(<span class="hljs-number">7093.620</span>,<span class="hljs-number">9.0</span>,<span class="hljs-number">191217.14</span>,<span class="hljs-number">13</span>),(<span class="hljs-number">7370.429</span>,<span class="hljs-number">1.0</span>,<span class="hljs-number">190940.331</span>,<span class="hljs-number">12</span>),(<span class="hljs-number">8012.550</span>,<span class="hljs-number">3.0</span>,<span class="hljs-number">190298.210</span>,<span class="hljs-number">11</span>)]:  <span class="hljs-comment"># JUSTIFIED-LOOP: fixed He I n=5,4 level table.</span>
         x = freq3 / (<span class="hljs-number">3125.0</span> <span class="hljs-keyword">if</span> bi &gt;= <span class="hljs-number">19</span> <span class="hljs-keyword">else</span> <span class="hljs-number">1024.0</span>)
         h = h + torch.where(wno &gt;= thr, x*g*torch.exp(-e*hckt[:, <span class="hljs-literal">None</span>])*(<span class="hljs-number">1.0</span> - ehvkt), torch.zeros_like(h))
@@ -1461,6 +1587,8 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
         torch.exp(-torch.maximum(torch.full_like(wno, <span class="hljs-number">434519.959</span>), <span class="hljs-number">438908.85</span> - wno)*hckt[:, <span class="hljs-literal">None</span>]) -
         torch.exp(-<span class="hljs-number">438908.85</span>*hckt[:, <span class="hljs-literal">None</span>])) * stim * xnf_he2_mode11_t[:, <span class="hljs-literal">None</span>] / rho_k[:, <span class="hljs-literal">None</span>]
 
+    <span class="hljs-comment"># He II edge records use hydrogenic charge scaling plus fitted polynomial</span>
+    <span class="hljs-comment"># corrections near selected thresholds.</span>
     <span class="hljs-keyword">for</span> thr, wt, e, div <span class="hljs-keyword">in</span> [(<span class="hljs-number">5418.390</span>,<span class="hljs-number">162.0</span>,<span class="hljs-number">433490.46</span>,<span class="hljs-number">59049.0</span>),(<span class="hljs-number">6857.660</span>,<span class="hljs-number">128.0</span>,<span class="hljs-number">432051.19</span>,<span class="hljs-number">32768.0</span>),(<span class="hljs-number">8956.950</span>,<span class="hljs-number">98.0</span>,<span class="hljs-number">429951.90</span>,<span class="hljs-number">16807.0</span>)]:  <span class="hljs-comment"># JUSTIFIED-LOOP: three fixed He II levels.</span>
         h2 = h2 + torch.where(wno &gt;= thr, freq3*<span class="hljs-number">16.0</span>/div*wt*torch.exp(-e*hckt[:, <span class="hljs-literal">None</span>])*stim*xnf_he2_mode11_t[:, <span class="hljs-literal">None</span>]/rho_k[:, <span class="hljs-literal">None</span>], torch.zeros_like(h2))
 
@@ -1476,9 +1604,17 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[32]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def si2op_torch(freq_vec, tlog):
+    &quot;&quot;&quot;Interpolate the Si II Peach opacity table over frequency and temperature.
+
+    The frequency bracket is chosen for every sampled frequency, the temperature
+    bracket for every depth, and the final result is transposed into
+    ``(depth, frequency)``.  The factor of six is the statistical-weight scale
+    used by the reference routine.
+    &quot;&quot;&quot;
     nt = torch.clamp((Tk/2000.0).to(torch.int64) - 4, 1, 5)
     dt = (tlog - SI2_TLG_t.index_select(0, nt - 1)) / (SI2_TLG_t.index_select(0, nt) - SI2_TLG_t.index_select(0, nt - 1))
 
+    # First interpolate along the frequency axis of the Peach table.
     gt = (freq_vec[:, None] &gt; SI2_FREQSI_t[None, :]).to(torch.int64)
     n_raw = torch.argmax(gt, dim=1) + 1
     n_raw = torch.where(torch.any(gt.bool(), dim=1), n_raw, torch.full_like(n_raw, 8))
@@ -1493,15 +1629,24 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
     x_lo = SI2_PEACH_t.index_select(0, torch.clamp(n2 - 1, min=0))
     x = torch.where((n2 &gt; 0)[:, None], x_hi*d[:, None] + x_lo*(1.0 - d[:, None]), x_hi)
 
+    # Then gather the two temperature rows needed by each atmospheric layer.
     row0 = torch.gather(x, 1, (nt - 1)[None, :].expand(freq_vec.shape[0], -1))
     row1 = torch.gather(x, 1, nt[None, :].expand(freq_vec.shape[0], -1))
     return (torch.exp(row0*(1.0 - dt[None, :]) + row1*dt[None, :]) * 6.0).T" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">si2op_torch</span>(<span class="hljs-params">freq_vec, tlog</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Interpolate the Si II Peach opacity table over frequency and temperature.
+
+    The frequency bracket is chosen for every sampled frequency, the temperature
+    bracket for every depth, and the final result is transposed into
+    ``(depth, frequency)``.  The factor of six is the statistical-weight scale
+    used by the reference routine.
+    &quot;&quot;&quot;</span>
     nt = torch.clamp((Tk/<span class="hljs-number">2000.0</span>).to(torch.int64) - <span class="hljs-number">4</span>, <span class="hljs-number">1</span>, <span class="hljs-number">5</span>)
     dt = (tlog - SI2_TLG_t.index_select(<span class="hljs-number">0</span>, nt - <span class="hljs-number">1</span>)) / (SI2_TLG_t.index_select(<span class="hljs-number">0</span>, nt) - SI2_TLG_t.index_select(<span class="hljs-number">0</span>, nt - <span class="hljs-number">1</span>))
 
+    <span class="hljs-comment"># First interpolate along the frequency axis of the Peach table.</span>
     gt = (freq_vec[:, <span class="hljs-literal">None</span>] &gt; SI2_FREQSI_t[<span class="hljs-literal">None</span>, :]).to(torch.int64)
     n_raw = torch.argmax(gt, dim=<span class="hljs-number">1</span>) + <span class="hljs-number">1</span>
     n_raw = torch.where(torch.<span class="hljs-built_in">any</span>(gt.<span class="hljs-built_in">bool</span>(), dim=<span class="hljs-number">1</span>), n_raw, torch.full_like(n_raw, <span class="hljs-number">8</span>))
@@ -1516,6 +1661,7 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
     x_lo = SI2_PEACH_t.index_select(<span class="hljs-number">0</span>, torch.clamp(n2 - <span class="hljs-number">1</span>, <span class="hljs-built_in">min</span>=<span class="hljs-number">0</span>))
     x = torch.where((n2 &gt; <span class="hljs-number">0</span>)[:, <span class="hljs-literal">None</span>], x_hi*d[:, <span class="hljs-literal">None</span>] + x_lo*(<span class="hljs-number">1.0</span> - d[:, <span class="hljs-literal">None</span>]), x_hi)
 
+    <span class="hljs-comment"># Then gather the two temperature rows needed by each atmospheric layer.</span>
     row0 = torch.gather(x, <span class="hljs-number">1</span>, (nt - <span class="hljs-number">1</span>)[<span class="hljs-literal">None</span>, :].expand(freq_vec.shape[<span class="hljs-number">0</span>], -<span class="hljs-number">1</span>))
     row1 = torch.gather(x, <span class="hljs-number">1</span>, nt[<span class="hljs-literal">None</span>, :].expand(freq_vec.shape[<span class="hljs-number">0</span>], -<span class="hljs-number">1</span>))
     <span class="hljs-keyword">return</span> (torch.exp(row0*(<span class="hljs-number">1.0</span> - dt[<span class="hljs-literal">None</span>, :]) + row1*dt[<span class="hljs-literal">None</span>, :]) * <span class="hljs-number">6.0</span>).T</code></pre>
@@ -1524,6 +1670,14 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[33]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def hot_and_si2_torch(freq_vec, stim, tkev, tlog, cff_tabs):
+    &quot;&quot;&quot;Compute HOTOP free/free-bound opacity plus the Si II Peach term.
+
+    ``cff_tabs`` supplies charge-indexed COULFF tensors from the driver.  HOTOP
+    starts with multi-charge free-free opacity, then adds bound-free transition
+    records where the transition cross-section is significant relative to the
+    free-free background.  The returned pair is ``(ahot, aluke)`` in
+    ``(depth, frequency)`` order.
+    &quot;&quot;&quot;
     free = torch.zeros((n_layers_k, freq_vec.shape[0]), dtype=EDTYPE, device=EDEV)
     for q in range(1, 6):  # JUSTIFIED-LOOP: five fixed ionic charges; each is a full tensor add.
         free = free + cff_tabs[q].T * xnf_sumqq_t[:, q-1:q]
@@ -1534,6 +1688,7 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
     f0 = tr[:, 0]; xs0 = tr[:, 1]; al0 = tr[:, 2]; pw0 = tr[:, 3]; mu0 = tr[:, 4]; e0 = tr[:, 5]
     hid = torch.clamp(tr[:, 6].to(torch.int64) - 1, 0, 20)
 
+    # Broadcast transitions x depth x frequency, then reduce over transitions.
     ratio = f0[:, None] / freq_vec[None, :]
     active = freq_vec[None, :] &gt;= f0[:, None]
     xsect = xs0[:, None] * (al0[:, None] + ratio - al0[:, None]*ratio) * torch.sqrt(torch.pow(ratio, pw0[:, None]))
@@ -1549,6 +1704,14 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">hot_and_si2_torch</span>(<span class="hljs-params">freq_vec, stim, tkev, tlog, cff_tabs</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Compute HOTOP free/free-bound opacity plus the Si II Peach term.
+
+    ``cff_tabs`` supplies charge-indexed COULFF tensors from the driver.  HOTOP
+    starts with multi-charge free-free opacity, then adds bound-free transition
+    records where the transition cross-section is significant relative to the
+    free-free background.  The returned pair is ``(ahot, aluke)`` in
+    ``(depth, frequency)`` order.
+    &quot;&quot;&quot;</span>
     free = torch.zeros((n_layers_k, freq_vec.shape[<span class="hljs-number">0</span>]), dtype=EDTYPE, device=EDEV)
     <span class="hljs-keyword">for</span> q <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, <span class="hljs-number">6</span>):  <span class="hljs-comment"># JUSTIFIED-LOOP: five fixed ionic charges; each is a full tensor add.</span>
         free = free + cff_tabs[q].T * xnf_sumqq_t[:, q-<span class="hljs-number">1</span>:q]
@@ -1559,6 +1722,7 @@ WFFLOG_t = torch.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK_t)
     f0 = tr[:, <span class="hljs-number">0</span>]; xs0 = tr[:, <span class="hljs-number">1</span>]; al0 = tr[:, <span class="hljs-number">2</span>]; pw0 = tr[:, <span class="hljs-number">3</span>]; mu0 = tr[:, <span class="hljs-number">4</span>]; e0 = tr[:, <span class="hljs-number">5</span>]
     hid = torch.clamp(tr[:, <span class="hljs-number">6</span>].to(torch.int64) - <span class="hljs-number">1</span>, <span class="hljs-number">0</span>, <span class="hljs-number">20</span>)
 
+    <span class="hljs-comment"># Broadcast transitions x depth x frequency, then reduce over transitions.</span>
     ratio = f0[:, <span class="hljs-literal">None</span>] / freq_vec[<span class="hljs-literal">None</span>, :]
     active = freq_vec[<span class="hljs-literal">None</span>, :] &gt;= f0[:, <span class="hljs-literal">None</span>]
     xsect = xs0[:, <span class="hljs-literal">None</span>] * (al0[:, <span class="hljs-literal">None</span>] + ratio - al0[:, <span class="hljs-literal">None</span>]*ratio) * torch.sqrt(torch.<span class="hljs-built_in">pow</span>(ratio, pw0[:, <span class="hljs-literal">None</span>]))
@@ -1619,6 +1783,13 @@ def scattering_opacity_torch(freq_vec):
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[35]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def compute_kapp_at_freqs_torch(freq_vec):
+    &quot;&quot;&quot;Evaluate the exact continuum engine at selected sample frequencies.
+
+    This is the driver that prepares shared thermal factors, computes all
+    charge-specific COULFF tables once, calls every source routine, and returns
+    the two physical sums: true absorption ``acont`` and scattering ``sigmac``.
+    The third return value is a named source budget for diagnostics and plots.
+    &quot;&quot;&quot;
     temp = Tk
     hckt = H_PLANCK_k / (K_BOLTZ_k * temp) * C_LIGHT_CM_k
     tkev = temp * KBOLTZ_EV_k
@@ -1626,6 +1797,8 @@ def scattering_opacity_torch(freq_vec):
     ehvkt = torch.exp(-H_PLANCK_k * freq_vec[None, :] / (K_BOLTZ_k * temp[:, None]))
     stim_k = 1.0 - ehvkt
 
+    # Build the small set of charge-specific Gaunt-factor tables once and share
+    # them across hydrogen, helium, and HOTOP.
     cff_tabs = {q: coulff_table_torch(q, freq_vec, temp, tlog) for q in range(1, 6)}  # JUSTIFIED-LOOP: five fixed ionic charges.
     # Legacy HE2OP inherited FREQLG from the final HE1OP iteration over the full grid.
     cff2_legacy = coulff_table_torch(2, freq_vec, temp, tlog, torch.log(freqset_t[-1]))
@@ -1647,6 +1820,13 @@ print(f&quot;computed exact-engine sources at {int(freq_sel_t.shape[0])} sampled
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">compute_kapp_at_freqs_torch</span>(<span class="hljs-params">freq_vec</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Evaluate the exact continuum engine at selected sample frequencies.
+
+    This is the driver that prepares shared thermal factors, computes all
+    charge-specific COULFF tables once, calls every source routine, and returns
+    the two physical sums: true absorption ``acont`` and scattering ``sigmac``.
+    The third return value is a named source budget for diagnostics and plots.
+    &quot;&quot;&quot;</span>
     temp = Tk
     hckt = H_PLANCK_k / (K_BOLTZ_k * temp) * C_LIGHT_CM_k
     tkev = temp * KBOLTZ_EV_k
@@ -1654,6 +1834,8 @@ print(f&quot;computed exact-engine sources at {int(freq_sel_t.shape[0])} sampled
     ehvkt = torch.exp(-H_PLANCK_k * freq_vec[<span class="hljs-literal">None</span>, :] / (K_BOLTZ_k * temp[:, <span class="hljs-literal">None</span>]))
     stim_k = <span class="hljs-number">1.0</span> - ehvkt
 
+    <span class="hljs-comment"># Build the small set of charge-specific Gaunt-factor tables once and share</span>
+    <span class="hljs-comment"># them across hydrogen, helium, and HOTOP.</span>
     cff_tabs = {q: coulff_table_torch(q, freq_vec, temp, tlog) <span class="hljs-keyword">for</span> q <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, <span class="hljs-number">6</span>)}  <span class="hljs-comment"># JUSTIFIED-LOOP: five fixed ionic charges.</span>
     <span class="hljs-comment"># Legacy HE2OP inherited FREQLG from the final HE1OP iteration over the full grid.</span>
     cff2_legacy = coulff_table_torch(<span class="hljs-number">2</span>, freq_vec, temp, tlog, torch.log(freqset_t[-<span class="hljs-number">1</span>]))

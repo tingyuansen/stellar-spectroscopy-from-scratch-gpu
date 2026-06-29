@@ -319,6 +319,13 @@ md(r"""Now the $\beta$-bracket and the three analytic forms. The `searchsorted` 
 
 code(r'''def _sofbeta_select(beta, b2, sb, sb_safe, b2_safe, indx0, im, ip, wtp, wtm,
                     propbm, c_arr, d_arr, beta_arr):
+    """Select the quasi-static Stark S(beta) regime for a [depth, wavelength] grid.
+
+    The caller has already prepared beta powers and the p-grid interpolation
+    weights.  This helper brackets each beta value in the tabulated correction,
+    evaluates the near, wing, and far-wing analytic forms, and uses tensor masks
+    to choose the scalar-reference branch at every pixel.
+    """
     nb = beta_arr.numel()
     # searchsorted, vectorized: how many beta nodes does each pixel exceed?
     j = torch.sum(beta.unsqueeze(-1) > beta_arr.reshape(1, 1, nb), dim=-1).to(torch.int64)
@@ -427,6 +434,13 @@ md(r"""The half-widths. The radiative (`radamp`), resonance (`hwres`), and van d
 code(r'''def _hprof4_widths(n, m, mmn, delta_lambda_nm, hyd, foff, fwt, n_fine,
                    asum, y1wtm, propbm, c_t, d_t, pp_t, beta_t,
                    xn, xm, xn2, xm2, gnm, freqnm, wavenm, xknm, dbeta, c1con, c2con):
+    """Compute HPROF4 broadening widths and precision-safe detuning.
+
+    All atmospheric quantities are expanded to [depth, 1] columns, while
+    `delta_lambda_nm` is the full [depth, wavelength] grid.  The returned path
+    continues into the profile pieces with the Doppler, Lorentz, and Stark
+    half-width dominance masks already formed.
+    """
     # --- the non-Stark half-widths (radiative, resonance/self, van der Waals) ---
     n_a = asum.shape[0]
     if n <= n_a and m <= n_a:   radamp = asum[n-1] + asum[m-1]
@@ -470,6 +484,13 @@ md(r"""The three pieces and the selection. The **Doppler core** is the broadcast
 code(r'''def _hprof4_pieces(n, m, mmn, df_signed, del_freq, wlA, dop, dopph_safe, freqnm, dbeta,
                    fo, hwlor, foff, fwt, n_fine, hyd, y1wtm, propbm, c_t, d_t, pp_t, beta_t,
                    c1con, c2con, ifcore, dop_dom, lor_ge_stk):
+    """Build the Doppler, Lorentzian, and Stark setup pieces for HPROF4.
+
+    The fine-structure Doppler core is reduced over a leading component axis,
+    the non-Stark broadening is a single Lorentzian, and the electron-impact
+    Stark terms are prepared for the gamma selector.  No profile selection is
+    finalized here; this function forwards the pieces to `_hprof4_gamma`.
+    """
     xm2 = m*m
     c1d = _as_col(hyd["c1d"]); c2d = _as_col(hyd["c2d"])
     y1s = _as_col(hyd["y1s"]); y1b = _as_col(hyd["y1b"])
@@ -512,6 +533,13 @@ md(r"""The impact width `gamma` and the final selection. The simple analytic `ga
 code(r'''def _hprof4_gamma(n, m, beta, y1, y2, c1, c2, core, lorentz, dop, dopph_safe, fo, dbeta,
                   gcon1, gcon2, pp_val, propbm, c_t, d_t, pp_t, beta_t, wlA,
                   ifcore, dop_dom, lor_ge_stk):
+    """Finish HPROF4 by forming the Stark impact width and selecting the piece.
+
+    `gamma_simple` and the exponential-integral form are both evaluated and
+    mask-selected, matching the scalar thresholds on `y1` and `y2`.  In the line
+    core only the dominant broadening component is returned; outside the core
+    the Doppler, Lorentzian, and Stark contributions are summed.
+    """
     g1 = 6.77 * torch.sqrt(torch.clamp(c1, min=1.0e-30))
     ratio = torch.where((c1 > 0.0) & (c2 > 0.0),
                         torch.sqrt(torch.clamp(c2, min=0.0)) / torch.clamp(c1, min=1.0e-30),
@@ -704,7 +732,13 @@ def _deposit_side(kline, cols, value, cut, simple, wcon_mask,
 def deposit_outward(kline, value, cut, grid, ci, simple, wcon_mask,
                     wlm1, wlp1, redcut, bluecut,
                     neighbour_red, neighbour_blue, active):
-    """Depth-batched equivalent of the scalar red/blue hydrogen opacity walk."""
+    """Depth-batched equivalent of the scalar red/blue hydrogen opacity walk.
+
+    The centre pixel is deposited first, then red and blue sides are walked with
+    cumulative stop masks.  `simple` disables continuum-merge and neighbour
+    gates for low-series members; otherwise the masks reproduce the scalar
+    cutoffs at the merge boundary and adjacent-line dominance points.
+    """
     Dn, W = kline.shape
     if 0 <= ci < W:
         centre_ok = active & (value[:, ci] >= cut[:, ci]) & (value[:, ci] > 0.0)
@@ -801,6 +835,13 @@ outward walk with cumulative masks. This is the complete hydrogen-line opacity,
 not merely an isolated profile.""")
 
 code(r'''def compute_hydrogen_opacity_gpu():
+    """Compute the full hydrogen-line opacity contribution for all depths.
+
+    The driver loops only over catalogued Balmer lines.  For each line it forms
+    the centre strength, continuum-merge taper, neighbour limits, and a dense
+    HPROF4 profile grid, then calls `deposit_outward` to apply the scalar walk's
+    cutoff semantics across the wavelength axis.
+    """
     def profile_precision_island(nl, nu, line_center, off, wt, nf):
         """Evaluate HPROF4 in a tiny CPU/fp64 island, then return to the active device.
 
@@ -981,7 +1022,13 @@ print("scalar reference: _fast_ex / _vcse1f / _hf_nm ready")''')
 md(r"""The scalar `sofbeta` reference is kept separate because it is also checked directly over a wide $\beta$ range. It mirrors the table-bracketing and three-regime analytic form used by `sofbeta_grid`.""")
 
 code(r'''def sofbeta(beta, p, n, m, propbm, c_arr, d_arr, pp_arr, beta_arr):
-    """Scalar quasi-static Stark profile S(beta) — the reference for sofbeta_grid."""
+    """Scalar quasi-static Stark profile S(beta), used as the grid parity oracle.
+
+    This is the readable fp64 reference for `_sofbeta_select`: it brackets beta
+    in the tabulated near-profile correction, interpolates in the p-grid, and
+    switches to the wing/far-wing asymptotic forms at the same thresholds as the
+    vectorized implementation.
+    """
     if beta <= 0.0: return 0.0
     b2 = beta*beta; sb = math.sqrt(beta); corr = 1.0
     if beta <= 500.0:

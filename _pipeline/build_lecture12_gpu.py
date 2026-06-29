@@ -747,6 +747,13 @@ The molecular opacity is just another absorption term, so the emergent spectrum 
 For the line opacity we use the molecules-off reference line opacity plus the **computed** molecular opacity `mol_np`.  That keeps the warm atomic/hydrogen background fixed while proving the band opacity we just built is the component that carves the cool-star spectrum.""")
 
 code(r'''def parcoe(f, x):
+    """Build ATLAS parabolic coefficients for one depth-ordered curve.
+
+    The recurrence intentionally follows the scalar PARCOE order used by the
+    reference transfer check.  It returns coefficient arrays ``a, b, c`` such
+    that each interval integral can be reconstructed by ``integ`` without
+    changing the historical rounding sequence.
+    """
     n = f.size; a = np.zeros(n); b = np.zeros(n); c = np.zeros(n)
     if n == 1: a[0] = f[0]; return a, b, c
     b[0] = (f[1]-f[0])/(x[1]-x[0]); a[0] = f[0]-x[0]*b[0]; n1 = n-1
@@ -766,6 +773,7 @@ code(r'''def parcoe(f, x):
     return a, b, c
 
 def integ(x, f, start):
+    """Cumulatively integrate ``f`` over ``x`` using PARCOE coefficients."""
     a, b, c = parcoe(f, x); out = np.zeros(f.size); out[0] = start
     for i in range(f.size-1):  # JUSTIFIED-LOOP: exact accumulated INTEG order.
         dx = x[i+1]-x[i]
@@ -774,6 +782,13 @@ def integ(x, f, start):
     return out
 
 def map1(xold, fold, xnew):
+    """Scalar ATLAS MAP1 remap from ``xold`` to ``xnew``.
+
+    This compact copy keeps the stateful cursor from the original routine.  As
+    ``xnew`` advances it reuses the previous bracket and curvature coefficients,
+    selecting linear, backward-parabolic, forward-parabolic, or blended
+    interpolation exactly as the Lecture-8/JOSH reference path expects.
+    """
     nold, nnew = xold.size, xnew.size; fnew = np.zeros(nnew)
     xo = np.empty(nold+1); fo = np.empty(nold+1); xo[1:] = xold; fo[1:] = fold
     l = 2; ll = 0; cfor = bfor = afor = cbac = bbac = abac = a = b = c = 0.0
@@ -813,6 +828,7 @@ EPS, TOL, MAXIT = 1e-38, 1e-5, 51; COEFJ_DIAG = np.diag(COEFJ).copy()
 rhox = NPZ["depth"].astype(float)
 
 def iterate_source(sbar_grid, alpha_grid):
+    """Run the fixed-grid JOSH backward Gauss-Seidel source iteration."""
     co = COEFJ.astype(np.float32); xs = sbar_grid.astype(np.float32); al = alpha_grid.astype(np.float32)
     sbar_mod = (sbar_grid * (1.0 - alpha_grid)).astype(np.float32)
     diag = (1.0 - alpha_grid * COEFJ_DIAG).astype(np.float32)
@@ -827,11 +843,21 @@ def iterate_source(sbar_grid, alpha_grid):
     return xs.astype(np.float64)
 
 def solve_josh(acont, scont, aline, sline, sigmac, sigmal):
+    """Return emergent flux for one wavelength using the compact JOSH solver.
+
+    Continuum and line absorption are combined into the thermal source, while
+    continuum and line scattering form the scattering fraction ``alpha``.  The
+    physical optical-depth grid is remapped to XTAU, shallow layers above the
+    first physical point are pinned to the surface source/scattering values, and
+    the solved source is folded with the JOSH surface quadrature weights.
+    """
     abtot = np.maximum(acont + aline + sigmac + sigmal, EPS)
     alpha = np.clip((sigmac + sigmal) / abtot, 0.0, 1.0)
     denom = acont + aline
     sbar = np.where(denom > 0, (acont*scont + aline*sline)/denom, scont)
     if rhox.size > 1 and rhox[0] > rhox[-1]:
+        # Preserve positive optical-depth increments if a caller provides a
+        # surface-to-deep column grid in descending order.
         r = rhox[::-1]; ab = abtot[::-1]; tau = integ(r, ab, ab[-1]*r[-1])
         sbar = sbar[::-1]; alpha = alpha[::-1]
     else:

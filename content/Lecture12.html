@@ -1143,7 +1143,7 @@ status = <span class="hljs-string">&quot;PASS&quot;</span> <span class="hljs-key
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">Validating mol_band_opacity against the production molecular reference
   accumulation path = cpu/float64; 1,170,738 lines x 80 depths
 
-</pre></div><div class="out-block"><pre class="out-stream">band opacity computed in 19.4 s; shape (80, 9136), max 1.2910e+01
+</pre></div><div class="out-block"><pre class="out-stream">band opacity computed in 16.2 s; shape (80, 9136), max 1.2910e+01
 
   ref max 1.2910e+01   reproduced max 1.2910e+01
   abs diff max 2.83e-14
@@ -1205,6 +1205,13 @@ GPU vs reference at this depth: median rel 2.06e-16, max rel 7.13e-14
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[22]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def parcoe(f, x):
+    &quot;&quot;&quot;Build ATLAS parabolic coefficients for one depth-ordered curve.
+
+    The recurrence intentionally follows the scalar PARCOE order used by the
+    reference transfer check.  It returns coefficient arrays ``a, b, c`` such
+    that each interval integral can be reconstructed by ``integ`` without
+    changing the historical rounding sequence.
+    &quot;&quot;&quot;
     n = f.size; a = np.zeros(n); b = np.zeros(n); c = np.zeros(n)
     if n == 1: a[0] = f[0]; return a, b, c
     b[0] = (f[1]-f[0])/(x[1]-x[0]); a[0] = f[0]-x[0]*b[0]; n1 = n-1
@@ -1224,6 +1231,7 @@ GPU vs reference at this depth: median rel 2.06e-16, max rel 7.13e-14
     return a, b, c
 
 def integ(x, f, start):
+    &quot;&quot;&quot;Cumulatively integrate ``f`` over ``x`` using PARCOE coefficients.&quot;&quot;&quot;
     a, b, c = parcoe(f, x); out = np.zeros(f.size); out[0] = start
     for i in range(f.size-1):  # JUSTIFIED-LOOP: exact accumulated INTEG order.
         dx = x[i+1]-x[i]
@@ -1232,6 +1240,13 @@ def integ(x, f, start):
     return out
 
 def map1(xold, fold, xnew):
+    &quot;&quot;&quot;Scalar ATLAS MAP1 remap from ``xold`` to ``xnew``.
+
+    This compact copy keeps the stateful cursor from the original routine.  As
+    ``xnew`` advances it reuses the previous bracket and curvature coefficients,
+    selecting linear, backward-parabolic, forward-parabolic, or blended
+    interpolation exactly as the Lecture-8/JOSH reference path expects.
+    &quot;&quot;&quot;
     nold, nnew = xold.size, xnew.size; fnew = np.zeros(nnew)
     xo = np.empty(nold+1); fo = np.empty(nold+1); xo[1:] = xold; fo[1:] = fold
     l = 2; ll = 0; cfor = bfor = afor = cbac = bbac = abac = a = b = c = 0.0
@@ -1264,6 +1279,13 @@ def map1(xold, fold, xnew):
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">parcoe</span>(<span class="hljs-params">f, x</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Build ATLAS parabolic coefficients for one depth-ordered curve.
+
+    The recurrence intentionally follows the scalar PARCOE order used by the
+    reference transfer check.  It returns coefficient arrays ``a, b, c`` such
+    that each interval integral can be reconstructed by ``integ`` without
+    changing the historical rounding sequence.
+    &quot;&quot;&quot;</span>
     n = f.size; a = np.zeros(n); b = np.zeros(n); c = np.zeros(n)
     <span class="hljs-keyword">if</span> n == <span class="hljs-number">1</span>: a[<span class="hljs-number">0</span>] = f[<span class="hljs-number">0</span>]; <span class="hljs-keyword">return</span> a, b, c
     b[<span class="hljs-number">0</span>] = (f[<span class="hljs-number">1</span>]-f[<span class="hljs-number">0</span>])/(x[<span class="hljs-number">1</span>]-x[<span class="hljs-number">0</span>]); a[<span class="hljs-number">0</span>] = f[<span class="hljs-number">0</span>]-x[<span class="hljs-number">0</span>]*b[<span class="hljs-number">0</span>]; n1 = n-<span class="hljs-number">1</span>
@@ -1283,6 +1305,7 @@ def map1(xold, fold, xnew):
     <span class="hljs-keyword">return</span> a, b, c
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">integ</span>(<span class="hljs-params">x, f, start</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Cumulatively integrate ``f`` over ``x`` using PARCOE coefficients.&quot;&quot;&quot;</span>
     a, b, c = parcoe(f, x); out = np.zeros(f.size); out[<span class="hljs-number">0</span>] = start
     <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(f.size-<span class="hljs-number">1</span>):  <span class="hljs-comment"># JUSTIFIED-LOOP: exact accumulated INTEG order.</span>
         dx = x[i+<span class="hljs-number">1</span>]-x[i]
@@ -1291,6 +1314,13 @@ def map1(xold, fold, xnew):
     <span class="hljs-keyword">return</span> out
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">map1</span>(<span class="hljs-params">xold, fold, xnew</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Scalar ATLAS MAP1 remap from ``xold`` to ``xnew``.
+
+    This compact copy keeps the stateful cursor from the original routine.  As
+    ``xnew`` advances it reuses the previous bracket and curvature coefficients,
+    selecting linear, backward-parabolic, forward-parabolic, or blended
+    interpolation exactly as the Lecture-8/JOSH reference path expects.
+    &quot;&quot;&quot;</span>
     nold, nnew = xold.size, xnew.size; fnew = np.zeros(nnew)
     xo = np.empty(nold+<span class="hljs-number">1</span>); fo = np.empty(nold+<span class="hljs-number">1</span>); xo[<span class="hljs-number">1</span>:] = xold; fo[<span class="hljs-number">1</span>:] = fold
     l = <span class="hljs-number">2</span>; ll = <span class="hljs-number">0</span>; cfor = bfor = afor = cbac = bbac = abac = a = b = c = <span class="hljs-number">0.0</span>
@@ -1330,6 +1360,7 @@ EPS, TOL, MAXIT = 1e-38, 1e-5, 51; COEFJ_DIAG = np.diag(COEFJ).copy()
 rhox = NPZ[&quot;depth&quot;].astype(float)
 
 def iterate_source(sbar_grid, alpha_grid):
+    &quot;&quot;&quot;Run the fixed-grid JOSH backward Gauss-Seidel source iteration.&quot;&quot;&quot;
     co = COEFJ.astype(np.float32); xs = sbar_grid.astype(np.float32); al = alpha_grid.astype(np.float32)
     sbar_mod = (sbar_grid * (1.0 - alpha_grid)).astype(np.float32)
     diag = (1.0 - alpha_grid * COEFJ_DIAG).astype(np.float32)
@@ -1344,11 +1375,21 @@ def iterate_source(sbar_grid, alpha_grid):
     return xs.astype(np.float64)
 
 def solve_josh(acont, scont, aline, sline, sigmac, sigmal):
+    &quot;&quot;&quot;Return emergent flux for one wavelength using the compact JOSH solver.
+
+    Continuum and line absorption are combined into the thermal source, while
+    continuum and line scattering form the scattering fraction ``alpha``.  The
+    physical optical-depth grid is remapped to XTAU, shallow layers above the
+    first physical point are pinned to the surface source/scattering values, and
+    the solved source is folded with the JOSH surface quadrature weights.
+    &quot;&quot;&quot;
     abtot = np.maximum(acont + aline + sigmac + sigmal, EPS)
     alpha = np.clip((sigmac + sigmal) / abtot, 0.0, 1.0)
     denom = acont + aline
     sbar = np.where(denom &gt; 0, (acont*scont + aline*sline)/denom, scont)
     if rhox.size &gt; 1 and rhox[0] &gt; rhox[-1]:
+        # Preserve positive optical-depth increments if a caller provides a
+        # surface-to-deep column grid in descending order.
         r = rhox[::-1]; ab = abtot[::-1]; tau = integ(r, ab, ab[-1]*r[-1])
         sbar = sbar[::-1]; alpha = alpha[::-1]
     else:
@@ -1367,6 +1408,7 @@ EPS, TOL, MAXIT = <span class="hljs-number">1e-38</span>, <span class="hljs-numb
 rhox = NPZ[<span class="hljs-string">&quot;depth&quot;</span>].astype(<span class="hljs-built_in">float</span>)
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">iterate_source</span>(<span class="hljs-params">sbar_grid, alpha_grid</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Run the fixed-grid JOSH backward Gauss-Seidel source iteration.&quot;&quot;&quot;</span>
     co = COEFJ.astype(np.float32); xs = sbar_grid.astype(np.float32); al = alpha_grid.astype(np.float32)
     sbar_mod = (sbar_grid * (<span class="hljs-number">1.0</span> - alpha_grid)).astype(np.float32)
     diag = (<span class="hljs-number">1.0</span> - alpha_grid * COEFJ_DIAG).astype(np.float32)
@@ -1381,11 +1423,21 @@ rhox = NPZ[<span class="hljs-string">&quot;depth&quot;</span>].astype(<span clas
     <span class="hljs-keyword">return</span> xs.astype(np.float64)
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">solve_josh</span>(<span class="hljs-params">acont, scont, aline, sline, sigmac, sigmal</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Return emergent flux for one wavelength using the compact JOSH solver.
+
+    Continuum and line absorption are combined into the thermal source, while
+    continuum and line scattering form the scattering fraction ``alpha``.  The
+    physical optical-depth grid is remapped to XTAU, shallow layers above the
+    first physical point are pinned to the surface source/scattering values, and
+    the solved source is folded with the JOSH surface quadrature weights.
+    &quot;&quot;&quot;</span>
     abtot = np.maximum(acont + aline + sigmac + sigmal, EPS)
     alpha = np.clip((sigmac + sigmal) / abtot, <span class="hljs-number">0.0</span>, <span class="hljs-number">1.0</span>)
     denom = acont + aline
     sbar = np.where(denom &gt; <span class="hljs-number">0</span>, (acont*scont + aline*sline)/denom, scont)
     <span class="hljs-keyword">if</span> rhox.size &gt; <span class="hljs-number">1</span> <span class="hljs-keyword">and</span> rhox[<span class="hljs-number">0</span>] &gt; rhox[-<span class="hljs-number">1</span>]:
+        <span class="hljs-comment"># Preserve positive optical-depth increments if a caller provides a</span>
+        <span class="hljs-comment"># surface-to-deep column grid in descending order.</span>
         r = rhox[::-<span class="hljs-number">1</span>]; ab = abtot[::-<span class="hljs-number">1</span>]; tau = integ(r, ab, ab[-<span class="hljs-number">1</span>]*r[-<span class="hljs-number">1</span>])
         sbar = sbar[::-<span class="hljs-number">1</span>]; alpha = alpha[::-<span class="hljs-number">1</span>]
     <span class="hljs-keyword">else</span>:

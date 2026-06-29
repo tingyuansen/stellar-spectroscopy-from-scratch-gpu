@@ -265,7 +265,16 @@ TRUTH = np.load(pathlib.Path(<span class="hljs-string">&quot;..&quot;</span>) / 
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[5]</span>Python</span>
         <button class="copy-btn" type="button" data-code="class ExactQuadrantRosstab:
+    &quot;&quot;&quot;Rosseland table lookup using the ATLAS quadrant-neighbor rule.
+
+    The stored coordinates are normalized log10(T) and log10(P), and opacity is
+    stored as log10(kappa).  A query first honors exact self-lookups, then uses
+    the nearest point in each of the four signed (dT, dP) quadrants as a local
+    bilinear stencil.  If the query sits outside the convex coverage, only the
+    available quadrant candidates participate in the inverse-distance fallback.
+    &quot;&quot;&quot;
     def __init__(self):
+        &quot;&quot;&quot;Create an empty table; normalization is fixed by the first ingest.&quot;&quot;&quot;
         self.t = []
         self.p = []
         self.k = []
@@ -273,6 +282,7 @@ TRUTH = np.load(pathlib.Path(<span class="hljs-string">&quot;..&quot;</span>) / 
         self.slopet = self.slopep = 1.0
 
     def ingest(self, T, P, kappa):
+        &quot;&quot;&quot;Append atmosphere samples and normalize them against the first block.&quot;&quot;&quot;
         T = np.asarray(T, dtype=np.float64)
         P = np.asarray(P, dtype=np.float64)
         kappa = np.asarray(kappa, dtype=np.float64)
@@ -286,6 +296,8 @@ TRUTH = np.load(pathlib.Path(<span class="hljs-string">&quot;..&quot;</span>) / 
             if abs(self.slopep) &lt; 1e-300:
                 self.slopep = 1.0
         for tj, pj, kj in zip(T, P, kappa):
+            # Normalize before appending so multiple ingests share one coordinate
+            # system, matching how ROSSTAB extends an existing atmosphere table.
             self.t.append((np.log10(max(float(tj), 1e-300)) - self.zerot) / self.slopet)
             self.p.append((np.log10(max(float(pj), 1e-300)) - self.zerop) / self.slopep)
             self.k.append(np.log10(max(float(kj), 1e-300)))
@@ -294,6 +306,7 @@ TRUTH = np.load(pathlib.Path(<span class="hljs-string">&quot;..&quot;</span>) / 
         self.k = np.asarray(self.k, dtype=np.float64)
 
     def eval(self, temp, pressure):
+        &quot;&quot;&quot;Return interpolated opacity at one scalar temperature/pressure pair.&quot;&quot;&quot;
         templog = (np.log10(max(float(temp), 1e-300)) - self.zerot) / self.slopet
         presslog = (np.log10(max(float(pressure), 1e-300)) - self.zerop) / self.slopep
         dt = self.t - templog
@@ -302,6 +315,8 @@ TRUTH = np.load(pathlib.Path(<span class="hljs-string">&quot;..&quot;</span>) / 
         if exact.size:
             return float(10.0 ** self.k[int(exact[0])])
 
+        # Build the same four-quadrant stencil used by the scalar ROSSTAB code:
+        # (+T,+P), (+T,-P), (-T,+P), (-T,-P), nearest point in each.
         masks = [(dt &gt;= 0.0) &amp; (dp &gt;= 0.0), (dt &gt;= 0.0) &amp; (dp &lt; 0.0),
                  (dt &lt; 0.0) &amp; (dp &gt;= 0.0), (dt &lt; 0.0) &amp; (dp &lt; 0.0)]
         idx = []
@@ -313,6 +328,8 @@ TRUTH = np.load(pathlib.Path(<span class="hljs-string">&quot;..&quot;</span>) / 
                 idx.append(int(cand[np.argmin(dt[cand] * dt[cand] + dp[cand] * dp[cand])]))
 
         if all(i is not None for i in idx):
+            # Interpolate opacity along normalized temperature on both pressure
+            # sides, then interpolate those two results along normalized pressure.
             i_pp, i_pm, i_mp, i_mm = idx
             tpp, ppp, vpp = self.t[i_pp], self.p[i_pp], self.k[i_pp]
             tpm, ppm, vpm = self.t[i_pm], self.p[i_pm], self.k[i_pm]
@@ -326,6 +343,8 @@ TRUTH = np.load(pathlib.Path(<span class="hljs-string">&quot;..&quot;</span>) / 
             return float(10.0 ** r)
 
         present = [i for i in idx if i is not None]
+        # Outside the four-quadrant coverage, weight only the available quadrant
+        # representatives rather than all table rows.
         dist = np.sqrt(dt[present] * dt[present] + dp[present] * dp[present])
         w = 1.0 / np.maximum(dist, 1e-12)
         return float(10.0 ** np.sum(self.k[present] * w) / np.sum(w))
@@ -339,7 +358,16 @@ assert err_ros &lt;= 5e-6" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">class</span> <span class="hljs-title class_">ExactQuadrantRosstab</span>:
+    <span class="hljs-string">&quot;&quot;&quot;Rosseland table lookup using the ATLAS quadrant-neighbor rule.
+
+    The stored coordinates are normalized log10(T) and log10(P), and opacity is
+    stored as log10(kappa).  A query first honors exact self-lookups, then uses
+    the nearest point in each of the four signed (dT, dP) quadrants as a local
+    bilinear stencil.  If the query sits outside the convex coverage, only the
+    available quadrant candidates participate in the inverse-distance fallback.
+    &quot;&quot;&quot;</span>
     <span class="hljs-keyword">def</span> <span class="hljs-title function_">__init__</span>(<span class="hljs-params">self</span>):
+        <span class="hljs-string">&quot;&quot;&quot;Create an empty table; normalization is fixed by the first ingest.&quot;&quot;&quot;</span>
         self.t = []
         self.p = []
         self.k = []
@@ -347,6 +375,7 @@ assert err_ros &lt;= 5e-6" aria-label="Copy code">
         self.slopet = self.slopep = <span class="hljs-number">1.0</span>
 
     <span class="hljs-keyword">def</span> <span class="hljs-title function_">ingest</span>(<span class="hljs-params">self, T, P, kappa</span>):
+        <span class="hljs-string">&quot;&quot;&quot;Append atmosphere samples and normalize them against the first block.&quot;&quot;&quot;</span>
         T = np.asarray(T, dtype=np.float64)
         P = np.asarray(P, dtype=np.float64)
         kappa = np.asarray(kappa, dtype=np.float64)
@@ -360,6 +389,8 @@ assert err_ros &lt;= 5e-6" aria-label="Copy code">
             <span class="hljs-keyword">if</span> <span class="hljs-built_in">abs</span>(self.slopep) &lt; <span class="hljs-number">1e-300</span>:
                 self.slopep = <span class="hljs-number">1.0</span>
         <span class="hljs-keyword">for</span> tj, pj, kj <span class="hljs-keyword">in</span> <span class="hljs-built_in">zip</span>(T, P, kappa):
+            <span class="hljs-comment"># Normalize before appending so multiple ingests share one coordinate</span>
+            <span class="hljs-comment"># system, matching how ROSSTAB extends an existing atmosphere table.</span>
             self.t.append((np.log10(<span class="hljs-built_in">max</span>(<span class="hljs-built_in">float</span>(tj), <span class="hljs-number">1e-300</span>)) - self.zerot) / self.slopet)
             self.p.append((np.log10(<span class="hljs-built_in">max</span>(<span class="hljs-built_in">float</span>(pj), <span class="hljs-number">1e-300</span>)) - self.zerop) / self.slopep)
             self.k.append(np.log10(<span class="hljs-built_in">max</span>(<span class="hljs-built_in">float</span>(kj), <span class="hljs-number">1e-300</span>)))
@@ -368,6 +399,7 @@ assert err_ros &lt;= 5e-6" aria-label="Copy code">
         self.k = np.asarray(self.k, dtype=np.float64)
 
     <span class="hljs-keyword">def</span> <span class="hljs-title function_">eval</span>(<span class="hljs-params">self, temp, pressure</span>):
+        <span class="hljs-string">&quot;&quot;&quot;Return interpolated opacity at one scalar temperature/pressure pair.&quot;&quot;&quot;</span>
         templog = (np.log10(<span class="hljs-built_in">max</span>(<span class="hljs-built_in">float</span>(temp), <span class="hljs-number">1e-300</span>)) - self.zerot) / self.slopet
         presslog = (np.log10(<span class="hljs-built_in">max</span>(<span class="hljs-built_in">float</span>(pressure), <span class="hljs-number">1e-300</span>)) - self.zerop) / self.slopep
         dt = self.t - templog
@@ -376,6 +408,8 @@ assert err_ros &lt;= 5e-6" aria-label="Copy code">
         <span class="hljs-keyword">if</span> exact.size:
             <span class="hljs-keyword">return</span> <span class="hljs-built_in">float</span>(<span class="hljs-number">10.0</span> ** self.k[<span class="hljs-built_in">int</span>(exact[<span class="hljs-number">0</span>])])
 
+        <span class="hljs-comment"># Build the same four-quadrant stencil used by the scalar ROSSTAB code:</span>
+        <span class="hljs-comment"># (+T,+P), (+T,-P), (-T,+P), (-T,-P), nearest point in each.</span>
         masks = [(dt &gt;= <span class="hljs-number">0.0</span>) &amp; (dp &gt;= <span class="hljs-number">0.0</span>), (dt &gt;= <span class="hljs-number">0.0</span>) &amp; (dp &lt; <span class="hljs-number">0.0</span>),
                  (dt &lt; <span class="hljs-number">0.0</span>) &amp; (dp &gt;= <span class="hljs-number">0.0</span>), (dt &lt; <span class="hljs-number">0.0</span>) &amp; (dp &lt; <span class="hljs-number">0.0</span>)]
         idx = []
@@ -387,6 +421,8 @@ assert err_ros &lt;= 5e-6" aria-label="Copy code">
                 idx.append(<span class="hljs-built_in">int</span>(cand[np.argmin(dt[cand] * dt[cand] + dp[cand] * dp[cand])]))
 
         <span class="hljs-keyword">if</span> <span class="hljs-built_in">all</span>(i <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span> <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> idx):
+            <span class="hljs-comment"># Interpolate opacity along normalized temperature on both pressure</span>
+            <span class="hljs-comment"># sides, then interpolate those two results along normalized pressure.</span>
             i_pp, i_pm, i_mp, i_mm = idx
             tpp, ppp, vpp = self.t[i_pp], self.p[i_pp], self.k[i_pp]
             tpm, ppm, vpm = self.t[i_pm], self.p[i_pm], self.k[i_pm]
@@ -400,6 +436,8 @@ assert err_ros &lt;= 5e-6" aria-label="Copy code">
             <span class="hljs-keyword">return</span> <span class="hljs-built_in">float</span>(<span class="hljs-number">10.0</span> ** r)
 
         present = [i <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> idx <span class="hljs-keyword">if</span> i <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span>]
+        <span class="hljs-comment"># Outside the four-quadrant coverage, weight only the available quadrant</span>
+        <span class="hljs-comment"># representatives rather than all table rows.</span>
         dist = np.sqrt(dt[present] * dt[present] + dp[present] * dp[present])
         w = <span class="hljs-number">1.0</span> / np.maximum(dist, <span class="hljs-number">1e-12</span>)
         <span class="hljs-keyword">return</span> <span class="hljs-built_in">float</span>(<span class="hljs-number">10.0</span> ** np.<span class="hljs-built_in">sum</span>(self.k[present] * w) / np.<span class="hljs-built_in">sum</span>(w))

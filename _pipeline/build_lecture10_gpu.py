@@ -251,7 +251,13 @@ def integ(x, f, start):
 md(r"""`PARCOE` and `INTEG` are the stateful part of the interpolation machinery: their short depth loops preserve the historical operation order, while every frequency remains batched. The next two helpers are the vector pieces around that recurrence: a cubic-tangent derivative and a branchless remap.""")
 
 code(r'''def deriv(x, f):
-    """Cubic-tangent derivative df/dx, batched over the leading axis."""
+    """Return ATLAS's cubic-tangent df/dx estimate along the depth axis.
+
+    ``x`` may be one shared depth grid or one grid per leading batch row.  The
+    endpoint slopes are ordinary secants; interior slopes are converted through
+    the tangent half-angle form used by the original routine to limit overshoot
+    while preserving the sign convention of the supplied grid.
+    """
     sq = (f.dim()==1); f = f.unsqueeze(0) if sq else f
     sz = f.shape[-1]; d = torch.zeros_like(f)
     if sz<2: return d[0] if sq else d
@@ -274,7 +280,14 @@ code(r'''def deriv(x, f):
 md(r"""`deriv` is local in depth, so it vectorizes cleanly. `map1` is the more important GPU lesson: it evaluates the possible interpolation regimes in parallel, then chooses the correct branch with masks rather than host control flow.""")
 
 code(r'''def map1(xold, fold, xnew):
-    """Piecewise-quadratic remap, branchless and batched."""
+    """Remap ``fold(xold)`` onto ``xnew`` with ATLAS MAP1 interpolation.
+
+    The helper accepts either a single curve or a batch of curves.  It computes
+    the linear, backward-parabola, forward-parabola, and curvature-blended
+    candidates for each requested point, then selects the same regime the
+    Fortran cursor would have selected.  Values beyond the deepest old point use
+    the terminal linear extrapolation.
+    """
     sq = False
     if xold.dim()==1 and fold.dim()==1 and xnew.dim()==1:
         xold=xold.unsqueeze(0); fold=fold.unsqueeze(0); xnew=xnew.unsqueeze(0); sq=True
@@ -385,7 +398,13 @@ The scalar reference iterates the shallow layers directly on the physical grid a
 code(r'''ITER_TOL = 1.0e-3
 
 def josh_profiles(acont, scont, sigmac, rhox, bnu):
-    """Batched JOSH DEPTH profiles over the whole sampled-nu axis."""
+    """Solve JOSH transfer profiles for every sampled frequency at once.
+
+    Returns physical-grid optical depth, Eddington flux, mean intensity, J-S,
+    total extinction, and scattering fraction.  The fixed XTAU solve is carried
+    in float32 to match the kgpu/JOSH baseline; physical-grid thin layers are
+    then stitched back onto the remapped deep solution with ``shallow_mask``.
+    """
     F, N = acont.shape; dt = acont.dtype
     abtot, alpha, snubar, taunu = josh_optics(acont, scont, sigmac, rhox, bnu)
     
@@ -477,7 +496,13 @@ Before we run the sweep, here is what each correction integral is for:
 We evaluate the $E_3$ exponential integral via the same rational-polynomial approximation. PyTorch seamlessly evaluates all branches concurrently and selects via `torch.where`. The 2-step recurrences for $E_3$ are fully unrolled for vectorization speed.""")
 
 code(r'''def expi3_batched(x: torch.Tensor) -> torch.Tensor:
-    """EXPI(3, x) = E3 exponential integral (Fortran EXPI), vectorised + branchless."""
+    """Evaluate the Fortran EXPI order-3 exponential integral on a tensor.
+
+    The historical routine approximates E1 in three x-ranges and obtains E3 by
+    two recurrence steps.  This batched version evaluates all polynomial/rational
+    branches with torch operations, masks the selected branch, and preserves the
+    x <= 0 recurrence behavior used by the reference code.
+    """
     a = (-44178.5471728217, 57721.7247139444, 9938.31388962037, 1842.11088668, 101.093806161906, 5.03416184097568)
     b = (76537.3323337614, 32597.1881290275, 6106.10794245759, 635.419418378382, 37.2298352833327)
     c = (4.65627107975096e-7, 0.999979577051595, 9.04161556946329, 24.3784088791317, 23.0192559391333, 6.90522522784444, 0.430967839469389)
@@ -516,7 +541,14 @@ The $\Lambda$-diagonal tracks the E3-based optical-depth steps. Deep in the atmo
 Because `term1 = term2_prev` intrinsically cascades down the depth axis, the `rdiagj` sequence is formed by rolling shifted tensors — totally vectorized over depths and frequencies, avoiding any loops.""")
 
 code(r'''def accumulate_rdiagj(taunu, abtot, alpha, dbdt, rco, teff):
-    """Batched branchless Lambda-diagonal accumulator."""
+    """Accumulate the depthwise local-Lambda temperature-response denominator.
+
+    ``taunu`` supplies per-frequency optical depth steps.  The diagonal term is
+    formed as ``diagj_minus_1`` so the large-step expression never materializes
+    the nearly cancelling ``1 - 1`` pair that loses precision in fp32.  The final
+    frequency fold is intentionally returned as CPU float64 because it becomes a
+    small but cancellation-sensitive depth vector.
+    """
     d = torch.empty_like(taunu); d[:, :-1] = taunu[:, 1:] - taunu[:, :-1]
     d[:, -1] = 1.0e-10; d = torch.clamp(d, min=1.0e-10)
     
@@ -715,6 +747,14 @@ A change in temperature demands a correction in the local density column. We eva
 The secant represents the headline precision trap of this module. It requires differentiating two massive total-pressure profiles that differ solely by a tens-of-Kelvin perturbation. If computed natively in pure fp32, catastrophic cancellation would swallow the difference, diverting the structural column convergence entirely. Therefore, we safely offload the differential quotient to fp64 CPU evaluation with `fp64_reduce`.""")
 
 code(r'''def rosstab_eval(t_norm, p_norm, self_t, self_p, self_k, self_nn):
+    """Interpolate a normalized Rosseland opacity table at one (T, P) point.
+
+    Coordinates are already normalized log10(T) and log10(P).  The preferred
+    path picks the nearest stored point in each quadrant around the query and
+    bilinearly blends their log10(opacity) values.  If one or more quadrants are
+    absent, it falls back to inverse-distance weighting over the available
+    quadrant candidates, matching the scalar ROSSTAB behavior used by TTAUP.
+    """
     dt = self_t - t_norm; dp = self_p - p_norm; r2 = dt*dt + dp*dp
     q = torch.where(dt >= 0, 0, 2) + torch.where(dp >= 0, 0, 1)
     
@@ -722,6 +762,8 @@ code(r'''def rosstab_eval(t_norm, p_norm, self_t, self_p, self_k, self_nn):
     best_r2 = torch.full((4,), 1e30, device=dev, dtype=dtp)
     best_idx = torch.full((4,), -1, device=dev, dtype=torch.int64)
     
+    # Track only the closest candidate in each sign quadrant; those four points
+    # define the local bilinear stencil when all quadrants are populated.
     for i in range(self_nn):  # JUSTIFIED-LOOP: Finding minimum per quadrant over 80 layers
         qi = q[i]
         if r2[i] < best_r2[qi]:
@@ -752,7 +794,9 @@ code(r'''def rosstab_eval(t_norm, p_norm, self_t, self_p, self_k, self_nn):
 md(r"""`rosstab_eval` is only the local table interpolation. `Rosstab` packages the normalized coordinates and leaves the predictor/corrector formulas as small named functions before the depth march.""")
 
 code(r'''class Rosstab:
+    """Small Rosseland opacity table wrapper for the TTAUP pressure march."""
     def __init__(self, T_arr, P_arr, kappa):
+        """Store normalized log-temperature/log-pressure coordinates and log opacity."""
         self.zerot = torch.log10(torch.clamp(T_arr[0], min=1e-300))
         self.zerop = torch.log10(torch.clamp(P_arr[0], min=1e-300))
         self.slopet = torch.log10(torch.clamp(T_arr[-1], min=1e-300)) - self.zerot
@@ -765,16 +809,19 @@ code(r'''class Rosstab:
         self.nn = T_arr.shape[0]
 
     def eval(self, temp, pressure):
+        """Return interpolated Rosseland opacity for a scalar temperature/pressure."""
         tl = (torch.log10(torch.clamp(temp, min=1e-300)) - self.zerot)/self.slopet
         pl = (torch.log10(torch.clamp(pressure, min=1e-300)) - self.zerop)/self.slopep
         return rosstab_eval(tl, pl, self.t, self.p, self.k, self.nn)
 
 def ttaup_predict(j, abstd0, tau0, grav, p1, p4, q1, q2, q3):
+    """Predict log total pressure for depth ``j`` from previous TTAUP history."""
     if j == 0:   return torch.log(torch.clamp(grav/torch.clamp(abstd0, min=1e-300)*tau0, min=1e-300))
     elif j <= 3: return p1 + q1
     else:        return (3.0*p4 + 8.0*q1 - 4.0*q2 + 8.0*q3)/3.0
 
 def ttaup_correct(j, abstd_j, tau_j, grav, plog, dplog, p1, p3, p4, q1, q2, q3):
+    """Correct the TTAUP pressure predictor with the current opacity estimate."""
     if j == 0:   return torch.log(torch.clamp(grav/torch.clamp(abstd_j, min=1e-300)*tau_j, min=1e-300))
     elif j <= 3: return (plog + 2.0*p1 + dplog + q1)/3.0
     else:        return (126.0*p1 - 14.0*p3 + 9.0*p4 + 42.0*dplog + 108.0*q1 - 54.0*q2 + 24.0*q3)/121.0''')
@@ -782,6 +829,13 @@ def ttaup_correct(j, abstd_j, tau_j, grav, plog, dplog, p1, p3, p4, q1, q2, q3):
 md(r"""`Rosstab` wraps the opacity table and the two predictor/corrector formulas above. The actual hydrostatic march comes next; it is sequential in depth because each layer depends on the pressure history above it.""")
 
 code(r'''def ttaup(t_arr, tau, prad, grav, rosstab):
+    """Integrate hydrostatic total pressure on a standard optical-depth grid.
+
+    Each layer predicts log(P_total), queries ROSSTAB at the implied gas
+    pressure, and iterates the corrector until opacity and pressure are
+    consistent.  The history variables ``p1``..``p4`` and ``q1``..``q3`` are the
+    prior pressure and pressure-increment terms used by the ATLAS formulas.
+    """
     nn = t_arr.shape[0]
     dev, dtp = t_arr.device, t_arr.dtype
     abstd = torch.zeros(nn, device=dev, dtype=dtp)
@@ -805,6 +859,9 @@ code(r'''def ttaup(t_arr, tau, prad, grav, rosstab):
             pg_j = ptot_j + (prad[0] - prad[j])
             pgas[j] = pg_j
             
+            # Radiation pressure can exceed the predicted total pressure in a
+            # trial outer layer; keep the march finite and let the caller compare
+            # the resulting total-pressure profile rather than raising here.
             if pg_j <= 0.0:
                 pgas[j] = 1e-30; abstd[j] = 0.1; break
                 

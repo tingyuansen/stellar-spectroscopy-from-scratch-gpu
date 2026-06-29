@@ -198,7 +198,16 @@ Hydrostatic reintegration queries a small Rosseland table in normalized $(\log T
 The exact-hit check matters because self-querying the ingested atmosphere must reproduce the ingested Rosseland opacity.""")
 
 code(r'''class ExactQuadrantRosstab:
+    """Rosseland table lookup using the ATLAS quadrant-neighbor rule.
+
+    The stored coordinates are normalized log10(T) and log10(P), and opacity is
+    stored as log10(kappa).  A query first honors exact self-lookups, then uses
+    the nearest point in each of the four signed (dT, dP) quadrants as a local
+    bilinear stencil.  If the query sits outside the convex coverage, only the
+    available quadrant candidates participate in the inverse-distance fallback.
+    """
     def __init__(self):
+        """Create an empty table; normalization is fixed by the first ingest."""
         self.t = []
         self.p = []
         self.k = []
@@ -206,6 +215,7 @@ code(r'''class ExactQuadrantRosstab:
         self.slopet = self.slopep = 1.0
 
     def ingest(self, T, P, kappa):
+        """Append atmosphere samples and normalize them against the first block."""
         T = np.asarray(T, dtype=np.float64)
         P = np.asarray(P, dtype=np.float64)
         kappa = np.asarray(kappa, dtype=np.float64)
@@ -219,6 +229,8 @@ code(r'''class ExactQuadrantRosstab:
             if abs(self.slopep) < 1e-300:
                 self.slopep = 1.0
         for tj, pj, kj in zip(T, P, kappa):
+            # Normalize before appending so multiple ingests share one coordinate
+            # system, matching how ROSSTAB extends an existing atmosphere table.
             self.t.append((np.log10(max(float(tj), 1e-300)) - self.zerot) / self.slopet)
             self.p.append((np.log10(max(float(pj), 1e-300)) - self.zerop) / self.slopep)
             self.k.append(np.log10(max(float(kj), 1e-300)))
@@ -227,6 +239,7 @@ code(r'''class ExactQuadrantRosstab:
         self.k = np.asarray(self.k, dtype=np.float64)
 
     def eval(self, temp, pressure):
+        """Return interpolated opacity at one scalar temperature/pressure pair."""
         templog = (np.log10(max(float(temp), 1e-300)) - self.zerot) / self.slopet
         presslog = (np.log10(max(float(pressure), 1e-300)) - self.zerop) / self.slopep
         dt = self.t - templog
@@ -235,6 +248,8 @@ code(r'''class ExactQuadrantRosstab:
         if exact.size:
             return float(10.0 ** self.k[int(exact[0])])
 
+        # Build the same four-quadrant stencil used by the scalar ROSSTAB code:
+        # (+T,+P), (+T,-P), (-T,+P), (-T,-P), nearest point in each.
         masks = [(dt >= 0.0) & (dp >= 0.0), (dt >= 0.0) & (dp < 0.0),
                  (dt < 0.0) & (dp >= 0.0), (dt < 0.0) & (dp < 0.0)]
         idx = []
@@ -246,6 +261,8 @@ code(r'''class ExactQuadrantRosstab:
                 idx.append(int(cand[np.argmin(dt[cand] * dt[cand] + dp[cand] * dp[cand])]))
 
         if all(i is not None for i in idx):
+            # Interpolate opacity along normalized temperature on both pressure
+            # sides, then interpolate those two results along normalized pressure.
             i_pp, i_pm, i_mp, i_mm = idx
             tpp, ppp, vpp = self.t[i_pp], self.p[i_pp], self.k[i_pp]
             tpm, ppm, vpm = self.t[i_pm], self.p[i_pm], self.k[i_pm]
@@ -259,6 +276,8 @@ code(r'''class ExactQuadrantRosstab:
             return float(10.0 ** r)
 
         present = [i for i in idx if i is not None]
+        # Outside the four-quadrant coverage, weight only the available quadrant
+        # representatives rather than all table rows.
         dist = np.sqrt(dt[present] * dt[present] + dp[present] * dp[present])
         w = 1.0 / np.maximum(dist, 1e-12)
         return float(10.0 ** np.sum(self.k[present] * w) / np.sum(w))

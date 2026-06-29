@@ -437,7 +437,14 @@ print("batched wing-reach geometry ready")''')
 md(r"""**`_wing_walk_core` — the fixed-offset sweep + the batched deposit.** Given the reach, this sweeps offsets $1\ldots W$ (the widest reach in the *given* batch), evaluates the near-wing Harris profile and the far-wing $x_{\rm far}/\mathrm{offset}^2$ for the whole `[depth, line, offset]` block, masks each offset against its pair's `maxstep` and the red/blue array edges, and deposits the **red** block and the **blue** block each with one `_scatter_add_3d`. *Two batched scatters replace the scalar reference's entire per-line `while` loop.*""")
 
 code(r'''def harris_branch_oracle(a64, dvoigt64, W, device, h0tab, h1tab, h2tab):
-    """CPU/fp64 branch masks plus sparse cancellation-prone intermediate-core values."""
+    """Build branch decisions for the Harris Voigt walk in CPU/fp64.
+
+    The production wing walk runs in fp32 on the active device, but the Harris
+    intermediate branch is sensitive to cancellation near the line core.  This
+    helper evaluates only the branch masks and those sparse intermediate values
+    in fp64, then ships compact tensors back to the profile kernel.  The returned
+    masks have the same broadcast shape as the offset block, [depth, line, W].
+    """
     offs = torch.arange(1, W + 1, dtype=torch.float64, device=torch.device("cpu"))
     x = dvoigt64[:, :, None] * offs.view(1, 1, -1)
     av = x.abs()
@@ -476,7 +483,13 @@ code(r'''def harris_branch_oracle(a64, dvoigt64, W, device, h0tab, h1tab, h2tab)
 
 def wing_walk_core(kline, ci, kappa0_wing, a_w, maxstep, use_far, n10dop, dvoigt, x_far, n_w,
                    h0tab, h1tab, h2tab, a64=None, dvoigt64=None):
-    """Fixed-offset sweep + ONE batched scatter per red/blue (port _wing_walk_core)."""
+    """Deposit one reach tier of ordinary-line opacity into both wavelength wings.
+
+    `maxstep` gives the per-depth/per-line outward reach for this tier.  The
+    function evaluates all offsets 1..W as one [depth, line, offset] block,
+    switches from the near Harris profile to the far 1/offset^2 continuation
+    where requested, and scatters the surviving red and blue pixels into `kline`.
+    """
     if ci.numel() == 0:
         return
     # JUSTIFY: one scalar tier width orchestrates a batched MPS profile/scatter launch.
@@ -1354,6 +1367,13 @@ for i in range(n_auto):  # numpy-ref
     auto_cut[i] = float(lt_ref[f"auto{i}_cutoff"])        # numpy-ref
 
 def autoionizing_delta_torch():
+    """Return the autoionizing-line opacity deltas on each recorded local slice.
+
+    Autoionizing profiles use the Shore form and stop independently on each
+    side of line centre once the profile is non-positive or below the continuum
+    cutoff.  The arithmetic is intentionally done in a tiny CPU/fp64 island
+    because the detuning subtracts nearly equal optical frequencies.
+    """
     # The Shore detuning is a difference of two ~1e15-Hz frequencies.  Evaluate
     # this tiny special-record batch in CPU/fp64, then return the result to the
     # working device; the 12,568-line ordinary opacity remains MPS-resident.
@@ -1446,6 +1466,12 @@ for i in range(n_cont):  # numpy-ref
     cont_idx_tail[i] = int(lt_ref[f"cont{i}_idx_tail_g"])    # numpy-ref
 
 def merged_continuum_delta_torch():
+    """Return the merged-continuum ramp opacity deltas on each local slice.
+
+    Each record contributes a flat `kappa` section until its merge index and a
+    linear falloff toward the tail index.  The scalar walk's first-below-cutoff
+    stop condition is represented by a cumulative mask along the local slice.
+    """
     wl = dev(cont_wl)
     cnt = dev(cont_cont)
     valid = torch.as_tensor(cont_valid, dtype=torch.bool, device=DEVICE)
