@@ -43,7 +43,7 @@ blocking miss remains. Unchecked means it is the next fix target, not a vague co
 | L2 | [x] | [x] | [x] | [x] | [x] | [x] | [x] build |
 | L3 | [x] | [x] | [x] | [x] | [x] split fp64 twin from validation/reporting block | [x] | [x] `verify_kapp.py` |
 | L4 | [x] | [x] | [x] | [x] | [x] | [x] | [x] build plus downstream line gates |
-| L5 | [x] | [x] | [x] | [x] | [ ] two 100+ line oracle/helium cells need splitting or stronger inline comments | [x] | [x] `verify_full_lines.py`, `verify_linetypes.py` |
+| L5 | [x] | [x] | [x] | [x] | [x] split Harris precision helper and helium merge/stop helper | [x] | [x] `verify_full_lines.py`, `verify_linetypes.py` |
 | L6 | [x] | [x] | [x] | [x] | [x] split fp64 Stark-profile island from Balmer opacity driver | [x] | [x] `verify_josh.py` |
 | L7 | [x] | [x] | [x] | [x] | [x] | [x] | [x] `verify_josh.py` |
 | L8 | [x] | [ ] loads scoped opacity slabs and fixed JOSH operator tables | [x] | [x] | [ ] two 100+ line transfer/helper cells need splitting/comment pass | [x] | [x] `verify_josh.py` |
@@ -58,7 +58,7 @@ blocking miss remains. Unchecked means it is the next fix target, not a vague co
 
 ### Honest remaining blockers
 
-- Dense pedagogical code cells remain in L5, L8, L10, L13, and L14 under the current
+- Dense pedagogical code cells remain in L8, L10, L13, and L14 under the current
   `>=100` line audit. Break or comment them only with the matching lecture build and verifier rerun.
 - L8 is not strict closure until its opacity slabs come from the earlier lecture torch outputs and
   the fixed JOSH operator tables are either derived in-book or explicitly vendor-provenanced.
@@ -119,8 +119,8 @@ plus HR comparison.
 - Function-docstring audit: `lowdoc>=20 = 0` under the current rule (functions/classes at least
   20 lines must have useful docstrings).
 - Remaining long-cell audit using the stricter `>=100` line threshold:
-  L5 has 2, L8 has 2, L10 has 1, L13 has 1, and L14 has 9. L1-L4, L6-L7, L9, L11-L12, and
-  L15-L16 have no code cells at or above this threshold.
+  L8 has 2, L10 has 1, L13 has 1, and L14 has 9. L1-L7, L9, L11-L12, and L15-L16 have no code
+  cells at or above this threshold.
 - `git diff --check`: clean.
 - `python _pipeline/build_lecture3_gpu.py && python _pipeline/build.py 3 &&
   python _pipeline/verify_kapp.py`: L3 stricter KAPP naming pass is green; KAPP verifier reports

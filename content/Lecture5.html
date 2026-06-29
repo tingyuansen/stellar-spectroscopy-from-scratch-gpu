@@ -740,10 +740,88 @@ MAX_PROFILE_STEPS = <span class="hljs-number">1_000_000</span>
     <span class="hljs-keyword">return</span> maxstep, use_far, n10dop, dvoigt, x_far
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;batched wing-reach geometry ready&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">batched wing-reach geometry ready
-</pre></div></div><div class="prose"><p><strong><code>_wing_walk_core</code> — the fixed-offset sweep + the batched deposit.</strong> Given the reach, this sweeps offsets <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><mo>…</mo><mi>W</mi></mrow><annotation encoding="application/x-tex">1\ldots W</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord">1</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="minner">…</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">W</span></span></span></span> (the widest reach in the <em>given</em> batch), evaluates the near-wing Harris profile and the far-wing <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>x</mi><mrow><mi mathvariant="normal">f</mi><mi mathvariant="normal">a</mi><mi mathvariant="normal">r</mi></mrow></msub><mi mathvariant="normal">/</mi><msup><mrow><mi mathvariant="normal">o</mi><mi mathvariant="normal">f</mi><mi mathvariant="normal">f</mi><mi mathvariant="normal">s</mi><mi mathvariant="normal">e</mi><mi mathvariant="normal">t</mi></mrow><mn>2</mn></msup></mrow><annotation encoding="application/x-tex">x_{\rm far}/\mathrm{offset}^2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1.1484em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3361em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">far</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mord">/</span><span class="mord"><span class="mord"><span class="mord mathrm">offset</span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8984em;"><span style="top:-3.1473em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span></span></span></span> for the whole <code>[depth, line, offset]</code> block, masks each offset against its pair&#39;s <code>maxstep</code> and the red/blue array edges, and deposits the <strong>red</strong> block and the <strong>blue</strong> block each with one <code>_scatter_add_3d</code>. <em>Two batched scatters replace the scalar reference&#39;s entire per-line <code>while</code> loop.</em></p>
+</pre></div></div><div class="prose"><p><strong><code>_harris_mid_branch_value</code> — the tiny fp64 precision island.</strong> The Harris intermediate branch is the only place where the fp32 polynomial evaluation can lose isolated core pixels to cancellation. This helper evaluates just that sparse branch in fp64; all low/far branches and all scatter-add deposits remain on the selected device.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[11]</span>Python</span>
+        <button class="copy-btn" type="button" data-code="def harris_mid_branch_value(reduced_frequency, damping_a_block, harris_table_index,
+                            mid_mask, h0tab64, h1tab64, h2tab64):
+    &quot;&quot;&quot;Evaluate the cancellation-sensitive Harris intermediate branch in fp64.&quot;&quot;&quot;
+    mid_value = torch.zeros_like(reduced_frequency.abs())
+    if not bool(mid_mask.any()):
+        return mid_value
+
+    damping_mid = damping_a_block.expand_as(reduced_frequency)[mid_mask]
+    reduced_frequency_sq_mid = (reduced_frequency * reduced_frequency)[mid_mask]
+    table_index_mid = harris_table_index[mid_mask]
+    h0_mid = h0tab64[table_index_mid]
+    h1_raw_mid = h1tab64[table_index_mid]
+    h2_raw_mid = h2tab64[table_index_mid]
+    h1_mid = h1_raw_mid + h0_mid * 1.12838
+    h2_mid = h2_raw_mid + h1_mid * 1.12838 - h0_mid
+    h3_mid = (
+        (1.0 - h2_raw_mid) * 0.37613
+        - h1_mid * 0.66667 * reduced_frequency_sq_mid
+        + h2_mid * 1.12838
+    )
+    h4_mid = (
+        (3.0 * h3_mid - h1_mid) * 0.37613
+        + h0_mid * 0.66667 * reduced_frequency_sq_mid * reduced_frequency_sq_mid
+    )
+    numerator_poly = (
+        (((h4_mid * damping_mid + h3_mid) * damping_mid + h2_mid) * damping_mid + h1_mid)
+        * damping_mid
+        + h0_mid
+    )
+    damping_blend = (
+        ((-0.122727278 * damping_mid + 0.532770573) * damping_mid - 0.96284325)
+        * damping_mid
+        + 0.979895032
+    )
+    mid_value[mid_mask] = numerator_poly * damping_blend
+    return mid_value" aria-label="Copy code">
+          <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
+      </div>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">harris_mid_branch_value</span>(<span class="hljs-params">reduced_frequency, damping_a_block, harris_table_index,
+                            mid_mask, h0tab64, h1tab64, h2tab64</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Evaluate the cancellation-sensitive Harris intermediate branch in fp64.&quot;&quot;&quot;</span>
+    mid_value = torch.zeros_like(reduced_frequency.<span class="hljs-built_in">abs</span>())
+    <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> <span class="hljs-built_in">bool</span>(mid_mask.<span class="hljs-built_in">any</span>()):
+        <span class="hljs-keyword">return</span> mid_value
+
+    damping_mid = damping_a_block.expand_as(reduced_frequency)[mid_mask]
+    reduced_frequency_sq_mid = (reduced_frequency * reduced_frequency)[mid_mask]
+    table_index_mid = harris_table_index[mid_mask]
+    h0_mid = h0tab64[table_index_mid]
+    h1_raw_mid = h1tab64[table_index_mid]
+    h2_raw_mid = h2tab64[table_index_mid]
+    h1_mid = h1_raw_mid + h0_mid * <span class="hljs-number">1.12838</span>
+    h2_mid = h2_raw_mid + h1_mid * <span class="hljs-number">1.12838</span> - h0_mid
+    h3_mid = (
+        (<span class="hljs-number">1.0</span> - h2_raw_mid) * <span class="hljs-number">0.37613</span>
+        - h1_mid * <span class="hljs-number">0.66667</span> * reduced_frequency_sq_mid
+        + h2_mid * <span class="hljs-number">1.12838</span>
+    )
+    h4_mid = (
+        (<span class="hljs-number">3.0</span> * h3_mid - h1_mid) * <span class="hljs-number">0.37613</span>
+        + h0_mid * <span class="hljs-number">0.66667</span> * reduced_frequency_sq_mid * reduced_frequency_sq_mid
+    )
+    numerator_poly = (
+        (((h4_mid * damping_mid + h3_mid) * damping_mid + h2_mid) * damping_mid + h1_mid)
+        * damping_mid
+        + h0_mid
+    )
+    damping_blend = (
+        ((-<span class="hljs-number">0.122727278</span> * damping_mid + <span class="hljs-number">0.532770573</span>) * damping_mid - <span class="hljs-number">0.96284325</span>)
+        * damping_mid
+        + <span class="hljs-number">0.979895032</span>
+    )
+    mid_value[mid_mask] = numerator_poly * damping_blend
+    <span class="hljs-keyword">return</span> mid_value</code></pre>
+    </div></div><div class="prose"><p><strong><code>_wing_walk_core</code> — the fixed-offset sweep + the batched deposit.</strong> Given the reach, this sweeps offsets <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><mo>…</mo><mi>W</mi></mrow><annotation encoding="application/x-tex">1\ldots W</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord">1</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="minner">…</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">W</span></span></span></span> (the widest reach in the <em>given</em> batch), evaluates the near-wing Harris profile and the far-wing <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>x</mi><mrow><mi mathvariant="normal">f</mi><mi mathvariant="normal">a</mi><mi mathvariant="normal">r</mi></mrow></msub><mi mathvariant="normal">/</mi><msup><mrow><mi mathvariant="normal">o</mi><mi mathvariant="normal">f</mi><mi mathvariant="normal">f</mi><mi mathvariant="normal">s</mi><mi mathvariant="normal">e</mi><mi mathvariant="normal">t</mi></mrow><mn>2</mn></msup></mrow><annotation encoding="application/x-tex">x_{\rm far}/\mathrm{offset}^2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1.1484em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3361em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">far</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mord">/</span><span class="mord"><span class="mord"><span class="mord mathrm">offset</span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8984em;"><span style="top:-3.1473em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span></span></span></span> for the whole <code>[depth, line, offset]</code> block, masks each offset against its pair&#39;s <code>maxstep</code> and the red/blue array edges, and deposits the <strong>red</strong> block and the <strong>blue</strong> block each with one <code>_scatter_add_3d</code>. <em>Two batched scatters replace the scalar reference&#39;s entire per-line <code>while</code> loop.</em></p>
+</div><div class="nb-cell"><div class="code-card">
+      <div class="code-top">
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[12]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def harris_branch_oracle(damping_a_fp64, dvoigt_fp64, tier_width, device, h0tab, h1tab, h2tab):
     &quot;&quot;&quot;Build branch decisions for the Harris Voigt walk in CPU/fp64.
 
@@ -766,31 +844,8 @@ MAX_PROFILE_STEPS = <span class="hljs-number">1_000_000</span>
     far = (damping_a_block &gt; 1.4) | ((damping_a_block + abs_reduced_frequency) &gt; 3.2)
     mid_mask = (~low) &amp; (~far)
 
-    # The intermediate Harris polynomial is the only cancellation-prone branch: fp32 alone
-    # reaches 1.12e-6 on isolated, single-contributor core pixels.  Evaluate just those compact
-    # core points in fp64; low/far profiles and every scatter remain MPS-resident.
-    mid_value = torch.zeros_like(abs_reduced_frequency)
-    if bool(mid_mask.any()):
-        damping_mid = damping_a_block.expand_as(abs_reduced_frequency)[mid_mask]
-        reduced_frequency_sq_mid = (reduced_frequency * reduced_frequency)[mid_mask]
-        table_index_mid = harris_table_index[mid_mask]
-        h0_mid = h0tab64[table_index_mid]
-        h1_raw_mid = h1tab64[table_index_mid]
-        h2_raw_mid = h2tab64[table_index_mid]
-        h1_mid = h1_raw_mid + h0_mid * 1.12838
-        h2_mid = h2_raw_mid + h1_mid * 1.12838 - h0_mid
-        h3_mid = ((1.0 - h2_raw_mid) * 0.37613
-                  - h1_mid * 0.66667 * reduced_frequency_sq_mid
-                  + h2_mid * 1.12838)
-        h4_mid = ((3.0 * h3_mid - h1_mid) * 0.37613
-                  + h0_mid * 0.66667 * reduced_frequency_sq_mid * reduced_frequency_sq_mid)
-        numerator_poly = (
-            (((h4_mid * damping_mid + h3_mid) * damping_mid + h2_mid) * damping_mid
-             + h1_mid) * damping_mid + h0_mid)
-        damping_blend = (
-            ((-0.122727278 * damping_mid + 0.532770573) * damping_mid - 0.96284325)
-            * damping_mid + 0.979895032)
-        mid_value[mid_mask] = numerator_poly * damping_blend
+    mid_value = harris_mid_branch_value(
+        reduced_frequency, damping_a_block, harris_table_index, mid_mask, h0tab64, h1tab64, h2tab64)
     return {
         &quot;iv&quot;: harris_table_index.to(device=device),
         &quot;low_tail&quot;: (abs_reduced_frequency &gt; 10.0).to(device=device),
@@ -869,31 +924,8 @@ print(&quot;fixed-offset wing-walk core ready (two batched scatters)&quot;)" ari
     far = (damping_a_block &gt; <span class="hljs-number">1.4</span>) | ((damping_a_block + abs_reduced_frequency) &gt; <span class="hljs-number">3.2</span>)
     mid_mask = (~low) &amp; (~far)
 
-    <span class="hljs-comment"># The intermediate Harris polynomial is the only cancellation-prone branch: fp32 alone</span>
-    <span class="hljs-comment"># reaches 1.12e-6 on isolated, single-contributor core pixels.  Evaluate just those compact</span>
-    <span class="hljs-comment"># core points in fp64; low/far profiles and every scatter remain MPS-resident.</span>
-    mid_value = torch.zeros_like(abs_reduced_frequency)
-    <span class="hljs-keyword">if</span> <span class="hljs-built_in">bool</span>(mid_mask.<span class="hljs-built_in">any</span>()):
-        damping_mid = damping_a_block.expand_as(abs_reduced_frequency)[mid_mask]
-        reduced_frequency_sq_mid = (reduced_frequency * reduced_frequency)[mid_mask]
-        table_index_mid = harris_table_index[mid_mask]
-        h0_mid = h0tab64[table_index_mid]
-        h1_raw_mid = h1tab64[table_index_mid]
-        h2_raw_mid = h2tab64[table_index_mid]
-        h1_mid = h1_raw_mid + h0_mid * <span class="hljs-number">1.12838</span>
-        h2_mid = h2_raw_mid + h1_mid * <span class="hljs-number">1.12838</span> - h0_mid
-        h3_mid = ((<span class="hljs-number">1.0</span> - h2_raw_mid) * <span class="hljs-number">0.37613</span>
-                  - h1_mid * <span class="hljs-number">0.66667</span> * reduced_frequency_sq_mid
-                  + h2_mid * <span class="hljs-number">1.12838</span>)
-        h4_mid = ((<span class="hljs-number">3.0</span> * h3_mid - h1_mid) * <span class="hljs-number">0.37613</span>
-                  + h0_mid * <span class="hljs-number">0.66667</span> * reduced_frequency_sq_mid * reduced_frequency_sq_mid)
-        numerator_poly = (
-            (((h4_mid * damping_mid + h3_mid) * damping_mid + h2_mid) * damping_mid
-             + h1_mid) * damping_mid + h0_mid)
-        damping_blend = (
-            ((-<span class="hljs-number">0.122727278</span> * damping_mid + <span class="hljs-number">0.532770573</span>) * damping_mid - <span class="hljs-number">0.96284325</span>)
-            * damping_mid + <span class="hljs-number">0.979895032</span>)
-        mid_value[mid_mask] = numerator_poly * damping_blend
+    mid_value = harris_mid_branch_value(
+        reduced_frequency, damping_a_block, harris_table_index, mid_mask, h0tab64, h1tab64, h2tab64)
     <span class="hljs-keyword">return</span> {
         <span class="hljs-string">&quot;iv&quot;</span>: harris_table_index.to(device=device),
         <span class="hljs-string">&quot;low_tail&quot;</span>: (abs_reduced_frequency &gt; <span class="hljs-number">10.0</span>).to(device=device),
@@ -952,7 +984,7 @@ print(&quot;fixed-offset wing-walk core ready (two batched scatters)&quot;)" ari
 </pre></div></div><div class="prose"><p><strong><code>_wing_walk_tiered</code> — reach-tiering, to avoid wasted Harris evals.</strong> A single fixed-offset sweep over <em>all</em> lines would size <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>W</mi></mrow><annotation encoding="application/x-tex">W</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">W</span></span></span></span> to the one line that reaches farthest, wasting work evaluating the profile at huge offsets for lines that stopped after a few steps. <strong>Tiering</strong> fixes this: lines are bucketed by their reach into power-of-two tiers, and each tier runs <code>_wing_walk_core</code> over only <em>its</em> offset range. A tier of weak lines (reach <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>≤</mo><mn>8</mn></mrow><annotation encoding="application/x-tex">\le 8</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7719em;vertical-align:-0.136em;"></span><span class="mrel">≤</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">8</span></span></span></span>) sweeps 8 offsets; the rare far-reaching line gets its own wide sweep. Same total scatter, far fewer wasted profile evaluations.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[12]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[13]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def wing_walk_tiered(opacity_grid, center_columns, kappa0_wing, damping_a, maxstep,
                      use_far, n10dop, dvoigt, x_far, wavelength_count,
                      h0tab, h1tab, h2tab, damping_a_fp64=None, dvoigt_fp64=None):
@@ -1033,7 +1065,7 @@ print(&quot;reach-tiered wing walk ready&quot;)" aria-label="Copy code">
 </pre></div></div><div class="prose"><p><strong><code>accumulate_metal</code> — the whole pipeline.</strong> This ties it together, exactly as the inline fp64 reference&#39;s <code>metal_accumulate_numpy</code> does, but with the <strong>line axis as a batch axis</strong> throughout. It selects the metal lines, gathers each line&#39;s population and Doppler width across all depths, forms <code>kappa0_pre</code> and the post-Boltzmann <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>κ</mi><mn>0</mn></msub></mrow><annotation encoding="application/x-tex">\kappa_0</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">κ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">0</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> (FASTEX), applies the two-stage cutoff, builds the damping <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>a</mi></mrow><annotation encoding="application/x-tex">a</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal">a</span></span></span></span>, computes the center contribution <code>kapcen</code> and deposits it via the 2-D scatter, back-solves the wing amplitude <code>kappa0_wing = kapcen/H(a,0)</code>, computes the reach with <code>_wing_reach_batched</code>, and deposits the wings with <code>_wing_walk_tiered</code>. <strong>No Python <code>for</code> over the twelve thousand lines</strong> — only the reach-tier loop (a handful of iterations) and the device kernels. Stimulated emission is <em>not</em> applied here; it goes on once at the very end. Transcribed from the validated implementation.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[13]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[14]</span>Python</span>
         <button class="copy-btn" type="button" data-code="CUTOFF = 1.0e-3; KAPMIN_FLOOR = 1.0e-8; CGF_CONSTANT = 0.026538 / 1.77245; C_LIGHT_NM = 2.99792458e17
 
 def metal_invariants_fp64(catalog, atmd, grid, cont, metal_line_indices,
@@ -1219,7 +1251,7 @@ def metal_invariants_fp64(catalog, atmd, grid, cont, metal_line_indices,
     </div></div><div class="prose"><p>The invariant solve returns compact <code>[depth, line]</code> tensors: center deposits, live wing-line selection, damping, reach, and far-wing anchors. The next cell is the orchestration layer. It allocates the output opacity field, scatters the center values, then hands only the live wing subset to the reach-tiered GPU walk.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[14]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[15]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def accumulate_metal(catalog, atmd, grid, cont):
     &quot;&quot;&quot;The fully-batched metal-line scatter accumulation -&gt; kappa_metal[n_depths, n_w] (NO stim
     factor; applied once at the end). The line axis is a TENSOR BATCH axis; the deposit is one (or a
@@ -1343,7 +1375,7 @@ print(&quot;accumulate_metal ready (the batched scatter-add pipeline)&quot;)" ar
 <p>We run the twin to get <code>kappa_ref[80, 5941]</code>, run the GPU <code>accumulate_metal</code> to get <code>kappa_torch</code>, and compare on the <strong>opacity-bearing pixels</strong> (<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi mathvariant="normal">∣</mi><mrow><mi mathvariant="normal">r</mi><mi mathvariant="normal">e</mi><mi mathvariant="normal">f</mi></mrow><mi mathvariant="normal">∣</mi><mo>&gt;</mo><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>12</mn></mrow></msup></mrow><annotation encoding="application/x-tex">|{\rm ref}| &gt; 10^{-12}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">∣</span><span class="mord"><span class="mord"><span class="mord mathrm" style="margin-right:0.07778em;">ref</span></span></span><span class="mord">∣</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">&gt;</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">12</span></span></span></span></span></span></span></span></span></span></span></span> — the line cores and wings; the empty continuum between lines is not a meaningful relative comparison). First, the inline fp64 reference.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[15]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[16]</span>Python</span>
         <button class="copy-btn" type="button" data-code="_EXTAB  = np.exp(-np.arange(1001, dtype=np.float64))          # FASTEX tables for the twin
 _EXTABF = np.exp(-np.arange(1001, dtype=np.float64) * 0.001)
 
@@ -1442,7 +1474,7 @@ _EXTABF = np.exp(-np.arange(<span class="hljs-number">1001</span>, dtype=np.floa
 </pre></div></div><div class="prose"><p>The next reference block supplies the scalar grid-index helpers and the literal outward wing walk. It is intentionally loop-based: this is the comparison oracle whose <code>+=</code> deposits the GPU scatter must reproduce, not the shipped compute path.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[16]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[17]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def nearest_grid_indices(grid, values):
     ratiolg=np.log(grid[1]/grid[0]); ix0=int(np.log(grid[0])/ratiolg+0.5)
     idx=(np.log(values)/ratiolg+0.5).astype(np.int64)-ix0
@@ -1571,7 +1603,7 @@ _CGF_CONSTANT=<span class="hljs-number">0.026538</span>/<span class="hljs-number
 </pre></div></div><div class="prose"><p>With the scalar profile and wing-walk helpers in place, the final reference block loops over the catalog and assembles the complete metal opacity. This is the deliberately slow per-line path used only by the validation cell.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[17]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[18]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def metal_accumulate_numpy(catalog, atmd, grid, cont):
     &quot;&quot;&quot;The fp64-reference metal-line accumulation -&gt; metal_opacity[n_depths, n_w] (NO stim factor;
     applied once at the end). The scalar per-line reference the torch scatter must reproduce.&quot;&quot;&quot;
@@ -1704,7 +1736,7 @@ print(&quot;fp64 reference: metal_accumulate_numpy ready&quot;)" aria-label="Cop
 </pre></div></div><div class="prose"><p><strong>Run both and compare — completely.</strong> We assemble the catalog and atmosphere dicts the two paths share, run the inline fp64 reference and the GPU <code>accumulate_metal</code>, and compare every opacity-bearing pixel. Discontinuous cutoff, table-index, branch, and reach geometry is resolved by the compact CPU/fp64 invariant solve; the cancellation-prone intermediate Harris core is the only profile-value precision island. Bulk low/far profile evaluation and every overlapping deposit remain MPS/fp32. The acceptance criterion is the full maximum, not a percentile: <strong>max relative error <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>≤</mo><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>6</mn></mrow></msup></mrow><annotation encoding="application/x-tex">\le 10^{-6}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7719em;vertical-align:-0.136em;"></span><span class="mrel">≤</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">6</span></span></span></span></span></span></span></span></span></span></span></span></strong>.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[18]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[19]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# assemble the inputs both paths read
 catalog = dict(lam=lam, gf=gf, Elow=Elow, idxwl=idxwl, Z=Zc, ion=ion, lt=lt,
                grad=grad, gstark=gstark, gvdw=gvdw, h0tab=h0tab, h1tab=h1tab, h2tab=h2tab)
@@ -1788,7 +1820,7 @@ The complete GPU metal scatter passes the full-support maximum-error gate.
 <p>Overlay the total metal line opacity from the batched scatter on the inline fp64 reference at a photospheric layer, across the whole 500–510 nm window. The two curves coincide line for line; the batched scatter and the scalar <code>+=</code> walk land the same opacity at the same pixels.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[19]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[20]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# apply stimulated emission once (the factor both paths held back to the end), then plot
 freq_grid = C_LIGHT_NM / grid                                       # [Hz]
 hkt = 6.62607015e-27 / (1.380649e-16 * T)                          # h / kT per depth
@@ -1832,7 +1864,7 @@ plt.legend(loc=<span class="hljs-string">&quot;upper right&quot;</span>); plt.ti
 <p>The metal scatter above is the main GPU hot path, but the textbook line-list lesson also has to account for the rest of the atomic catalog. We keep using the same loaded inputs: the line catalog (<code>full_lines_data.npz</code>), the depth-state atmosphere (<code>atmosphere.npz</code>), and the diagnostic arrays (<code>diag.npz</code>) used only as comparison targets. The cells below make the catalog tensors explicit, add helium, and close the non-Voigt special line-type leaves. The taught computation stays torch-native; NumPy appears only in explicit comparison-reference cells.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[20]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[21]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Torch views of the already-loaded reference arrays.  The host files were loaded above;
 # from here on the shipped path works on DEVICE in DTYPE.
 grid_t = dev(grid)
@@ -1889,7 +1921,7 @@ catalog lines=12573, depths=80, population table=(80, 6, 139)
 <p>Each Kurucz record supplies the wavelength, <code>log gf</code>, species code, lower excitation energy, damping constants, and line-type code. The earlier sections already used these fields for the metal scatter; here the same columns become one-dimensional tensors so the remaining catalog checks share the same <strong>line axis as batch axis</strong>. The code below mirrors a quick catalog inspection without a Python loop over the catalog: it ranks ordinary metal lines by <code>log gf</code> with <code>torch.topk</code> and prints the strongest few as tensors.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[21]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[22]</span>Python</span>
         <button class="copy-btn" type="button" data-code="metal_t = (lt_t == 0)
 he_t = (lt_t == -3) | (lt_t == -4) | (lt_t == -6)
 hy_t = (lt_t == -1) | (lt_t == -2)
@@ -1947,7 +1979,7 @@ metal lines: 12568; helium lines: 2; hydrogen lines: 3 -&gt; next lecture
 <p>The atmosphere file already stores <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>n</mi><mrow><mi mathvariant="normal">i</mi><mi mathvariant="normal">o</mi><mi mathvariant="normal">n</mi></mrow></msub><mi mathvariant="normal">/</mi><mi>U</mi></mrow><annotation encoding="application/x-tex">n_{\rm ion}/U</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal">n</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3175em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">ion</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mord">/</span><span class="mord mathnormal" style="margin-right:0.10903em;">U</span></span></span></span> as <code>population_per_ion</code>; the Boltzmann factor is the production code&#39;s tabulated FASTEX exponential. This is the same branchless gather used in the metal accumulation, shown here over the whole <code>(depth, line)</code> catalog tensor so the helium and special-profile sections have the same population boundary as the ordinary metal path.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[22]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[23]</span>Python</span>
         <button class="copy-btn" type="button" data-code="extab_t, extabf_t = gpu_fastex_tables()
 
 elem_idx_t = Z_t - 1
@@ -2005,9 +2037,97 @@ shape = (80, 12573); max Fe I contribution = 1.741e+09 cm^-3
 </pre></div></div><div class="prose"><h2>Adding the helium lines</h2>
 <p>The metal scatter-add hot path is now validated. We add the helium path next because helium is part of the atomic line-list lecture but does not use the ordinary metal reach-tier scatter unchanged.</p>
 <p>Helium uses the same population, FASTEX, damping, and Harris-Voigt machinery, but its wing accumulation includes a <strong>continuum-merge taper</strong>. For each depth and helium line the taper is zero below <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>w</mi><mrow><mi mathvariant="normal">c</mi><mi mathvariant="normal">o</mi><mi mathvariant="normal">n</mi></mrow></msub></mrow><annotation encoding="application/x-tex">w_{\rm con}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.02691em;">w</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.0269em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">con</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>, ramps linearly between <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>w</mi><mrow><mi mathvariant="normal">c</mi><mi mathvariant="normal">o</mi><mi mathvariant="normal">n</mi></mrow></msub></mrow><annotation encoding="application/x-tex">w_{\rm con}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.02691em;">w</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.0269em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">con</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> and <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>w</mi><mrow><mi mathvariant="normal">t</mi><mi mathvariant="normal">a</mi><mi mathvariant="normal">i</mi><mi mathvariant="normal">l</mi></mrow></msub></mrow><annotation encoding="application/x-tex">w_{\rm tail}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.02691em;">w</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3361em;"><span style="top:-2.55em;margin-left:-0.0269em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">tail</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>, and is full strength beyond <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>w</mi><mrow><mi mathvariant="normal">t</mi><mi mathvariant="normal">a</mi><mi mathvariant="normal">i</mi><mi mathvariant="normal">l</mi></mrow></msub></mrow><annotation encoding="application/x-tex">w_{\rm tail}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.02691em;">w</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3361em;"><span style="top:-2.55em;margin-left:-0.0269em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">tail</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>. The inline fp64 reference walks each helium wing pixel by pixel. Here the entire <code>(depth, helium-line, wavelength)</code> cube is evaluated at once, and the &quot;stop at the first below-cutoff pixel&quot; rule is represented by cumulative stop masks along the wavelength axis.</p>
+<p>The helper below isolates that merge-and-stop rule. It builds red and blue domains around the
+line center, applies the continuum taper, then uses cumulative sums to keep only pixels before the
+first below-cutoff stop in each wing.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[23]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[24]</span>Python</span>
+        <button class="copy-btn" type="button" data-code="def helium_merge_deposit_mask(grid64, helium_wavelength, center_columns, wcon_t, wtail_t,
+                              untapered_profile, continuum64, he_cut_t, valid_profile):
+    &quot;&quot;&quot;Apply the helium continuum-merge taper and outward stop masks.&quot;&quot;&quot;
+    wavelength_grid = grid64.view(1, 1, -1)
+    grid_columns = torch.arange(grid64.numel(), dtype=torch.int64, device=grid64.device).view(1, 1, -1)
+    center_columns_3d = center_columns.view(1, -1, 1)
+
+    red_domain = grid_columns &gt;= center_columns_3d
+    blue_domain = grid_columns &lt; center_columns_3d
+    red_domain = red_domain &amp; (helium_wavelength.view(1, -1, 1) &lt;= grid64[-1])
+    blue_domain = blue_domain &amp; (helium_wavelength.view(1, -1, 1) &gt;= grid64[0]) &amp; (center_columns_3d &gt; 0)
+
+    wcon = wcon_t[:, :, None]
+    wtail = wtail_t[:, :, None]
+    has_wcon = wcon &gt; 0.0
+    has_wtail = wtail &gt; 0.0
+    can_eval = ~(has_wcon &amp; (wavelength_grid &lt;= wcon))
+
+    taper_start_wavelength = torch.where(has_wcon, wcon, helium_wavelength.view(1, -1, 1))
+    taper_width = torch.clamp(wtail - taper_start_wavelength, min=1.0e-12)
+    taper = torch.where(
+        has_wtail &amp; (wavelength_grid &lt; wtail),
+        (wavelength_grid - taper_start_wavelength) / taper_width,
+        torch.ones_like(untapered_profile),
+    )
+    tapered_profile = untapered_profile * taper
+
+    cutoff_grid = continuum64[:, None, :] * he_cut_t
+    stop_red = red_domain &amp; can_eval &amp; (tapered_profile &lt; cutoff_grid)
+    stop_blue = blue_domain &amp; can_eval &amp; (tapered_profile &lt; cutoff_grid)
+
+    red_before_stop = torch.cumsum(stop_red.to(torch.int64), dim=2) == 0
+    blue_before_stop = torch.flip(
+        torch.cumsum(torch.flip(stop_blue.to(torch.int64), dims=(2,)), dim=2) == 0,
+        dims=(2,),
+    )
+
+    return valid_profile[:, :, None] &amp; can_eval &amp; (tapered_profile &gt;= cutoff_grid) &amp; (
+        (red_domain &amp; red_before_stop) | (blue_domain &amp; blue_before_stop)
+    ), tapered_profile" aria-label="Copy code">
+          <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
+      </div>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">helium_merge_deposit_mask</span>(<span class="hljs-params">grid64, helium_wavelength, center_columns, wcon_t, wtail_t,
+                              untapered_profile, continuum64, he_cut_t, valid_profile</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Apply the helium continuum-merge taper and outward stop masks.&quot;&quot;&quot;</span>
+    wavelength_grid = grid64.view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)
+    grid_columns = torch.arange(grid64.numel(), dtype=torch.int64, device=grid64.device).view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)
+    center_columns_3d = center_columns.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>, <span class="hljs-number">1</span>)
+
+    red_domain = grid_columns &gt;= center_columns_3d
+    blue_domain = grid_columns &lt; center_columns_3d
+    red_domain = red_domain &amp; (helium_wavelength.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) &lt;= grid64[-<span class="hljs-number">1</span>])
+    blue_domain = blue_domain &amp; (helium_wavelength.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) &gt;= grid64[<span class="hljs-number">0</span>]) &amp; (center_columns_3d &gt; <span class="hljs-number">0</span>)
+
+    wcon = wcon_t[:, :, <span class="hljs-literal">None</span>]
+    wtail = wtail_t[:, :, <span class="hljs-literal">None</span>]
+    has_wcon = wcon &gt; <span class="hljs-number">0.0</span>
+    has_wtail = wtail &gt; <span class="hljs-number">0.0</span>
+    can_eval = ~(has_wcon &amp; (wavelength_grid &lt;= wcon))
+
+    taper_start_wavelength = torch.where(has_wcon, wcon, helium_wavelength.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>, <span class="hljs-number">1</span>))
+    taper_width = torch.clamp(wtail - taper_start_wavelength, <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-12</span>)
+    taper = torch.where(
+        has_wtail &amp; (wavelength_grid &lt; wtail),
+        (wavelength_grid - taper_start_wavelength) / taper_width,
+        torch.ones_like(untapered_profile),
+    )
+    tapered_profile = untapered_profile * taper
+
+    cutoff_grid = continuum64[:, <span class="hljs-literal">None</span>, :] * he_cut_t
+    stop_red = red_domain &amp; can_eval &amp; (tapered_profile &lt; cutoff_grid)
+    stop_blue = blue_domain &amp; can_eval &amp; (tapered_profile &lt; cutoff_grid)
+
+    red_before_stop = torch.cumsum(stop_red.to(torch.int64), dim=<span class="hljs-number">2</span>) == <span class="hljs-number">0</span>
+    blue_before_stop = torch.flip(
+        torch.cumsum(torch.flip(stop_blue.to(torch.int64), dims=(<span class="hljs-number">2</span>,)), dim=<span class="hljs-number">2</span>) == <span class="hljs-number">0</span>,
+        dims=(<span class="hljs-number">2</span>,),
+    )
+
+    <span class="hljs-keyword">return</span> valid_profile[:, :, <span class="hljs-literal">None</span>] &amp; can_eval &amp; (tapered_profile &gt;= cutoff_grid) &amp; (
+        (red_domain &amp; red_before_stop) | (blue_domain &amp; blue_before_stop)
+    ), tapered_profile</code></pre>
+    </div></div><div class="nb-cell"><div class="code-card">
+      <div class="code-top">
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[25]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def helium_opacity_torch():
     &quot;&quot;&quot;Vectorized helium opacity with the continuum-merge taper.
 
@@ -2083,48 +2203,16 @@ shape = (80, 12573); max Fe I contribution = 1.741e+09 cm^-3
     a_eff = torch.where(isotope, adamp / 1.155, adamp)
     a_eff = torch.clamp(a_eff, min=1.0e-12)
 
-    wavelength_grid = grid64.view(1, 1, -1)
-    grid_columns = torch.arange(grid64.numel(), dtype=torch.int64, device=solve_device).view(1, 1, -1)
-    center_columns_3d = center_columns.view(1, -1, 1)
-
-    red_domain = grid_columns &gt;= center_columns_3d
-    blue_domain = grid_columns &lt; center_columns_3d
-    red_domain = red_domain &amp; (helium_wavelength.view(1, -1, 1) &lt;= grid64[-1])
-    blue_domain = blue_domain &amp; (helium_wavelength.view(1, -1, 1) &gt;= grid64[0]) &amp; (center_columns_3d &gt; 0)
-
     doppler_width_safe = torch.clamp(doppler_width_effective[:, :, None], min=1.0e-30)
+    wavelength_grid = grid64.view(1, 1, -1)
     reduced_frequency = torch.abs(wavelength_grid - helium_wavelength.view(1, -1, 1)) / doppler_width_safe
     untapered_profile = (
         k_eff[:, :, None] * voigt_H_grid(reduced_frequency, a_eff[:, :, None], h0t, h1t, h2t)
     )
 
-    wcon = wcon_t[:, :, None]
-    wtail = wtail_t[:, :, None]
-    has_wcon = wcon &gt; 0.0
-    has_wtail = wtail &gt; 0.0
-    can_eval = ~(has_wcon &amp; (wavelength_grid &lt;= wcon))
-
-    taper_start_wavelength = torch.where(has_wcon, wcon, helium_wavelength.view(1, -1, 1))
-    taper_width = torch.clamp(wtail - taper_start_wavelength, min=1.0e-12)
-    taper = torch.where(
-        has_wtail &amp; (wavelength_grid &lt; wtail),
-        (wavelength_grid - taper_start_wavelength) / taper_width,
-        torch.ones_like(untapered_profile),
-    )
-    tapered_profile = untapered_profile * taper
-
-    cutoff_grid = continuum64[:, None, :] * he_cut_t
-    stop_red = red_domain &amp; can_eval &amp; (tapered_profile &lt; cutoff_grid)
-    stop_blue = blue_domain &amp; can_eval &amp; (tapered_profile &lt; cutoff_grid)
-
-    red_before_stop = torch.cumsum(stop_red.to(torch.int64), dim=2) == 0
-    blue_before_stop = torch.flip(
-        torch.cumsum(torch.flip(stop_blue.to(torch.int64), dims=(2,)), dim=2) == 0,
-        dims=(2,),
-    )
-
-    deposit = valid_profile[:, :, None] &amp; can_eval &amp; (tapered_profile &gt;= cutoff_grid) &amp; (
-        (red_domain &amp; red_before_stop) | (blue_domain &amp; blue_before_stop)
+    deposit, tapered_profile = helium_merge_deposit_mask(
+        grid64, helium_wavelength, center_columns, wcon_t, wtail_t,
+        untapered_profile, continuum64, he_cut_t, valid_profile,
     )
 
     helium_raw_opacity = torch.sum(
@@ -2214,48 +2302,16 @@ shape = (80, 12573); max Fe I contribution = 1.741e+09 cm^-3
     a_eff = torch.where(isotope, adamp / <span class="hljs-number">1.155</span>, adamp)
     a_eff = torch.clamp(a_eff, <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-12</span>)
 
-    wavelength_grid = grid64.view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)
-    grid_columns = torch.arange(grid64.numel(), dtype=torch.int64, device=solve_device).view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)
-    center_columns_3d = center_columns.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>, <span class="hljs-number">1</span>)
-
-    red_domain = grid_columns &gt;= center_columns_3d
-    blue_domain = grid_columns &lt; center_columns_3d
-    red_domain = red_domain &amp; (helium_wavelength.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) &lt;= grid64[-<span class="hljs-number">1</span>])
-    blue_domain = blue_domain &amp; (helium_wavelength.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) &gt;= grid64[<span class="hljs-number">0</span>]) &amp; (center_columns_3d &gt; <span class="hljs-number">0</span>)
-
     doppler_width_safe = torch.clamp(doppler_width_effective[:, :, <span class="hljs-literal">None</span>], <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-30</span>)
+    wavelength_grid = grid64.view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)
     reduced_frequency = torch.<span class="hljs-built_in">abs</span>(wavelength_grid - helium_wavelength.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>, <span class="hljs-number">1</span>)) / doppler_width_safe
     untapered_profile = (
         k_eff[:, :, <span class="hljs-literal">None</span>] * voigt_H_grid(reduced_frequency, a_eff[:, :, <span class="hljs-literal">None</span>], h0t, h1t, h2t)
     )
 
-    wcon = wcon_t[:, :, <span class="hljs-literal">None</span>]
-    wtail = wtail_t[:, :, <span class="hljs-literal">None</span>]
-    has_wcon = wcon &gt; <span class="hljs-number">0.0</span>
-    has_wtail = wtail &gt; <span class="hljs-number">0.0</span>
-    can_eval = ~(has_wcon &amp; (wavelength_grid &lt;= wcon))
-
-    taper_start_wavelength = torch.where(has_wcon, wcon, helium_wavelength.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>, <span class="hljs-number">1</span>))
-    taper_width = torch.clamp(wtail - taper_start_wavelength, <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-12</span>)
-    taper = torch.where(
-        has_wtail &amp; (wavelength_grid &lt; wtail),
-        (wavelength_grid - taper_start_wavelength) / taper_width,
-        torch.ones_like(untapered_profile),
-    )
-    tapered_profile = untapered_profile * taper
-
-    cutoff_grid = continuum64[:, <span class="hljs-literal">None</span>, :] * he_cut_t
-    stop_red = red_domain &amp; can_eval &amp; (tapered_profile &lt; cutoff_grid)
-    stop_blue = blue_domain &amp; can_eval &amp; (tapered_profile &lt; cutoff_grid)
-
-    red_before_stop = torch.cumsum(stop_red.to(torch.int64), dim=<span class="hljs-number">2</span>) == <span class="hljs-number">0</span>
-    blue_before_stop = torch.flip(
-        torch.cumsum(torch.flip(stop_blue.to(torch.int64), dims=(<span class="hljs-number">2</span>,)), dim=<span class="hljs-number">2</span>) == <span class="hljs-number">0</span>,
-        dims=(<span class="hljs-number">2</span>,),
-    )
-
-    deposit = valid_profile[:, :, <span class="hljs-literal">None</span>] &amp; can_eval &amp; (tapered_profile &gt;= cutoff_grid) &amp; (
-        (red_domain &amp; red_before_stop) | (blue_domain &amp; blue_before_stop)
+    deposit, tapered_profile = helium_merge_deposit_mask(
+        grid64, helium_wavelength, center_columns, wcon_t, wtail_t,
+        untapered_profile, continuum64, he_cut_t, valid_profile,
     )
 
     helium_raw_opacity = torch.<span class="hljs-built_in">sum</span>(
@@ -2271,7 +2327,7 @@ shape = (80, 12573); max Fe I contribution = 1.741e+09 cm^-3
     </div></div><div class="prose"><p>Run the helium path and keep its result as a tensor on the selected device. The validation cells below compare it component-by-component against the archived helium-wing diagnostic.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[24]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[26]</span>Python</span>
         <button class="copy-btn" type="button" data-code="he_opacity_t = helium_opacity_torch()
 print(f&quot;helium opacity tensor ready: shape={tuple(he_opacity_t.shape)}, &quot;
       f&quot;nonzero pixels={int((he_opacity_t &gt; 0).sum().detach().cpu())}&quot;)" aria-label="Copy code">
@@ -2291,7 +2347,7 @@ print(f&quot;helium opacity tensor ready: shape={tuple(he_opacity_t.shape)}, &qu
 <p>against the production diagnostic with the hydrogen component subtracted. In fp32 on MPS the expected floor is no longer NumPy&#39;s machine precision, but the comparison is the same physical benchmark: metals plus helium against <code>diag['line_opacity'] - gt_ahline</code>. This is an explicit comparison-reference cell; the NumPy lines are the parity oracle.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[25]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[27]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Comparison-reference cell: NumPy appears only as the oracle/reference here.
 he_gpu = he_opacity_t.detach().cpu().to(torch.float64).numpy()  # numpy-ref
 gt_he = cat[&quot;gt_helium_wings&quot;] * stim                           # numpy-ref
@@ -2337,15 +2393,15 @@ floor = <span class="hljs-number">1.0e-6</span> <span class="hljs-keyword">if</s
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;max ABSOLUTE residual everywhere: <span class="hljs-subst">{abs_resid.<span class="hljs-built_in">max</span>():<span class="hljs-number">.2</span>e}</span>&quot;</span>)  <span class="hljs-comment"># numpy-ref</span>
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;device = <span class="hljs-subst">{DEVICE.<span class="hljs-built_in">type</span>}</span>; float floor = <span class="hljs-subst">{floor:<span class="hljs-number">.1</span>e}</span>&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">reference nonzero points: 392246 / 475280
-all nonzero points     : max rel = 5.018e-07   median = 3.147e-08
-atomic-dominated points: max rel = 5.018e-07   median = 3.147e-08
+all nonzero points     : max rel = 5.018e-07   median = 3.148e-08
+atomic-dominated points: max rel = 5.018e-07   median = 3.148e-08
 max ABSOLUTE residual everywhere: 8.02e-05
 device = mps; float floor = 1.0e-06
 </pre></div></div><div class="prose"><h3>The per-component split</h3>
 <p>Separate the benchmark into metals and helium. The metal comparison is the validated scatter-add path from the earlier section; helium is the vectorized taper path above. The reference helium wings are stored pre-stimulated-emission in the catalog, so the comparison multiplies them by the same <code>stim</code> array used for the metals.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[26]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[28]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Comparison-reference cell: per-component parity oracle.
 gt_metal = ref_atomic - gt_he                                    # numpy-ref
 
@@ -2378,7 +2434,7 @@ rel_h = np.<span class="hljs-built_in">abs</span>(he_gpu[hdom] - gt_he[hdom]) / 
 <span class="hljs-keyword">assert</span> rel_m.<span class="hljs-built_in">max</span>() &lt;= floor, <span class="hljs-string">f&quot;metal component max rel <span class="hljs-subst">{rel_m.<span class="hljs-built_in">max</span>():<span class="hljs-number">.3</span>e}</span> above <span class="hljs-subst">{floor:<span class="hljs-number">.1</span>e}</span>&quot;</span>  <span class="hljs-comment"># numpy-ref</span>
 <span class="hljs-keyword">assert</span> rel_h.<span class="hljs-built_in">max</span>() &lt;= floor, <span class="hljs-string">f&quot;helium component max rel <span class="hljs-subst">{rel_h.<span class="hljs-built_in">max</span>():<span class="hljs-number">.3</span>e}</span> above <span class="hljs-subst">{floor:<span class="hljs-number">.1</span>e}</span>&quot;</span>  <span class="hljs-comment"># numpy-ref</span>
 <span class="hljs-keyword">assert</span> rel_all.<span class="hljs-built_in">max</span>() &lt;= floor, <span class="hljs-string">f&quot;combined atomic max rel <span class="hljs-subst">{rel_all.<span class="hljs-built_in">max</span>():<span class="hljs-number">.3</span>e}</span> above <span class="hljs-subst">{floor:<span class="hljs-number">.1</span>e}</span>&quot;</span>  <span class="hljs-comment"># numpy-ref</span></code></pre>
-    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">[metals, all Z] 295990 points : max rel = 5.018e-07   median = 3.374e-08
+    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">[metals, all Z] 295990 points : max rel = 5.018e-07   median = 3.375e-08
 [helium]         51493 points : max rel = 5.939e-08   median = 2.105e-08
 [combined]                     : max ABS residual = 8.02e-05
 </pre></div></div><div class="prose"><h2>The missing piece: hydrogen</h2>
@@ -2419,7 +2475,7 @@ c100.7 8.3 195.3 44 280 108 55.3 42 101.7 93 139 153l9 14c2.7-4 5.7-8.7 9-14
 <p>The diagnostic file <code>linetypes.npz</code> stores the exact inputs and recorded output deltas for every contributing special-profile record in a hot-star synthesis. The following comparison-reference setup packs those variable-length records into padded arrays; the profile arithmetic itself is torch-vectorized over <code>(record, padded-wavelength)</code> tensors.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[27]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[29]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Comparison-reference/setup cell: variable-length archival records are packed once for the torch profile tests.
 lt_ref = np.load(REF / &quot;linetypes.npz&quot;)  # numpy-ref
 teff, logg = lt_ref[&quot;teff_logg&quot;]         # numpy-ref
@@ -2497,7 +2553,7 @@ records  : 121 autoionizing, 165 merged-continuum
 <p>The center deposits <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>κ</mi><mn>0</mn></msub></mrow><annotation encoding="application/x-tex">\kappa_0</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">κ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">0</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> after the whole-line cutoff gate; each wing stops at the first non-positive or below-cutoff value. In torch, both wing walks become cumulative stop masks on the padded wavelength axis.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[28]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[30]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Comparison-reference/setup values for the torch autoionizing profile.
 # JUSTIFIED-LOOP: archive keys are per-record scalars; this packs them, profile compute below is vectorized.
 auto_slice_lo = np.empty(n_auto, dtype=np.int64)          # numpy-ref
@@ -2701,7 +2757,7 @@ auto_cut = np.empty(n_auto, dtype=np.float64)             <span class="hljs-comm
     </div></div><div class="prose"><p>Run the autoionizing profile and compare it on its recorded support. This cell is intentionally only a validation call plus assertions; the profile arithmetic was defined above.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[29]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[31]</span>Python</span>
         <button class="copy-btn" type="button" data-code="auto_gpu_t = autoionizing_delta_torch()
 auto_gpu = auto_gpu_t.detach().cpu().to(torch.float64).numpy()  # numpy-ref
 auto_abs = np.max(np.abs(auto_gpu[auto_valid] - auto_ref[auto_valid]))  # numpy-ref
@@ -2725,7 +2781,7 @@ auto_exact = np.array_equal(auto_gpu, auto_ref) <span class="hljs-keyword">if</s
 <p>The merged-continuum line type deposits a flat strength until the merge index, then ramps linearly to zero at the tail index. The scalar routine walks increasing global grid index and stops once the ramped value falls below the local cutoff; the torch version again uses a cumulative stop mask.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[30]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[32]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Comparison-reference/setup values for the torch merged-continuum profile.
 # JUSTIFIED-LOOP: archive keys are per-record scalars; this packs them, profile compute below is vectorized.
 cont_slice_lo = np.empty(n_cont, dtype=np.int64)          # numpy-ref
@@ -2863,7 +2919,7 @@ cont_idx_tail = np.empty(n_cont, dtype=np.int64)          <span class="hljs-comm
     </div></div><div class="prose"><p>Run the merged-continuum ramp profile and assert it against the recorded support. Together with the autoionizing check, this closes the two non-Voigt leaf profiles used by special line-type records.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[31]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[33]</span>Python</span>
         <button class="copy-btn" type="button" data-code="cont_gpu_t = merged_continuum_delta_torch()
 cont_gpu = cont_gpu_t.detach().cpu().to(torch.float64).numpy()  # numpy-ref
 cont_abs = np.max(np.abs(cont_gpu[cont_valid] - cont_ref[cont_valid]))  # numpy-ref
@@ -2890,7 +2946,7 @@ BOTH special line types reproduced at the device float floor: 1.631e-07
 <p>The final figure overlays one representative autoionizing profile and one representative merged-continuum ramp on their recorded pykurucz deltas. The plot cell is a host/Matplotlib boundary, so converting the already-computed torch results back to NumPy is appropriate here.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[32]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[34]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Plot cell: host-side Matplotlib boundary.
 ai = 0
 mi = 0

@@ -452,6 +452,46 @@ def wing_reach_batched(kappa0_wing, damping_a, doppler_width, line_wavelength,
     return maxstep, use_far, n10dop, dvoigt, x_far
 print("batched wing-reach geometry ready")''')
 
+md(r"""**`_harris_mid_branch_value` — the tiny fp64 precision island.** The Harris intermediate branch is the only place where the fp32 polynomial evaluation can lose isolated core pixels to cancellation. This helper evaluates just that sparse branch in fp64; all low/far branches and all scatter-add deposits remain on the selected device.""")
+
+code(r'''def harris_mid_branch_value(reduced_frequency, damping_a_block, harris_table_index,
+                            mid_mask, h0tab64, h1tab64, h2tab64):
+    """Evaluate the cancellation-sensitive Harris intermediate branch in fp64."""
+    mid_value = torch.zeros_like(reduced_frequency.abs())
+    if not bool(mid_mask.any()):
+        return mid_value
+
+    damping_mid = damping_a_block.expand_as(reduced_frequency)[mid_mask]
+    reduced_frequency_sq_mid = (reduced_frequency * reduced_frequency)[mid_mask]
+    table_index_mid = harris_table_index[mid_mask]
+    h0_mid = h0tab64[table_index_mid]
+    h1_raw_mid = h1tab64[table_index_mid]
+    h2_raw_mid = h2tab64[table_index_mid]
+    h1_mid = h1_raw_mid + h0_mid * 1.12838
+    h2_mid = h2_raw_mid + h1_mid * 1.12838 - h0_mid
+    h3_mid = (
+        (1.0 - h2_raw_mid) * 0.37613
+        - h1_mid * 0.66667 * reduced_frequency_sq_mid
+        + h2_mid * 1.12838
+    )
+    h4_mid = (
+        (3.0 * h3_mid - h1_mid) * 0.37613
+        + h0_mid * 0.66667 * reduced_frequency_sq_mid * reduced_frequency_sq_mid
+    )
+    numerator_poly = (
+        (((h4_mid * damping_mid + h3_mid) * damping_mid + h2_mid) * damping_mid + h1_mid)
+        * damping_mid
+        + h0_mid
+    )
+    damping_blend = (
+        ((-0.122727278 * damping_mid + 0.532770573) * damping_mid - 0.96284325)
+        * damping_mid
+        + 0.979895032
+    )
+    mid_value[mid_mask] = numerator_poly * damping_blend
+    return mid_value
+''')
+
 md(r"""**`_wing_walk_core` — the fixed-offset sweep + the batched deposit.** Given the reach, this sweeps offsets $1\ldots W$ (the widest reach in the *given* batch), evaluates the near-wing Harris profile and the far-wing $x_{\rm far}/\mathrm{offset}^2$ for the whole `[depth, line, offset]` block, masks each offset against its pair's `maxstep` and the red/blue array edges, and deposits the **red** block and the **blue** block each with one `_scatter_add_3d`. *Two batched scatters replace the scalar reference's entire per-line `while` loop.*""")
 
 code(r'''def harris_branch_oracle(damping_a_fp64, dvoigt_fp64, tier_width, device, h0tab, h1tab, h2tab):
@@ -476,31 +516,8 @@ code(r'''def harris_branch_oracle(damping_a_fp64, dvoigt_fp64, tier_width, devic
     far = (damping_a_block > 1.4) | ((damping_a_block + abs_reduced_frequency) > 3.2)
     mid_mask = (~low) & (~far)
 
-    # The intermediate Harris polynomial is the only cancellation-prone branch: fp32 alone
-    # reaches 1.12e-6 on isolated, single-contributor core pixels.  Evaluate just those compact
-    # core points in fp64; low/far profiles and every scatter remain MPS-resident.
-    mid_value = torch.zeros_like(abs_reduced_frequency)
-    if bool(mid_mask.any()):
-        damping_mid = damping_a_block.expand_as(abs_reduced_frequency)[mid_mask]
-        reduced_frequency_sq_mid = (reduced_frequency * reduced_frequency)[mid_mask]
-        table_index_mid = harris_table_index[mid_mask]
-        h0_mid = h0tab64[table_index_mid]
-        h1_raw_mid = h1tab64[table_index_mid]
-        h2_raw_mid = h2tab64[table_index_mid]
-        h1_mid = h1_raw_mid + h0_mid * 1.12838
-        h2_mid = h2_raw_mid + h1_mid * 1.12838 - h0_mid
-        h3_mid = ((1.0 - h2_raw_mid) * 0.37613
-                  - h1_mid * 0.66667 * reduced_frequency_sq_mid
-                  + h2_mid * 1.12838)
-        h4_mid = ((3.0 * h3_mid - h1_mid) * 0.37613
-                  + h0_mid * 0.66667 * reduced_frequency_sq_mid * reduced_frequency_sq_mid)
-        numerator_poly = (
-            (((h4_mid * damping_mid + h3_mid) * damping_mid + h2_mid) * damping_mid
-             + h1_mid) * damping_mid + h0_mid)
-        damping_blend = (
-            ((-0.122727278 * damping_mid + 0.532770573) * damping_mid - 0.96284325)
-            * damping_mid + 0.979895032)
-        mid_value[mid_mask] = numerator_poly * damping_blend
+    mid_value = harris_mid_branch_value(
+        reduced_frequency, damping_a_block, harris_table_index, mid_mask, h0tab64, h1tab64, h2tab64)
     return {
         "iv": harris_table_index.to(device=device),
         "low_tail": (abs_reduced_frequency > 10.0).to(device=device),
@@ -1115,6 +1132,52 @@ The metal scatter-add hot path is now validated. We add the helium path next bec
 
 Helium uses the same population, FASTEX, damping, and Harris-Voigt machinery, but its wing accumulation includes a **continuum-merge taper**. For each depth and helium line the taper is zero below \(w_{\rm con}\), ramps linearly between \(w_{\rm con}\) and \(w_{\rm tail}\), and is full strength beyond \(w_{\rm tail}\). The inline fp64 reference walks each helium wing pixel by pixel. Here the entire `(depth, helium-line, wavelength)` cube is evaluated at once, and the "stop at the first below-cutoff pixel" rule is represented by cumulative stop masks along the wavelength axis.""")
 
+md(r"""The helper below isolates that merge-and-stop rule. It builds red and blue domains around the
+line center, applies the continuum taper, then uses cumulative sums to keep only pixels before the
+first below-cutoff stop in each wing.""")
+
+code(r'''def helium_merge_deposit_mask(grid64, helium_wavelength, center_columns, wcon_t, wtail_t,
+                              untapered_profile, continuum64, he_cut_t, valid_profile):
+    """Apply the helium continuum-merge taper and outward stop masks."""
+    wavelength_grid = grid64.view(1, 1, -1)
+    grid_columns = torch.arange(grid64.numel(), dtype=torch.int64, device=grid64.device).view(1, 1, -1)
+    center_columns_3d = center_columns.view(1, -1, 1)
+
+    red_domain = grid_columns >= center_columns_3d
+    blue_domain = grid_columns < center_columns_3d
+    red_domain = red_domain & (helium_wavelength.view(1, -1, 1) <= grid64[-1])
+    blue_domain = blue_domain & (helium_wavelength.view(1, -1, 1) >= grid64[0]) & (center_columns_3d > 0)
+
+    wcon = wcon_t[:, :, None]
+    wtail = wtail_t[:, :, None]
+    has_wcon = wcon > 0.0
+    has_wtail = wtail > 0.0
+    can_eval = ~(has_wcon & (wavelength_grid <= wcon))
+
+    taper_start_wavelength = torch.where(has_wcon, wcon, helium_wavelength.view(1, -1, 1))
+    taper_width = torch.clamp(wtail - taper_start_wavelength, min=1.0e-12)
+    taper = torch.where(
+        has_wtail & (wavelength_grid < wtail),
+        (wavelength_grid - taper_start_wavelength) / taper_width,
+        torch.ones_like(untapered_profile),
+    )
+    tapered_profile = untapered_profile * taper
+
+    cutoff_grid = continuum64[:, None, :] * he_cut_t
+    stop_red = red_domain & can_eval & (tapered_profile < cutoff_grid)
+    stop_blue = blue_domain & can_eval & (tapered_profile < cutoff_grid)
+
+    red_before_stop = torch.cumsum(stop_red.to(torch.int64), dim=2) == 0
+    blue_before_stop = torch.flip(
+        torch.cumsum(torch.flip(stop_blue.to(torch.int64), dims=(2,)), dim=2) == 0,
+        dims=(2,),
+    )
+
+    return valid_profile[:, :, None] & can_eval & (tapered_profile >= cutoff_grid) & (
+        (red_domain & red_before_stop) | (blue_domain & blue_before_stop)
+    ), tapered_profile
+''')
+
 code(r'''def helium_opacity_torch():
     """Vectorized helium opacity with the continuum-merge taper.
 
@@ -1190,48 +1253,16 @@ code(r'''def helium_opacity_torch():
     a_eff = torch.where(isotope, adamp / 1.155, adamp)
     a_eff = torch.clamp(a_eff, min=1.0e-12)
 
-    wavelength_grid = grid64.view(1, 1, -1)
-    grid_columns = torch.arange(grid64.numel(), dtype=torch.int64, device=solve_device).view(1, 1, -1)
-    center_columns_3d = center_columns.view(1, -1, 1)
-
-    red_domain = grid_columns >= center_columns_3d
-    blue_domain = grid_columns < center_columns_3d
-    red_domain = red_domain & (helium_wavelength.view(1, -1, 1) <= grid64[-1])
-    blue_domain = blue_domain & (helium_wavelength.view(1, -1, 1) >= grid64[0]) & (center_columns_3d > 0)
-
     doppler_width_safe = torch.clamp(doppler_width_effective[:, :, None], min=1.0e-30)
+    wavelength_grid = grid64.view(1, 1, -1)
     reduced_frequency = torch.abs(wavelength_grid - helium_wavelength.view(1, -1, 1)) / doppler_width_safe
     untapered_profile = (
         k_eff[:, :, None] * voigt_H_grid(reduced_frequency, a_eff[:, :, None], h0t, h1t, h2t)
     )
 
-    wcon = wcon_t[:, :, None]
-    wtail = wtail_t[:, :, None]
-    has_wcon = wcon > 0.0
-    has_wtail = wtail > 0.0
-    can_eval = ~(has_wcon & (wavelength_grid <= wcon))
-
-    taper_start_wavelength = torch.where(has_wcon, wcon, helium_wavelength.view(1, -1, 1))
-    taper_width = torch.clamp(wtail - taper_start_wavelength, min=1.0e-12)
-    taper = torch.where(
-        has_wtail & (wavelength_grid < wtail),
-        (wavelength_grid - taper_start_wavelength) / taper_width,
-        torch.ones_like(untapered_profile),
-    )
-    tapered_profile = untapered_profile * taper
-
-    cutoff_grid = continuum64[:, None, :] * he_cut_t
-    stop_red = red_domain & can_eval & (tapered_profile < cutoff_grid)
-    stop_blue = blue_domain & can_eval & (tapered_profile < cutoff_grid)
-
-    red_before_stop = torch.cumsum(stop_red.to(torch.int64), dim=2) == 0
-    blue_before_stop = torch.flip(
-        torch.cumsum(torch.flip(stop_blue.to(torch.int64), dims=(2,)), dim=2) == 0,
-        dims=(2,),
-    )
-
-    deposit = valid_profile[:, :, None] & can_eval & (tapered_profile >= cutoff_grid) & (
-        (red_domain & red_before_stop) | (blue_domain & blue_before_stop)
+    deposit, tapered_profile = helium_merge_deposit_mask(
+        grid64, helium_wavelength, center_columns, wcon_t, wtail_t,
+        untapered_profile, continuum64, he_cut_t, valid_profile,
     )
 
     helium_raw_opacity = torch.sum(
