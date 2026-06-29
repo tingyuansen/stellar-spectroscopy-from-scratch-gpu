@@ -624,7 +624,7 @@ def build_part(iz, nion_track):
 
         # (3a) low-T ground-state floor (PFGROUND) + (3b) high-T occupation correction.
         # Every T-threshold gate decided on the fp64 host so an fp32 boundary slip can't flip
-        # a regime (the discrete-decision rule the critics approved).
+        # a regime (a discrete-decision rule, not a smooth interpolation).
         if ip_val > 0.0:
             T2000 = ip_val * 2000.0 / 11.0
             low_t = torch.as_tensor(T_h < (T2000 * 2.0), device=DEVICE)

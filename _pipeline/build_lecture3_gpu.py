@@ -150,7 +150,7 @@ H$^-$ absorbs by two channels. **Bound-free** (photodetachment) ejects the bound
 
 The bound-free cross-section, with $\lambda$ in microns and $f \equiv 1/\lambda - 1/\lambda_0$, is $\sigma_{\rm bf} = 10^{-18}\,\lambda^3\,f^{3/2}\sum_{n=0}^{5} C_n\, f^{n/2}$, *zero past the threshold* ($\lambda \geq \lambda_0$, where $f \leq 0$). This threshold is the one genuinely GPU-specific subtlety in the lecture: $f$ goes **negative** past threshold, and a fractional power of a negative number is `NaN` — and `torch.where(mask, f**1.5*..., 0)` does **not** help, because `torch` evaluates *both* branches, so the invalid operation is still performed before the mask is applied. In fused kernels, diagnostics, or gradient-bearing variants, those invalid intermediates can surface even though the inactive branch is later discarded. The fix is to **clamp the base to $\geq 0$ before the power**: with $x = \sqrt{\max(0,\,f)}$, the cross-section becomes $\sigma_{\rm bf} = 10^{-18}\,\lambda^3\,x^3\sum_n C_n\,x^n$, a clean **Horner** polynomial in $x$ that is *exactly* zero past threshold (because $x = 0$ there) with no `NaN` and no `where` at all. This is both branchless and faster — fewer kernel launches — and we use the algebraically stable form $f = (\lambda_0 - \lambda)/(\lambda_0\lambda)$ to avoid catastrophic cancellation near the edge.""")
 
-code(r'''# H- bound-free (John 1988) — the critics' clamp-then-Horner pattern (branchless, NaN-free).
+code(r'''# H- bound-free (John 1988) — clamp-then-Horner evaluation (branchless, NaN-free).
 lam_um = wl[None, :] * 1e-3          # (1, nw) [um]
 lam0 = 1.6419                        # threshold [um] (0.754 eV)
 
@@ -168,7 +168,7 @@ sigma_bf = 1e-18 * lam_um**3 * x**3 * poly       # (1, nw) [cm^2]; zero past thr
 # opacity per gram, with the stimulated-emission factor [cm^2/g] — broadcasts to (nd, nw)
 kappa_bf = n_Hminus * sigma_bf * stim / rho''')
 
-md(r"""The free-free coefficient is John's second polynomial: a double power series in $\theta = 5040/T$ and in inverse wavelength, returning absorption per neutral H atom per unit electron pressure $P_e = n_e kT$ (the stimulated-emission factor is already folded into the fit). We evaluate the inverse-wavelength terms with explicit reciprocal powers (the critics' efficiency note) and sum the five $\theta$-orders — the whole thing a $(\text{nd}, \text{nw})$ tensor: $\theta$ is a depth column, the wavelength terms a row.""")
+md(r"""The free-free coefficient is John's second polynomial: a double power series in $\theta = 5040/T$ and in inverse wavelength, returning absorption per neutral H atom per unit electron pressure $P_e = n_e kT$ (the stimulated-emission factor is already folded into the fit). We evaluate the inverse-wavelength terms with explicit reciprocal powers and sum the five $\theta$-orders — the whole thing a $(\text{nd}, \text{nw})$ tensor: $\theta$ is a depth column, the wavelength terms a row.""")
 
 code(r'''# H- free-free (John 1988, lambda > 0.3645 um branch), per H I atom per unit P_e.
 A=[0,2483.346,-3449.889,2200.040,-696.271,88.283]; B=[0,285.827,-1158.382,2427.719,-1841.400,444.517]
@@ -204,7 +204,7 @@ md(r"""About two to three percent through the spectrum-forming layers — the an
 
 md(r"""## Scattering: Rayleigh beats Thomson
 
-The textbook reflex is **Thomson** scattering off free electrons ($\sigma_T = 0.6653\times10^{-24}\ \mathrm{cm^2}$). But in a cool photosphere the free electrons are scarce while neutral hydrogen is everywhere, so **Rayleigh** scattering off the bound electrons of neutral H — the same $\lambda^{-4}$ scattering that makes the sky blue — dominates. We use the Dalgarno polarizability fit, with $\lambda$ in ångström, and add Thomson. Both are pure wavelength rows scaled by depth populations; we evaluate the inverse powers with explicit reciprocals (the critics' efficiency note).""")
+The textbook reflex is **Thomson** scattering off free electrons ($\sigma_T = 0.6653\times10^{-24}\ \mathrm{cm^2}$). But in a cool photosphere the free electrons are scarce while neutral hydrogen is everywhere, so **Rayleigh** scattering off the bound electrons of neutral H — the same $\lambda^{-4}$ scattering that makes the sky blue — dominates. We use the Dalgarno polarizability fit, with $\lambda$ in ångström, and add Thomson. Both are pure wavelength rows scaled by depth populations; we evaluate the inverse powers with explicit reciprocals.""")
 
 code(r'''lamA = wl[None, :] * 10.0            # (1, nw) [angstrom]
 invA = 1.0 / lamA
@@ -268,7 +268,7 @@ This is the per-part check used throughout the book, and the continuum needs **t
 
 1. **vs the production reference (`L3.npz`)** — the *physics* check. The analytic H$^-$ + Rayleigh/Thomson model reproduces the production continuum to a few percent through the spectrum-forming layers. This is a property of the *model*; it does not get better on the GPU.
 
-2. **vs a NumPy fp64 twin** — the *implementation* check. We recompute the **exact same formulas** in fp64 NumPy and compare the GPU fp32 result to them. This isolates the single-precision round-off of the tensor vectorization from the analytic model's physics residual, and it must hold to the documented fp32 float floor. As the critics noted, the H$^-$ bound-free threshold is a zero-crossing, so we measure the relative deviation against $\max(|\text{ref}|,\ \text{floor})$ — pure relative error is meaningless where the cross-section is exactly zero.""")
+2. **vs a NumPy fp64 twin** — the *implementation* check. We recompute the **exact same formulas** in fp64 NumPy and compare the GPU fp32 result to them. This isolates the single-precision round-off of the tensor vectorization from the analytic model's physics residual, and it must hold to the documented fp32 float floor. The H$^-$ bound-free threshold is a zero-crossing, so we measure the relative deviation against $\max(|\text{ref}|,\ \text{floor})$ — pure relative error is meaningless where the cross-section is exactly zero.""")
 
 code(r'''def numpy_twin():
     """Recompute the EXACT same continuum formulas in fp64 NumPy — the GPU's own twin."""
@@ -319,7 +319,7 @@ print(f"documented float floor = {floor:.1e}   ->   [{status}]")
 assert max_floor < floor, f"GPU continuum deviates from its fp64 twin by {max_floor:.2e}, above {floor:.1e}"
 print("\nThe GPU continuum matches its fp64 twin to the float floor — the vectorization is bit-correct.")''')
 
-md(r"""**What the two numbers mean.** The tensor continuum reproduces its fp64 reference to the fp32 float floor — a few $\times10^{-6}$ across the grid (the worst case sits near the H$^-$ bound-free threshold zero-crossing, where the cross-section is vanishing and the absolute floor takes over, exactly as the critics anticipated). That residual is single-precision round-off, *not* a physics difference: the formulas and constants match the reference calculation. Separately, the analytic model agrees with the *production* reference to a few percent — the honest gap between an analytic fit and the detailed cross-section tables, the same gap the exact KAPP engine closes to the bit for production use.
+md(r"""**What the two numbers mean.** The tensor continuum reproduces its fp64 reference to the fp32 float floor — a few $\times10^{-6}$ across the grid (the worst case sits near the H$^-$ bound-free threshold zero-crossing, where the cross-section is vanishing and the absolute floor takes over). That residual is single-precision round-off, *not* a physics difference: the formulas and constants match the reference calculation. Separately, the analytic model agrees with the *production* reference to a few percent — the honest gap between an analytic fit and the detailed cross-section tables, the same gap the exact KAPP engine closes to the bit for production use.
 
 **Where this goes next.** With a continuous opacity on the GPU — built on Lecture 2's per-ion populations, fully vectorized over depth *and* wavelength, and validated both against the production reference and against its own fp64 twin — the next lecture carves the **spectral lines** into this continuum floor. Lines add a third axis (the line list) to the batch, and the same broadcasting discipline scales to it: depth $\times$ wavelength $\times$ line, all on the GPU.""")
 

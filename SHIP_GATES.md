@@ -55,7 +55,7 @@ Generated from source inspection and local runs on 2026-06-29.
 - Run `git diff --check`.
 - Keep `reference/MANIFEST_L14_L16.md` current whenever L14-L16 arrays are added, removed, or
   reclassified.
-- For prose quality, review the lectures directly. API critics are optional aids only; they are not
+- For prose quality, review the lectures directly. External review tools can help, but they are not
   the authority for closure.
 
 ## Final closure work

@@ -997,7 +997,7 @@ def build_part(iz, nion_track):
 
         # (3a) low-T ground-state floor (PFGROUND) + (3b) high-T occupation correction.
         # Every T-threshold gate decided on the fp64 host so an fp32 boundary slip can&#39;t flip
-        # a regime (the discrete-decision rule the critics approved).
+        # a regime (a discrete-decision rule, not a smooth interpolation).
         if ip_val &gt; 0.0:
             T2000 = ip_val * 2000.0 / 11.0
             low_t = torch.as_tensor(T_h &lt; (T2000 * 2.0), device=DEVICE)
@@ -1076,7 +1076,7 @@ def build_part(iz, nion_track):
 
         <span class="hljs-comment"># (3a) low-T ground-state floor (PFGROUND) + (3b) high-T occupation correction.</span>
         <span class="hljs-comment"># Every T-threshold gate decided on the fp64 host so an fp32 boundary slip can&#x27;t flip</span>
-        <span class="hljs-comment"># a regime (the discrete-decision rule the critics approved).</span>
+        <span class="hljs-comment"># a regime (a discrete-decision rule, not a smooth interpolation).</span>
         <span class="hljs-keyword">if</span> ip_val &gt; <span class="hljs-number">0.0</span>:
             T2000 = ip_val * <span class="hljs-number">2000.0</span> / <span class="hljs-number">11.0</span>
             low_t = torch.as_tensor(T_h &lt; (T2000 * <span class="hljs-number">2.0</span>), device=DEVICE)
