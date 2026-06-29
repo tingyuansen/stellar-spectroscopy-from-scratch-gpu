@@ -27,7 +27,9 @@ md(r"""# Lecture 16 — EOS State for Line-Blanketed Convergence
 
 *Stellar Spectroscopy from Scratch — a self-contained torch/MPS reconstruction of stellar-atmosphere and spectrum synthesis physics*
 
-Lecture 16 recomputes the EOS state that the line-blanketed convergence loop consumes, conditional on a loaded atmosphere fixture. The computed path is:
+This is the first conceptual step of the finale: build the state that line blanketing and the
+capstone synthesis consume. Lecture 16 recomputes the EOS state conditional on a loaded atmosphere
+fixture. The computed path is:
 
 1. solve the multi-element PFSAHA/NELECT equation of state from the atomic data tables;
 2. pack the result into the Kurucz `POPSALL` species-slot layout;

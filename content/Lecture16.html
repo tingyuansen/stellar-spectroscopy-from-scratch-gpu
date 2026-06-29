@@ -5,7 +5,9 @@
 <li>Recompute the per-iteration line-blanketing tensors: atomic Doppler widths, <code>XNFDOP</code>, van-der-Waals perturber density <code>TXNXN</code>, and the ionization-energy heat-capacity finite-difference samples.</li>
 <li>Separate computed state from comparison-only audit bundles, especially <code>TABCONT</code>, molecular slots, and the full line-blanketed trajectory.</li>
 </ul>
-</div><div class="prose"><p>Lecture 16 recomputes the EOS state that the line-blanketed convergence loop consumes, conditional on a loaded atmosphere fixture. The computed path is:</p>
+</div><div class="prose"><p>This is the first conceptual step of the finale: build the state that line blanketing and the
+capstone synthesis consume. Lecture 16 recomputes the EOS state conditional on a loaded atmosphere
+fixture. The computed path is:</p>
 <ol>
 <li>solve the multi-element PFSAHA/NELECT equation of state from the atomic data tables;</li>
 <li>pack the result into the Kurucz <code>POPSALL</code> species-slot layout;</li>
@@ -711,7 +713,7 @@ tab_rel = np.<span class="hljs-built_in">abs</span>(tabcont.astype(<span class="
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">molecular_deposit_populations shape = (80, 16)
 xnfpmol vs reference max|rel| = 3.094e-04  (documented Lecture-13 chemistry floor)
 molecular slots filled: 16
-</pre></div><div class="out-block"><pre class="out-stream">tabcont median|max relative residual = 5.167e-03 | 6.483e-01
+tabcont median|max relative residual = 5.167e-03 | 6.483e-01
 iwavetab exact = True
 TABCONT residual is reported as a remaining continuum-bridge limit, not hidden as machine precision
 </pre></div></div><div class="prose"><h2>7. Comparison-only convergence summary</h2>

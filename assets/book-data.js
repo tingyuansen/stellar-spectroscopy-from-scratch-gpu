@@ -43,20 +43,20 @@ window.BOOK = {
       ]
     },
     {
-      name: "Part V", title: "Cool Stars & Atmosphere-to-Spectrum Synthesis",
-      blurb: "Beyond the warm Sun: cool stars form molecules and TiO bands carve their spectra; then the synthesis half — atmosphere in, spectrum out — is assembled and run across the HR diagram.",
+      name: "Part V", title: "Cool-Star Chemistry",
+      blurb: "Beyond the warm Sun: cool stars form molecules, TiO bands carve their spectra, and molecular continuum reshapes the infrared.",
       chapters: [
         { n: 12, slug: "Lecture12", type: "html", title: "Molecular Equilibrium & Molecular Bands", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
-        { n: 13, slug: "Lecture13", type: "html", title: "Molecular Chemistry: the Coupled Equilibrium and Continuous Opacity", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
-        { n: 14, slug: "Lecture14", type: "html", title: "A Spectrum from an Atmosphere, End to End", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
+        { n: 13, slug: "Lecture13", type: "html", title: "Molecular Chemistry: the Coupled Equilibrium and Continuous Opacity", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
       ]
     },
     {
-      name: "Part VI", title: "The Line-Blanketed Atmosphere — the Finale",
-      blurb: "The model-atmosphere half: switch on the predicted line list, the wing-walk deposit kernel, the line-blanketed Rosseland mean, and the convergence machinery; then build the multi-element equation of state and convective heat capacity needed by the line-blanketed Sun.",
+      name: "Part VI", title: "Line Blanketing & the Synthesis Finale",
+      blurb: "Read the finale by construction order: EOS state, line blanketing and atmosphere correction, then the atmosphere-to-spectrum capstone.",
       chapters: [
+        { n: 16, slug: "Lecture16", type: "html", title: "EOS State for Line-Blanketed Convergence", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
         { n: 15, slug: "Lecture15", type: "html", title: "Line Blanketing: LINOP1 and the Atmosphere Correction", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
-        { n: 16, slug: "Lecture16", type: "html", title: "EOS State for Line-Blanketed Convergence", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
+        { n: 14, slug: "Lecture14", type: "html", title: "A Spectrum from an Atmosphere, End to End", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
       ]
     }
   ]

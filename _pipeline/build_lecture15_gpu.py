@@ -40,7 +40,7 @@ md(r"""# Lecture 15 — Line Blanketing: LINOP1 and the Atmosphere Correction
 
 - Deposit a spectral line the way the production engine does — the **asymmetric sub-pixel wing-walk**, the **full three-branch Voigt** $H(a,v)$, and the **continuum-cutoff reach** — written as a clean depth-batched `torch` kernel.
 - Fold the line blanket into the **Rosseland mean** opacity (the harmonic, $\partial B/\partial T$-weighted average of the total extinction) and integrate it to the **Rosseland optical depth** $\tau_{\rm Ross}$.
-- Run **one iteration** of the line-blanketed convergence engine — the frequency sweep, the temperature correction, the column-mass update — and see the back-warming that builds the real Sun's atmosphere.
+- Run **one audited iteration** of the line-blanketed convergence engine — the frequency sweep, the temperature correction, the column-mass update — and see the back-warming signature in the loaded solar atmosphere fixture.
 - **Run the precision diagnostic cell by cell** and read off why the convergence-core **secant** $(\,p_2-p_1)/p_1$ must be fp64-promoted, while the accepted path itself passes the full-support gates.""")
 
 md(r"""## Why the raw fp32 convergence core fails — and how the accepted path fixes it

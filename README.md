@@ -65,22 +65,26 @@ and recovers machine precision. The deviation is **quantified, not hidden**.
 10. **Radiative Equilibrium & Temperature Correction** — flux constancy, the Avrett–Krook/TCORR correction, the Rosseland mean, and the radiation-pressure moment.
 11. **Convection & the Converged Atmosphere** — mixing-length convection, overshoot, the EOS derivatives, and the converged *continuum-only* model (the line-blanketed finish is Part VI).
 
-**Part V — Cool stars & atmosphere-to-spectrum synthesis**
+**Part V — Cool-star chemistry**
 12. **Molecular Equilibrium & Molecular Bands** — dissociation equilibrium and the TiO band opacity of a cool dwarf (machine precision).
 13. **Molecular Chemistry: the Coupled Equilibrium and Continuous Opacity** — the coupled NMOLEC Newton solver and the molecular continuum (CH, OH, H₂ collision-induced absorption), from scratch.
-14. **A Spectrum from an Atmosphere, End to End** — the **synthesis half**: the lean “kurucz” assembled from every component (EOS, continuum, atomic/hydrogen/helium lines, molecular bands, JOSH transfer) and run across the HR diagram, computing every spectrum from scratch given an atmosphere. *Atmosphere in, spectrum out.*
 
-**Part VI — The line-blanketed atmosphere (the finale)**
-The other half of “end to end”: the model atmosphere itself, built genuinely from scratch.
-15. **Line Blanketing: LINOP1 and the Atmosphere Correction** — the predicted line list and `SELECTLINES`, the `LINOP1` wing-walk deposit kernel (the asymmetric sub-pixel walk, the full Voigt, the cutoff reach) reproduced in a teaching window, the line-blanketed Rosseland mean, and the convergence-core precision audit. It still consumes loaded atmosphere/EOS/window/continuum/full-grid blanket fixtures, which are named in the lecture.
+**Part VI — Line blanketing and the synthesis finale**
+Read this finale in the logical build order below. File numbers stay stable for links and
+verification, but the concepts flow from state, to blanketing, to the atmosphere-to-spectrum
+capstone.
+
 16. **EOS State for Line-Blanketed Convergence** — the per-iteration state the line deposit and continuum consume: the multi-element `POPSALL`/`NELECT` species slots, Doppler widths, van-der-Waals perturber number, continuum-cutoff bridge, molecular slots, and `EDENS` convective heat-capacity inputs. It recomputes this state for a loaded atmosphere fixture and documents the remaining helper-backed boundaries.
+15. **Line Blanketing: LINOP1 and the Atmosphere Correction** — the predicted line list and `SELECTLINES`, the `LINOP1` wing-walk deposit kernel (the asymmetric sub-pixel walk, the full Voigt, the cutoff reach) reproduced in a teaching window, the line-blanketed Rosseland mean, and the convergence-core precision audit. It still consumes loaded atmosphere/EOS/window/continuum/full-grid blanket fixtures, which are named in the lecture.
+14. **A Spectrum from an Atmosphere, End to End** — the **synthesis half**: the lean “kurucz” assembled from every component (EOS, continuum, atomic/hydrogen/helium lines, molecular bands, JOSH transfer) and run across the HR diagram, computing every spectrum from scratch given an atmosphere. *Atmosphere in, spectrum out.*
 
 ## How to read this book
 
-- **Read it front to back.** The arc is cumulative: Parts I–III build the microphysics (foundations,
-  opacity, transfer) treating the atmosphere as given; Part IV builds the atmosphere's structure;
-  Part V adds cool-star chemistry and then assembles the **atmosphere-to-spectrum** synthesis; Part VI is the
-  **finale** — the line-blanketed atmosphere from scratch.
+- **Read it front to back, with the finale ordered by concepts.** Parts I–III build the
+  microphysics (foundations, opacity, transfer) treating the atmosphere as given; Part IV builds the
+  atmosphere's structure; Part V adds cool-star chemistry. In Part VI, read L16 first for EOS state,
+  L15 second for line blanketing and the atmosphere correction, and L14 last for the
+  atmosphere-to-spectrum capstone.
 - **Each lecture is self-contained and stands alone.** Every notebook imports `torch`, `numpy`,
   `matplotlib`, and `pathlib`, loads its own `reference/*.npz`, runs top to bottom on the GPU, and
   ends by benchmarking its arrays to the shipped reference. You can open any one
