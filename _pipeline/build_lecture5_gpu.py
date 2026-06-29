@@ -1,14 +1,14 @@
 #!/usr/bin/env python
-"""Assemble content/Lecture5.ipynb (unexecuted) — the GPU EDITION. Execute + render via build.py.
+"""Assemble content/Lecture5.ipynb (unexecuted). Execute + render via build.py.
 
-Lecture 5 (GPU) — Line Opacity II: The Line List, ported to clean torch/MPS. This is the
-SCATTER-ADD hot path: the NumPy edition's per-line outward wing walk (red + blue, += into the
+Lecture 5 (GPU) — Line Opacity II: The Line List, implemented in clean torch/MPS. This is the
+SCATTER-ADD hot path: the scalar reference's per-line outward wing walk (red + blue, += into the
 opacity array, stop at the cutoff) becomes a single batched [depth, line, offset] tensor scatter on
 the device — `index_put_(accumulate=True)`. The Harris Voigt kernel `voigt_H_grid` from Lecture 4 is
 reused across every line in the catalog at every depth. The metal accumulation is validated against
 an inline NumPy twin with a strict full-support maximum-relative-error gate (<=1e-6 in fp32).
 
-The clean torch port is a pedagogical reduction of the production kgpu/line_opacity.py BATCHED
+The clean torch implementation is a pedagogical reduction of the production kgpu/line_opacity.py BATCHED
 accumulation (`_wing_reach_batched`, `_wing_walk_tiered`, the `_scatter_add_3d` =
 `index_put_(accumulate=True)` deposit); the notebook imports neither kgpu nor pykurucz. The torch
 kernels below are transcribed verbatim from the validated _pipeline/_ports/lecture5_port_batched.py
@@ -29,15 +29,15 @@ def code(s): cells.append(new_code_cell(s))
 # ════════════════════════════════════════════════════════════════════════════
 #  Title + framing + objectives
 # ════════════════════════════════════════════════════════════════════════════
-md(r"""# Lecture 5 — Line Opacity II: The Line List *(GPU Edition)*
+md(r"""# Lecture 5 — Line Opacity II: The Line List
 
-*Stellar Spectroscopy from Scratch — GPU Edition: the torch/MPS vectorized companion, each part validated against the NumPy edition*
+*Stellar Spectroscopy from Scratch — tensor-native stellar spectroscopy, validated against reference calculations*
 
 *Yuan-Sen Ting*
 
 *Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
 
-*This is the **GPU edition** of Lecture 5. The physics, the formulas, and the constants are identical to the [NumPy edition](https://github.com/tingyuansen/stellar-spectroscopy-from-scratch); what changes is the **machine**, and the lesson is the **vectorization of a scatter**. The NumPy edition added each of $\sim$twelve thousand metal lines by walking outward from its center pixel — one grid step at a time, red and blue, `+=`-ing the Voigt value into the opacity array and stopping at the cutoff. That per-line outward walk is the textbook shape of a CPU loop, and it is exactly the shape the GPU hates. Here we recast it: the **line axis becomes a tensor batch axis**, the reach geometry of every $(\text{depth},\text{line})$ pair is computed at once, and the deposit is **one batched `[depth, line, offset]` scatter** — `index_put_(accumulate=True)` — per red/blue sweep. The Harris `voigt_H` kernel of Lecture 4 is reused, unchanged, across every line at every depth. We validate the GPU metal accumulation against an inline **NumPy twin** of the exact same recipe, to the documented float floor.*
+*This lecture builds the metal-line opacity in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). The lesson is the **vectorization of a scatter**. The scalar reference adds each of $\sim$twelve thousand metal lines by walking outward from its center pixel — one grid step at a time, red and blue, `+=`-ing the Voigt value into the opacity array and stopping at the cutoff. That per-line outward walk is the textbook shape of a CPU loop, and it is exactly the shape the GPU hates. Here we recast it: the **line axis becomes a tensor batch axis**, the reach geometry of every $(\text{depth},\text{line})$ pair is computed at once, and the deposit is **one batched `[depth, line, offset]` scatter** — `index_put_(accumulate=True)` — per red/blue sweep. The Harris `voigt_H` kernel of Lecture 4 is reused, unchanged, across every line at every depth. We validate the metal accumulation against an inline **NumPy twin** of the exact same recipe, to the documented float floor.*
 
 ---
 
@@ -46,7 +46,7 @@ md(r"""# Lecture 5 — Line Opacity II: The Line List *(GPU Edition)*
 - Read a **line list** and say what each column carries — wavelength, `log gf`, the species code, the excitation potential, the three damping constants — and lay down the **logarithmic wavelength grid** a synthesis runs on, mapping each line to a grid index by a logarithm rather than a search.
 - Form the **exact lower-level population** the production code uses (`population_per_ion` $= n_{\rm ion}/U$ from Lecture 2) and complete it with **FASTEX**, the tabulated Boltzmann factor — recast here as a single **branchless gather** instead of a per-line table lookup.
 - Reuse Lecture 4's **branchless Harris `voigt_H_grid`** across the whole line list, and assemble each line's $\kappa_0$ amplitude and its cutoff with depth-batched tensor algebra.
-- See how the NumPy edition's **per-line scalar wing-walk loop** becomes a **batched scatter-add**: `_wing_reach_batched` computes every $(\text{depth},\text{line})$'s reach at once, `_wing_walk_tiered`/`_wing_walk_core` sweep fixed offsets, and **one `index_put_(accumulate=True)`** per red/blue direction deposits the whole `[depth, line, offset]` block — $O(W)$ big batched kernels instead of $O(n_{\rm lines})$ tiny launches, with **reach-tiering** to avoid wasted Harris evaluations on lines that stop early.
+- See how the scalar reference's **per-line wing-walk loop** becomes a **batched scatter-add**: `_wing_reach_batched` computes every $(\text{depth},\text{line})$'s reach at once, `_wing_walk_tiered`/`_wing_walk_core` sweep fixed offsets, and **one `index_put_(accumulate=True)`** per red/blue direction deposits the whole `[depth, line, offset]` block — $O(W)$ big batched kernels instead of $O(n_{\rm lines})$ tiny launches, with **reach-tiering** to avoid wasted Harris evaluations on lines that stop early.
 - State the **Metal-kernel verdict**: the bible flags this scatter-add as the prime candidate for a custom `torch.mps.compile_shader` Metal kernel — and explain why the optimization squeeze **kept the batched `index_put_`** instead (it already lowers to an efficient atomic scatter; a hand-rolled shader did not beat it).
 - **Validate** the complete GPU metal accumulation against the NumPy twin with a strict
   **maximum relative error $\le 10^{-6}$** over every opacity-bearing pixel.""")
@@ -56,26 +56,26 @@ md(r"""# Lecture 5 — Line Opacity II: The Line List *(GPU Edition)*
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## Introduction
 
-One line was Lecture 4; a spectrum is a forest. The Kurucz atomic line list holds nearly **two million** transitions, each with its own wavelength, strength, and broadening, and the opacity at any wavelength is the sum of the profiles of every nearby line. In our 500–510 nm window that is about **twelve thousand** metal lines — lithium through uranium, plus the helium lines — and the NumPy edition added them one at a time: for each line, at each depth, *walk outward* from the center pixel, one grid step in each direction, `+=` the Voigt value into the running opacity array, and *stop* the moment the profile drops below $10^{-3}$ of the local continuum. A strong line walks far into its wings; a weak one stops after a few steps. That adaptive, data-dependent outward `+=` walk is the heart of the lecture — and it is a **scatter**.
+One line was Lecture 4; a spectrum is a forest. The Kurucz atomic line list holds nearly **two million** transitions, each with its own wavelength, strength, and broadening, and the opacity at any wavelength is the sum of the profiles of every nearby line. In our 500–510 nm window that is about **twelve thousand** metal lines — lithium through uranium, plus the helium lines — and the scalar reference adds them one at a time: for each line, at each depth, *walk outward* from the center pixel, one grid step in each direction, `+=` the Voigt value into the running opacity array, and *stop* the moment the profile drops below $10^{-3}$ of the local continuum. A strong line walks far into its wings; a weak one stops after a few steps. That adaptive, data-dependent outward `+=` walk is the heart of the lecture — and it is a **scatter**.
 
-A scatter is exactly the operation a GPU is built for *and* the one a naive port gets wrong. Done as the NumPy loop suggests — a Python `for` over twelve thousand lines, each launching a tiny per-line kernel — it is a **dispatch storm**: thousands of microscopic launches whose overhead dwarfs the arithmetic. The GPU recasting flips the axes. The **line index becomes a tensor batch axis**; we compute the *reach* of every $(\text{depth},\text{line})$ pair in one batched pass, then sweep a fixed range of offsets and deposit the whole `[depth, line, offset]` block with **one** scatter-add — `torch.index_put_(accumulate=True)` — per red and blue direction. The cost scales with the widest reach $W$, not with the number of lines, and the launches collapse from $O(n_{\rm lines})$ tiny ones to a handful of big ones.
+A scatter is the operation a naive GPU implementation most easily gets wrong. Done as the scalar loop suggests — a Python `for` over twelve thousand lines, each launching a tiny per-line kernel — it is a **dispatch storm**: thousands of microscopic launches whose overhead dwarfs the arithmetic. The tensor recasting flips the axes. The **line index becomes a tensor batch axis**; we compute the *reach* of every $(\text{depth},\text{line})$ pair in one batched pass, then sweep a fixed range of offsets and deposit the whole `[depth, line, offset]` block with **one** scatter-add — `torch.index_put_(accumulate=True)` — per red and blue direction. Scatter-add still uses atomic accumulation and can be bandwidth/contention limited, so it is not magic; the win here is batching the work into large operations and removing the per-line dispatch overhead. The cost scales with the widest reach $W$, not with the number of lines, and the launches collapse from $O(n_{\rm lines})$ tiny ones to a handful of big ones.
 
-The target is the **metal** line opacity (line-type code $0$, every $Z \ge 3$), the piece the NumPy edition reproduced to machine precision. The physics — the exact population normalisation, the FASTEX Boltzmann factor, the Harris Voigt branches, the two-stage cutoff, the wing reach — is identical, transcribed unchanged from the NumPy twin. What is new is the **shape**: a per-line `+=` loop becomes a batched scatter, and that scatter is, per the bible, the book's prime candidate for a custom Metal kernel. We will build it, validate it against the NumPy twin, and report the **verdict** on whether a hand-rolled Metal shader earns its place.
+The target is the **metal** line opacity (line-type code $0$, every $Z \ge 3$). The physics — the exact population normalisation, the FASTEX Boltzmann factor, the Harris Voigt branches, the two-stage cutoff, the wing reach — is identical to the NumPy twin used for validation. What is new is the **shape**: a per-line `+=` loop becomes a batched scatter, and that scatter is, per the bible, the book's prime candidate for a custom Metal kernel. We will build it, validate it against the NumPy twin, and report the **verdict** on whether a hand-rolled Metal shader earns its place.
 
 ![Total line opacity is the sum of every line's Voigt profile on the wavelength grid; a cutoff skips the lines too weak to register against the continuum. On the GPU the per-line outward walk becomes one batched [depth, line, offset] scatter-add.](resources/figures/s5_linelist.png)""")
 
 # ════════════════════════════════════════════════════════════════════════════
 #  Setup — device + dtype + dev()
 # ════════════════════════════════════════════════════════════════════════════
-md(r"""**Setup — the device and the precision budget.** We pick the compute device once: **MPS** on Apple Silicon, **CUDA** on an NVIDIA box, otherwise **CPU**. MPS and CUDA have no float64, so on the GPU the working dtype is **fp32** and the parity bar is the documented float floor (~$10^{-6}$ for the line accumulation, per the bible's per-component table); on CPU we use **fp64** and recover machine precision. We carry NumPy and Matplotlib alongside `torch` — NumPy holds the **twin** we validate against (the exact scalar recipe), and the comparison at the end is done in NumPy.""")
+md(r"""**Setup — the device and the precision budget.** We pick the compute device once: **MPS** on Apple Silicon, **CUDA** on an NVIDIA box, otherwise **CPU**. MPS lacks practical float64 support, and this teaching path deliberately uses **fp32** on both MPS and CUDA so the accelerator route has one uniform precision budget; CUDA hardware can support float64, but that is not the default path here. On the GPU the parity bar is therefore the documented float floor (~$10^{-6}$ for the line accumulation, per the bible's per-component table); on CPU we use **fp64** and recover machine precision. We carry NumPy and Matplotlib alongside `torch` — NumPy holds the **twin** we validate against (the exact scalar recipe), and the comparison at the end is done in NumPy.""")
 
 code(r'''import pathlib, math
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
 
-# pick the compute device ONCE; MPS (Apple) -> CUDA -> CPU. MPS/CUDA have no fp64,
-# so the GPU working dtype is fp32 (parity bar = the documented float floor);
+# pick the compute device ONCE; MPS (Apple) -> CUDA -> CPU. The accelerator teaching
+# path uses fp32 on both MPS and CUDA, so its parity bar is the documented float floor;
 # on CPU we use fp64 and recover machine precision.
 if torch.backends.mps.is_available():
     DEVICE, DTYPE = torch.device("mps"), torch.float32
@@ -100,13 +100,13 @@ plt.rcParams.update({"figure.figsize": (7.2, 4.3), "figure.dpi": 120, "savefig.f
 # ════════════════════════════════════════════════════════════════════════════
 #  Load the reference data + compare
 # ════════════════════════════════════════════════════════════════════════════
-md(r"""Load the reference bundle — the same data files the NumPy edition reads, copied here unchanged. Three files travel with the book:
+md(r"""Load the reference bundle. Three files travel with the book:
 
 - `full_lines_data.npz` — the **line catalog**: every atomic line in the window (`cat_wl`, `cat_gf`, `cat_loggf`, `cat_elow`, the index wavelength `cat_index_wl`, the species code `cat_Z`/`cat_ion`, the line-type code `cat_line_types`, and the three damping constants `cat_grad`/`cat_gstark`/`cat_gvdw`), plus the Voigt **Harris tables** `h0tab`/`h1tab`/`h2tab` (the same ones Lecture 4 used).
 - `atmosphere.npz` — the **depth state** from Lecture 2: `population_per_ion` $[80,6,139] = n_{\rm ion}/U$, the per-ion Doppler widths `doppler_per_ion`, the mass and electron densities, the temperature, the tabulated $hc/kT$ factor `hckt`, and the van der Waals perturber number densities `xnf_h`/`xnf_he1`/`xnf_h2`.
 - `diag.npz` — the production code's **ground truth**: the wavelength grid `wavelength` $[5941]$, the continuum (which sets the cutoff), and `line_opacity` $[80,5941]$.
 
-We build the effective van der Waals perturber density `txnxn` here (neutral H, He I, H$_2$ with the $(T/10^4)^{0.3}$ velocity scaling), and define one helper, `compare`, that moves a GPU tensor back to NumPy and reports the maximum relative deviation — used exactly as the NumPy edition used it.""")
+We build the effective van der Waals perturber density `txnxn` here (neutral H, He I, H$_2$ with the $(T/10^4)^{0.3}$ velocity scaling), and define one helper, `compare`, that moves a GPU tensor back to NumPy and reports the maximum relative deviation — the validation check used throughout the course.""")
 
 code(r'''REF = pathlib.Path("..") / "reference"
 
@@ -167,7 +167,7 @@ metal = (lt == 0) & (Zc >= 3)
 print(f"metal lines (type 0, Z>=3): {metal.sum()}  spanning Z = {Zc[metal].min()}-{Zc[metal].max()}")
 print(f"log grid: ratio = {ratio:.8f}, R_grid = {resolu:.0f}")''')
 
-md(r"""**The grid-index helpers, on the host.** The two anchors a line needs are a **center** index (rounds $\log\lambda/\log r$, offsets by the grid origin, clamps off-grid lines) and a **wing** anchor (rounds $\log(\lambda/w_{\rm begin})$, where $w_{\rm begin}$ is the *floor* of the grid origin in log space). They differ by at most a pixel; we reproduce both exactly so the accumulation matches the twin. These are cheap integer reductions over the line array, computed once on the host (NumPy) — the batched torch path consumes the resulting index tensors. This is the GPU recasting of the NumPy edition's `nearest_grid_indices` / `nearest_grid_indices_raw`: the same arithmetic, lifted out of the per-line loop into a one-shot vector op.""")
+md(r"""**The grid-index helpers, on the host.** The two anchors a line needs are a **center** index (rounds $\log\lambda/\log r$, offsets by the grid origin, clamps off-grid lines) and a **wing** anchor (rounds $\log(\lambda/w_{\rm begin})$, where $w_{\rm begin}$ is the *floor* of the grid origin in log space). They differ by at most a pixel; we reproduce both exactly so the accumulation matches the twin. These are cheap integer reductions over the line array, computed once on the host (NumPy) — the batched torch path consumes the resulting index tensors. This is the tensor recasting of the scalar reference's `nearest_grid_indices` / `nearest_grid_indices_raw`: the same arithmetic, lifted out of the per-line loop into a one-shot vector op.""")
 
 code(r'''def nearest_grid_indices_np(grid, values):
     """Center index: IXWL = round(log(wl)/ratiolg); idx = IXWL - IXWLBEG, clamped off-grid."""
@@ -198,9 +198,9 @@ print(f"center vs wing anchor differ by at most {int(np.max(np.abs(center_idx_np
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## The Harris Voigt kernel, reused across every line
 
-Lecture 4 built $H(a,v)$ — Kurucz's three-branch Harris-table approximation — as **one branchless `torch` expression** evaluated on the whole $(a,v)$ grid: all three regimes computed, the right one selected by `torch.where`. We reuse that kernel here, unchanged, because the accumulation calls it hundreds of times per line and across thousands of lines at once. The three regimes are the **weak-damping** table series ($a < 0.2$, with the bare Lorentzian wing for $|v|>10$), the **far-wing** asymptotic ($a > 1.4$ or $a + |v| > 3.2$, with the $a \le 100$ correction), and the **intermediate** polynomial blend. The table lookup `iv = clamp(int(|v|·200+0.5), 0, N-1)` is a clamped integer index. The numeric constants are Kurucz's, matched bit-for-bit with the NumPy edition.
+Lecture 4 built $H(a,v)$ — Kurucz's three-branch Harris-table approximation — as **one branchless `torch` expression** evaluated on the whole $(a,v)$ grid: all three regimes computed, the right one selected by `torch.where`. We reuse that kernel here, unchanged, because the accumulation calls it hundreds of times per line and across thousands of lines at once. The three regimes are the **weak-damping** table series ($a < 0.2$, with the bare Lorentzian wing for $|v|>10$), the **far-wing** asymptotic ($a > 1.4$ or $a + |v| > 3.2$, with the $a \le 100$ correction), and the **intermediate** polynomial blend. The table lookup `iv = clamp(int(|v|·200+0.5), 0, N-1)` is a clamped integer index. The numeric constants are Kurucz's, matched bit-for-bit with the reference.
 
-This is the GPU's payoff in miniature: one straight-line kernel, no per-point branch, evaluated over the entire `[depth, line, offset]` block of reduced frequencies at once. It is the same `voigt_H_grid` the production kgpu engine uses (`harris_hav`, reduced to readable form).""")
+This is the GPU's payoff in miniature: one regular broadcasted tensor expression, no Python loop over points, evaluated over the entire `[depth, line, offset]` block of reduced frequencies at once. PyTorch may lower the expression to several backend kernels; the important design choice is that the source no longer branches per point. It is the same `voigt_H_grid` the production kgpu engine uses (`harris_hav`, reduced to readable form).""")
 
 code(r'''def voigt_H_grid(v, a, h0tab, h1tab, h2tab, branch_oracle=None):
     """Kurucz's Harris H(a,v) as ONE branchless tensor expression on the WHOLE broadcast (v,a) grid
@@ -260,7 +260,7 @@ code(r'''def voigt_H_grid(v, a, h0tab, h1tab, h2tab, branch_oracle=None):
     return torch.where(low, h_low, torch.where(far, h_high, h_mid))
 print("branchless Harris voigt_H_grid ready (reused from Lecture 4)")''')
 
-md(r"""**The center value $H(a,0)$, vectorized.** The wing walk back-solves its profile amplitude from the center opacity (dividing by $H(a,0)$), so we need $H(a,0)$ — the same branch logic with $v=0$, evaluated for the whole batch of damping parameters at once and floored at $10^{-30}$ to keep that division well-defined. This is `_voigt_h_at_zero`, transcribed verbatim from the validated port.""")
+md(r"""**The center value $H(a,0)$, vectorized.** The wing walk back-solves its profile amplitude from the center opacity (dividing by $H(a,0)$), so we need $H(a,0)$ — the same branch logic with $v=0$, evaluated for the whole batch of damping parameters at once and floored at $10^{-30}$ to keep that division well-defined. This is `_voigt_h_at_zero`, transcribed from the validated implementation.""")
 
 code(r'''def gpu_voigt_h_at_zero(a, h0tab, h1tab, h2tab):
     """Vectorized H(a,0): used to back-solve the wing peak (port _voigt_h_at_zero), floored at 1e-30."""
@@ -289,7 +289,7 @@ md(r"""## FASTEX: the tabulated Boltzmann factor as a branchless gather
 
 The exact lower-level population is `population_per_ion` $= n_{\rm ion}/U$ (the EOS output of Lecture 2) times the **Boltzmann factor** $e^{-\chi_\ell\,hc/kT}$. The production code does *not* call `exp` for that factor — it uses **FASTEX**, a pair of lookup tables ($\texttt{EXTAB}[i] = e^{-i}$ for the integer part, $\texttt{EXTABF}[j] = e^{-0.001j}$ for the fractional part) combined as $e^{-x} = \texttt{EXTAB}[\lfloor x\rfloor]\cdot\texttt{EXTABF}[\mathrm{round}(1000\{x\})]$. The tiny rounding of this table is part of the engine, and we reproduce it exactly: a true `exp` would differ in the last bits and spoil agreement.
 
-On the GPU this is a **branchless gather**. The NumPy edition masked positive/negative/zero arguments with three boolean branches; here we compute *all* cases — the two table indices, a fallback `exp`, and the $x=0$ special case — for the whole $[\text{depth},\text{line}]$ argument grid and select with `torch.where`. No per-line lookup loop; one `index_select` per table over the entire batch.""")
+On the GPU this is a **branchless gather**. The scalar reference masked positive/negative/zero arguments with three boolean branches; here we compute *all* cases — the two table indices, a fallback `exp`, and the $x=0$ special case — for the whole $[\text{depth},\text{line}]$ argument grid and select with `torch.where`. No per-line lookup loop; one `index_select` per table over the entire batch.""")
 
 code(r'''def gpu_fastex_tables(dtype=None, device=None):
     """Build the two FASTEX tables once, on the device (production EXTAB / EXTABF)."""
@@ -320,13 +320,13 @@ print("branchless FASTEX gather ready")''')
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## The wing-accumulation kernel: loop $\to$ scatter
 
-This is the centerpiece. Recall the NumPy edition's recipe for **one line at one depth**: form the line-center amplitude $\kappa_0$ (the TRANSP normalisation $= c_{gf}\,(n_{\rm ion}/U)/(\rho\,v_D/c)\,e^{-\chi_\ell hc/kT}$), apply the two-stage cutoff (drop the line if $\kappa_0$ fails $10^{-3}\times$ the local continuum before *and* after the Boltzmann factor), build the damping $a$, deposit the **center** opacity at the line pixel, then **walk the wings**: back-solve the profile amplitude (divide by $H(a,0)$), step outward red and blue one grid step at a time, `+=` the Voigt value into the array, and **stop** each direction at the array edge and the loop at the cutoff reach. The near wing (steps up to $10\,v_D$) evaluates $H(a,v)$ from the tables; the far wing ($\propto 1/v^2$) switches to a cheap $x_{\rm far}/n^2$ form whose maximum reach is set analytically.
+This is the centerpiece. Recall the scalar recipe for **one line at one depth**: form the line-center amplitude $\kappa_0$ (the TRANSP normalisation $= c_{gf}\,(n_{\rm ion}/U)/(\rho\,v_D/c)\,e^{-\chi_\ell hc/kT}$), apply the two-stage cutoff (drop the line if $\kappa_0$ fails $10^{-3}\times$ the local continuum before *and* after the Boltzmann factor), build the damping $a$, deposit the **center** opacity at the line pixel, then **walk the wings**: back-solve the profile amplitude (divide by $H(a,0)$), step outward red and blue one grid step at a time, `+=` the Voigt value into the array, and **stop** each direction at the array edge and the loop at the cutoff reach. The near wing (steps up to $10\,v_D$) evaluates $H(a,v)$ from the tables; the far wing ($\propto 1/v^2$) switches to a cheap $x_{\rm far}/n^2$ form whose maximum reach is set analytically.
 
-The NumPy edition writes this as a `for` over lines, each calling `process_wing_pair` with a `while offset <= maxstep` loop that `+=`-es into `asynth_d[j]` scalar by scalar. **The GPU recasts it as a batched scatter.** Three pieces:
+The scalar reference writes this as a `for` over lines, each calling `process_wing_pair` with a `while offset <= maxstep` loop that `+=`-es into `asynth_d[j]` scalar by scalar. **The tensor implementation recasts it as a batched scatter.** Three pieces:
 
 - **`_wing_reach_batched`** computes the reach geometry of *every* $(\text{depth},\text{line})$ pair at once: the near-wing cutoff step, the far-wing anchor $x_{\rm far}$ and analytic reach, and the per-pair `maxstep`. The near-wing scan is a batched `[depth, line, step]` evaluation of the cheap Harris form, not a per-line loop.
 - **`_wing_walk_core`** sweeps a *fixed* range of offsets $1\ldots W$ (the widest reach in the batch), evaluates the profile for the whole `[depth, line, offset]` block, masks each offset against its pair's `maxstep` and the array edges, and deposits the red block and the blue block each with **one** `_scatter_add_3d`.
-- **`_scatter_add_3d`** *is* the hot path: it flattens the `[depth, line, offset]` indices into the `[depth*n_w]` opacity array and calls `index_put_(accumulate=True)` — the batched atomic scatter that replaces the NumPy edition's thousands of scalar `+=`.""")
+- **`_scatter_add_3d`** *is* the hot path: it flattens the `[depth, line, offset]` indices into the `[depth*n_w]` opacity array and calls `index_put_(accumulate=True)` — the batched atomic scatter that replaces thousands of scalar `+=` operations.""")
 
 md(r"""**The scatter primitives.** Two helpers wrap `index_put_(accumulate=True)`: a 2-D one for the center deposit (one column per line) and a 3-D one for the wing block (`[depth, line, offset]`). Both build a flat index `depth*n_w + column`, mask it, and accumulate — the `accumulate=True` flag is what makes overlapping deposits (two line wings landing on the same pixel) **add** rather than overwrite. *This single `index_put_` is the GPU recasting of the NumPy per-line `+=` walk* — the deposit the whole lecture builds toward.""")
 
@@ -371,7 +371,7 @@ code(r'''def harris_hav_walk(x, a, h0tab, h1tab, h2tab, small, branch_oracle=Non
     return torch.where(small.expand_as(x) if small.shape != x.shape else small, cheap, full)
 print("batched near-wing Harris walk ready")''')
 
-md(r"""**`_wing_reach_batched` — every pair's reach, at once.** This is the GPU recasting of Stage 1 + Stage 2 of `process_wing_pair`. It computes, for the whole $[\text{depth},\text{line}]$ batch: `dopple` and the per-step $v$ increment `dvoigt`; the last near-wing step `n10dop` ($10\,v_D$); a batched `[depth, line, step]` scan of the cheap profile that finds where each pair first drops below the cutoff (`first_below` via `argmax` on the boolean — no per-line `break`); the far-wing anchor `x_far` and the analytic far reach; and the final per-pair `maxstep`. Transcribed verbatim from the validated port.""")
+md(r"""**`_wing_reach_batched` — every pair's reach, at once.** This is the tensor recasting of Stage 1 + Stage 2 of `process_wing_pair`. It computes, for the whole $[\text{depth},\text{line}]$ batch: `dopple` and the per-step $v$ increment `dvoigt`; the last near-wing step `n10dop` ($10\,v_D$); a batched `[depth, line, step]` scan of the cheap profile that finds where each pair first drops below the cutoff (`first_below` via `argmax` on the boolean — no per-line `break`); the far-wing anchor `x_far` and the analytic far reach; and the final per-pair `maxstep`. Transcribed from the validated implementation.""")
 
 code(r'''NARROW_REACH_TIERS = (
     1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768,
@@ -434,7 +434,7 @@ def wing_reach_batched(kappa0_wing, a_w, doppler_width, wl, kapmin_ref, wing_pai
     return maxstep, use_far, n10dop, dvoigt, x_far
 print("batched wing-reach geometry ready")''')
 
-md(r"""**`_wing_walk_core` — the fixed-offset sweep + the batched deposit.** Given the reach, this sweeps offsets $1\ldots W$ (the widest reach in the *given* batch), evaluates the near-wing Harris profile and the far-wing $x_{\rm far}/\mathrm{offset}^2$ for the whole `[depth, line, offset]` block, masks each offset against its pair's `maxstep` and the red/blue array edges, and deposits the **red** block and the **blue** block each with one `_scatter_add_3d`. *Two batched scatters replace the NumPy edition's entire per-line `while` loop.*""")
+md(r"""**`_wing_walk_core` — the fixed-offset sweep + the batched deposit.** Given the reach, this sweeps offsets $1\ldots W$ (the widest reach in the *given* batch), evaluates the near-wing Harris profile and the far-wing $x_{\rm far}/\mathrm{offset}^2$ for the whole `[depth, line, offset]` block, masks each offset against its pair's `maxstep` and the red/blue array edges, and deposits the **red** block and the **blue** block each with one `_scatter_add_3d`. *Two batched scatters replace the scalar reference's entire per-line `while` loop.*""")
 
 code(r'''def harris_branch_oracle(a64, dvoigt64, W, device, h0tab, h1tab, h2tab):
     """CPU/fp64 branch masks plus sparse cancellation-prone intermediate-core values."""
@@ -550,7 +550,7 @@ code(r'''def wing_walk_tiered(kline, ci, kappa0_wing, a_w, maxstep, use_far, n10
         kline.add_(torch.stack(tier_outputs, dim=0).sum(dim=0))
 print("reach-tiered wing walk ready")''')
 
-md(r"""**`accumulate_metal` — the whole pipeline.** This ties it together, exactly as the NumPy twin's `metal_accumulate_numpy` does, but with the **line axis as a batch axis** throughout. It selects the metal lines, gathers each line's population and Doppler width across all depths, forms `kappa0_pre` and the post-Boltzmann $\kappa_0$ (FASTEX), applies the two-stage cutoff, builds the damping $a$, computes the center contribution `kapcen` and deposits it via the 2-D scatter, back-solves the wing amplitude `kappa0_wing = kapcen/H(a,0)`, computes the reach with `_wing_reach_batched`, and deposits the wings with `_wing_walk_tiered`. **No Python `for` over the twelve thousand lines** — only the reach-tier loop (a handful of iterations) and the device kernels. Stimulated emission is *not* applied here; it goes on once at the very end. Transcribed verbatim from the validated port.""")
+md(r"""**`accumulate_metal` — the whole pipeline.** This ties it together, exactly as the NumPy twin's `metal_accumulate_numpy` does, but with the **line axis as a batch axis** throughout. It selects the metal lines, gathers each line's population and Doppler width across all depths, forms `kappa0_pre` and the post-Boltzmann $\kappa_0$ (FASTEX), applies the two-stage cutoff, builds the damping $a$, computes the center contribution `kapcen` and deposits it via the 2-D scatter, back-solves the wing amplitude `kappa0_wing = kapcen/H(a,0)`, computes the reach with `_wing_reach_batched`, and deposits the wings with `_wing_walk_tiered`. **No Python `for` over the twelve thousand lines** — only the reach-tier loop (a handful of iterations) and the device kernels. Stimulated emission is *not* applied here; it goes on once at the very end. Transcribed from the validated implementation.""")
 
 code(r'''CUTOFF = 1.0e-3; KAPMIN_FLOOR = 1.0e-8; CGF_CONSTANT = 0.026538 / 1.77245; C_LIGHT_NM = 2.99792458e17
 
@@ -625,7 +625,11 @@ def metal_invariants_fp64(catalog, atmd, grid, cont, sel0_np, center_idx_np, win
     return dict(center_idx=center_idx, kapcen=kapcen, center_mask=center_mask, sel=sel,
                 wing_idx=wing_idx_w, kappa0_wing=kappa0_wing, adamp=adamp_w,
                 maxstep=maxstep, use_far=use_far, n10dop=n10dop, dvoigt=dvoigt, x_far=x_far)
+''')
 
+md(r"""The invariant solve returns compact `[depth, line]` tensors: center deposits, live wing-line selection, damping, reach, and far-wing anchors. The next cell is the orchestration layer. It allocates the output opacity field, scatters the center values, then hands only the live wing subset to the reach-tiered GPU walk.""")
+
+code(r'''
 def accumulate_metal(catalog, atmd, grid, cont):
     """The fully-batched metal-line scatter accumulation -> kappa_metal[n_depths, n_w] (NO stim
     factor; applied once at the end). The line axis is a TENSOR BATCH axis; the deposit is one (or a
@@ -701,14 +705,14 @@ So the lesson the bible flagged as "the Metal-kernel candidate" resolves, for th
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## The comparison cell — validating the GPU scatter against the NumPy twin
 
-This is the per-part check that defines the GPU edition. We validate the GPU `accumulate_metal` against an **inline NumPy twin** — the exact scalar recipe (`voigt_profile`, `voigt_h_at_zero`, `fast_ex`, the grid-index helpers, `process_wing_pair`, `metal_accumulate_numpy`), copied verbatim from the NumPy reference. The twin walks every line per-depth with a Python loop and `+=`-es scalar by scalar; it is the gold standard the batched scatter must reproduce. (The twin takes ~1 second — that is the dispatch-storm cost the GPU batching exists to remove.)
+This is the per-part check used throughout the book. We validate `accumulate_metal` against an **inline NumPy twin** — the exact scalar recipe (`voigt_profile`, `voigt_h_at_zero`, `fast_ex`, the grid-index helpers, `process_wing_pair`, `metal_accumulate_numpy`). The twin walks every line per-depth with a Python loop and `+=`-es scalar by scalar; it is the gold standard the batched scatter must reproduce. (The twin takes ~1 second — that is the dispatch-storm cost the GPU batching exists to remove.)
 
 We run the twin to get `kappa_ref[80, 5941]`, run the GPU `accumulate_metal` to get `kappa_torch`, and compare on the **opacity-bearing pixels** ($|{\rm ref}| > 10^{-12}$ — the line cores and wings; the empty continuum between lines is not a meaningful relative comparison). First, the inline NumPy twin.""")
 
 code(r'''_EXTAB  = np.exp(-np.arange(1001, dtype=np.float64))          # FASTEX tables for the twin
 _EXTABF = np.exp(-np.arange(1001, dtype=np.float64) * 0.001)
 
-# --- the NumPy twin: the exact scalar recipe the batched scatter reproduces (from the L5 numpy edition) ---
+# --- the NumPy twin: the exact scalar recipe the batched scatter reproduces (validation only) ---
 def voigt_profile(v, a, h0tab, h1tab, h2tab):
     iv = max(0, min(int(abs(v)*200.0+0.5), h0tab.size-1))
     if a < 0.2:
@@ -751,6 +755,8 @@ def fast_ex(x):
         out[pos]=po
     return out
 print("NumPy twin: Voigt + H(a,0) + FASTEX ready")''')
+
+md(r"""The next reference block supplies the scalar grid-index helpers and the literal outward wing walk. It is intentionally loop-based: this is the comparison oracle whose `+=` deposits the GPU scatter must reproduce, not the shipped compute path.""")
 
 code(r'''def nearest_grid_indices(grid, values):
     ratiolg=np.log(grid[1]/grid[0]); ix0=int(np.log(grid[0])/ratiolg+0.5)
@@ -813,6 +819,8 @@ def process_wing_pair(asynth_d, grid, center_idx, kappa0, adamp, doppler_width,
         offset+=1
 print("NumPy twin: scalar wing walk ready")''')
 
+md(r"""With the scalar profile and wing-walk helpers in place, the final reference block loops over the catalog and assembles the complete metal opacity. This is the deliberately slow per-line path used only by the validation cell.""")
+
 code(r'''def metal_accumulate_numpy(catalog, atmd, grid, cont):
     """The NumPy-twin metal-line accumulation -> metal_opacity[n_depths, n_w] (NO stim factor;
     applied once at the end). The scalar per-line reference the torch scatter must reproduce."""
@@ -835,7 +843,7 @@ code(r'''def metal_accumulate_numpy(catalog, atmd, grid, cont):
     center_valid=line_ok&(center_idx>=0)&(center_idx<n_w)
     wing_active=line_ok&(wing_idx>=-M)&(wing_idx<=n_w-1+M)
     metal_opacity=np.zeros((n_depths,n_w),dtype=np.float64)
-    # JUSTIFIED-LOOP: scalar NumPy reference twin, intentionally mirrors the original line loop.
+    # JUSTIFIED-LOOP: scalar NumPy reference twin, intentionally mirrors the per-line loop.
     for i in np.where(line_ok)[0]:                                   # the Python per-line loop
         ci=int(center_idx[i]); wi=int(wing_idx[i]); wl_i=lam[i]; clamped=max(0,min(ci,n_w-1))
         pop=pop3[:,ion_idx[i],elem_idx[i]]; dop=dop3[:,ion_idx[i],elem_idx[i]]
@@ -905,14 +913,14 @@ print(f"device = {DEVICE.type}   float floor = {floor:.1e}   ->   [{status}]")
 assert mx <= floor, f"full metal max rel {mx:.2e} above {floor:.1e}"
 print("\nThe complete GPU metal scatter passes the full-support maximum-error gate.")''')
 
-md(r"""**What the numbers mean.** The GPU batched scatter reproduces the NumPy twin's per-line `+=` walk across the complete physical support. CPU/fp64 is used only where fp32 rounding changes a discrete decision or where the intermediate Harris polynomial suffers cancellation. The ordinary line forest is still evaluated and accumulated by reach-tiered MPS scatters. After that targeted precision treatment, the full maximum—not merely a median or percentile—lies below the fp32 acceptance floor.""")
+md(r"""**What the numbers mean.** The batched scatter reproduces the NumPy twin's per-line `+=` walk across the complete physical support. CPU/fp64 is used only where fp32 rounding changes a discrete decision or where the intermediate Harris polynomial suffers cancellation. The ordinary line forest is still evaluated and accumulated by reach-tiered MPS scatters. After that targeted precision treatment, the full maximum—not merely a median or percentile—lies below the fp32 acceptance floor.""")
 
 # ════════════════════════════════════════════════════════════════════════════
 #  THE FIGURE — total metal opacity 500-510 nm at the photosphere
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## The forest, GPU and NumPy
 
-Overlay the total metal line opacity from the GPU scatter on the NumPy twin at a photospheric layer, across the whole 500–510 nm window — semilog, like the NumPy edition's forest figure. The two curves coincide line for line; the GPU batched scatter and the scalar `+=` walk land the same opacity at the same pixels.""")
+Overlay the total metal line opacity from the batched scatter on the NumPy twin at a photospheric layer, across the whole 500–510 nm window. The two curves coincide line for line; the batched scatter and the scalar `+=` walk land the same opacity at the same pixels.""")
 
 code(r'''# apply stimulated emission once (the factor both paths held back to the end), then plot
 freq_grid = C_LIGHT_NM / grid                                       # [Hz]
@@ -940,7 +948,7 @@ md(r"""The forest matches line for line: every metal transition sits at its vacu
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## Synthesis: what you built and where it goes
 
-You took the NumPy edition's per-line outward `+=` wing walk — a Python loop over twelve thousand lines, each `while`-looping scalar by scalar into the opacity array — and recast it as a **batched scatter**. The line axis became a **tensor batch axis**; `_wing_reach_batched` computed every $(\text{depth},\text{line})$ pair's reach at once; `_wing_walk_tiered`/`_wing_walk_core` swept fixed offsets over reach-tiered buckets; and the deposit collapsed to a handful of **`index_put_(accumulate=True)`** scatters — the GPU's native atomic accumulation. The Harris `voigt_H` kernel of Lecture 4 was reused unchanged across the whole list, and FASTEX became a branchless gather. The result reproduces the NumPy twin to the fp32 floor.
+You took the scalar reference's per-line outward `+=` wing walk — a Python loop over twelve thousand lines, each `while`-looping scalar by scalar into the opacity array — and recast it as a **batched scatter**. The line axis became a **tensor batch axis**; `_wing_reach_batched` computed every $(\text{depth},\text{line})$ pair's reach at once; `_wing_walk_tiered`/`_wing_walk_core` swept fixed offsets over reach-tiered buckets; and the deposit collapsed to a handful of **`index_put_(accumulate=True)`** scatters — the GPU's native atomic accumulation. The Harris `voigt_H` kernel of Lecture 4 was reused unchanged across the whole list, and FASTEX became a branchless gather. The result reproduces the NumPy twin to the fp32 floor.
 
 Three GPU lessons crystallise here. **(1) Loop $\to$ scatter:** an adaptive per-element `+=` walk is a scatter, and the right shape is to batch the index axis and deposit with `index_put_(accumulate=True)`. **(2) The Metal-kernel verdict:** batched `index_put_` already lowers to an efficient atomic scatter; the win is in batching and reach-tiering. **(3) Precision placement:** discontinuous geometry and the cancellation-prone Harris core are compact fp64 islands, while the large low/far profile blocks and overlapping deposits remain on MPS. That division makes the strict full-maximum gate possible.
 
@@ -948,7 +956,7 @@ This metal opacity, added to the continuum of Lecture 3 and (with the hydrogen l
 
 md(r"""## Summary
 
-- The NumPy edition's **per-line outward `+=` wing walk** (red + blue, stop at the cutoff) is the **scatter-add hot path**; the GPU recasts it with the **line axis as a tensor batch axis** and the deposit as **one batched `[depth, line, offset]` scatter** per red/blue — `index_put_(accumulate=True)` — instead of $O(n_{\rm lines})$ tiny launches.
+- The scalar reference's **per-line outward `+=` wing walk** (red + blue, stop at the cutoff) is the **scatter-add hot path**; the tensor implementation recasts it with the **line axis as a batch axis** and the deposit as **one batched `[depth, line, offset]` scatter** per red/blue — `index_put_(accumulate=True)` — instead of $O(n_{\rm lines})$ tiny launches.
 - **`_wing_reach_batched`** computes every $(\text{depth},\text{line})$ pair's reach geometry at once; **`_wing_walk_tiered`/`_wing_walk_core`** sweep fixed offsets over **reach-tiered** buckets (to avoid wasted Harris evals); **`_scatter_add_3d`** is the `index_put_(accumulate=True)` deposit. The Harris **`voigt_H_grid`** of Lecture 4 and a branchless **FASTEX** gather are reused across the whole list.
 - The **Metal-kernel verdict**: the bible flags this scatter-add as the prime `torch.mps.compile_shader` candidate; the squeeze evaluated it and **kept the batched `index_put_`** — the scalar-walk alternative was 2245 ms vs the batched 610 ms and was rejected, and a true Metal scatter only *matched* the batched torch (which already lowers to an efficient atomic scatter). **The Metal kernel was not adopted; batched `index_put_` is the kernel optimum.**
 - **Parity:** every opacity-bearing metal pixel passes **max relative error $\le 10^{-6}$**; the two-line helium family and both special-profile families are gated the same way.""")
@@ -978,7 +986,7 @@ md(r"""## Further reading
 # ── CATCH-AND-FILL: appended sections (port_worker fill) ──
 md(r"""## Setup and the reference data
 
-The GPU notebook has already chosen the device and loaded the same three reference files (`full_lines_data.npz`, `atmosphere.npz`, `diag.npz`) used by the NumPy twin. This short section restores the NumPy lecture's structure explicitly: the data are the line catalog, the depth-state atmosphere, and the production diagnostic arrays. The shipped computation below stays torch-native; NumPy appears only in the explicit comparison-reference cells.""")
+The notebook has already chosen the device and loaded the three reference files (`full_lines_data.npz`, `atmosphere.npz`, `diag.npz`) used by the NumPy twin. This short section makes the data layout explicit: the line catalog, the depth-state atmosphere, and the production diagnostic arrays. The shipped computation below stays torch-native; NumPy appears only in the explicit comparison-reference cells.""")
 
 code(r'''# Torch views of the already-loaded reference arrays.  The host files were loaded above;
 # from here on the shipped path works on DEVICE in DTYPE.
@@ -1007,7 +1015,7 @@ print(f"catalog lines={lam_t.numel()}, depths={T_t.numel()}, population table={t
 
 md(r"""## Anatomy of a line record
 
-Each Kurucz record supplies the wavelength, `log gf`, species code, lower excitation energy, damping constants, and line-type code. In the GPU edition the same columns become one-dimensional tensors; the **line axis is a batch axis**. The code below mirrors the NumPy lecture's quick catalog inspection without a Python loop over the catalog: it ranks ordinary metal lines by `log gf` with `torch.topk` and prints the strongest few as tensors.""")
+Each Kurucz record supplies the wavelength, `log gf`, species code, lower excitation energy, damping constants, and line-type code. Here the same columns become one-dimensional tensors; the **line axis is a batch axis**. The code below mirrors a quick catalog inspection without a Python loop over the catalog: it ranks ordinary metal lines by `log gf` with `torch.topk` and prints the strongest few as tensors.""")
 
 code(r'''metal_t = (lt_t == 0)
 he_t = (lt_t == -3) | (lt_t == -4) | (lt_t == -6)
@@ -1179,7 +1187,11 @@ code(r'''def helium_opacity_torch():
     freq_grid_t = C_LIGHT_NM / grid64
     stim_t = 1.0 - torch.exp(-freq_grid_t.view(1, -1) * (h_planck / (k_boltz * T64)).view(-1, 1))
     return (he_raw * stim_t).to(dtype=DTYPE, device=DEVICE)
+''')
 
+md(r"""Run the helium path and keep its result as a tensor on the selected device. The validation cells below compare it component-by-component against the archived helium-wing diagnostic.""")
+
+code(r'''
 he_opacity_t = helium_opacity_torch()
 print(f"helium opacity tensor ready: shape={tuple(he_opacity_t.shape)}, "
       f"nonzero pixels={int((he_opacity_t > 0).sum().detach().cpu())}")''')
@@ -1397,7 +1409,11 @@ def autoionizing_delta_torch():
     center_mask[rec, c] = gate
     out = torch.where(center_mask, kappa0.view(-1, 1), out)
     return out.to(device=DEVICE, dtype=DTYPE)
+''')
 
+md(r"""Run the autoionizing profile and compare it on its recorded support. This cell is intentionally only a validation call plus assertions; the profile arithmetic was defined above.""")
+
+code(r'''
 auto_gpu_t = autoionizing_delta_torch()
 auto_gpu = auto_gpu_t.detach().cpu().to(torch.float64).numpy()  # numpy-ref
 auto_abs = np.max(np.abs(auto_gpu[auto_valid] - auto_ref[auto_valid]))  # numpy-ref
@@ -1469,7 +1485,11 @@ def merged_continuum_delta_torch():
     deposit = domain & before_stop & (~stop)
 
     return torch.where(deposit, value, torch.zeros_like(value))
+''')
 
+md(r"""Run the merged-continuum ramp profile and assert it against the recorded support. Together with the autoionizing check, this closes the two non-Voigt leaf profiles used by special line-type records.""")
+
+code(r'''
 cont_gpu_t = merged_continuum_delta_torch()
 cont_gpu = cont_gpu_t.detach().cpu().to(torch.float64).numpy()  # numpy-ref
 cont_abs = np.max(np.abs(cont_gpu[cont_valid] - cont_ref[cont_valid]))  # numpy-ref

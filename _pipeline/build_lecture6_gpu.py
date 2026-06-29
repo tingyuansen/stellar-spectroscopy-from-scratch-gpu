@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-"""Assemble content/Lecture6.ipynb (unexecuted) — the GPU EDITION. Execute + render via build.py.
+"""Assemble content/Lecture6.ipynb (unexecuted). Execute + render via build.py.
 
-Lecture 6 (GPU) — Hydrogen Lines: Stark Broadening, ported to clean torch/MPS. Kurucz's HPROF4
+Lecture 6 (GPU) — Hydrogen Lines: Stark Broadening, implemented in clean torch/MPS. Kurucz's HPROF4
 hydrogen Stark-profile engine — the per-point scalar walk that averages a linearly-split Balmer
 line over the Holtsmark microfield — is rebuilt as TWO branchless tensor entry points
 (`sofbeta_grid`, `hydrogen_profile_grid`) that evaluate the WHOLE [depth, wavelength] grid at once
@@ -9,7 +9,7 @@ line over the Holtsmark microfield — is rebuilt as TWO branchless tensor entry
 full hydrogen-line opacity is validated against the independent `gt_ahline` reference over all
 80x5941 outputs (strict <=1e-6), with a separate fp32 profile-component check.
 
-The clean torch port is a pedagogical reduction of the production kgpu/hydrogen.py engine (the
+The clean torch implementation is a pedagogical reduction of the production kgpu/hydrogen.py engine (the
 branchless `_hydrogen_profile_grid` / `_sofbeta`, read-only); the notebook imports neither kgpu nor
 pykurucz. The torch kernels below were produced + parity-gated by the external-API port worker
 (_pipeline/port_worker.py, job 'lecture6') and validated both as a component profile
@@ -30,15 +30,15 @@ def code(s): cells.append(new_code_cell(s))
 # ════════════════════════════════════════════════════════════════════════════
 #  TITLE
 # ════════════════════════════════════════════════════════════════════════════
-md(r"""# Lecture 6 — Hydrogen Lines: Stark Broadening *(GPU Edition)*
+md(r"""# Lecture 6 — Hydrogen Lines: Stark Broadening
 
-*Stellar Spectroscopy from Scratch — GPU Edition: the torch/MPS vectorized companion, each part validated against the NumPy edition*
+*Stellar Spectroscopy from Scratch — tensor-native stellar spectroscopy, validated against reference calculations*
 
 *Yuan-Sen Ting*
 
 *Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
 
-*This is the **GPU edition** of Lecture 6. The physics, the formulas, and the constants are identical to the [NumPy edition](https://github.com/tingyuansen/stellar-spectroscopy-from-scratch); Kurucz's **HPROF4** hydrogen Stark-profile engine is rebuilt in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). The lecture's new pedagogy is the **vectorization**: the NumPy reference walks the profile **one (depth, pixel) at a time**, with `if/elif/else` branches on which broadening width dominates and three regimes in the detuning $\beta$; here the whole $[\text{depth}, \text{wavelength}]$ grid is evaluated **at once** in branchless tensor functions, and the scalar outward line walk is recast as cumulative stop masks. It ends with a **full-output benchmark** against the independent `gt_ahline` reference over all 475,280 values, plus a component profile check against an inline NumPy twin. The clean torch port is a pedagogical reduction of the production `kgpu` engine's hydrogen kernel — the notebook imports neither `kgpu` nor pykurucz.*
+*This lecture builds Kurucz's **HPROF4** hydrogen Stark-profile engine in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). The lecture's new pedagogy is the **vectorization**: the NumPy reference walks the profile **one (depth, pixel) at a time**, with `if/elif/else` branches on which broadening width dominates and three regimes in the detuning $\beta$; here the whole $[\text{depth}, \text{wavelength}]$ grid is evaluated **at once** in branchless tensor functions, and the scalar outward line walk is recast as cumulative stop masks. It ends with a **full-output benchmark** against the independent `gt_ahline` reference over all 475,280 values, plus a component profile check against an inline NumPy twin. The clean torch implementation is a pedagogical reduction of the production `kgpu` engine's hydrogen kernel — the notebook imports neither `kgpu` nor pykurucz.*
 
 ---
 
@@ -49,7 +49,7 @@ md(r"""# Lecture 6 — Hydrogen Lines: Stark Broadening *(GPU Edition)*
 - Assemble the **HPROF4 profile** as a sum of three pieces — a Doppler **core** over fine-structure components, a **Lorentzian** (resonance + radiative + van der Waals), and the **linear-Stark wing** (a quasi-static Holtsmark term `sofbeta` plus an electron-impact term) — selected by which half-width dominates.
 - Recast the scalar, **point-by-point HPROF4 walk** into **one branchless** `[D, n_w]` tensor evaluation: the three $\beta$-regimes of `sofbeta` and the core/wing width-selection (`nwid`) of the profile, all computed for every pixel and folded into `torch.where`; the bilinear $(p,\beta)$ table interpolation rewritten as **flat-gather index math** rather than a Python loop.
 - Recognise and fix the GPU **precision trap**: the detuning $\nu-\nu_{nm}$ is a difference of two $\sim6\times10^{14}$ Hz numbers — catastrophic fp32 cancellation in the line core — and learn the algebraic **factoring** that removes it exactly (the same lesson Lecture 4 taught for $v$, generalized).
-- **Validate** the GPU profile and `sofbeta` against the NumPy reference to the float floor (fp32 GPU $\leftrightarrow$ fp64 NumPy).""")
+- **Validate** the profile and `sofbeta` against the NumPy reference to the float floor (fp32 GPU $\leftrightarrow$ fp64 NumPy).""")
 
 # ════════════════════════════════════════════════════════════════════════════
 #  INTRODUCTION
@@ -60,17 +60,17 @@ Lecture 4 broadened every line the same way: a **Voigt profile**, the convolutio
 
 Hydrogen is the exception, and it is the exception that matters most. Its levels are **degenerate** — states of the same principal quantum number $n$ but different angular momentum $\ell$ have (almost) the same energy — so a hydrogen level responds to an electric field at **first order**: the **linear Stark effect**, which splits the level *linearly* with the field rather than quadratically. The interaction is now long-ranged ($1/r^2$): the atom feels the slowly-varying combined field of *many* surrounding ions at once — the **quasi-static** limit — rather than a sequence of isolated impacts. The splitting is far larger, and the wings extend enormously. A hydrogen Balmer wing in a stellar photosphere is dominated not by a single lifetime damping width but by the **electric microfield** of the surrounding plasma, which is not a single number but a *distribution* of field strengths, approximately Holtsmark-distributed.
 
-The production code handles this with a dedicated engine, `HPROF4` (the HLINOP family), separate from the Voigt kernel that does everything else. This lecture rebuilds it — and rebuilds it the **GPU way**. The NumPy edition's profile is a scalar function: hand it one transition $n\to m$, one wavelength offset, one depth's worth of plasma state, and it returns one number, after walking three regimes in $\beta$ and branching on which of three half-widths dominates. To synthesise a spectrum you call it in a double loop over depths and pixels. That control flow is natural on a CPU; on the GPU it is the wrong shape — data-dependent branches force lanes to diverge. So our job is to **flatten** it: evaluate the profile on the whole $[\text{depth}, \text{wavelength}]$ grid at once, computing *every* regime for *every* pixel and selecting with a boolean mask. That is the lecture's added lesson, and the structure the production `kgpu` engine uses.""")
+The production code handles this with a dedicated engine, `HPROF4` (the HLINOP family), separate from the Voigt kernel that does everything else. The scalar reference profile takes one transition $n\to m$, one wavelength offset, one depth's worth of plasma state, and returns one number, after walking three regimes in $\beta$ and branching on which of three half-widths dominates. To synthesise a spectrum you call it in a double loop over depths and pixels. That control flow is natural on a CPU; on the GPU it is the wrong shape — data-dependent branches force lanes to diverge. So our job is to **flatten** it: evaluate the profile on the whole $[\text{depth}, \text{wavelength}]$ grid at once, computing *every* regime for *every* pixel and selecting with a boolean mask. That is the lecture's added lesson, and the structure the production `kgpu` engine uses.""")
 
-md(r"""**Setup — the device and the precision budget.** We pick the compute device once: **MPS** on Apple Silicon, **CUDA** on an NVIDIA box, otherwise **CPU**. MPS and CUDA have no float64, so on the GPU the working dtype is **fp32** and the parity bar is the documented float floor (~$10^{-6}$ for the Stark profile); on CPU we use **fp64** and recover machine precision. We carry NumPy and Matplotlib alongside `torch` — NumPy holds the reference twin we validate against, and the comparison at the end is done in NumPy.""")
+md(r"""**Setup — the device and the precision budget.** We pick the compute device once: **MPS** on Apple Silicon, **CUDA** on an NVIDIA box, otherwise **CPU**. MPS lacks practical float64 support, and this teaching path deliberately uses **fp32** on both MPS and CUDA so the accelerator route has one uniform precision budget; CUDA hardware can support float64, but that is not the default path here. On the GPU the parity bar is therefore the documented float floor (~$10^{-6}$ for the Stark profile); on CPU we use **fp64** and recover machine precision. We carry NumPy and Matplotlib alongside `torch` — NumPy holds the reference twin we validate against, and the comparison at the end is done in NumPy.""")
 
 code(r'''import pathlib, math
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
 
-# pick the compute device ONCE; MPS (Apple) -> CUDA -> CPU. MPS/CUDA have no fp64,
-# so the GPU working dtype is fp32 (parity bar = the documented float floor);
+# pick the compute device ONCE; MPS (Apple) -> CUDA -> CPU. The accelerator teaching
+# path uses fp32 on both MPS and CUDA, so its parity bar is the documented float floor;
 # on CPU we use fp64 and recover machine precision.
 if torch.backends.mps.is_available():
     DEVICE, DTYPE = torch.device("mps"), torch.float32
@@ -109,11 +109,11 @@ md(r"""![A hydrogen atom sits in the fluctuating electric microfield of its char
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## The data: the HPROF4 Stark tables and the atmosphere
 
-We load the same two reference files the rest of the GPU book uses, and pull out only what the hydrogen engine needs. The `full_lines_data.npz` bundle holds the **HPROF4 Stark tables** — the `htab_*` arrays (the tabulated Holtsmark statistical-broadening functions and asymptotic-correction coefficients, shipped as data exactly as the production code stores them) — and the **fine-structure** components of each Balmer line (`fine_offsets`/`fine_weights`/`fine_n`, keyed by transition). The `atmosphere.npz` bundle holds the depth state: temperature, electron density, the perturber densities (neutral helium and molecular hydrogen), the hydrogen level populations (`xnfph`, whose ground-state neutral-H population drives the resonance self-broadening), and the turbulent velocity. All eighty depths come along together — they are the depth axis we will vectorize over.
+We load the reference files and pull out only what the hydrogen engine needs. The `full_lines_data.npz` bundle holds the **HPROF4 Stark tables** — the `htab_*` arrays (the tabulated Holtsmark statistical-broadening functions and asymptotic-correction coefficients, shipped as data exactly as the production code stores them) — and the **fine-structure** components of each Balmer line (`fine_offsets`/`fine_weights`/`fine_n`, keyed by transition). The `atmosphere.npz` bundle holds the depth state: temperature, electron density, the perturber densities (neutral helium and molecular hydrogen), the hydrogen level populations (`xnfph`, whose ground-state neutral-H population drives the resonance self-broadening), and the turbulent velocity. All eighty depths come along together — they are the depth axis we will vectorize over.
 
-We define one helper, `compare`, that moves a GPU tensor back to NumPy and reports the maximum relative deviation from the reference — the per-part check, used here exactly as the NumPy edition used it.""")
+We define one helper, `compare`, that moves a GPU tensor back to NumPy and reports the maximum relative deviation from the reference — the per-part check used throughout the course.""")
 
-code(r'''# the two reference files (copied unchanged from the NumPy edition's reference/)
+code(r'''# the reference files used for validation and input tables
 REF = pathlib.Path("..") / "reference"
 C   = np.load(REF / "full_lines_data.npz", allow_pickle=True)
 A   = np.load(REF / "atmosphere.npz")
@@ -143,7 +143,7 @@ print(f"loaded: {wl.size} wavelengths x {n_depths} layers, "
 
 md(r"""Bundle the `htab_*` Stark tables into one dictionary the profile reads by name, and build the fine-structure lookup. `asum` is the radiative-damping sum per level; `propbm`, `c`, `d` are the Holtsmark statistical-broadening corrections on the `pp`$\times$`beta` grid; `xknmtb` holds the Stark constants $K_{nm}$; `y1wtm` the electron-density weights for the impact width. Each Balmer line is really several closely spaced fine-structure sub-lines, stored keyed by transition $(n_{\rm lower}, n_{\rm upper})$.""")
 
-code(r'''# the htab_* Stark tables, read by name by the profile (numpy arrays; the torch port casts inside)
+code(r'''# the htab_* Stark tables, read by name by the profile (numpy arrays; the torch implementation casts inside)
 tabs = dict(asum=C["htab_asum"], y1wtm=C["htab_y1wtm"], xknmtb=C["htab_xknmtb"],
             propbm=C["htab_propbm"], c=C["htab_c"], d=C["htab_d"],
             pp=C["htab_pp"], beta=C["htab_beta"])
@@ -363,7 +363,7 @@ md(r"""The factor $\tfrac{1}{\beta^{2}}\big(\tfrac{1.5}{\sqrt\beta}+\tfrac{27}{\
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## The precision trap: never subtract two big frequencies
 
-This is the GPU edition's distinct lesson for Lecture 6, and it earns its own section. The detuning the whole profile turns on is
+This is the distinct computational lesson for Lecture 6, and it earns its own section. The detuning the whole profile turns on is
 
 $$
 \Delta\nu = |\nu - \nu_{nm}|, \qquad \nu = \frac{c}{\lambda}.
@@ -592,7 +592,7 @@ print(f"per-depth state built for all {n_depths} layers; "
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## The H$\beta$ Stark wing across the window, all depths in one call
 
-Now evaluate the profile. We build the wavelength-offset grid for H$\beta$ — $\pm 30$ nm around its 486 nm centre — broadcast it across all eighty depths into one `[D, n_w]` tensor, and call `hydrogen_profile_grid` **once**: every depth, every pixel, in a single branchless evaluation. Then plot the profile across the window at a few depths on a log scale, as the NumPy edition does — but where the NumPy edition looped, the GPU did the entire grid at once.""")
+Now evaluate the profile. We build the wavelength-offset grid for H$\beta$ — $\pm 30$ nm around its 486 nm centre — broadcast it across all eighty depths into one `[D, n_w]` tensor, and call `hydrogen_profile_grid` **once**: every depth, every pixel, in a single branchless evaluation. Then plot the profile across the window at a few depths on a log scale; the scalar reference loops over pixels, while the tensor form evaluates the entire grid at once.""")
 
 code(r'''off, wt_f, nf = fine_map[(2, 4)]                      # H-beta fine-structure components
 
@@ -613,7 +613,7 @@ for di, c in [(int(np.argmin(np.abs(T-12000))), "C0"), (n_depths-1, "C3")]:
 ax.axvspan(500, 510, color="C2", alpha=0.12, label="our 500-510 nm window")
 ax.axvline(line_wl_nm, color="0.5", ls=":", lw=1); ax.set_ylim(1e-5, None)
 ax.set_xlabel("wavelength [nm]"); ax.set_ylabel(r"profile $\phi$  [relative]")
-ax.set_title("H-beta linear-Stark profile (one branchless [D, n_w] GPU call) — the wing reaches 500-510 nm")
+ax.set_title("H-beta linear-Stark profile (branchless [D, n_w] tensor form) — the wing reaches 500-510 nm")
 ax.legend(fontsize=9); fig.tight_layout(); plt.show()''')
 
 md(r"""The profile centred at 486 nm has a core, but its **wing stays high** — well above the floor at 500–510 nm, nearly 20 nm away — and it climbs by orders of magnitude from the warm layer to the deepest, hottest one, because $F_0 \propto n_e^{2/3}$ grows with depth. The wing follows the Holtsmark form (asymptotically $\beta^{-5/2}$), but the point is the *scale*: a Lorentzian built from H$\beta$'s non-Stark widths would have collapsed far below this curve long before 500 nm. This persistent wing is the physical reason hydrogen contributes a smooth opacity floor across our window. (The narrow central dip is physical: H$\beta$ has no unshifted central Stark component, so the averaged profile is depressed exactly at line centre.)""")
@@ -673,7 +673,11 @@ def center_index(grid, value):
     ratiolg = np.log(grid[1]/grid[0])
     ix0 = int(np.log(grid[0])/ratiolg + 0.5)
     return int(np.log(value)/ratiolg + 0.5) - ix0
+''')
 
+md(r"""The remaining helpers implement the outward walk. `_run_mask` turns a stop condition into "keep depositing until the first stop" for every depth row, `_deposit_side` applies that rule to one side of the line, and `deposit_outward` handles centre, red wing, and blue wing with the neighbour/continuum-merge guards.""")
+
+code(r'''
 def _run_mask(stop_here):
     """True up to, but not including, the first terminator in each depth row."""
     stopped = torch.cumsum(stop_here.to(DTYPE), dim=1) > 0.0
@@ -902,7 +906,11 @@ code(r'''def compute_hydrogen_opacity_gpu():
                         wlm1, wlp1, redcut, bluecut,
                         neighbour_red, neighbour_blue, active)
     return out
+''')
 
+md(r"""Run the driver once and keep the full hydrogen-line opacity on the selected device. The following benchmark cell compares all outputs against the independent archived reference.""")
+
+code(r'''
 ahline_gpu = compute_hydrogen_opacity_gpu()
 ahline = ahline_gpu.detach().cpu().to(torch.float64).numpy()
 print("full hydrogen-line opacity:", tuple(ahline_gpu.shape),
@@ -970,6 +978,8 @@ def _hf_nm_s(n, m):
     return fk*(1.0 - wt*ginf - (0.222 + gca/xm)*(1.0 - wt))
 print("scalar twin: _fast_ex / _vcse1f / _hf_nm ready")''')
 
+md(r"""The scalar `sofbeta` reference is kept separate because it is also checked directly over a wide $\beta$ range. It mirrors the table-bracketing and three-regime analytic form used by `sofbeta_grid`.""")
+
 code(r'''def sofbeta(beta, p, n, m, propbm, c_arr, d_arr, pp_arr, beta_arr):
     """Scalar quasi-static Stark profile S(beta) — the reference for sofbeta_grid."""
     if beta <= 0.0: return 0.0
@@ -996,6 +1006,8 @@ code(r'''def sofbeta(beta, p, n, m, propbm, c_arr, d_arr, pp_arr, beta_arr):
         corr = 1.0 + dd/denom2
     return (1.5/sb + 27.0/b2)/b2 * corr
 print("scalar twin: sofbeta ready")''')
+
+md(r"""The final scalar reference is the point-by-point HPROF4 profile. It remains a single cohesive function so its control flow can be read against the branchless grid implementation above.""")
 
 code(r'''def hydrogen_line_profile(n, m, delta_lambda_nm, hyd, tabs, foff, fwt, n_fine):
     """Scalar HPROF4 profile phi(Delta-lambda) — the point-by-point reference for the grid kernel."""
@@ -1091,7 +1103,7 @@ print(f"documented float floor = {floor:.1e}   ->   [{status}]   "
 assert max_dev < floor, f"GPU Stark profile deviates by {max_dev:.2e}, above the float floor {floor:.1e}"
 print("\nThe GPU hydrogen Stark profile and sofbeta match the NumPy twin to the documented float floor.")''')
 
-md(r"""**What the number means.** The GPU `hydrogen_profile_grid` and `sofbeta_grid` reproduce the scalar HPROF4 twin to the float floor — a few $\times 10^{-7}$ in fp32 on the GPU (the validated parity was `hprof4_grid_dev = 6.08e-7`, `sofbeta_dev = 3.08e-7`), machine precision in fp64 on a CPU run. That residual is single-precision round-off of the table interpolation, the exponential integral, and the profile arithmetic, *not* a physics difference: the formulas, the constants, the Stark tables, and the branch thresholds are identical to the NumPy edition. The branchless `torch.where` selection picks the same $\beta$-regime and the same dominant width as the scalar `if/elif/else` at every pixel — and crucially, the algebraic factoring of the detuning kept the *core* pixels accurate in fp32, where a naive `freq - freqnm` would have failed.
+md(r"""**What the number means.** The `hydrogen_profile_grid` and `sofbeta_grid` tensors reproduce the scalar HPROF4 twin to the float floor — a few $\times 10^{-7}$ in fp32 on the GPU (the validated parity was `hprof4_grid_dev = 6.08e-7`, `sofbeta_dev = 3.08e-7`), machine precision in fp64 on a CPU run. That residual is single-precision round-off of the table interpolation, the exponential integral, and the profile arithmetic, *not* a physics difference: the formulas, the constants, the Stark tables, and the branch thresholds match the reference. The branchless `torch.where` selection picks the same $\beta$-regime and the same dominant width as the scalar `if/elif/else` at every pixel — and crucially, the algebraic factoring of the detuning kept the *core* pixels accurate in fp32, where a naive `freq - freqnm` would have failed.
 
 **The vectorization lesson.** The HPROF4 walk was scalar control flow — natural for a CPU stepping one (depth, pixel) at a time. We flattened it three ways: *branch $\to$ mask* (every $\beta$-regime and every width-selection computed, chosen by `torch.where`); *table lookup $\to$ flat gather* (the bilinear `propbm` read as `tab_flat[row*ncols + col]`); *component loop $\to$ broadcast reduction* (the fine-structure core as one `[n_fine, D, n_w]` sum). And we did *not* reach for a Metal kernel: unlike Lecture 5's line-opacity accumulation (a scatter-add), this profile is a **dense elementwise** `[D, n_w]` evaluation — every output pixel is an independent function of its inputs, so plain batched torch already saturates the device. A custom kernel would buy nothing.""")
 
@@ -1102,7 +1114,7 @@ md(r"""## Synthesis
 
 Lecture 4 broadened every line with a Voigt profile, right for metals and helium, whose levels shift quadratically with an electric field. Hydrogen is degenerate, so its levels shift **linearly**, and its lines are broadened by the **electric microfield** of the surrounding plasma rather than by a single lifetime damping width. This lecture rebuilt the dedicated engine for that physics — and rebuilt it the GPU way. The Holtsmark normal field $F_0 = 1.25\times10^{-9}\,n_e^{2/3}$ set the scale; the dimensionless detuning $\beta = (\Delta\nu/F_0)\,\mathrm{d}\beta$ became the variable the whole profile depends on; and the profile was a sum of three pieces — a Doppler core over fine-structure components, a Lorentzian from the non-Stark widths, and the broad linear-Stark wing from `sofbeta` plus an electron-impact term — selected by which half-width dominates.
 
-The GPU edition's distinct value is the **vectorization**. The scalar HPROF4 walk evaluated one (depth, pixel) at a time, branching on three $\beta$-regimes and three dominant-width cases; we collapsed it into two branchless functions, `sofbeta_grid` and `hydrogen_profile_grid`, that evaluate the entire $[\text{depth}, \text{wavelength}]$ grid in one straight-line pass — branch to mask, table lookup to flat gather, component loop to broadcast reduction. The **precision budget** demanded one piece of real care: the core detuning $\nu - \nu_{nm}$ is a difference of two $\sim6\times10^{14}$ Hz numbers, fatal in fp32, fixed *exactly* by factoring the wavelength difference out algebraically — so the whole evaluation stays GPU-resident with no fp64-promotion. And we deliberately chose **no Metal kernel**: a dense elementwise `[D, n_w]` profile is not a scatter, so plain batched torch is already the right shape. The result matches the NumPy twin to the float floor, pixel for pixel.""")
+The distinct value here is the **vectorization**. The scalar HPROF4 walk evaluated one (depth, pixel) at a time, branching on three $\beta$-regimes and three dominant-width cases; we collapsed it into two branchless functions, `sofbeta_grid` and `hydrogen_profile_grid`, that evaluate the entire $[\text{depth}, \text{wavelength}]$ grid in one straight-line pass — branch to mask, table lookup to flat gather, component loop to broadcast reduction. The **precision budget** demanded one piece of real care: the core detuning $\nu - \nu_{nm}$ is a difference of two $\sim6\times10^{14}$ Hz numbers, fatal in fp32, fixed *exactly* by factoring the wavelength difference out algebraically — so the whole evaluation stays GPU-resident with no fp64-promotion. And we deliberately chose **no Metal kernel**: a dense elementwise `[D, n_w]` profile is not a scatter, so plain batched torch is already the right shape. The result matches the NumPy twin to the float floor, pixel for pixel.""")
 
 md(r"""## Summary
 
@@ -1125,7 +1137,7 @@ md(r"""## Practice exercises
 
 md(r"""## Further reading
 
-- **Holtsmark, J. (1919). *Ann. Phys.* 363, 577.** The original statistical theory of the electric microfield in a plasma, whose field-strength distribution underlies the $\beta^{-5/2}$ wing.
+- **Holtsmark, J. (1919). *Ann. Phys.* 363, 577.** The statistical theory of the electric microfield in a plasma, whose field-strength distribution underlies the $\beta^{-5/2}$ wing.
 - **Griem, H. R. (1974). *Spectral Line Broadening by Plasmas*, Academic Press.** The standard reference on Stark broadening of hydrogen lines — quasi-static ions, electron impact, and the unified profile the HPROF4 tables encode.
 - **Vidal, C. R., Cooper, J. & Smith, E. W. (1973). *ApJ Suppl.* 25, 37.** The VCS tables of hydrogen Stark profiles, the lineage of the `sofbeta`/`propbm` statistical-broadening tables used here.
 - **Stehlé, C. & Hutcheon, R. (1999). *Astron. Astrophys. Suppl.* 140, 93.** Modern computed Balmer-line Stark profiles, useful for comparing the engine's profile against an independent calculation.
