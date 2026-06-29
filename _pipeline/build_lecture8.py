@@ -4,8 +4,9 @@
 Lecture 8 — The JOSH Solver: Production Radiative Transfer, rebuilt as a
 torch-native notebook. The notebook imports neither kgpu nor pykurucz. It
 states the scoped fixture boundary explicitly: opacity slabs and fixed JOSH
-operator tables are taught-path inputs for this transfer-kernel lesson, while
-source and flux arrays are comparison-only references.
+operator tables are taught-path inputs for this transfer-kernel lesson. The
+opacity slabs are read from `L6.npz`, the preceding lecture's product; source
+and flux arrays from `diag.npz` are comparison-only references.
 """
 from pathlib import Path
 
@@ -35,7 +36,7 @@ md(
 
 *Yuan-Sen Ting*
 
-*This lecture rebuilds the Kurucz/ATLAS JOSH moment-solver **algorithm** as clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback). It imports neither `kgpu` nor `pykurucz`, and it does not depend on the NumPy lecture. The scoped taught-path inputs are the opacity slabs from the preceding synthesis stages and the fixed JOSH operator tables; source arrays and flux arrays are comparison-only references, not inputs to the solver.*
+*This lecture rebuilds the Kurucz/ATLAS JOSH moment-solver **algorithm** as clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback). It imports neither `kgpu` nor `pykurucz`, and it does not depend on the NumPy lecture. The scoped taught-path inputs are the opacity slabs from the preceding synthesis stage (`L6.npz`) and the fixed JOSH operator tables; source arrays and flux arrays are comparison-only references, not inputs to the solver.*
 
 ---
 
@@ -89,19 +90,20 @@ else:
 print(f"device = {DEVICE}, working dtype = {DTYPE}")
 
 REF = pathlib.Path("..") / "reference"
-D = np.load(REF / "diag.npz")
+L6 = np.load(REF / "L6.npz")
+D = np.load(REF / "diag.npz")  # comparison-only: source and flux parity arrays
 JT = np.load(REF / "josh_tables.npz")
 
-wavelength_nm_np = D["wavelength"].astype(np.float64)
-continuum_absorption_np = D["continuum_absorption"].astype(np.float64)
-continuum_scattering_np = D["continuum_scattering"].astype(np.float64)
-line_absorption_np = D["line_opacity"].astype(np.float64)
-line_scattering_np = D["line_scattering"].astype(np.float64)
+wavelength_nm_np = L6["wl"].astype(np.float64)
+continuum_absorption_np = L6["cont_abs"].astype(np.float64)
+continuum_scattering_np = L6["cont_scat"].astype(np.float64)
+line_absorption_np = (L6["total_abs"] - L6["cont_abs"]).astype(np.float64)
+line_scattering_np = (L6["total_scat"] - L6["cont_scat"]).astype(np.float64)
 flux_total_ref_np = D["flux_total"].astype(np.float64)
 flux_cont_ref_np = D["flux_continuum"].astype(np.float64)
 
-temperature_np = np.load(REF / "atmosphere.npz")["temperature"].astype(np.float64)
-column_mass_np = JT["rhox"].astype(np.float64)
+temperature_np = L6["T"].astype(np.float64)
+column_mass_np = L6["rhox"].astype(np.float64)
 xtau_np = JT["xtau"].astype(np.float64)
 coefj_np = JT["coefj"].astype(np.float64)
 ch_np = JT["ch"].astype(np.float64)
@@ -138,11 +140,10 @@ No `pykurucz`/`leankurucz` code appears in the taught computation path. The tabl
 
 | Array(s) | Classification | Used by taught solver? | Boundary status |
 |---|---:|---:|---|
-| `diag.wavelength` | numerical wavelength grid | yes | Scoped grid input for this transfer window. |
-| `diag.continuum_absorption`, `diag.continuum_scattering` | computed opacity state from earlier continuum physics | yes | Scoped fixture input for the transfer solve; not a comparison answer. |
-| `diag.line_opacity`, `diag.line_scattering` | computed opacity state from earlier line physics | yes | Scoped fixture input for the transfer solve; not a comparison answer. |
-| `atmosphere.temperature` | model-atmosphere state | yes | Scoped model input for this transfer lesson, not a transfer answer. |
-| `josh_tables.rhox` | model column-mass grid | yes | Scoped atmosphere grid input, duplicated from the model state. |
+| `L6.wl` | numerical wavelength grid | yes | Preceding-lecture transfer window grid. |
+| `L6.cont_abs`, `L6.cont_scat` | computed continuum opacity state | yes | Product of the preceding opacity lectures, consumed here as transfer input. |
+| `L6.total_abs - L6.cont_abs`, `L6.total_scat - L6.cont_scat` | computed line opacity/scattering state | yes | Product of the preceding opacity lectures, consumed here as transfer input. |
+| `L6.T`, `L6.rhox` | model temperature and column-mass grid | yes | Atmosphere state carried by the preceding lecture artifact. |
 | `josh_tables.xtau`, `josh_tables.coefj`, `josh_tables.ch` | fixed numerical JOSH operator/quadrature tables | yes | Scoped operator constants for the JOSH method; not per-star spectrum answers. |
 | `diag.slinec`, `diag.line_source` | computed source arrays | no | Comparison-only sanity check against inline LTE Planck; never fed into the solver. |
 | `diag.flux_total`, `diag.flux_continuum` | computed spectrum answers | no | Comparison-only parity targets. |
