@@ -57,7 +57,7 @@ Lectures 1-16 build and render. The local and GitHub Pages sites are live.
   modules (`eos_fromscratch.py`, `continuum_fromscratch.py`, `molecular_fromscratch.py`) for some
   load-bearing physics. These helpers are not runtime `kgpu`/`pykurucz` imports, but they are not
   final all-torch lecture closure.
-- Dense pedagogical cells remain, especially in L13/L14/L15. Break them only when the corresponding
+- Dense pedagogical cells remain, especially in L14/L15. Break them only when the corresponding
   parity gate is rerun.
 
 ## L14 status
@@ -129,7 +129,7 @@ synthesis path.
 4. Replace L15's production-derived atmosphere/EOS/window/continuum/full-grid blanket fixtures with
    computed lecture cells in small parity-gated steps.
 5. Move L16 helper-backed clean-room NumPy pieces into pedagogical torch cells where practical.
-6. Break up the densest L13/L14/L15 code cells with interleaved markdown and docstrings, rerunning
+6. Break up the densest L14/L15 code cells with interleaved markdown and docstrings, rerunning
    parity after each chunk.
 7. Use the exact-LINOP L15/L16 material to design the future `kgpu` squeeze from the 12.3-class
    coarse-deposit fixed point toward the pyk exact-LINOP `RHOX=12.1439331` target.

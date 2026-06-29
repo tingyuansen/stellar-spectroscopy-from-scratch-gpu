@@ -215,7 +215,7 @@ code(r'''class ExactQuadrantRosstab:
         self.slopet = self.slopep = 1.0
 
     def ingest(self, T, P, kappa):
-        """Append atmosphere samples and normalize them against the first block."""
+        """Append atmosphere samples and normalize them against the first table block coordinates."""
         T = np.asarray(T, dtype=np.float64)
         P = np.asarray(P, dtype=np.float64)
         kappa = np.asarray(kappa, dtype=np.float64)
@@ -239,7 +239,12 @@ code(r'''class ExactQuadrantRosstab:
         self.k = np.asarray(self.k, dtype=np.float64)
 
     def eval(self, temp, pressure):
-        """Return interpolated opacity at one scalar temperature/pressure pair."""
+        """Return interpolated opacity for one scalar temperature/pressure query.
+
+        Exact table hits are returned directly. Otherwise the method builds the
+        ATLAS four-quadrant candidate stencil and falls back to inverse-distance
+        weighting when the query lies outside a complete local bracket.
+        """
         templog = (np.log10(max(float(temp), 1e-300)) - self.zerot) / self.slopet
         presslog = (np.log10(max(float(pressure), 1e-300)) - self.zerop) / self.slopep
         dt = self.t - templog

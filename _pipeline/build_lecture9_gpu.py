@@ -306,7 +306,12 @@ Unlike the temperature and radiation-pressure cells, this depth march is not vec
  
 code(r'''def ttaup(temperature, tauros, prad_run, pturb_run, gravity_cgs,
           max_corrector_iters=1000, corrector_tol=5.0e-5):
-    """Kurucz TTAUP cold-start hydrostatic integration in log pressure."""
+    """Kurucz TTAUP cold-start hydrostatic integration in log pressure.
+
+    The depth march is intentionally sequential: each layer uses the Adams
+    predictor/corrector history from shallower layers, then iterates the local
+    gas/total pressure split until the opacity-derived correction is stable.
+    """
     dt, dev = temperature.dtype, temperature.device
     n = int(temperature.shape[0])
 

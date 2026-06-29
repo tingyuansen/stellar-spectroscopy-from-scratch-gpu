@@ -282,7 +282,7 @@ TRUTH = np.load(pathlib.Path(<span class="hljs-string">&quot;..&quot;</span>) / 
         self.slopet = self.slopep = 1.0
 
     def ingest(self, T, P, kappa):
-        &quot;&quot;&quot;Append atmosphere samples and normalize them against the first block.&quot;&quot;&quot;
+        &quot;&quot;&quot;Append atmosphere samples and normalize them against the first table block coordinates.&quot;&quot;&quot;
         T = np.asarray(T, dtype=np.float64)
         P = np.asarray(P, dtype=np.float64)
         kappa = np.asarray(kappa, dtype=np.float64)
@@ -306,7 +306,12 @@ TRUTH = np.load(pathlib.Path(<span class="hljs-string">&quot;..&quot;</span>) / 
         self.k = np.asarray(self.k, dtype=np.float64)
 
     def eval(self, temp, pressure):
-        &quot;&quot;&quot;Return interpolated opacity at one scalar temperature/pressure pair.&quot;&quot;&quot;
+        &quot;&quot;&quot;Return interpolated opacity for one scalar temperature/pressure query.
+
+        Exact table hits are returned directly. Otherwise the method builds the
+        ATLAS four-quadrant candidate stencil and falls back to inverse-distance
+        weighting when the query lies outside a complete local bracket.
+        &quot;&quot;&quot;
         templog = (np.log10(max(float(temp), 1e-300)) - self.zerot) / self.slopet
         presslog = (np.log10(max(float(pressure), 1e-300)) - self.zerop) / self.slopep
         dt = self.t - templog
@@ -375,7 +380,7 @@ assert err_ros &lt;= 5e-6" aria-label="Copy code">
         self.slopet = self.slopep = <span class="hljs-number">1.0</span>
 
     <span class="hljs-keyword">def</span> <span class="hljs-title function_">ingest</span>(<span class="hljs-params">self, T, P, kappa</span>):
-        <span class="hljs-string">&quot;&quot;&quot;Append atmosphere samples and normalize them against the first block.&quot;&quot;&quot;</span>
+        <span class="hljs-string">&quot;&quot;&quot;Append atmosphere samples and normalize them against the first table block coordinates.&quot;&quot;&quot;</span>
         T = np.asarray(T, dtype=np.float64)
         P = np.asarray(P, dtype=np.float64)
         kappa = np.asarray(kappa, dtype=np.float64)
@@ -399,7 +404,12 @@ assert err_ros &lt;= 5e-6" aria-label="Copy code">
         self.k = np.asarray(self.k, dtype=np.float64)
 
     <span class="hljs-keyword">def</span> <span class="hljs-title function_">eval</span>(<span class="hljs-params">self, temp, pressure</span>):
-        <span class="hljs-string">&quot;&quot;&quot;Return interpolated opacity at one scalar temperature/pressure pair.&quot;&quot;&quot;</span>
+        <span class="hljs-string">&quot;&quot;&quot;Return interpolated opacity for one scalar temperature/pressure query.
+
+        Exact table hits are returned directly. Otherwise the method builds the
+        ATLAS four-quadrant candidate stencil and falls back to inverse-distance
+        weighting when the query lies outside a complete local bracket.
+        &quot;&quot;&quot;</span>
         templog = (np.log10(<span class="hljs-built_in">max</span>(<span class="hljs-built_in">float</span>(temp), <span class="hljs-number">1e-300</span>)) - self.zerot) / self.slopet
         presslog = (np.log10(<span class="hljs-built_in">max</span>(<span class="hljs-built_in">float</span>(pressure), <span class="hljs-number">1e-300</span>)) - self.zerop) / self.slopep
         dt = self.t - templog

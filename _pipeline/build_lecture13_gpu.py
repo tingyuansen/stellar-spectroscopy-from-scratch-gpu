@@ -334,7 +334,12 @@ code(r'''from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class MolStructure:
-    """Precomputed branchless incidence structure: the whole molecule table as dense tensors."""
+    """Dense incidence tensors for branchless molecular-equilibrium residuals.
+
+    The structure is built once from READMOL's component lists, then reused by
+    every Newton residual and density readout. Static molecule bookkeeping stays
+    outside the iteration so the solve itself is tensor algebra over fixed masks.
+    """
     nequa: int
     ne: int
     count: torch.Tensor        # [nummol, nequa] stoichiometric exponents (active molecules)
@@ -348,7 +353,12 @@ class MolStructure:
 
     @classmethod
     def build(cls, nummol, locj, kcomps, idequa, nequa, *, device, dtype):
-        """Convert READMOL's component list into dense masks used by every residual call."""
+        """Convert READMOL component lists into dense masks for residual calls.
+
+        This one-time host setup decodes stoichiometric counts, inverse-electron
+        factors, negative-ion markers, and the special total/charge equation rows.
+        The returned tensors are static inputs to the batched Newton solve.
+        """
         nummol = int(nummol); nequa = int(nequa)
         locj = _as_numpy_i32(locj); kcomps = _as_numpy_i32(kcomps); idequa = _as_numpy_i32(idequa)
         ne = nequa - 1 if int(idequa[nequa - 1]) == 100 else -1
@@ -392,7 +402,13 @@ def _finite_or_zero(x):
     return torch.where(torch.isfinite(x), x, torch.zeros_like(x))
 
 def _residual(xn, log_equilj, xab, xntot, struct):
-    """Coupled-equilibrium residual f(xn), built branchlessly in log space."""
+    """Coupled-equilibrium residual f(xn), evaluated branchlessly in log space.
+
+    The residual combines element conservation, total-particle closure, charge
+    conservation, and all molecular mass-action terms. Products of densities are
+    accumulated as sums of logs to avoid overflow across the wide photospheric
+    dynamic range.
+    """
     eq = xn - xab * xn[0]                                # element residual x_k - X_k x_0
     eq0 = xn[1:].sum() - xntot                           # total-particle residual
     eq = eq + struct.total_mask * (eq0 - eq)             # one-hot route into row 0 (no if)
@@ -509,7 +525,13 @@ and neutral-atom arrays.""")
 
 code(r'''def _nmolec_driver(struct, ne, log_equilj, ed_np, xabund_np, gp_np, T_np, idequa_np,
                    n_layers, nequa, nummol, solve_device, solve_dtype, jacrev, vmap):
-    """Run the sequential pressure-continuation depth loop and batched molecule readout."""
+    """Run the sequential pressure-continuation depth loop and molecule readout.
+
+    Each depth solves one stiff Newton problem, seeded from the converged layer
+    above after pressure scaling. The per-depth Newton algebra is vectorized over
+    equation variables; the outer depth loop remains sequential because the warm
+    start is part of the reference algorithm.
+    """
     xab_np = _equation_abundance_vector(xabund_np, idequa_np, nequa, ne)
     xntot_np = gp_np / (T_np * KBOLTZ_CGS)                # total particle density (ideal gas law)
 

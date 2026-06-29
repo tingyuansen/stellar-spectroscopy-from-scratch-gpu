@@ -348,7 +348,13 @@ LN10 = np.log(10.0)
 EPS, TOL, MAXIT = 1e-38, 1e-5, 51
 
 def parcoe(f, x):
-    &quot;&quot;&quot;Per-interval parabola coefficients a,b,c (Kurucz PARCOE) — see Lecture 8.&quot;&quot;&quot;
+    &quot;&quot;&quot;Fit Kurucz PARCOE left-interval parabolas for later analytic integration.
+
+    `INTEG` evaluates each interval with coefficients anchored to the left
+    point.  This routine reproduces the ATLAS smoothing rule: linear endpoint
+    fits, linearized early interior intervals, then a curvature-weighted blend
+    between neighboring parabolas to suppress oscillatory coefficients.
+    &quot;&quot;&quot;
     n = f.size; a = np.zeros(n); b = np.zeros(n); c = np.zeros(n)
     # single point: constant
     if n == 1:
@@ -398,7 +404,13 @@ LN10 = np.log(<span class="hljs-number">10.0</span>)
 EPS, TOL, MAXIT = <span class="hljs-number">1e-38</span>, <span class="hljs-number">1e-5</span>, <span class="hljs-number">51</span>
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">parcoe</span>(<span class="hljs-params">f, x</span>):
-    <span class="hljs-string">&quot;&quot;&quot;Per-interval parabola coefficients a,b,c (Kurucz PARCOE) — see Lecture 8.&quot;&quot;&quot;</span>
+    <span class="hljs-string">&quot;&quot;&quot;Fit Kurucz PARCOE left-interval parabolas for later analytic integration.
+
+    `INTEG` evaluates each interval with coefficients anchored to the left
+    point.  This routine reproduces the ATLAS smoothing rule: linear endpoint
+    fits, linearized early interior intervals, then a curvature-weighted blend
+    between neighboring parabolas to suppress oscillatory coefficients.
+    &quot;&quot;&quot;</span>
     n = f.size; a = np.zeros(n); b = np.zeros(n); c = np.zeros(n)
     <span class="hljs-comment"># single point: constant</span>
     <span class="hljs-keyword">if</span> n == <span class="hljs-number">1</span>:
@@ -790,7 +802,13 @@ H_MAX_LEVEL = <span class="hljs-number">6</span></code></pre>
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[13]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def xkarsas(freq, zeff_squared, n, ell):
-    &quot;&quot;&quot;Karsas hydrogen bf cross-section coefficient (binary search, log10(freq) linear).&quot;&quot;&quot;
+    &quot;&quot;&quot;Return the hydrogenic bound-free cross-section from Karzas-Latter tables.
+
+    The lookup is performed in log10 frequency after scaling by effective
+    charge.  Low levels use the tabulated n/l-resolved columns; high levels
+    reuse the n=15 asymptotic table with the shifted threshold convention from
+    the original KAPP continuum routine.
+    &quot;&quot;&quot;
     if freq &lt;= 0.0 or zeff_squared &lt;= 0.0 or n &lt;= 0: return 0.0
     if ell &lt; 0: ell = 0
     freq_log = np.log10(freq / zeff_squared)
@@ -829,7 +847,13 @@ H_MAX_LEVEL = <span class="hljs-number">6</span></code></pre>
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">xkarsas</span>(<span class="hljs-params">freq, zeff_squared, n, ell</span>):
-    <span class="hljs-string">&quot;&quot;&quot;Karsas hydrogen bf cross-section coefficient (binary search, log10(freq) linear).&quot;&quot;&quot;</span>
+    <span class="hljs-string">&quot;&quot;&quot;Return the hydrogenic bound-free cross-section from Karzas-Latter tables.
+
+    The lookup is performed in log10 frequency after scaling by effective
+    charge.  Low levels use the tabulated n/l-resolved columns; high levels
+    reuse the n=15 asymptotic table with the shifted threshold convention from
+    the original KAPP continuum routine.
+    &quot;&quot;&quot;</span>
     <span class="hljs-keyword">if</span> freq &lt;= <span class="hljs-number">0.0</span> <span class="hljs-keyword">or</span> zeff_squared &lt;= <span class="hljs-number">0.0</span> <span class="hljs-keyword">or</span> n &lt;= <span class="hljs-number">0</span>: <span class="hljs-keyword">return</span> <span class="hljs-number">0.0</span>
     <span class="hljs-keyword">if</span> ell &lt; <span class="hljs-number">0</span>: ell = <span class="hljs-number">0</span>
     freq_log = np.log10(freq / zeff_squared)
@@ -926,7 +950,13 @@ H_MAX_LEVEL = <span class="hljs-number">6</span></code></pre>
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[16]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def si2op_vectorized(freq, freqlg, temp, tlog):
-    &quot;&quot;&quot;Si II opacity (Peach tables), returns cross-section * partition per layer.&quot;&quot;&quot;
+    &quot;&quot;&quot;Evaluate the Si II Peach-table photoionisation factor at all depths.
+
+    Frequency selects the resonance interval once for the current wavelength,
+    while each layer interpolates across the tabulated temperature coordinate.
+    The returned value is the cross-section multiplied by the Si II partition
+    factor used by the continuum opacity sum.
+    &quot;&quot;&quot;
     n_layers = temp.size
     nt = np.clip((temp / 2000.0).astype(int) - 4, 1, 5)
     dt = (tlog - SI2OP_TLG[nt - 1]) / (SI2OP_TLG[nt] - SI2OP_TLG[nt - 1])
@@ -948,7 +978,13 @@ H_MAX_LEVEL = <span class="hljs-number">6</span></code></pre>
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">si2op_vectorized</span>(<span class="hljs-params">freq, freqlg, temp, tlog</span>):
-    <span class="hljs-string">&quot;&quot;&quot;Si II opacity (Peach tables), returns cross-section * partition per layer.&quot;&quot;&quot;</span>
+    <span class="hljs-string">&quot;&quot;&quot;Evaluate the Si II Peach-table photoionisation factor at all depths.
+
+    Frequency selects the resonance interval once for the current wavelength,
+    while each layer interpolates across the tabulated temperature coordinate.
+    The returned value is the cross-section multiplied by the Si II partition
+    factor used by the continuum opacity sum.
+    &quot;&quot;&quot;</span>
     n_layers = temp.size
     nt = np.clip((temp / <span class="hljs-number">2000.0</span>).astype(<span class="hljs-built_in">int</span>) - <span class="hljs-number">4</span>, <span class="hljs-number">1</span>, <span class="hljs-number">5</span>)
     dt = (tlog - SI2OP_TLG[nt - <span class="hljs-number">1</span>]) / (SI2OP_TLG[nt] - SI2OP_TLG[nt - <span class="hljs-number">1</span>])
@@ -2047,7 +2083,13 @@ H_MAX_LEVEL = <span class="hljs-number">6</span></code></pre>
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[20]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _molc_band_xU(fscalar, T, CROSS, PART, n_off, idx_off, en_off, n_lo, n_hi, idx_hi):
-    &quot;&quot;&quot;Scalar CH/OH bound-free table interpolation for one frequency, all depths.&quot;&quot;&quot;
+    &quot;&quot;&quot;Interpolate a CH/OH bound-free band and partition factor over depth.
+
+    The caller supplies either the CHOP or OHOP cross-section and partition
+    tables plus the offset constants that map photon energy to the appropriate
+    0.1 eV table bin.  The result is still population-free; the driver scales it
+    by molecule abundance, density, and stimulated emission.
+    &quot;&quot;&quot;
     out = np.zeros(T.size)
     wn = fscalar / C_LIGHT_CM; ev = wn / 8065.479
     n = int(ev * 10) - n_off
@@ -2070,7 +2112,13 @@ H_MAX_LEVEL = <span class="hljs-number">6</span></code></pre>
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_molc_band_xU</span>(<span class="hljs-params">fscalar, T, CROSS, PART, n_off, idx_off, en_off, n_lo, n_hi, idx_hi</span>):
-    <span class="hljs-string">&quot;&quot;&quot;Scalar CH/OH bound-free table interpolation for one frequency, all depths.&quot;&quot;&quot;</span>
+    <span class="hljs-string">&quot;&quot;&quot;Interpolate a CH/OH bound-free band and partition factor over depth.
+
+    The caller supplies either the CHOP or OHOP cross-section and partition
+    tables plus the offset constants that map photon energy to the appropriate
+    0.1 eV table bin.  The result is still population-free; the driver scales it
+    by molecule abundance, density, and stimulated emission.
+    &quot;&quot;&quot;</span>
     out = np.zeros(T.size)
     wn = fscalar / C_LIGHT_CM; ev = wn / <span class="hljs-number">8065.479</span>
     n = <span class="hljs-built_in">int</span>(ev * <span class="hljs-number">10</span>) - n_off
@@ -2239,7 +2287,13 @@ _EXTABF = np.exp(-np.arange(<span class="hljs-number">1001</span>, dtype=np.floa
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[24]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def fast_ex_array(x):
-    &quot;&quot;&quot;Vectorized FASTEX: exp(-x) with the same table rounding as pykurucz.&quot;&quot;&quot;
+    &quot;&quot;&quot;Vectorized FASTEX approximation for positive Boltzmann exponents.
+
+    Positive inputs are split into integer and millimag fractional pieces and
+    read from the same EXTAB/EXTABF tables used by the line code.  Non-positive
+    values fall back to exact exponentials so the helper stays well-defined for
+    diagnostic inputs.
+    &quot;&quot;&quot;
     values = np.asarray(x, dtype=np.float64)
     out = np.empty_like(values)
     out[values == 0.0] = 1.0
@@ -2264,7 +2318,13 @@ _EXTABF = np.exp(-np.arange(<span class="hljs-number">1001</span>, dtype=np.floa
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">fast_ex_array</span>(<span class="hljs-params">x</span>):
-    <span class="hljs-string">&quot;&quot;&quot;Vectorized FASTEX: exp(-x) with the same table rounding as pykurucz.&quot;&quot;&quot;</span>
+    <span class="hljs-string">&quot;&quot;&quot;Vectorized FASTEX approximation for positive Boltzmann exponents.
+
+    Positive inputs are split into integer and millimag fractional pieces and
+    read from the same EXTAB/EXTABF tables used by the line code.  Non-positive
+    values fall back to exact exponentials so the helper stays well-defined for
+    diagnostic inputs.
+    &quot;&quot;&quot;</span>
     values = np.asarray(x, dtype=np.float64)
     out = np.empty_like(values)
     out[values == <span class="hljs-number">0.0</span>] = <span class="hljs-number">1.0</span>
@@ -2292,7 +2352,12 @@ _EXTABF = np.exp(-np.arange(<span class="hljs-number">1001</span>, dtype=np.floa
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[25]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# ── Voigt H(a,v): Kurucz Harris-table routine (voigt_jit.voigt_profile_jit) ─
 def voigt_profile(v, a, h0tab, h1tab, h2tab):
-    &quot;&quot;&quot;Scalar Voigt H(a,v) — exact port of voigt_profile_jit.&quot;&quot;&quot;
+    &quot;&quot;&quot;Scalar Harris-table Voigt/Hjerting function for one reduced offset.
+
+    The three branches match the ASYNTH kernel: a tabulated small-damping core,
+    an analytic Lorentz-like far wing or large-damping form, and the mid-range
+    Harris polynomial correction.  Callers pass the preloaded H0/H1/H2 tables.
+    &quot;&quot;&quot;
     iv = int(abs(v) * 200.0 + 0.5)
     iv = max(0, min(iv, h0tab.size - 1))
     if a &lt; 0.2:
@@ -2327,7 +2392,12 @@ def voigt_profile(v, a, h0tab, h1tab, h2tab):
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># ── Voigt H(a,v): Kurucz Harris-table routine (voigt_jit.voigt_profile_jit) ─</span>
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">voigt_profile</span>(<span class="hljs-params">v, a, h0tab, h1tab, h2tab</span>):
-    <span class="hljs-string">&quot;&quot;&quot;Scalar Voigt H(a,v) — exact port of voigt_profile_jit.&quot;&quot;&quot;</span>
+    <span class="hljs-string">&quot;&quot;&quot;Scalar Harris-table Voigt/Hjerting function for one reduced offset.
+
+    The three branches match the ASYNTH kernel: a tabulated small-damping core,
+    an analytic Lorentz-like far wing or large-damping form, and the mid-range
+    Harris polynomial correction.  Callers pass the preloaded H0/H1/H2 tables.
+    &quot;&quot;&quot;</span>
     iv = <span class="hljs-built_in">int</span>(<span class="hljs-built_in">abs</span>(v) * <span class="hljs-number">200.0</span> + <span class="hljs-number">0.5</span>)
     iv = <span class="hljs-built_in">max</span>(<span class="hljs-number">0</span>, <span class="hljs-built_in">min</span>(iv, h0tab.size - <span class="hljs-number">1</span>))
     <span class="hljs-keyword">if</span> a &lt; <span class="hljs-number">0.2</span>:
@@ -2363,7 +2433,12 @@ def voigt_profile(v, a, h0tab, h1tab, h2tab):
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[26]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def voigt_h_at_zero(adamp, h0tab, h1tab, h2tab):
-    &quot;&quot;&quot;Vectorized Voigt H(a,0) used to back-solve the wing kappa0 (_voigt_h_at_zero).&quot;&quot;&quot;
+    &quot;&quot;&quot;Vectorized line-center Voigt value H(a,0) for wing normalization.
+
+    Metal-line deposition first computes the center opacity and then divides by
+    this value to recover the profile amplitude used while walking the wings.
+    The branch formulas mirror `voigt_profile` at zero frequency offset.
+    &quot;&quot;&quot;
     h0_0 = float(h0tab[0]); h1_0 = float(h1tab[0]); h2_0 = float(h2tab[0])
     h0v = h0_0
     h1v = h1_0 + h0v * 1.12838
@@ -2390,7 +2465,12 @@ def voigt_profile(v, a, h0tab, h1tab, h2tab):
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">voigt_h_at_zero</span>(<span class="hljs-params">adamp, h0tab, h1tab, h2tab</span>):
-    <span class="hljs-string">&quot;&quot;&quot;Vectorized Voigt H(a,0) used to back-solve the wing kappa0 (_voigt_h_at_zero).&quot;&quot;&quot;</span>
+    <span class="hljs-string">&quot;&quot;&quot;Vectorized line-center Voigt value H(a,0) for wing normalization.
+
+    Metal-line deposition first computes the center opacity and then divides by
+    this value to recover the profile amplitude used while walking the wings.
+    The branch formulas mirror `voigt_profile` at zero frequency offset.
+    &quot;&quot;&quot;</span>
     h0_0 = <span class="hljs-built_in">float</span>(h0tab[<span class="hljs-number">0</span>]); h1_0 = <span class="hljs-built_in">float</span>(h1tab[<span class="hljs-number">0</span>]); h2_0 = <span class="hljs-built_in">float</span>(h2tab[<span class="hljs-number">0</span>])
     h0v = h0_0
     h1v = h1_0 + h0v * <span class="hljs-number">1.12838</span>
@@ -2727,7 +2807,14 @@ _HYD_EINF_CM = <span class="hljs-number">109678.764</span>            <span clas
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[31]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def compute_metal_opacity(cat, atm, diag, L4):
-    &quot;&quot;&quot;All metal (type-0, Z&gt;=3) lines through the ASYNTH Voigt kernel.&quot;&quot;&quot;
+    &quot;&quot;&quot;Accumulate all type-0 metal-line opacity on the diagnostic grid.
+
+    The catalog supplies wavelength, oscillator strength, damping constants,
+    species, and lower-level excitation data.  For each usable Z&gt;=3 line this
+    routine forms the depth-dependent ASYNTH line-center opacity, applies the
+    local continuum cutoff, deposits the center pixel, then walks the red and
+    blue Voigt wings until they fall below the cutoff.
+    &quot;&quot;&quot;
     wl = cat[&quot;cat_wl&quot;]
     loggf = cat[&quot;cat_loggf&quot;]
     Elow = cat[&quot;cat_elow&quot;]
@@ -2849,7 +2936,14 @@ _HYD_EINF_CM = <span class="hljs-number">109678.764</span>            <span clas
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">compute_metal_opacity</span>(<span class="hljs-params">cat, atm, diag, L4</span>):
-    <span class="hljs-string">&quot;&quot;&quot;All metal (type-0, Z&gt;=3) lines through the ASYNTH Voigt kernel.&quot;&quot;&quot;</span>
+    <span class="hljs-string">&quot;&quot;&quot;Accumulate all type-0 metal-line opacity on the diagnostic grid.
+
+    The catalog supplies wavelength, oscillator strength, damping constants,
+    species, and lower-level excitation data.  For each usable Z&gt;=3 line this
+    routine forms the depth-dependent ASYNTH line-center opacity, applies the
+    local continuum cutoff, deposits the center pixel, then walks the red and
+    blue Voigt wings until they fall below the cutoff.
+    &quot;&quot;&quot;</span>
     wl = cat[<span class="hljs-string">&quot;cat_wl&quot;</span>]
     loggf = cat[<span class="hljs-string">&quot;cat_loggf&quot;</span>]
     Elow = cat[<span class="hljs-string">&quot;cat_elow&quot;</span>]
@@ -3262,6 +3356,13 @@ _E1_TABLE = _build_e1_table()</code></pre>
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[38]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _lyman_alpha_lorentz(freq, freqnm, del_freq, dop, hwres, hwvdw, hwrad,
                          cutoff_h2, cutoff_h2_plus, xnfph_0, xnfph_1):
+    &quot;&quot;&quot;Lyman-alpha resonance, radiative, and van der Waals Lorentz contribution.
+
+    Near the line center this uses the broadened Lorentz expression directly.
+    Farther into the red wing it switches to the molecular-hydrogen cutoff table
+    used by HPROF4, while retaining the radiative and VDW terms only in their
+    production frequency ranges.
+    &quot;&quot;&quot;
     if dop &lt;= 0.0:
         return 0.0
     hwres_near = hwres * 4.0
@@ -3299,6 +3400,13 @@ _E1_TABLE = _build_e1_table()</code></pre>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_lyman_alpha_lorentz</span>(<span class="hljs-params">freq, freqnm, del_freq, dop, hwres, hwvdw, hwrad,
                          cutoff_h2, cutoff_h2_plus, xnfph_0, xnfph_1</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Lyman-alpha resonance, radiative, and van der Waals Lorentz contribution.
+
+    Near the line center this uses the broadened Lorentz expression directly.
+    Farther into the red wing it switches to the molecular-hydrogen cutoff table
+    used by HPROF4, while retaining the radiative and VDW terms only in their
+    production frequency ranges.
+    &quot;&quot;&quot;</span>
     <span class="hljs-keyword">if</span> dop &lt;= <span class="hljs-number">0.0</span>:
         <span class="hljs-keyword">return</span> <span class="hljs-number">0.0</span>
     hwres_near = hwres * <span class="hljs-number">4.0</span>
@@ -3338,6 +3446,12 @@ _E1_TABLE = _build_e1_table()</code></pre>
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[39]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _lyman_quasistatic_cutoff(freq, prqs, xnfph_0, xnfph_1, fo, dbeta, dop, n, m,
                               cutoff_h2_plus, propbm, c_arr, d_arr, pp_arr, beta_arr, pp_val):
+    &quot;&quot;&quot;Apply the Lyman quasi-static far-wing cutoff used by the Stark profile.
+
+    For offsets beyond the normal Stark core, HPROF4 either reads the H2+ cutoff
+    table or rescales the beta=4000 profile normalization.  The returned value
+    is an additive profile contribution in the same units as the line profile.
+    &quot;&quot;&quot;
     if fo &lt;= 0.0:
         return 0.0
     wavenumber = freq / C_LIGHT_CM
@@ -3363,6 +3477,12 @@ _E1_TABLE = _build_e1_table()</code></pre>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_lyman_quasistatic_cutoff</span>(<span class="hljs-params">freq, prqs, xnfph_0, xnfph_1, fo, dbeta, dop, n, m,
                               cutoff_h2_plus, propbm, c_arr, d_arr, pp_arr, beta_arr, pp_val</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Apply the Lyman quasi-static far-wing cutoff used by the Stark profile.
+
+    For offsets beyond the normal Stark core, HPROF4 either reads the H2+ cutoff
+    table or rescales the beta=4000 profile normalization.  The returned value
+    is an additive profile contribution in the same units as the line profile.
+    &quot;&quot;&quot;</span>
     <span class="hljs-keyword">if</span> fo &lt;= <span class="hljs-number">0.0</span>:
         <span class="hljs-keyword">return</span> <span class="hljs-number">0.0</span>
     wavenumber = freq / C_LIGHT_CM
@@ -4273,7 +4393,12 @@ def _hyd_he_static(d):
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[45]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _voigt_hav(x_val, adamp, h0tab, h1tab, h2tab):
-    &quot;&quot;&quot;Voigt H(a,v) exactly as in the helium kernel (voigt_jit, fastmath stripped).&quot;&quot;&quot;
+    &quot;&quot;&quot;Evaluate the helium-kernel Voigt H(a,v) for one absolute offset.
+
+    This is the same Harris-table branch structure as the metal-line helper,
+    written with the helium batch variables: tabulated small-a core, analytic
+    far-wing/large-a approximation, and the intermediate polynomial branch.
+    &quot;&quot;&quot;
     iv = int(x_val * 200.0 + 0.5)
     if iv &gt; h0tab.shape[0] - 1:
         iv = h0tab.shape[0] - 1
@@ -4306,7 +4431,12 @@ def _hyd_he_static(d):
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_voigt_hav</span>(<span class="hljs-params">x_val, adamp, h0tab, h1tab, h2tab</span>):
-    <span class="hljs-string">&quot;&quot;&quot;Voigt H(a,v) exactly as in the helium kernel (voigt_jit, fastmath stripped).&quot;&quot;&quot;</span>
+    <span class="hljs-string">&quot;&quot;&quot;Evaluate the helium-kernel Voigt H(a,v) for one absolute offset.
+
+    This is the same Harris-table branch structure as the metal-line helper,
+    written with the helium batch variables: tabulated small-a core, analytic
+    far-wing/large-a approximation, and the intermediate polynomial branch.
+    &quot;&quot;&quot;</span>
     iv = <span class="hljs-built_in">int</span>(x_val * <span class="hljs-number">200.0</span> + <span class="hljs-number">0.5</span>)
     <span class="hljs-keyword">if</span> iv &gt; h0tab.shape[<span class="hljs-number">0</span>] - <span class="hljs-number">1</span>:
         iv = h0tab.shape[<span class="hljs-number">0</span>] - <span class="hljs-number">1</span>
@@ -5769,7 +5899,12 @@ TC_CH_MAT = <span class="hljs-literal">None</span>                <span class="h
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[66]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def tc_deriv(x, f):
-    &quot;&quot;&quot;Cubic-tangent derivative df/dx (Fortran DERIV).&quot;&quot;&quot;
+    &quot;&quot;&quot;Return the monotonic cubic-tangent numerical derivative df/dx.
+
+    The endpoint slopes are one-sided differences.  Interior slopes are formed
+    from the neighboring secants after scale normalization, then combined via
+    the tangent addition formula used by ATLAS DERIV to limit overshoot.
+    &quot;&quot;&quot;
     n = f.size
     d = np.zeros(n)
     if n &lt; 2:
@@ -5793,7 +5928,12 @@ TC_CH_MAT = <span class="hljs-literal">None</span>                <span class="h
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">tc_deriv</span>(<span class="hljs-params">x, f</span>):
-    <span class="hljs-string">&quot;&quot;&quot;Cubic-tangent derivative df/dx (Fortran DERIV).&quot;&quot;&quot;</span>
+    <span class="hljs-string">&quot;&quot;&quot;Return the monotonic cubic-tangent numerical derivative df/dx.
+
+    The endpoint slopes are one-sided differences.  Interior slopes are formed
+    from the neighboring secants after scale normalization, then combined via
+    the tangent addition formula used by ATLAS DERIV to limit overshoot.
+    &quot;&quot;&quot;</span>
     n = f.size
     d = np.zeros(n)
     <span class="hljs-keyword">if</span> n &lt; <span class="hljs-number">2</span>:
@@ -5819,7 +5959,13 @@ TC_CH_MAT = <span class="hljs-literal">None</span>                <span class="h
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[67]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def tc_map1(xold, fold, xnew):
-    &quot;&quot;&quot;Piecewise-quadratic remap matching Fortran MAP1.  Returns (fnew, ll-1).&quot;&quot;&quot;
+    &quot;&quot;&quot;Remap a profile onto a new depth grid with ATLAS MAP1 parabolas.
+
+    As the new grid is scanned in order, the routine caches the forward and
+    backward quadratic fits around the current bracket and blends them by
+    relative curvature.  It returns both the interpolated values and the last
+    source-grid interval index consumed by the scan.
+    &quot;&quot;&quot;
     nold, nnew = xold.size, xnew.size
     fnew = np.zeros(nnew)
     if nold == 0 or nnew == 0:
@@ -5870,7 +6016,13 @@ TC_CH_MAT = <span class="hljs-literal">None</span>                <span class="h
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">tc_map1</span>(<span class="hljs-params">xold, fold, xnew</span>):
-    <span class="hljs-string">&quot;&quot;&quot;Piecewise-quadratic remap matching Fortran MAP1.  Returns (fnew, ll-1).&quot;&quot;&quot;</span>
+    <span class="hljs-string">&quot;&quot;&quot;Remap a profile onto a new depth grid with ATLAS MAP1 parabolas.
+
+    As the new grid is scanned in order, the routine caches the forward and
+    backward quadratic fits around the current bracket and blends them by
+    relative curvature.  It returns both the interpolated values and the last
+    source-grid interval index consumed by the scan.
+    &quot;&quot;&quot;</span>
     nold, nnew = xold.size, xnew.size
     fnew = np.zeros(nnew)
     <span class="hljs-keyword">if</span> nold == <span class="hljs-number">0</span> <span class="hljs-keyword">or</span> nnew == <span class="hljs-number">0</span>:
@@ -6201,6 +6353,12 @@ def tc_ross_finalize(acc, T, rhox):
 # 4. EXPI(3, x) = E3 exponential integral (Fortran FUNCTION EXPI), used by rdiagj.
 # ===========================================================================
 def tc_expi3(x):
+    &quot;&quot;&quot;Approximate the third exponential integral E3(x) for boundary terms.
+
+    The coefficient sets implement the EXPI rational approximations for E1 in
+    three x ranges.  Two recurrence steps then convert E1 to E3, matching the
+    ATLAS surface-boundary helper used by RDIAGJ/TCORR.
+    &quot;&quot;&quot;
     a = (-44178.5471728217, 57721.7247139444, 9938.31388962037, 1842.11088668,
          101.093806161906, 5.03416184097568)
     b = (76537.3323337614, 32597.1881290275, 6106.10794245759, 635.419418378382, 37.2298352833327)
@@ -6235,6 +6393,12 @@ def tc_expi3(x):
 <span class="hljs-comment"># 4. EXPI(3, x) = E3 exponential integral (Fortran FUNCTION EXPI), used by rdiagj.</span>
 <span class="hljs-comment"># ===========================================================================</span>
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">tc_expi3</span>(<span class="hljs-params">x</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Approximate the third exponential integral E3(x) for boundary terms.
+
+    The coefficient sets implement the EXPI rational approximations for E1 in
+    three x ranges.  Two recurrence steps then convert E1 to E3, matching the
+    ATLAS surface-boundary helper used by RDIAGJ/TCORR.
+    &quot;&quot;&quot;</span>
     a = (-<span class="hljs-number">44178.5471728217</span>, <span class="hljs-number">57721.7247139444</span>, <span class="hljs-number">9938.31388962037</span>, <span class="hljs-number">1842.11088668</span>,
          <span class="hljs-number">101.093806161906</span>, <span class="hljs-number">5.03416184097568</span>)
     b = (<span class="hljs-number">76537.3323337614</span>, <span class="hljs-number">32597.1881290275</span>, <span class="hljs-number">6106.10794245759</span>, <span class="hljs-number">635.419418378382</span>, <span class="hljs-number">37.2298352833327</span>)
@@ -6276,13 +6440,28 @@ def tc_expi3(x):
 #     Faithful port of atlas_py.physics.tcorr.{rosstab_ingest, rosstab_eval}.
 # ===========================================================================
 class TcRosstab:
+    &quot;&quot;&quot;Mutable Rosseland-opacity lookup table for the TCORR hydrostatic pass.
+
+    Each call to `ingest` appends normalized log-temperature/log-pressure sample
+    locations and log-kappa values from a completed Rosseland solve.  `eval`
+    then reproduces ROSSTAB&#39;s four-quadrant interpolation for trial gas pressure
+    points during the next hydrostatic integration.
+    &quot;&quot;&quot;
+
     def __init__(self):
+        &quot;&quot;&quot;Create an empty table; the first ingest call defines normalization.&quot;&quot;&quot;
         self.t = []; self.p = []; self.k = []
         self.zerot = self.zerop = 0.0
         self.slopet = self.slopep = 1.0
         self.n = 0
 
     def ingest(self, T, P, kappa):
+        &quot;&quot;&quot;Append one atmosphere&#39;s Rosseland opacity samples to the table.
+
+        Temperatures and pressures are stored as normalized log coordinates so
+        the quadrant search is scale-free.  Opacity is stored in log10 space and
+        converted back only after interpolation.
+        &quot;&quot;&quot;
         nn = T.size
         if self.n == 0:
             self.zerot = np.log10(max(float(T[0]), 1e-300))
@@ -6359,13 +6538,28 @@ class TcRosstab:
 <span class="hljs-comment">#     Faithful port of atlas_py.physics.tcorr.{rosstab_ingest, rosstab_eval}.</span>
 <span class="hljs-comment"># ===========================================================================</span>
 <span class="hljs-keyword">class</span> <span class="hljs-title class_">TcRosstab</span>:
+    <span class="hljs-string">&quot;&quot;&quot;Mutable Rosseland-opacity lookup table for the TCORR hydrostatic pass.
+
+    Each call to `ingest` appends normalized log-temperature/log-pressure sample
+    locations and log-kappa values from a completed Rosseland solve.  `eval`
+    then reproduces ROSSTAB&#x27;s four-quadrant interpolation for trial gas pressure
+    points during the next hydrostatic integration.
+    &quot;&quot;&quot;</span>
+
     <span class="hljs-keyword">def</span> <span class="hljs-title function_">__init__</span>(<span class="hljs-params">self</span>):
+        <span class="hljs-string">&quot;&quot;&quot;Create an empty table; the first ingest call defines normalization.&quot;&quot;&quot;</span>
         self.t = []; self.p = []; self.k = []
         self.zerot = self.zerop = <span class="hljs-number">0.0</span>
         self.slopet = self.slopep = <span class="hljs-number">1.0</span>
         self.n = <span class="hljs-number">0</span>
 
     <span class="hljs-keyword">def</span> <span class="hljs-title function_">ingest</span>(<span class="hljs-params">self, T, P, kappa</span>):
+        <span class="hljs-string">&quot;&quot;&quot;Append one atmosphere&#x27;s Rosseland opacity samples to the table.
+
+        Temperatures and pressures are stored as normalized log coordinates so
+        the quadrant search is scale-free.  Opacity is stored in log10 space and
+        converted back only after interpolation.
+        &quot;&quot;&quot;</span>
         nn = T.size
         <span class="hljs-keyword">if</span> self.n == <span class="hljs-number">0</span>:
             self.zerot = np.log10(<span class="hljs-built_in">max</span>(<span class="hljs-built_in">float</span>(T[<span class="hljs-number">0</span>]), <span class="hljs-number">1e-300</span>))

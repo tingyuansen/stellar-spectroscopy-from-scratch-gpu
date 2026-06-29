@@ -286,7 +286,12 @@ expected_dlg_tau = torch.log(torch.as_tensor(<span class="hljs-number">10.0</spa
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[7]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def ttaup(temperature, tauros, prad_run, pturb_run, gravity_cgs,
           max_corrector_iters=1000, corrector_tol=5.0e-5):
-    &quot;&quot;&quot;Kurucz TTAUP cold-start hydrostatic integration in log pressure.&quot;&quot;&quot;
+    &quot;&quot;&quot;Kurucz TTAUP cold-start hydrostatic integration in log pressure.
+
+    The depth march is intentionally sequential: each layer uses the Adams
+    predictor/corrector history from shallower layers, then iterates the local
+    gas/total pressure split until the opacity-derived correction is stable.
+    &quot;&quot;&quot;
     dt, dev = temperature.dtype, temperature.device
     n = int(temperature.shape[0])
 
@@ -376,7 +381,12 @@ expected_dlg_tau = torch.log(torch.as_tensor(<span class="hljs-number">10.0</spa
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">ttaup</span>(<span class="hljs-params">temperature, tauros, prad_run, pturb_run, gravity_cgs,
           max_corrector_iters=<span class="hljs-number">1000</span>, corrector_tol=<span class="hljs-number">5.0e-5</span></span>):
-    <span class="hljs-string">&quot;&quot;&quot;Kurucz TTAUP cold-start hydrostatic integration in log pressure.&quot;&quot;&quot;</span>
+    <span class="hljs-string">&quot;&quot;&quot;Kurucz TTAUP cold-start hydrostatic integration in log pressure.
+
+    The depth march is intentionally sequential: each layer uses the Adams
+    predictor/corrector history from shallower layers, then iterates the local
+    gas/total pressure split until the opacity-derived correction is stable.
+    &quot;&quot;&quot;</span>
     dt, dev = temperature.dtype, temperature.device
     n = <span class="hljs-built_in">int</span>(temperature.shape[<span class="hljs-number">0</span>])
 

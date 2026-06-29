@@ -301,7 +301,7 @@ is_fp32 = (DTYPE == torch.float32)
 floor = 1e-6 if is_fp32 else 1e-10        # ~1e-6 fp32 on MPS; machine precision in fp64 on CPU
 
 def voigt_H_numpy(a, v):
-    """Independent NumPy Harris-table reference for H(a,v), no torch/GPU path."""
+    """Independent NumPy Harris-table reference for H(a,v), separate from the torch validation path."""
     aa = np.asarray(a, dtype=np.float64).reshape(-1, 1)
     vv0 = np.asarray(v, dtype=np.float64).reshape(1, -1)
     av = np.abs(vv0); vv = vv0*vv0; a2 = aa*aa

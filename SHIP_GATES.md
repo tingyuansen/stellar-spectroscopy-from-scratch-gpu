@@ -69,7 +69,7 @@ Generated from source inspection and local runs on 2026-06-29.
 - Replace L15's production-derived atmosphere/EOS/window/continuum/full-grid blanket fixtures and
   L16's loaded-atmosphere/helper-backed pieces with self-contained torch-native lecture cells where
   practical.
-- Break dense L13/L14/L15 code cells into smaller commented/docstringed units with interleaved
+- Break dense L14/L15 code cells into smaller commented/docstringed units with interleaved
   markdown, preserving parity after each change.
 
 ## Optimization role

@@ -244,7 +244,13 @@ LN10 = np.log(10.0)
 EPS, TOL, MAXIT = 1e-38, 1e-5, 51
 
 def parcoe(f, x):
-    """Per-interval parabola coefficients a,b,c (Kurucz PARCOE) — see Lecture 8."""
+    """Fit Kurucz PARCOE left-interval parabolas for later analytic integration.
+
+    `INTEG` evaluates each interval with coefficients anchored to the left
+    point.  This routine reproduces the ATLAS smoothing rule: linear endpoint
+    fits, linearized early interior intervals, then a curvature-weighted blend
+    between neighboring parabolas to suppress oscillatory coefficients.
+    """
     n = f.size; a = np.zeros(n); b = np.zeros(n); c = np.zeros(n)
     # single point: constant
     if n == 1:
@@ -476,7 +482,13 @@ md(r"""`xkarsas` is the Karzas–Latter hydrogenic bound-free cross-section (Lec
 
 code(r'''
 def xkarsas(freq, zeff_squared, n, ell):
-    """Karsas hydrogen bf cross-section coefficient (binary search, log10(freq) linear)."""
+    """Return the hydrogenic bound-free cross-section from Karzas-Latter tables.
+
+    The lookup is performed in log10 frequency after scaling by effective
+    charge.  Low levels use the tabulated n/l-resolved columns; high levels
+    reuse the n=15 asymptotic table with the shifted threshold convention from
+    the original KAPP continuum routine.
+    """
     if freq <= 0.0 or zeff_squared <= 0.0 or n <= 0: return 0.0
     if ell < 0: ell = 0
     freq_log = np.log10(freq / zeff_squared)
@@ -547,7 +559,13 @@ md(r"""`si2op_vectorized` evaluates the Si II photoionisation cross-section from
 
 code(r'''
 def si2op_vectorized(freq, freqlg, temp, tlog):
-    """Si II opacity (Peach tables), returns cross-section * partition per layer."""
+    """Evaluate the Si II Peach-table photoionisation factor at all depths.
+
+    Frequency selects the resonance interval once for the current wavelength,
+    while each layer interpolates across the tabulated temperature coordinate.
+    The returned value is the cross-section multiplied by the Si II partition
+    factor used by the continuum opacity sum.
+    """
     n_layers = temp.size
     nt = np.clip((temp / 2000.0).astype(int) - 4, 1, 5)
     dt = (tlog - SI2OP_TLG[nt - 1]) / (SI2OP_TLG[nt] - SI2OP_TLG[nt - 1])
@@ -1116,7 +1134,13 @@ For completeness we also inline the cool-star **molecular continuum** of Lecture
 The helper cells separate the three physical lookups from the driver: CH and OH bound-free table interpolation first, H$_2$-CIA second, then the short loop that assembles the opacity grid.""")
 
 code(r'''def _molc_band_xU(fscalar, T, CROSS, PART, n_off, idx_off, en_off, n_lo, n_hi, idx_hi):
-    """Scalar CH/OH bound-free table interpolation for one frequency, all depths."""
+    """Interpolate a CH/OH bound-free band and partition factor over depth.
+
+    The caller supplies either the CHOP or OHOP cross-section and partition
+    tables plus the offset constants that map photon energy to the appropriate
+    0.1 eV table bin.  The result is still population-free; the driver scales it
+    by molecule abundance, density, and stimulated emission.
+    """
     out = np.zeros(T.size)
     wn = fscalar / C_LIGHT_CM; ev = wn / 8065.479
     n = int(ev * 10) - n_off
@@ -1220,7 +1244,13 @@ md(r"""`fast_ex_array` is the tabulated $e^{-x}$ (the production `FASTEX` lookup
 code(r'''
 
 def fast_ex_array(x):
-    """Vectorized FASTEX: exp(-x) with the same table rounding as pykurucz."""
+    """Vectorized FASTEX approximation for positive Boltzmann exponents.
+
+    Positive inputs are split into integer and millimag fractional pieces and
+    read from the same EXTAB/EXTABF tables used by the line code.  Non-positive
+    values fall back to exact exponentials so the helper stays well-defined for
+    diagnostic inputs.
+    """
     values = np.asarray(x, dtype=np.float64)
     out = np.empty_like(values)
     out[values == 0.0] = 1.0
@@ -1249,7 +1279,12 @@ code(r'''
 
 # ── Voigt H(a,v): Kurucz Harris-table routine (voigt_jit.voigt_profile_jit) ─
 def voigt_profile(v, a, h0tab, h1tab, h2tab):
-    """Scalar Voigt H(a,v) — exact port of voigt_profile_jit."""
+    """Scalar Harris-table Voigt/Hjerting function for one reduced offset.
+
+    The three branches match the ASYNTH kernel: a tabulated small-damping core,
+    an analytic Lorentz-like far wing or large-damping form, and the mid-range
+    Harris polynomial correction.  Callers pass the preloaded H0/H1/H2 tables.
+    """
     iv = int(abs(v) * 200.0 + 0.5)
     iv = max(0, min(iv, h0tab.size - 1))
     if a < 0.2:
@@ -1286,7 +1321,12 @@ md(r"""`voigt_h_at_zero` is the line-centre value $H(a,0)$ — used to normalise
 code(r'''
 
 def voigt_h_at_zero(adamp, h0tab, h1tab, h2tab):
-    """Vectorized Voigt H(a,0) used to back-solve the wing kappa0 (_voigt_h_at_zero)."""
+    """Vectorized line-center Voigt value H(a,0) for wing normalization.
+
+    Metal-line deposition first computes the center opacity and then divides by
+    this value to recover the profile amplitude used while walking the wings.
+    The branch formulas mirror `voigt_profile` at zero frequency offset.
+    """
     h0_0 = float(h0tab[0]); h1_0 = float(h1tab[0]); h2_0 = float(h2tab[0])
     h0v = h0_0
     h1v = h1_0 + h0v * 1.12838
@@ -1475,7 +1515,14 @@ md(r"""`compute_metal_opacity` is the driver for the metal-line forest: it selec
 
 code(r'''
 def compute_metal_opacity(cat, atm, diag, L4):
-    """All metal (type-0, Z>=3) lines through the ASYNTH Voigt kernel."""
+    """Accumulate all type-0 metal-line opacity on the diagnostic grid.
+
+    The catalog supplies wavelength, oscillator strength, damping constants,
+    species, and lower-level excitation data.  For each usable Z>=3 line this
+    routine forms the depth-dependent ASYNTH line-center opacity, applies the
+    local continuum cutoff, deposits the center pixel, then walks the red and
+    blue Voigt wings until they fall below the cutoff.
+    """
     wl = cat["cat_wl"]
     loggf = cat["cat_loggf"]
     Elow = cat["cat_elow"]
@@ -1761,6 +1808,13 @@ code(r'''
 
 def _lyman_alpha_lorentz(freq, freqnm, del_freq, dop, hwres, hwvdw, hwrad,
                          cutoff_h2, cutoff_h2_plus, xnfph_0, xnfph_1):
+    """Lyman-alpha resonance, radiative, and van der Waals Lorentz contribution.
+
+    Near the line center this uses the broadened Lorentz expression directly.
+    Farther into the red wing it switches to the molecular-hydrogen cutoff table
+    used by HPROF4, while retaining the radiative and VDW terms only in their
+    production frequency ranges.
+    """
     if dop <= 0.0:
         return 0.0
     hwres_near = hwres * 4.0
@@ -1801,6 +1855,12 @@ code(r'''
 
 def _lyman_quasistatic_cutoff(freq, prqs, xnfph_0, xnfph_1, fo, dbeta, dop, n, m,
                               cutoff_h2_plus, propbm, c_arr, d_arr, pp_arr, beta_arr, pp_val):
+    """Apply the Lyman quasi-static far-wing cutoff used by the Stark profile.
+
+    For offsets beyond the normal Stark core, HPROF4 either reads the H2+ cutoff
+    table or rescales the beta=4000 profile normalization.  The returned value
+    is an additive profile contribution in the same units as the line profile.
+    """
     if fo <= 0.0:
         return 0.0
     wavenumber = freq / C_LIGHT_CM
@@ -2284,7 +2344,12 @@ The He I/II lines get a Voigt-batch wing walk with a continuum-merge taper (the 
 md(r"""The helium wings use a batched Voigt with an Inglis–Teller taper. `_voigt_hav` is the per-value Voigt $H(a,v)$ (the Harris-table form again), here written for the helium batch.""")
 
 code(r'''def _voigt_hav(x_val, adamp, h0tab, h1tab, h2tab):
-    """Voigt H(a,v) exactly as in the helium kernel (voigt_jit, fastmath stripped)."""
+    """Evaluate the helium-kernel Voigt H(a,v) for one absolute offset.
+
+    This is the same Harris-table branch structure as the metal-line helper,
+    written with the helium batch variables: tabulated small-a core, analytic
+    far-wing/large-a approximation, and the intermediate polynomial branch.
+    """
     iv = int(x_val * 200.0 + 0.5)
     if iv > h0tab.shape[0] - 1:
         iv = h0tab.shape[0] - 1
@@ -3090,7 +3155,12 @@ md(r"""`tc_deriv` — the monotonic numerical derivative (Lecture 8) used by the
 code(r'''
 
 def tc_deriv(x, f):
-    """Cubic-tangent derivative df/dx (Fortran DERIV)."""
+    """Return the monotonic cubic-tangent numerical derivative df/dx.
+
+    The endpoint slopes are one-sided differences.  Interior slopes are formed
+    from the neighboring secants after scale normalization, then combined via
+    the tangent addition formula used by ATLAS DERIV to limit overshoot.
+    """
     n = f.size
     d = np.zeros(n)
     if n < 2:
@@ -3117,7 +3187,13 @@ md(r"""`tc_map1` — the parabolic interpolator that re-maps a quantity between 
 code(r'''
 
 def tc_map1(xold, fold, xnew):
-    """Piecewise-quadratic remap matching Fortran MAP1.  Returns (fnew, ll-1)."""
+    """Remap a profile onto a new depth grid with ATLAS MAP1 parabolas.
+
+    As the new grid is scanned in order, the routine caches the forward and
+    backward quadratic fits around the current bracket and blends them by
+    relative curvature.  It returns both the interpolated values and the last
+    source-grid interval index consumed by the scan.
+    """
     nold, nnew = xold.size, xnew.size
     fnew = np.zeros(nnew)
     if nold == 0 or nnew == 0:
@@ -3316,6 +3392,12 @@ code(r'''
 # 4. EXPI(3, x) = E3 exponential integral (Fortran FUNCTION EXPI), used by rdiagj.
 # ===========================================================================
 def tc_expi3(x):
+    """Approximate the third exponential integral E3(x) for boundary terms.
+
+    The coefficient sets implement the EXPI rational approximations for E1 in
+    three x ranges.  Two recurrence steps then convert E1 to E3, matching the
+    ATLAS surface-boundary helper used by RDIAGJ/TCORR.
+    """
     a = (-44178.5471728217, 57721.7247139444, 9938.31388962037, 1842.11088668,
          101.093806161906, 5.03416184097568)
     b = (76537.3323337614, 32597.1881290275, 6106.10794245759, 635.419418378382, 37.2298352833327)
@@ -3358,13 +3440,28 @@ code(r'''
 #     Faithful port of atlas_py.physics.tcorr.{rosstab_ingest, rosstab_eval}.
 # ===========================================================================
 class TcRosstab:
+    """Mutable Rosseland-opacity lookup table for the TCORR hydrostatic pass.
+
+    Each call to `ingest` appends normalized log-temperature/log-pressure sample
+    locations and log-kappa values from a completed Rosseland solve.  `eval`
+    then reproduces ROSSTAB's four-quadrant interpolation for trial gas pressure
+    points during the next hydrostatic integration.
+    """
+
     def __init__(self):
+        """Create an empty table; the first ingest call defines normalization."""
         self.t = []; self.p = []; self.k = []
         self.zerot = self.zerop = 0.0
         self.slopet = self.slopep = 1.0
         self.n = 0
 
     def ingest(self, T, P, kappa):
+        """Append one atmosphere's Rosseland opacity samples to the table.
+
+        Temperatures and pressures are stored as normalized log coordinates so
+        the quadrant search is scale-free.  Opacity is stored in log10 space and
+        converted back only after interpolation.
+        """
         nn = T.size
         if self.n == 0:
             self.zerot = np.log10(max(float(T[0]), 1e-300))

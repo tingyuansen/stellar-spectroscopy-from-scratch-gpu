@@ -794,7 +794,7 @@ code(r'''def rosstab_eval(t_norm, p_norm, self_t, self_p, self_k, self_nn):
 md(r"""`rosstab_eval` is only the local table interpolation. `Rosstab` packages the normalized coordinates and leaves the predictor/corrector formulas as small named functions before the depth march.""")
 
 code(r'''class Rosstab:
-    """Small Rosseland opacity table wrapper for the TTAUP pressure march."""
+    """Small Rosseland opacity table wrapper used by the TTAUP pressure march interpolation."""
     def __init__(self, T_arr, P_arr, kappa):
         """Store normalized log-temperature/log-pressure coordinates and log opacity."""
         self.zerot = torch.log10(torch.clamp(T_arr[0], min=1e-300))

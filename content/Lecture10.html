@@ -1408,7 +1408,7 @@ T1 (total)                  max|rel| = 1.12e-05   median = 7.22e-07   [CHECK]
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[22]</span>Python</span>
         <button class="copy-btn" type="button" data-code="class Rosstab:
-    &quot;&quot;&quot;Small Rosseland opacity table wrapper for the TTAUP pressure march.&quot;&quot;&quot;
+    &quot;&quot;&quot;Small Rosseland opacity table wrapper used by the TTAUP pressure march interpolation.&quot;&quot;&quot;
     def __init__(self, T_arr, P_arr, kappa):
         &quot;&quot;&quot;Store normalized log-temperature/log-pressure coordinates and log opacity.&quot;&quot;&quot;
         self.zerot = torch.log10(torch.clamp(T_arr[0], min=1e-300))
@@ -1442,7 +1442,7 @@ def ttaup_correct(j, abstd_j, tau_j, grav, plog, dplog, p1, p3, p4, q1, q2, q3):
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">class</span> <span class="hljs-title class_">Rosstab</span>:
-    <span class="hljs-string">&quot;&quot;&quot;Small Rosseland opacity table wrapper for the TTAUP pressure march.&quot;&quot;&quot;</span>
+    <span class="hljs-string">&quot;&quot;&quot;Small Rosseland opacity table wrapper used by the TTAUP pressure march interpolation.&quot;&quot;&quot;</span>
     <span class="hljs-keyword">def</span> <span class="hljs-title function_">__init__</span>(<span class="hljs-params">self, T_arr, P_arr, kappa</span>):
         <span class="hljs-string">&quot;&quot;&quot;Store normalized log-temperature/log-pressure coordinates and log opacity.&quot;&quot;&quot;</span>
         self.zerot = torch.log10(torch.clamp(T_arr[<span class="hljs-number">0</span>], <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-300</span>))
