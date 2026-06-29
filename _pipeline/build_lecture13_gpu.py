@@ -401,33 +401,37 @@ def _finite_or_zero(x):
     """Keep valid mass-action terms and silence overflow/invalid entries as zero opacity/density."""
     return torch.where(torch.isfinite(x), x, torch.zeros_like(x))
 
-def _residual(xn, log_equilj, xab, xntot, struct):
-    """Coupled-equilibrium residual f(xn), evaluated branchlessly in log space.
+def _residual(number_densities, log_formation_constants, equation_abundance,
+              total_particle_density, struct):
+    """Coupled-equilibrium residual f(number_densities), evaluated branchlessly in log space.
 
     The residual combines element conservation, total-particle closure, charge
     conservation, and all molecular mass-action terms. Products of densities are
     accumulated as sums of logs to avoid overflow across the wide photospheric
     dynamic range.
     """
-    eq = xn - xab * xn[0]                                # element residual x_k - X_k x_0
-    eq0 = xn[1:].sum() - xntot                           # total-particle residual
-    eq = eq + struct.total_mask * (eq0 - eq)             # one-hot route into row 0 (no if)
+    residual = number_densities - equation_abundance * number_densities[0]
+    total_residual = number_densities[1:].sum() - total_particle_density
+    residual = residual + struct.total_mask * (total_residual - residual)
     if struct.ne >= 0:
-        eqe = -xn[struct.ne]                             # charge residual starts at -n_e
-        eq = eq + struct.electron_mask * (eqe - eq)
+        charge_residual = -number_densities[struct.ne]
+        residual = residual + struct.electron_mask * (charge_residual - residual)
 
-    log_xn = _safe_log(xn)
-    log_term = log_equilj + (struct.count * log_xn.unsqueeze(0)).sum(dim=1)   # log(K_f prod n_i)
+    log_density = _safe_log(number_densities)
+    log_mass_action = log_formation_constants + (struct.count * log_density.unsqueeze(0)).sum(dim=1)
     if struct.ne >= 0:
-        log_term = log_term - struct.inv_e * log_xn[struct.ne]                # divide by n_e
-    term = _finite_or_zero(torch.exp(log_term)) * struct.active               # n_mol, active only
+        log_mass_action = log_mass_action - struct.inv_e * log_density[struct.ne]
+    molecule_density = _finite_or_zero(torch.exp(log_mass_action)) * struct.active
 
-    eq = eq + struct.total_mask * term.sum()                                  # deposit into total
-    eq = eq + (struct.count * term.unsqueeze(1)).sum(dim=0)                    # ...and each element
+    residual = residual + struct.total_mask * molecule_density.sum()
+    residual = residual + (struct.count * molecule_density.unsqueeze(1)).sum(dim=0)
     if struct.ne >= 0:
-        electron_mol = (struct.inv_e * term).sum() - (2.0 * struct.neg_ion * term).sum()
-        eq = eq + struct.electron_mask * electron_mol                         # neg-ion charge correction
-    return eq
+        molecular_charge = (
+            (struct.inv_e * molecule_density).sum()
+            - (2.0 * struct.neg_ion * molecule_density).sum()
+        )
+        residual = residual + struct.electron_mask * molecular_charge
+    return residual
 
 print("_residual (branchless, log-space) ready")''')
 
@@ -438,20 +442,23 @@ This is the heart of the tensor recasting, and it replaces two scalar pieces at 
 - **The Jacobian is automatic differentiation.** `torch.func.jacrev(resid_one)` differentiates the residual we just wrote with respect to the unknowns, producing a derivative consistent with the implemented residual to floating-point precision away from clamps and masks. No hand-coded `DEQ`, no risk of the analytic derivative drifting out of sync with the residual. This is the single biggest simplification: the residual *is* the model, and the Jacobian is generated from it.
 - **The solve is `torch.linalg.solve`, conditioned by column scaling.** The Jacobian spans $\sim$25 decades (hydrogen's $\sim10^{20}$ down to a trace metal's $\sim10^{-5}$), so a naive solve loses precision exactly as complete pivoting was designed to prevent. `_newton_step` scales each column by the current magnitude of its unknown ($J_s = J\,\mathrm{diag}(|x_n|)$), solves the well-conditioned $J_s\,d = r$, and rescales the step $\delta = |x_n|\,d$. Column scaling plays a similar stabilizing role for the differently scaled unknowns, expressed as one LAPACK call instead of a scalar elimination loop. **This is what vectorizes the inner iteration:** at one depth, the whole Newton step is a `jacrev` + a `solve`, dense tensor ops over the $n_{\rm equa}$ unknowns.""")
 
-code(r'''def _newton_step(J, eq, xn):
+code(r'''def _newton_step(jacobian, residual, number_densities):
     """Column-scaled Newton step: condition the ~25-dex Jacobian, then torch.linalg.solve."""
-    c = xn.abs().clamp_min(torch.finfo(J.dtype).tiny)
-    Js = J * c.unsqueeze(0)              # scale each column by |x_n| -> well-conditioned system
-    d = torch.linalg.solve(Js, eq)       # one batched LAPACK solve replaces SOLVIT's elimination loop
-    return c * d                         # rescale the step back
+    column_scale = number_densities.abs().clamp_min(torch.finfo(jacobian.dtype).tiny)
+    scaled_jacobian = jacobian * column_scale.unsqueeze(0)
+    scaled_step = torch.linalg.solve(scaled_jacobian, residual)
+    return column_scale * scaled_step
 
-def _molecular_densities(xn, log_equilj, struct):
+def _molecular_densities(number_densities, log_formation_constants, struct):
     """Read out every molecule's density n_mol = K_f prod n_i from converged atoms (log space)."""
-    log_xn = _safe_log(xn)
-    log_dens = log_equilj + (struct.count_all * log_xn.unsqueeze(0)).sum(dim=1)
+    log_density = _safe_log(number_densities)
+    log_molecule_density = (
+        log_formation_constants
+        + (struct.count_all * log_density.unsqueeze(0)).sum(dim=1)
+    )
     if struct.ne >= 0:
-        log_dens = log_dens - struct.inv_e_all * log_xn[struct.ne]
-    return _finite_or_zero(torch.exp(log_dens))
+        log_molecule_density = log_molecule_density - struct.inv_e_all * log_density[struct.ne]
+    return _finite_or_zero(torch.exp(log_molecule_density))
 
 print("_newton_step (autodiff Jacobian solve) + _molecular_densities ready")''')
 
@@ -536,59 +543,87 @@ code(r'''def _nmolec_driver(struct, ne, log_equilj, ed_np, xabund_np, gp_np, T_n
     xntot_np = gp_np / (T_np * KBOLTZ_CGS)                # total particle density (ideal gas law)
 
     to = lambda a: torch.as_tensor(a, dtype=solve_dtype, device=solve_device)
-    log_equilj_t = to(log_equilj); xab_t = to(xab_np); xntot_t = to(xntot_np)
+    log_formation_t = to(log_equilj)
+    equation_abundance_t = to(xab_np)
+    total_particle_density_t = to(xntot_np)
     electron_seed_t = to(ed_np)
 
-    def resid_one(xn_j, log_eqj_j, xntot_j):
+    def residual_one_depth(number_densities_j, log_formation_j, total_particle_density_j):
         """Single-depth residual closure for jacrev; captures the fixed abundance vector."""
-        return _residual(xn_j, log_eqj_j, xab_t, xntot_j, struct)
-    jac_one = jacrev(resid_one, argnums=0)               # the autodiff Jacobian of the residual
+        return _residual(
+            number_densities_j,
+            log_formation_j,
+            equation_abundance_t,
+            total_particle_density_j,
+            struct,
+        )
+    jacobian_one_depth = jacrev(residual_one_depth, argnums=0)
 
-    xn_rows = []; xn_prev_conv = None
+    solved_density_rows = []
+    previous_converged_densities = None
     max_iter = 200; tol = 1.0e-3
 
     # THE DEPTH LOOP -- pressure-continuation warm start for robustness (see markdown)
     for j in range(n_layers):     # JUSTIFIED-LOOP: sequential warm-start chain; depth j seeded from converged depth j-1
         if j == 0:                                       # top: crude split of the total density
-            xn0 = xntot_np[0] / 2.0; base = xn0 / 10.0
-            seed = np.zeros(nequa, dtype=np.float64); seed[0] = xn0   # JUSTIFY: per-layer Newton seed (fixed nequa)
-            seed[1:nequa] = base * xab_np[1:nequa]
+            total_nuclei_seed = xntot_np[0] / 2.0
+            trace_seed = total_nuclei_seed / 10.0
+            seed = np.zeros(nequa, dtype=np.float64)
+            seed[0] = total_nuclei_seed
+            seed[1:nequa] = trace_seed * xab_np[1:nequa]
             if ne >= 0:
-                seed[ne] = base
-            xn_j = to(seed)
+                seed[ne] = trace_seed
+            number_densities_j = to(seed)
         else:                                            # deeper: scale the converged layer above
-            ratio = gp_np[j] / gp_np[j - 1]
-            xn_j = xn_prev_conv * to(ratio)
+            pressure_ratio = gp_np[j] / gp_np[j - 1]
+            number_densities_j = previous_converged_densities * to(pressure_ratio)
 
-        log_eqj_j = log_equilj_t[j]; xntot_j = xntot_t[j]
-        eqold = torch.zeros(nequa, dtype=solve_dtype, device=solve_device)
+        log_formation_j = log_formation_t[j]
+        total_particle_density_j = total_particle_density_t[j]
+        previous_step = torch.zeros(nequa, dtype=solve_dtype, device=solve_device)
 
         # the INNER Newton iteration -- fully vectorized over the unknowns
         for _iteration in range(max_iter):   # JUSTIFIED-LOOP: Newton iteration is sequential; per-unknown work is vectorized (jacrev + linalg.solve)
-            eq = resid_one(xn_j, log_eqj_j, xntot_j)
-            J = jac_one(xn_j, log_eqj_j, xntot_j)
-            delta = _newton_step(J, eq, xn_j)
+            residual = residual_one_depth(
+                number_densities_j, log_formation_j, total_particle_density_j)
+            jacobian = jacobian_one_depth(
+                number_densities_j, log_formation_j, total_particle_density_j)
+            newton_step = _newton_step(jacobian, residual, number_densities_j)
 
-            ratio_k = delta.abs() / xn_j.abs().clamp_min(torch.finfo(solve_dtype).tiny)
-            iferr = bool((ratio_k > tol).any().detach().cpu().item())     # JUSTIFY: scalar convergence flag for the iteration control flow
-            sign_change = ((eqold > 0.0) & (delta < 0.0)) | ((eqold < 0.0) & (delta > 0.0))
-            delta = torch.where(sign_change, delta * 0.69, delta)         # damp an oscillation
-            xneq = xn_j - delta
-            too_small = xneq < (xn_j / 100.0)                             # hard retreat if too large
-            xn_j = torch.where(too_small, xn_j / 100.0, xneq).detach()
-            eqold = delta.detach()
-            if not iferr:
+            relative_step = (
+                newton_step.abs()
+                / number_densities_j.abs().clamp_min(torch.finfo(solve_dtype).tiny)
+            )
+            still_iterating = bool((relative_step > tol).any().detach().cpu().item())
+            oscillating_step = (
+                ((previous_step > 0.0) & (newton_step < 0.0))
+                | ((previous_step < 0.0) & (newton_step > 0.0))
+            )
+            damped_step = torch.where(oscillating_step, newton_step * 0.69, newton_step)
+            proposed_densities = number_densities_j - damped_step
+            overshot_floor = proposed_densities < (number_densities_j / 100.0)
+            number_densities_j = torch.where(
+                overshot_floor,
+                number_densities_j / 100.0,
+                proposed_densities,
+            ).detach()
+            previous_step = damped_step.detach()
+            if not still_iterating:
                 break
-        xn_prev_conv = xn_j.detach(); xn_rows.append(xn_prev_conv)
+        previous_converged_densities = number_densities_j.detach()
+        solved_density_rows.append(previous_converged_densities)
 
-    xn_final = torch.stack(xn_rows, dim=0)
+    xn_final = torch.stack(solved_density_rows, dim=0)
     xnatom = xn_final[:, 0]
     electron = xn_final[:, ne] if ne >= 0 else electron_seed_t[:n_layers]
 
     # read out every molecule's density, batched over depths with vmap
-    batched_moldens = vmap(lambda xn_j, log_eqj_j: _molecular_densities(xn_j, log_eqj_j, struct),
-                           in_dims=(0, 0))
-    xnmol_active = batched_moldens(xn_final, log_equilj_t)
+    molecule_density_readout = vmap(
+        lambda number_densities_j, log_formation_j: _molecular_densities(
+            number_densities_j, log_formation_j, struct),
+        in_dims=(0, 0),
+    )
+    xnmol_active = molecule_density_readout(xn_final, log_formation_t)
     xnz = torch.zeros((n_layers, MAXEQ), dtype=solve_dtype, device=solve_device); xnz[:, :nequa] = xn_final
     xnmol = torch.zeros((n_layers, MAXMOL), dtype=solve_dtype, device=solve_device)
     xnmol[:, :nummol] = xnmol_active

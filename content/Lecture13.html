@@ -608,33 +608,37 @@ def _finite_or_zero(x):
     &quot;&quot;&quot;Keep valid mass-action terms and silence overflow/invalid entries as zero opacity/density.&quot;&quot;&quot;
     return torch.where(torch.isfinite(x), x, torch.zeros_like(x))
 
-def _residual(xn, log_equilj, xab, xntot, struct):
-    &quot;&quot;&quot;Coupled-equilibrium residual f(xn), evaluated branchlessly in log space.
+def _residual(number_densities, log_formation_constants, equation_abundance,
+              total_particle_density, struct):
+    &quot;&quot;&quot;Coupled-equilibrium residual f(number_densities), evaluated branchlessly in log space.
 
     The residual combines element conservation, total-particle closure, charge
     conservation, and all molecular mass-action terms. Products of densities are
     accumulated as sums of logs to avoid overflow across the wide photospheric
     dynamic range.
     &quot;&quot;&quot;
-    eq = xn - xab * xn[0]                                # element residual x_k - X_k x_0
-    eq0 = xn[1:].sum() - xntot                           # total-particle residual
-    eq = eq + struct.total_mask * (eq0 - eq)             # one-hot route into row 0 (no if)
+    residual = number_densities - equation_abundance * number_densities[0]
+    total_residual = number_densities[1:].sum() - total_particle_density
+    residual = residual + struct.total_mask * (total_residual - residual)
     if struct.ne &gt;= 0:
-        eqe = -xn[struct.ne]                             # charge residual starts at -n_e
-        eq = eq + struct.electron_mask * (eqe - eq)
+        charge_residual = -number_densities[struct.ne]
+        residual = residual + struct.electron_mask * (charge_residual - residual)
 
-    log_xn = _safe_log(xn)
-    log_term = log_equilj + (struct.count * log_xn.unsqueeze(0)).sum(dim=1)   # log(K_f prod n_i)
+    log_density = _safe_log(number_densities)
+    log_mass_action = log_formation_constants + (struct.count * log_density.unsqueeze(0)).sum(dim=1)
     if struct.ne &gt;= 0:
-        log_term = log_term - struct.inv_e * log_xn[struct.ne]                # divide by n_e
-    term = _finite_or_zero(torch.exp(log_term)) * struct.active               # n_mol, active only
+        log_mass_action = log_mass_action - struct.inv_e * log_density[struct.ne]
+    molecule_density = _finite_or_zero(torch.exp(log_mass_action)) * struct.active
 
-    eq = eq + struct.total_mask * term.sum()                                  # deposit into total
-    eq = eq + (struct.count * term.unsqueeze(1)).sum(dim=0)                    # ...and each element
+    residual = residual + struct.total_mask * molecule_density.sum()
+    residual = residual + (struct.count * molecule_density.unsqueeze(1)).sum(dim=0)
     if struct.ne &gt;= 0:
-        electron_mol = (struct.inv_e * term).sum() - (2.0 * struct.neg_ion * term).sum()
-        eq = eq + struct.electron_mask * electron_mol                         # neg-ion charge correction
-    return eq
+        molecular_charge = (
+            (struct.inv_e * molecule_density).sum()
+            - (2.0 * struct.neg_ion * molecule_density).sum()
+        )
+        residual = residual + struct.electron_mask * molecular_charge
+    return residual
 
 print(&quot;_residual (branchless, log-space) ready&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
@@ -647,33 +651,37 @@ print(&quot;_residual (branchless, log-space) ready&quot;)" aria-label="Copy cod
     <span class="hljs-string">&quot;&quot;&quot;Keep valid mass-action terms and silence overflow/invalid entries as zero opacity/density.&quot;&quot;&quot;</span>
     <span class="hljs-keyword">return</span> torch.where(torch.isfinite(x), x, torch.zeros_like(x))
 
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">_residual</span>(<span class="hljs-params">xn, log_equilj, xab, xntot, struct</span>):
-    <span class="hljs-string">&quot;&quot;&quot;Coupled-equilibrium residual f(xn), evaluated branchlessly in log space.
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">_residual</span>(<span class="hljs-params">number_densities, log_formation_constants, equation_abundance,
+              total_particle_density, struct</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Coupled-equilibrium residual f(number_densities), evaluated branchlessly in log space.
 
     The residual combines element conservation, total-particle closure, charge
     conservation, and all molecular mass-action terms. Products of densities are
     accumulated as sums of logs to avoid overflow across the wide photospheric
     dynamic range.
     &quot;&quot;&quot;</span>
-    eq = xn - xab * xn[<span class="hljs-number">0</span>]                                <span class="hljs-comment"># element residual x_k - X_k x_0</span>
-    eq0 = xn[<span class="hljs-number">1</span>:].<span class="hljs-built_in">sum</span>() - xntot                           <span class="hljs-comment"># total-particle residual</span>
-    eq = eq + struct.total_mask * (eq0 - eq)             <span class="hljs-comment"># one-hot route into row 0 (no if)</span>
+    residual = number_densities - equation_abundance * number_densities[<span class="hljs-number">0</span>]
+    total_residual = number_densities[<span class="hljs-number">1</span>:].<span class="hljs-built_in">sum</span>() - total_particle_density
+    residual = residual + struct.total_mask * (total_residual - residual)
     <span class="hljs-keyword">if</span> struct.ne &gt;= <span class="hljs-number">0</span>:
-        eqe = -xn[struct.ne]                             <span class="hljs-comment"># charge residual starts at -n_e</span>
-        eq = eq + struct.electron_mask * (eqe - eq)
+        charge_residual = -number_densities[struct.ne]
+        residual = residual + struct.electron_mask * (charge_residual - residual)
 
-    log_xn = _safe_log(xn)
-    log_term = log_equilj + (struct.count * log_xn.unsqueeze(<span class="hljs-number">0</span>)).<span class="hljs-built_in">sum</span>(dim=<span class="hljs-number">1</span>)   <span class="hljs-comment"># log(K_f prod n_i)</span>
+    log_density = _safe_log(number_densities)
+    log_mass_action = log_formation_constants + (struct.count * log_density.unsqueeze(<span class="hljs-number">0</span>)).<span class="hljs-built_in">sum</span>(dim=<span class="hljs-number">1</span>)
     <span class="hljs-keyword">if</span> struct.ne &gt;= <span class="hljs-number">0</span>:
-        log_term = log_term - struct.inv_e * log_xn[struct.ne]                <span class="hljs-comment"># divide by n_e</span>
-    term = _finite_or_zero(torch.exp(log_term)) * struct.active               <span class="hljs-comment"># n_mol, active only</span>
+        log_mass_action = log_mass_action - struct.inv_e * log_density[struct.ne]
+    molecule_density = _finite_or_zero(torch.exp(log_mass_action)) * struct.active
 
-    eq = eq + struct.total_mask * term.<span class="hljs-built_in">sum</span>()                                  <span class="hljs-comment"># deposit into total</span>
-    eq = eq + (struct.count * term.unsqueeze(<span class="hljs-number">1</span>)).<span class="hljs-built_in">sum</span>(dim=<span class="hljs-number">0</span>)                    <span class="hljs-comment"># ...and each element</span>
+    residual = residual + struct.total_mask * molecule_density.<span class="hljs-built_in">sum</span>()
+    residual = residual + (struct.count * molecule_density.unsqueeze(<span class="hljs-number">1</span>)).<span class="hljs-built_in">sum</span>(dim=<span class="hljs-number">0</span>)
     <span class="hljs-keyword">if</span> struct.ne &gt;= <span class="hljs-number">0</span>:
-        electron_mol = (struct.inv_e * term).<span class="hljs-built_in">sum</span>() - (<span class="hljs-number">2.0</span> * struct.neg_ion * term).<span class="hljs-built_in">sum</span>()
-        eq = eq + struct.electron_mask * electron_mol                         <span class="hljs-comment"># neg-ion charge correction</span>
-    <span class="hljs-keyword">return</span> eq
+        molecular_charge = (
+            (struct.inv_e * molecule_density).<span class="hljs-built_in">sum</span>()
+            - (<span class="hljs-number">2.0</span> * struct.neg_ion * molecule_density).<span class="hljs-built_in">sum</span>()
+        )
+        residual = residual + struct.electron_mask * molecular_charge
+    <span class="hljs-keyword">return</span> residual
 
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;_residual (branchless, log-space) ready&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">_residual (branchless, log-space) ready
@@ -686,38 +694,44 @@ print(&quot;_residual (branchless, log-space) ready&quot;)" aria-label="Copy cod
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[11]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="def _newton_step(J, eq, xn):
+        <button class="copy-btn" type="button" data-code="def _newton_step(jacobian, residual, number_densities):
     &quot;&quot;&quot;Column-scaled Newton step: condition the ~25-dex Jacobian, then torch.linalg.solve.&quot;&quot;&quot;
-    c = xn.abs().clamp_min(torch.finfo(J.dtype).tiny)
-    Js = J * c.unsqueeze(0)              # scale each column by |x_n| -&gt; well-conditioned system
-    d = torch.linalg.solve(Js, eq)       # one batched LAPACK solve replaces SOLVIT&#39;s elimination loop
-    return c * d                         # rescale the step back
+    column_scale = number_densities.abs().clamp_min(torch.finfo(jacobian.dtype).tiny)
+    scaled_jacobian = jacobian * column_scale.unsqueeze(0)
+    scaled_step = torch.linalg.solve(scaled_jacobian, residual)
+    return column_scale * scaled_step
 
-def _molecular_densities(xn, log_equilj, struct):
+def _molecular_densities(number_densities, log_formation_constants, struct):
     &quot;&quot;&quot;Read out every molecule&#39;s density n_mol = K_f prod n_i from converged atoms (log space).&quot;&quot;&quot;
-    log_xn = _safe_log(xn)
-    log_dens = log_equilj + (struct.count_all * log_xn.unsqueeze(0)).sum(dim=1)
+    log_density = _safe_log(number_densities)
+    log_molecule_density = (
+        log_formation_constants
+        + (struct.count_all * log_density.unsqueeze(0)).sum(dim=1)
+    )
     if struct.ne &gt;= 0:
-        log_dens = log_dens - struct.inv_e_all * log_xn[struct.ne]
-    return _finite_or_zero(torch.exp(log_dens))
+        log_molecule_density = log_molecule_density - struct.inv_e_all * log_density[struct.ne]
+    return _finite_or_zero(torch.exp(log_molecule_density))
 
 print(&quot;_newton_step (autodiff Jacobian solve) + _molecular_densities ready&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_newton_step</span>(<span class="hljs-params">J, eq, xn</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_newton_step</span>(<span class="hljs-params">jacobian, residual, number_densities</span>):
     <span class="hljs-string">&quot;&quot;&quot;Column-scaled Newton step: condition the ~25-dex Jacobian, then torch.linalg.solve.&quot;&quot;&quot;</span>
-    c = xn.<span class="hljs-built_in">abs</span>().clamp_min(torch.finfo(J.dtype).tiny)
-    Js = J * c.unsqueeze(<span class="hljs-number">0</span>)              <span class="hljs-comment"># scale each column by |x_n| -&gt; well-conditioned system</span>
-    d = torch.linalg.solve(Js, eq)       <span class="hljs-comment"># one batched LAPACK solve replaces SOLVIT&#x27;s elimination loop</span>
-    <span class="hljs-keyword">return</span> c * d                         <span class="hljs-comment"># rescale the step back</span>
+    column_scale = number_densities.<span class="hljs-built_in">abs</span>().clamp_min(torch.finfo(jacobian.dtype).tiny)
+    scaled_jacobian = jacobian * column_scale.unsqueeze(<span class="hljs-number">0</span>)
+    scaled_step = torch.linalg.solve(scaled_jacobian, residual)
+    <span class="hljs-keyword">return</span> column_scale * scaled_step
 
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">_molecular_densities</span>(<span class="hljs-params">xn, log_equilj, struct</span>):
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">_molecular_densities</span>(<span class="hljs-params">number_densities, log_formation_constants, struct</span>):
     <span class="hljs-string">&quot;&quot;&quot;Read out every molecule&#x27;s density n_mol = K_f prod n_i from converged atoms (log space).&quot;&quot;&quot;</span>
-    log_xn = _safe_log(xn)
-    log_dens = log_equilj + (struct.count_all * log_xn.unsqueeze(<span class="hljs-number">0</span>)).<span class="hljs-built_in">sum</span>(dim=<span class="hljs-number">1</span>)
+    log_density = _safe_log(number_densities)
+    log_molecule_density = (
+        log_formation_constants
+        + (struct.count_all * log_density.unsqueeze(<span class="hljs-number">0</span>)).<span class="hljs-built_in">sum</span>(dim=<span class="hljs-number">1</span>)
+    )
     <span class="hljs-keyword">if</span> struct.ne &gt;= <span class="hljs-number">0</span>:
-        log_dens = log_dens - struct.inv_e_all * log_xn[struct.ne]
-    <span class="hljs-keyword">return</span> _finite_or_zero(torch.exp(log_dens))
+        log_molecule_density = log_molecule_density - struct.inv_e_all * log_density[struct.ne]
+    <span class="hljs-keyword">return</span> _finite_or_zero(torch.exp(log_molecule_density))
 
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;_newton_step (autodiff Jacobian solve) + _molecular_densities ready&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">_newton_step (autodiff Jacobian solve) + _molecular_densities ready
@@ -857,59 +871,87 @@ and neutral-atom arrays.</p>
     xntot_np = gp_np / (T_np * KBOLTZ_CGS)                # total particle density (ideal gas law)
 
     to = lambda a: torch.as_tensor(a, dtype=solve_dtype, device=solve_device)
-    log_equilj_t = to(log_equilj); xab_t = to(xab_np); xntot_t = to(xntot_np)
+    log_formation_t = to(log_equilj)
+    equation_abundance_t = to(xab_np)
+    total_particle_density_t = to(xntot_np)
     electron_seed_t = to(ed_np)
 
-    def resid_one(xn_j, log_eqj_j, xntot_j):
+    def residual_one_depth(number_densities_j, log_formation_j, total_particle_density_j):
         &quot;&quot;&quot;Single-depth residual closure for jacrev; captures the fixed abundance vector.&quot;&quot;&quot;
-        return _residual(xn_j, log_eqj_j, xab_t, xntot_j, struct)
-    jac_one = jacrev(resid_one, argnums=0)               # the autodiff Jacobian of the residual
+        return _residual(
+            number_densities_j,
+            log_formation_j,
+            equation_abundance_t,
+            total_particle_density_j,
+            struct,
+        )
+    jacobian_one_depth = jacrev(residual_one_depth, argnums=0)
 
-    xn_rows = []; xn_prev_conv = None
+    solved_density_rows = []
+    previous_converged_densities = None
     max_iter = 200; tol = 1.0e-3
 
     # THE DEPTH LOOP -- pressure-continuation warm start for robustness (see markdown)
     for j in range(n_layers):     # JUSTIFIED-LOOP: sequential warm-start chain; depth j seeded from converged depth j-1
         if j == 0:                                       # top: crude split of the total density
-            xn0 = xntot_np[0] / 2.0; base = xn0 / 10.0
-            seed = np.zeros(nequa, dtype=np.float64); seed[0] = xn0   # JUSTIFY: per-layer Newton seed (fixed nequa)
-            seed[1:nequa] = base * xab_np[1:nequa]
+            total_nuclei_seed = xntot_np[0] / 2.0
+            trace_seed = total_nuclei_seed / 10.0
+            seed = np.zeros(nequa, dtype=np.float64)
+            seed[0] = total_nuclei_seed
+            seed[1:nequa] = trace_seed * xab_np[1:nequa]
             if ne &gt;= 0:
-                seed[ne] = base
-            xn_j = to(seed)
+                seed[ne] = trace_seed
+            number_densities_j = to(seed)
         else:                                            # deeper: scale the converged layer above
-            ratio = gp_np[j] / gp_np[j - 1]
-            xn_j = xn_prev_conv * to(ratio)
+            pressure_ratio = gp_np[j] / gp_np[j - 1]
+            number_densities_j = previous_converged_densities * to(pressure_ratio)
 
-        log_eqj_j = log_equilj_t[j]; xntot_j = xntot_t[j]
-        eqold = torch.zeros(nequa, dtype=solve_dtype, device=solve_device)
+        log_formation_j = log_formation_t[j]
+        total_particle_density_j = total_particle_density_t[j]
+        previous_step = torch.zeros(nequa, dtype=solve_dtype, device=solve_device)
 
         # the INNER Newton iteration -- fully vectorized over the unknowns
         for _iteration in range(max_iter):   # JUSTIFIED-LOOP: Newton iteration is sequential; per-unknown work is vectorized (jacrev + linalg.solve)
-            eq = resid_one(xn_j, log_eqj_j, xntot_j)
-            J = jac_one(xn_j, log_eqj_j, xntot_j)
-            delta = _newton_step(J, eq, xn_j)
+            residual = residual_one_depth(
+                number_densities_j, log_formation_j, total_particle_density_j)
+            jacobian = jacobian_one_depth(
+                number_densities_j, log_formation_j, total_particle_density_j)
+            newton_step = _newton_step(jacobian, residual, number_densities_j)
 
-            ratio_k = delta.abs() / xn_j.abs().clamp_min(torch.finfo(solve_dtype).tiny)
-            iferr = bool((ratio_k &gt; tol).any().detach().cpu().item())     # JUSTIFY: scalar convergence flag for the iteration control flow
-            sign_change = ((eqold &gt; 0.0) &amp; (delta &lt; 0.0)) | ((eqold &lt; 0.0) &amp; (delta &gt; 0.0))
-            delta = torch.where(sign_change, delta * 0.69, delta)         # damp an oscillation
-            xneq = xn_j - delta
-            too_small = xneq &lt; (xn_j / 100.0)                             # hard retreat if too large
-            xn_j = torch.where(too_small, xn_j / 100.0, xneq).detach()
-            eqold = delta.detach()
-            if not iferr:
+            relative_step = (
+                newton_step.abs()
+                / number_densities_j.abs().clamp_min(torch.finfo(solve_dtype).tiny)
+            )
+            still_iterating = bool((relative_step &gt; tol).any().detach().cpu().item())
+            oscillating_step = (
+                ((previous_step &gt; 0.0) &amp; (newton_step &lt; 0.0))
+                | ((previous_step &lt; 0.0) &amp; (newton_step &gt; 0.0))
+            )
+            damped_step = torch.where(oscillating_step, newton_step * 0.69, newton_step)
+            proposed_densities = number_densities_j - damped_step
+            overshot_floor = proposed_densities &lt; (number_densities_j / 100.0)
+            number_densities_j = torch.where(
+                overshot_floor,
+                number_densities_j / 100.0,
+                proposed_densities,
+            ).detach()
+            previous_step = damped_step.detach()
+            if not still_iterating:
                 break
-        xn_prev_conv = xn_j.detach(); xn_rows.append(xn_prev_conv)
+        previous_converged_densities = number_densities_j.detach()
+        solved_density_rows.append(previous_converged_densities)
 
-    xn_final = torch.stack(xn_rows, dim=0)
+    xn_final = torch.stack(solved_density_rows, dim=0)
     xnatom = xn_final[:, 0]
     electron = xn_final[:, ne] if ne &gt;= 0 else electron_seed_t[:n_layers]
 
     # read out every molecule&#39;s density, batched over depths with vmap
-    batched_moldens = vmap(lambda xn_j, log_eqj_j: _molecular_densities(xn_j, log_eqj_j, struct),
-                           in_dims=(0, 0))
-    xnmol_active = batched_moldens(xn_final, log_equilj_t)
+    molecule_density_readout = vmap(
+        lambda number_densities_j, log_formation_j: _molecular_densities(
+            number_densities_j, log_formation_j, struct),
+        in_dims=(0, 0),
+    )
+    xnmol_active = molecule_density_readout(xn_final, log_formation_t)
     xnz = torch.zeros((n_layers, MAXEQ), dtype=solve_dtype, device=solve_device); xnz[:, :nequa] = xn_final
     xnmol = torch.zeros((n_layers, MAXMOL), dtype=solve_dtype, device=solve_device)
     xnmol[:, :nummol] = xnmol_active
@@ -931,59 +973,87 @@ print(&quot;_nmolec_driver (the warm-start depth loop) ready&quot;)" aria-label=
     xntot_np = gp_np / (T_np * KBOLTZ_CGS)                <span class="hljs-comment"># total particle density (ideal gas law)</span>
 
     to = <span class="hljs-keyword">lambda</span> a: torch.as_tensor(a, dtype=solve_dtype, device=solve_device)
-    log_equilj_t = to(log_equilj); xab_t = to(xab_np); xntot_t = to(xntot_np)
+    log_formation_t = to(log_equilj)
+    equation_abundance_t = to(xab_np)
+    total_particle_density_t = to(xntot_np)
     electron_seed_t = to(ed_np)
 
-    <span class="hljs-keyword">def</span> <span class="hljs-title function_">resid_one</span>(<span class="hljs-params">xn_j, log_eqj_j, xntot_j</span>):
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">residual_one_depth</span>(<span class="hljs-params">number_densities_j, log_formation_j, total_particle_density_j</span>):
         <span class="hljs-string">&quot;&quot;&quot;Single-depth residual closure for jacrev; captures the fixed abundance vector.&quot;&quot;&quot;</span>
-        <span class="hljs-keyword">return</span> _residual(xn_j, log_eqj_j, xab_t, xntot_j, struct)
-    jac_one = jacrev(resid_one, argnums=<span class="hljs-number">0</span>)               <span class="hljs-comment"># the autodiff Jacobian of the residual</span>
+        <span class="hljs-keyword">return</span> _residual(
+            number_densities_j,
+            log_formation_j,
+            equation_abundance_t,
+            total_particle_density_j,
+            struct,
+        )
+    jacobian_one_depth = jacrev(residual_one_depth, argnums=<span class="hljs-number">0</span>)
 
-    xn_rows = []; xn_prev_conv = <span class="hljs-literal">None</span>
+    solved_density_rows = []
+    previous_converged_densities = <span class="hljs-literal">None</span>
     max_iter = <span class="hljs-number">200</span>; tol = <span class="hljs-number">1.0e-3</span>
 
     <span class="hljs-comment"># THE DEPTH LOOP -- pressure-continuation warm start for robustness (see markdown)</span>
     <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(n_layers):     <span class="hljs-comment"># JUSTIFIED-LOOP: sequential warm-start chain; depth j seeded from converged depth j-1</span>
         <span class="hljs-keyword">if</span> j == <span class="hljs-number">0</span>:                                       <span class="hljs-comment"># top: crude split of the total density</span>
-            xn0 = xntot_np[<span class="hljs-number">0</span>] / <span class="hljs-number">2.0</span>; base = xn0 / <span class="hljs-number">10.0</span>
-            seed = np.zeros(nequa, dtype=np.float64); seed[<span class="hljs-number">0</span>] = xn0   <span class="hljs-comment"># JUSTIFY: per-layer Newton seed (fixed nequa)</span>
-            seed[<span class="hljs-number">1</span>:nequa] = base * xab_np[<span class="hljs-number">1</span>:nequa]
+            total_nuclei_seed = xntot_np[<span class="hljs-number">0</span>] / <span class="hljs-number">2.0</span>
+            trace_seed = total_nuclei_seed / <span class="hljs-number">10.0</span>
+            seed = np.zeros(nequa, dtype=np.float64)
+            seed[<span class="hljs-number">0</span>] = total_nuclei_seed
+            seed[<span class="hljs-number">1</span>:nequa] = trace_seed * xab_np[<span class="hljs-number">1</span>:nequa]
             <span class="hljs-keyword">if</span> ne &gt;= <span class="hljs-number">0</span>:
-                seed[ne] = base
-            xn_j = to(seed)
+                seed[ne] = trace_seed
+            number_densities_j = to(seed)
         <span class="hljs-keyword">else</span>:                                            <span class="hljs-comment"># deeper: scale the converged layer above</span>
-            ratio = gp_np[j] / gp_np[j - <span class="hljs-number">1</span>]
-            xn_j = xn_prev_conv * to(ratio)
+            pressure_ratio = gp_np[j] / gp_np[j - <span class="hljs-number">1</span>]
+            number_densities_j = previous_converged_densities * to(pressure_ratio)
 
-        log_eqj_j = log_equilj_t[j]; xntot_j = xntot_t[j]
-        eqold = torch.zeros(nequa, dtype=solve_dtype, device=solve_device)
+        log_formation_j = log_formation_t[j]
+        total_particle_density_j = total_particle_density_t[j]
+        previous_step = torch.zeros(nequa, dtype=solve_dtype, device=solve_device)
 
         <span class="hljs-comment"># the INNER Newton iteration -- fully vectorized over the unknowns</span>
         <span class="hljs-keyword">for</span> _iteration <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(max_iter):   <span class="hljs-comment"># JUSTIFIED-LOOP: Newton iteration is sequential; per-unknown work is vectorized (jacrev + linalg.solve)</span>
-            eq = resid_one(xn_j, log_eqj_j, xntot_j)
-            J = jac_one(xn_j, log_eqj_j, xntot_j)
-            delta = _newton_step(J, eq, xn_j)
+            residual = residual_one_depth(
+                number_densities_j, log_formation_j, total_particle_density_j)
+            jacobian = jacobian_one_depth(
+                number_densities_j, log_formation_j, total_particle_density_j)
+            newton_step = _newton_step(jacobian, residual, number_densities_j)
 
-            ratio_k = delta.<span class="hljs-built_in">abs</span>() / xn_j.<span class="hljs-built_in">abs</span>().clamp_min(torch.finfo(solve_dtype).tiny)
-            iferr = <span class="hljs-built_in">bool</span>((ratio_k &gt; tol).<span class="hljs-built_in">any</span>().detach().cpu().item())     <span class="hljs-comment"># JUSTIFY: scalar convergence flag for the iteration control flow</span>
-            sign_change = ((eqold &gt; <span class="hljs-number">0.0</span>) &amp; (delta &lt; <span class="hljs-number">0.0</span>)) | ((eqold &lt; <span class="hljs-number">0.0</span>) &amp; (delta &gt; <span class="hljs-number">0.0</span>))
-            delta = torch.where(sign_change, delta * <span class="hljs-number">0.69</span>, delta)         <span class="hljs-comment"># damp an oscillation</span>
-            xneq = xn_j - delta
-            too_small = xneq &lt; (xn_j / <span class="hljs-number">100.0</span>)                             <span class="hljs-comment"># hard retreat if too large</span>
-            xn_j = torch.where(too_small, xn_j / <span class="hljs-number">100.0</span>, xneq).detach()
-            eqold = delta.detach()
-            <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> iferr:
+            relative_step = (
+                newton_step.<span class="hljs-built_in">abs</span>()
+                / number_densities_j.<span class="hljs-built_in">abs</span>().clamp_min(torch.finfo(solve_dtype).tiny)
+            )
+            still_iterating = <span class="hljs-built_in">bool</span>((relative_step &gt; tol).<span class="hljs-built_in">any</span>().detach().cpu().item())
+            oscillating_step = (
+                ((previous_step &gt; <span class="hljs-number">0.0</span>) &amp; (newton_step &lt; <span class="hljs-number">0.0</span>))
+                | ((previous_step &lt; <span class="hljs-number">0.0</span>) &amp; (newton_step &gt; <span class="hljs-number">0.0</span>))
+            )
+            damped_step = torch.where(oscillating_step, newton_step * <span class="hljs-number">0.69</span>, newton_step)
+            proposed_densities = number_densities_j - damped_step
+            overshot_floor = proposed_densities &lt; (number_densities_j / <span class="hljs-number">100.0</span>)
+            number_densities_j = torch.where(
+                overshot_floor,
+                number_densities_j / <span class="hljs-number">100.0</span>,
+                proposed_densities,
+            ).detach()
+            previous_step = damped_step.detach()
+            <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> still_iterating:
                 <span class="hljs-keyword">break</span>
-        xn_prev_conv = xn_j.detach(); xn_rows.append(xn_prev_conv)
+        previous_converged_densities = number_densities_j.detach()
+        solved_density_rows.append(previous_converged_densities)
 
-    xn_final = torch.stack(xn_rows, dim=<span class="hljs-number">0</span>)
+    xn_final = torch.stack(solved_density_rows, dim=<span class="hljs-number">0</span>)
     xnatom = xn_final[:, <span class="hljs-number">0</span>]
     electron = xn_final[:, ne] <span class="hljs-keyword">if</span> ne &gt;= <span class="hljs-number">0</span> <span class="hljs-keyword">else</span> electron_seed_t[:n_layers]
 
     <span class="hljs-comment"># read out every molecule&#x27;s density, batched over depths with vmap</span>
-    batched_moldens = vmap(<span class="hljs-keyword">lambda</span> xn_j, log_eqj_j: _molecular_densities(xn_j, log_eqj_j, struct),
-                           in_dims=(<span class="hljs-number">0</span>, <span class="hljs-number">0</span>))
-    xnmol_active = batched_moldens(xn_final, log_equilj_t)
+    molecule_density_readout = vmap(
+        <span class="hljs-keyword">lambda</span> number_densities_j, log_formation_j: _molecular_densities(
+            number_densities_j, log_formation_j, struct),
+        in_dims=(<span class="hljs-number">0</span>, <span class="hljs-number">0</span>),
+    )
+    xnmol_active = molecule_density_readout(xn_final, log_formation_t)
     xnz = torch.zeros((n_layers, MAXEQ), dtype=solve_dtype, device=solve_device); xnz[:, :nequa] = xn_final
     xnmol = torch.zeros((n_layers, MAXMOL), dtype=solve_dtype, device=solve_device)
     xnmol[:, :nummol] = xnmol_active
@@ -1905,7 +1975,7 @@ t0 = time.time()
 ch_continuum_absorption, oh_continuum_absorption, h2_cia_absorption, continuum_absorption = mol_continuum(mc)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;molecular continuum computed over the <span class="hljs-subst">{num_continuum_layers}</span>x<span class="hljs-subst">{num_wavelengths}</span> grid in <span class="hljs-subst">{time.time()-t0:<span class="hljs-number">.3</span>f}</span>s &quot;</span>
       <span class="hljs-string">f&quot;(device <span class="hljs-subst">{DEVICE.<span class="hljs-built_in">type</span>}</span>)&quot;</span>)</code></pre>
-    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">molecular continuum computed over the 80x600 grid in 0.014s (device mps)
+    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">molecular continuum computed over the 80x600 grid in 0.010s (device mps)
 </pre></div></div><div class="prose"><h3>Benchmark: the torch continuum against the inline fp64 reference</h3>
 <p>We validate the torch <code>mol_continuum</code> against the inline fp64 reference (the scalar reference from <code>verify_mol_continuum.py</code> — CHOP/OHOP/H2COLLOP with their Python frequency loops — the parity oracle) and against the shipped ground truth, reporting <code>max|rel|</code> on CH, OH, H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mrow></mrow><mn>2</mn></msub></mrow><annotation encoding="application/x-tex">_2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4511em;vertical-align:-0.15em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>-CIA, and the total molecular continuum absorption.</p>
 <p>First we prepare the scalar reference tables and the shared thermodynamic factors. The CH/OH cross-section helper and the H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mrow></mrow><mn>2</mn></msub></mrow><annotation encoding="application/x-tex">_2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4511em;vertical-align:-0.15em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>-CIA helper are defined in separate cells below because they are independent pieces of physics.</p>
