@@ -1,164 +1,91 @@
-# PLAN — maintenance roadmap
+# GPU Textbook Plan
 
-*Stellar Spectroscopy from Scratch.* This file is the working map for maintaining the clean
-**torch/MPS/CUDA** textbook. It states the per-lecture pattern, the current status of the 16-lecture
-arc, and the open TODOs. Read `PASSDOWN.md` first for the live handoff state, then this file
-alongside `STRUCTURE.md` (the four-part arc) and `README.md` (the prose).
+`PASSDOWN.md` is the live state. `BIBLE.md` is the lecture quality standard. This file is the
+roadmap.
 
----
+## Current Scope
 
-## The design philosophy
+The textbook is a standalone torch/MPS/CUDA reconstruction of the kgpu/pykurucz physics. The taught
+paths must not import `kgpu`, `pykurucz`, or the NumPy textbook.
 
-1. **The textbook is a clean pedagogical reduction of `kgpu`.** `kgpu` (`~/pykurucz_gpu`) is the
-   production torch/MPS reimplementation of ATLAS12 + SYNTHE — depth-batched, GPU-resident, with a
-   22-file parity test suite. We **read** it as the reference for how each computation vectorizes on
-   the GPU, then write a *clean* version for the lecture: plain readable `torch`, bite-size cells,
-   no production residency bookkeeping / custom kernels / caching / CLI. `kgpu` is **read-only**; we
-   never import it into a notebook and never edit it. (The notebooks also never import pykurucz.)
+Current status:
 
-2. **Each part is validated against shipped references.** Every lecture ends with a **comparison
-   cell** that runs the taught computation and the shipped `reference/*.npz` side by side, then
-   reports the **maximum relative deviation**, asserting parity to the documented float floor. This
-   is the independent per-part check: the code is correct iff its number matches the reference
-   produced by the offline NumPy/pykurucz validation chain.
+- L1-L7 and L9-L13 are mostly green GPU-native lecture paths.
+- L8 has a torch-native JOSH path but still consumes scoped opacity slabs and fixed operator tables.
+- L14 is an honest same-atmosphere synthesis capstone: opacity and transfer are computed in the
+  notebook, while atmosphere/EOS/population/Doppler state is loaded.
+- L15 computes the exact LINOP1 teaching-window recurrence, but still loads atmosphere/EOS/window/
+  continuum/full-grid blanket fixtures.
+- L16 recomputes EOS-derived state for a loaded atmosphere fixture, with remaining helper-backed
+  NumPy boundaries.
 
-So the validation chain is: **pykurucz/offline NumPy reference generation** establishes the shipped
-answers, and **this book** must reproduce those answers to the float floor. The references are
-validation targets, not taught code paths, and are never modified by lecture execution.
+## Closure Roadmap
 
----
+1. Close L8's data boundary:
+   - feed opacity slabs from earlier torch lecture outputs;
+   - derive, rebuild, or explicitly vendor-provenance fixed JOSH operator tables.
 
-## The per-lecture pattern (the template)
+2. Promote L14 from same-atmosphere synthesis to true capstone:
+   - wire or inline L15/L16 so the Sun state is regenerated from stellar parameters;
+   - keep the four HR-window `verify_leankurucz.py` gate green;
+   - do not claim non-solar atmosphere closure until kgpu has a corresponding four-star
+     ATLAS12+SYNTHE gate.
 
-Every ported lecture follows the same shape. The PoC (Lecture 2) is the worked example.
+3. Reduce L15 fixtures:
+   - replace loaded atmosphere/EOS/window/continuum/full-grid blanket fixtures in small
+     parity-gated steps;
+   - keep the exact LINOP1 recurrence and float32 accumulation-order gate intact.
 
-1. **Standalone prose, same physics.** Keep the derivations, schematics, and learning objectives
-   clear enough that the book stands alone. Do not frame a lecture as a translation or companion.
-   NumPy appears only as a validation/reference target.
-2. **Device + dtype preamble (one cell).** Pick the device once: MPS if available, else CUDA, else
-   CPU. On CPU the working dtype is fp64 (machine-precision reference); on MPS/CUDA it is fp32 (MPS
-   has no fp64). State the precision budget plainly.
-3. **The clean torch computation, in bite-size cells.** Port the lecture's core routine to `torch`,
-   **vectorized over the depth axis** (depth is the batch axis — every tensor op processes all
-   atmospheric layers at once; no per-depth Python loop). Branchy per-element / per-regime logic is
-   folded into `torch.where` masks so every depth lane does the same work. This mirrors `kgpu`'s
-   structure but in readable form. A short note flags where fp32 needs care (e.g. a Saha ladder run
-   in log-space so the running product never overflows fp32's exponent ceiling).
-4. **The comparison cell (the per-part check).** Load the shipped `reference/*.npz`, move the
-   result to CPU/NumPy, and report `max |got − ref| / |ref|`. Assert it is below the lecture's
-   documented float floor. Print the device used and the floor met.
-5. **Build + render.** `_pipeline/build_lecture<N>_gpu.py` assembles the notebook;
-   `_pipeline/build.py <N>` executes it (MPS if present, else CPU) and renders the `content/*.html`
-   fragment.
+4. Reduce L16 helper boundaries:
+   - port clean-room NumPy PFSAHA/NELECT/continuum/molecular helper paths into pedagogical torch
+     cells where practical;
+   - retain scalar loops only for true recurrences or fixed table logic.
 
-**The float floors** (fp32 GPU vs. fp64 reference; tighter on a CPU fp64 run):
+5. Finish dense-cell cleanup:
+   - remaining long cell is L14 `compute_kapp`, the continuum opacity ledger;
+   - split only when the capstone verifier is rerun.
 
-| computation kind | typical fp32 floor |
-|---|---|
-| single reduction (e.g. a charge-balance sum, a moment integral) | ~1e-7 |
-| chained log/exp ladders, opacities (EOS per-ion, continuum, lines) | a few ×1e-6 on the opacity-bearing values |
-| trace quantities tens of dex below the dominant value | larger (fp32 exponent floor; physically irrelevant) |
+## GPU-Native Audit Rules
 
-These are the same floors `kgpu`'s test suite asserts. The comparison cell reports the number; it is
-quantified, not hidden.
+- Prefer torch on the selected device for taught compute.
+- Vectorize large axes when this preserves the algorithm.
+- Keep scalar loops only for exact recurrences, table parsers, boundary stencils, or small
+  heterogeneous tables, and state why.
+- Avoid host pulls inside compute paths.
+- Use NumPy only for comparison, plotting, static table preparation, or explicitly named
+  non-taught helper boundaries.
 
----
+## Verification Roadmap
 
-## Current status by lecture
+After meaningful lecture changes, run the narrowest matching gate plus:
 
-The standing rule remains `kgpu`'s own: this textbook reads `kgpu` as the implementation clue source
-but never imports it. The target state is one self-contained torch/MPS block per lecture, validated
-against the NumPy reference to the documented floor. The current state is close but not final:
-L1-7, L9-13, and L15-L16 have GPU builders; L8 and L14 are still NumPy-style builders, and the
-accepted heavy paths in L15/L16 still rely on clean-room NumPy helper modules for some fidelity
-gates. L14 was refreshed after the line-blanketed atmosphere work: the solar capstone now uses the
-Part-VI solar target (`base RHOX = 12.1439331`, `base T = 11425 K`), not the stale continuum-only
-`RHOX = 10.5357` bundle, but it still loads atmosphere/EOS-state intermediates and is therefore a
-synthesis-half capstone until L15/L16 are wired directly into it.
+```bash
+git diff --check
+python _pipeline/build.py <N>
+```
 
-### Microphysics validated by kgpu's test suite
+For capstone or shared-physics changes, also run:
 
-| L | Lecture | kgpu module (read-only ref) | kgpu test | Validate vs (NumPy ref) |
-|---|---------|------------------------------|-----------|-------------------------|
-| **2** | The Equation of State | `kgpu/eos.py` | `test_eos`, `test_eos_nelect` | `reference/L2.npz` (n_e, H ionization) → **the PoC** |
-| 3 | Continuous Opacity | `kgpu/continuum.py` | `test_continuum` (6.2e-15 photosphere) | `reference/L3.npz`, `kapp_tables.npz` |
-| 4 | Line Opacity I: A Single Line | `kgpu/line_opacity.py` | `test_line_opacity` | `reference/L4.npz` |
-| 5 | Line Opacity II: The Line List | `kgpu/lines.py`, `kgpu/special_lines.py` | `test_lines`, `test_special_lines` | `reference/L5.npz`, `full_lines_data.npz`, `linetypes.npz` |
-| 6 | Hydrogen Lines: Stark Broadening | `kgpu/hydrogen.py` | `test_hydrogen` | `reference/L6.npz` |
-| 7 | Radiative Transfer & the Emergent Spectrum | `kgpu/josh.py` (formal solution) | `test_josh` | `josh_tables.npz`, `josh_ck.npz` |
-| 8 | The JOSH Solver | `kgpu/josh.py` | `test_josh` | `josh_tables.npz`, `josh_ck.npz` |
-| 12 | Molecular Equilibrium & Bands | `kgpu/molecular.py` | `test_molecular` | `diag_tio.npz`, `mol_lines_tio.npz` |
-| 13 | Molecular Chemistry (coupled NMOLEC + continuum) | `kgpu/nmolec.py`, `kgpu/mol_continuum.py` | `test_nmolec`, `test_mol_continuum` | `nmolec_*.npz`, `mol_continuum_*.npz` |
+```bash
+python _pipeline/verify_josh.py
+python _pipeline/verify_leankurucz.py
+python _pipeline/verify_lineblanket.py
+python _pipeline/verify_molecules.py
+python _pipeline/verify_nmolec.py
+python _pipeline/verify_mol_continuum.py
+python _pipeline/verify_convec_gaps.py
+python _pipeline/verify_converged.py
+```
 
-The Part IV atmosphere-*structure* primitives are also ported as their `kgpu` components are green:
+Before a handoff claim, rebuild all lectures:
 
-| L | Lecture | kgpu module | kgpu test | Note |
-|---|---------|-------------|-----------|------|
-| 9 | Hydrostatic Equilibrium & Temperature Structure | `kgpu/atlas_hydrostatic.py` | `test_atlas_hydrostatic` | TTAUP / pressure structure — single-pass, no convergence loop |
-| 10 | Radiative Equilibrium & Temperature Correction | `kgpu/atlas_rt.py`, `kgpu/atlas_rosseland.py`, `kgpu/atlas_tcorr.py` | `test_atlas_rt`, `test_atlas_rosseland`, `test_atlas_tcorr` | components green; precision-critical reductions are named and promoted where needed |
+```bash
+python _pipeline/build.py 1 2 3 4 5 6 7 8
+python _pipeline/build.py 9 10 11 12 13 14 15 16
+```
 
-### Atmosphere and capstone state
+## kgpu Feedback Loop
 
-| L | Lecture | Current status |
-|---|---------|----------------|
-| 11 | Convection & the Converged Atmosphere | continuum-only convergence machinery and convection physics are ported; the lecture remains the scaffold for Part VI. |
-| 14 | A Spectrum from Stellar Parameters, End to End | refreshed and verified as a synthesis-half capstone. The Sun uses the Part-VI line-blanketed solar target (`RHOX=12.1439331`, `T=11425 K`); hot/giant/M-dwarf structures are documented emulator warm-starts. Opacity and transfer are computed in the notebook with no `kgpu`/`pykurucz` import, but atmosphere/EOS/population/Doppler intermediates are still loaded integration inputs. |
-| 15 | Line Blanketing: the True Model Atmosphere | built as the line-blanketing / precision-critical reduction lesson. The deposit, Rosseland fold, optical-depth integral, and hydrostatic pieces are checked at the fp32 floor; the TCORR secant is identified as a surgical promotion point. The accepted LINOP1 fidelity gate still uses the clean-room scalar verifier path, so this is not the final all-torch deposit closure. |
-| 16 | The Full Equation of State: Species Slots & Convective Heat Capacity | built. The per-iteration state (`POPSALL` species slots, Doppler widths, `TABCONT`, molecular slots, ionization-energy heat capacity) is packed/audited in torch and checked against the reference floor, with the expected fp32 exponent-floor caveat on negligible trace slots. The PFSAHA/NELECT/continuum/molecular source computations still rely on clean-room NumPy helper modules and must be ported for the final GPU-native book. |
-
-The production `kgpu` passdown now resolves the deep-base RHOX question: kgpu and the independent
-from-scratch oracle agree in the 12.3-class fixed point, while pyk's exact line-blanketed solar
-reference has base `RHOX=12.1439331`. L14 must never be regressed to the old continuum-only
-`10.5357` solar bundle.
-
----
-
-## Order of work
-
-1. **PoC: Lecture 2 (EOS).** ✅ Done — see below. Establishes the pattern end to end.
-2. **Part I–III microphysics: L3, L4, L5, L6, L7, L8.** The cleanest GPU wins (depth-batched
-   opacity + a moment transfer solve); each validated against its `reference/*.npz`.
-3. **Part V microphysics: L12, L13.** Molecular equilibrium + continuum.
-4. **Part IV components: L9, L10.** Atmosphere-structure primitives on the CPU/fp64 reference path.
-5. **Atmosphere/capstone pass:** keep L11-L16 synchronized with `kgpu/PASSDOWN.md`, especially
-   the L14 solar-state guardrail and the L15/L16 precision-promotion narrative.
-
----
-
-## The proof-of-concept — Lecture 2 (the Equation of State)
-
-The PoC ports the **electron-density solve** — the pedagogical heart of the EOS lecture: the
-Boltzmann/partition setup, the Saha ratio, Debye (pressure-ionization) lowering, and the
-charge-conservation fixed point that solves for n_e at every depth — to clean depth-batched `torch`,
-and validates it against the shipped `reference/L2.npz`.
-
-- **What is ported:** `saha_ratio`, `ionization_fractions` (the per-element Saha ladder), and
-  `solve_electron_density` (the damped charge-balance fixed point), all in `torch`, depth-batched
-  (the 80-layer atmosphere is the batch axis; the per-element loop folds into vectorized depth ops).
-  The hydrogen-ionization Saha unit test and the H-vs-metal electron-donor attribution are ported
-  too, so the lecture's two headline checks (n_e and the H II fraction) both run on the GPU.
-- **GPU-native care:** the Saha ladder is accumulated so it cannot overflow fp32's exponent ceiling;
-  the device + dtype are chosen once at the top (MPS→fp32, CPU→fp64). This mirrors `kgpu/eos.py`'s
-  log-space ladder, stated plainly.
-- **The comparison cell:** loads `reference/L2.npz`, compares the GPU `n_e` and `H II fraction` to
-  the reference, and reports the max relative deviation, asserting the documented EOS float floor.
-- **Deferred within L2 (a deeper continuation, not the PoC):** the full **PFSAHA** per-ion partition
-  assembly (the iron-group grid, the hand-built light-element level sums, the occupation correction)
-  is `kgpu/eos.py`'s `_build_part_for_element` — already GPU-validated by `test_eos`, and the natural
-  next cell to port when L2 is filled out completely. The PoC covers the charge-balance core that
-  every later lecture's populations rest on.
-
-**Parity achieved (this PoC run):** recorded in the executed `content/Lecture2.html` comparison cell
-(device + max relative deviation vs. `reference/L2.npz`, asserted below the EOS float floor).
-
----
-
-## Open TODOs / decisions
-
-- **DONE — `resources/figures/` includes the L14-L16 schematics.** This repo now
-  carries `s14_synthesis.png`, `s15_deposit.png`, and `s16_eos.png` alongside the earlier figures.
-  Default policy remains **reuse shipped schematic filenames and artwork** when the physics picture
-  is still accurate; regenerate any schematic whose story no longer matches the lecture.
-- **DEPENDENCY (read-only clue source):** continue reading `~/pykurucz_gpu/PASSDOWN.md` and
-  `~/pykurucz_gpu/PLAN.md` before changing L14-L16. `kgpu` is stable and self-verified; this book
-  should reflect its implementation pieces without importing it.
+Only port textbook improvements into kgpu after the textbook verifier passes. A kgpu port then must
+pass full pytest, the four-star gate, and the relevant solar/full-spectrum gate. Optimization is a
+second-order goal until the correctness scope is explicit.

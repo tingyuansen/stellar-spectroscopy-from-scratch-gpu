@@ -27,9 +27,7 @@ pykurucz, and they never import the production `kgpu` engine — the reference v
 once and travel with the book, so a reader needs only `torch` + `numpy` to run, and to *validate*,
 every result.
 
-*Yuan-Sen Ting — Max Planck Institute for Astronomy & The Ohio State University. Written in
-collaboration with Claude Opus 4.8 under the author's supervision; schematics generated with
-Gemini 3 Pro.*
+*Yuan-Sen Ting — Max Planck Institute for Astronomy & The Ohio State University.*
 
 ## The discipline
 
@@ -78,10 +76,6 @@ The other half of “end to end”: the model atmosphere itself, built genuinely
 16. **The Full Equation of State: Species Slots & the Convective Heat Capacity** — the per-iteration state the line deposit and continuum consume: the multi-element `POPSALL`/`NELECT` species slots, Doppler widths, van-der-Waals perturber number, continuum-cutoff bridge, molecular slots, and `EDENS` convective heat-capacity inputs. It recomputes this state for a loaded atmosphere fixture and documents the remaining helper-backed boundaries.
 
 ## How to read this book
-
-The full structural map — the four-part arc, what each lecture builds and depends on, the two
-halves of "end to end," and the documented out-of-scope boundaries — is in
-**[STRUCTURE.md](STRUCTURE.md)**, the book's organizing map. In brief:
 
 - **Read it front to back.** The arc is cumulative: Parts I–III build the microphysics (foundations,
   opacity, transfer) treating the atmosphere as given; Part IV builds the atmosphere's structure;
@@ -143,12 +137,13 @@ and comparison-only targets stay clearly separated.
 
 ```
 content/        executed notebooks (.ipynb) + rendered fragments (.html) — the chapters
-_pipeline/      build_lecture*_gpu.py (assemble), build.py (execute+render), gen_schematics.py
+_pipeline/      build_lecture*_gpu.py (assemble), build.py (execute+render), verifiers
 reference/      shipped benchmark data (*.npz)
 resources/      figures and schematics
 assets/         render.js / style.css / book-data.js — the reader
 PASSDOWN.md     current handoff: relationship to kgpu, L14 state, checks, delegation policy
 PLAN.md         the GPU-substitution roadmap (per-lecture pattern; now vs. deferred)
+BIBLE.md        lecture quality standard: GPU-native, pedagogical, parity-gated
 index.html      table of contents      reader.html  the lecture reader
 ```
 
@@ -156,5 +151,4 @@ index.html      table of contents      reader.html  the lecture reader
 
 The book is a pedagogical reduction of the production `kgpu` torch/MPS engine; the physics follows
 Kurucz's ATLAS12 & SYNTHE and is validated through [Kim & Ting (2026), pykurucz](https://arxiv.org/abs/2603.11693).
-Written in collaboration with Claude Opus 4.8 under the author's supervision; schematics by Gemini 3
-Pro (Nano Banana). Dedicated to the memory of Robert L. Kurucz (1944–2025).
+Dedicated to the memory of Robert L. Kurucz (1944–2025).
