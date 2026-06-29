@@ -29,51 +29,52 @@ target. It must not masquerade as a value computed by the notebook.
 ## Current state
 
 Lectures 1-16 build and render. The local site is currently running at
-`http://localhost:8081/`; GitHub Pages is pushed.
+`http://localhost:8081/`; GitHub Pages is pushed. The active GPU builders and generated pages no
+longer carry stale collaborator/API/title-page framing.
 
-### Mostly green
+### Per-lecture closure matrix
 
-- L1-L7: torch/MPS builders and parity cells for core microphysics and opacity primitives.
-- L8: torch-native JOSH transfer path, no production solver import, strong algorithmic parity.
-  Remaining boundary: it still loads scoped opacity slabs (`diag.npz`) and fixed JOSH operator
-  tables (`josh_tables.npz`).
-- L9-L13: GPU builders for atmosphere primitives, molecular equilibrium, molecular bands, and
-  molecular continuum. Parity checks are green.
-- L12: molecular-band readability slice is green. The taught Doppler helper is now
-  `molecular_doppler_fraction`; the legacy `molecular_dopple` spelling remains only as an explicit
-  alias. The dense band-opacity path translates XNFDOP/TXNXN into readable local names while
-  keeping fixture keys stable.
-- L15: GPU builder with in-notebook scalar LINOP1 teaching-window recurrence. The verifier reports
-  teaching-window deposit max rel `2.877e-06`, one-step T `6.606e-09`, RHOX `5.850e-09`, and
-  corrected Sun base `RHOX=12.152` versus `12.144`.
-- L16: GPU builder that recomputes EOS-derived state for a loaded atmosphere fixture and documents
-  the helper boundaries.
+Legend: checked means the current lecture has been audited against the criterion and no known
+blocking miss remains. Unchecked means it is the next fix target, not a vague concern.
+
+| Lecture | NumPy/material coverage | Self-contained / honest inputs | Logical flow | Readable names | Dense-code pedagogy | GPU/vectorized taught path | Gate |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| L1 | [x] | [x] | [x] | [x] | [x] | [x] | [x] build |
+| L2 | [x] | [x] | [x] | [x] | [x] | [x] | [x] build |
+| L3 | [x] | [x] | [x] | [x] | [ ] 111-line NumPy comparison twin needs a reader-walkthrough split/comment pass | [x] | [x] `verify_kapp.py` |
+| L4 | [x] | [x] | [x] | [x] | [x] | [x] | [x] build plus downstream line gates |
+| L5 | [x] | [x] | [x] | [x] | [ ] two 100+ line oracle/helium cells need splitting or stronger inline comments | [x] | [x] `verify_full_lines.py`, `verify_linetypes.py` |
+| L6 | [x] | [x] | [x] | [x] | [ ] 115-line hydrogen-opacity cell needs splitting/comment pass | [x] | [x] `verify_josh.py` |
+| L7 | [x] | [x] | [x] | [x] | [x] | [x] | [x] `verify_josh.py` |
+| L8 | [x] | [ ] loads scoped opacity slabs and fixed JOSH operator tables | [x] | [x] | [ ] two 100+ line transfer/helper cells need splitting/comment pass | [x] | [x] `verify_josh.py` |
+| L9 | [x] | [x] | [x] | [x] | [x] | [x] | [x] build/downstream atmosphere gates |
+| L10 | [x] | [x] | [x] | [x] | [ ] one 100-line convergence cell needs splitting/comment pass | [x] | [x] build/downstream atmosphere gates |
+| L11 | [x] | [x] comparison oracles are local verifier modules, not taught inputs | [x] | [x] | [x] | [x] | [x] `verify_convec_gaps.py`, `verify_converged.py` |
+| L12 | [x] | [x] | [x] | [x] | [x] | [x] | [x] `verify_molecules.py` |
+| L13 | [x] | [x] | [x] | [x] | [ ] 100-line molecular-equilibrium scalar driver needs splitting/comment pass | [x] | [x] `verify_nmolec.py`, `verify_mol_continuum.py` |
+| L14 | [x] | [ ] loads atmosphere/EOS/population/Doppler state; not yet stellar-parameters-to-spectrum | [x] after L16 -> L15 -> L14 public read-order repair | [x] partial | [ ] multiple 100+ line capstone cells remain | [ ] capstone is not yet torch/MPS throughout | [x] `verify_leankurucz.py` |
+| L15 | [x] | [ ] still consumes production-derived atmosphere/EOS/window/continuum/full-grid blanket fixtures | [x] | [x] | [x] | [x] teaching-window deposit is torch; exact scalar recurrence retained for parity | [x] `verify_lineblanket.py` |
+| L16 | [x] | [ ] starts from loaded atmosphere/radiation fixture and helper-backed state modules | [x] | [x] | [x] | [ ] several load-bearing helpers are clean-room NumPy, not final torch cells | [x] `build.py 16`, L15/L14 downstream gates |
 
 ### Honest remaining blockers
 
+- Dense pedagogical code cells remain in L3, L5, L6, L8, L10, L13, and L14 under the current
+  `>=100` line audit. Break or comment them only with the matching lecture build and verifier rerun.
 - L8 is not strict closure until its opacity slabs come from the earlier lecture torch outputs and
   the fixed JOSH operator tables are either derived in-book or explicitly vendor-provenanced.
 - L14 is numerically honest but not the final capstone. It computes opacity + JOSH spectra from a
   supplied atmosphere/EOS/population/Doppler state. It does not yet regenerate the stellar
-  atmosphere and EOS state from stellar parameters inside the capstone.
+  atmosphere and EOS state from stellar parameters inside the capstone, and it is not yet a
+  torch/MPS builder throughout.
 - L15 still consumes production-derived fixtures for the converged atmosphere, per-iteration
   EOS/window state, continuum opacity/scattering/source arrays, and full-grid line blanket.
 - L16 still starts from a loaded atmosphere/radiation fixture and uses clean-room NumPy helper
   modules (`eos_fromscratch.py`, `continuum_fromscratch.py`, `molecular_fromscratch.py`) for some
   load-bearing physics. These helpers are not runtime `kgpu`/`pykurucz` imports, but they are not
   final all-torch lecture closure.
-- Dense pedagogical cells remain in L14. Break them only when the corresponding parity gate is
-  rerun.
 - Naming is now an explicit quality track. `BIBLE.md` contains the shared glossary; keep raw
-  fixture/table keys stable at boundaries and translate to readable names in taught code.
-- Global readability is stricter than the first naming pass. L1-L13 have had a broad
-  builder/verifier-gated readable-name and line-break pass, and L3/L5/L6/L13 now have an additional
-  internal-function rename pass for the densest KAPP, line-opacity, HPROF4, and molecular-equilibrium
-  solver code. Legacy names should remain only for canonical Kurucz concepts, fixture keys,
-  parity-reference labels, or scalar-reference transcriptions where renaming would obscure
-  provenance. Continue aggressive local-name cleanup in small gated slices before calling
-  readability closed. The deeper reader-walkthrough comment/docstring pass remains scheduled after
-  the L14-L16 restructure gate.
+  fixture/table keys stable at boundaries and translate to readable names in taught code. Continue
+  aggressive local-name cleanup in small gated slices before calling readability closed.
 
 ## L14 status
 
@@ -117,10 +118,9 @@ plus HR comparison.
 - Code-cell hygiene audit: `total bad=0` for leading/trailing blank code cells.
 - Function-docstring audit: `lowdoc>=20 = 0` under the current rule (functions/classes at least
   20 lines must have useful docstrings).
-- Remaining long-cell audit: one cell at `>=120` lines remains: L14 `compute_kapp`, the continuum
-  opacity ledger. L15's exact LINOP1 deposit, L14's metal-line setup/driver, HPROF4 transition
-  constants, hydrogen bound/free-free helper, H- helper, and scattering helper have been split and
-  reverified. Split the remaining continuum cell only with matching parity reruns.
+- Remaining long-cell audit using the stricter `>=100` line threshold:
+  L3 has 1, L5 has 2, L6 has 1, L8 has 2, L10 has 1, L13 has 1, and L14 has 9. L15 and L16 have
+  no code cells at or above this threshold.
 - `git diff --check`: clean.
 - `python _pipeline/build_lecture3_gpu.py && python _pipeline/build.py 3 &&
   python _pipeline/verify_kapp.py`: L3 stricter KAPP naming pass is green; KAPP verifier reports
@@ -137,7 +137,7 @@ plus HR comparison.
   python _pipeline/verify_nmolec.py && python _pipeline/verify_mol_continuum.py`: L13 stricter
   molecular-equilibrium solver naming pass is green; NMOLEC max rel `9.920e-14`, molecular
   continuum max rel `0.000e+00`.
-- `python _pipeline/build_lecture16_gpu.py && python _pipeline/build_lecture15_gpu.py &&
+- `python _pipeline/build_lecture16.py && python _pipeline/build_lecture15_gpu.py &&
   python _pipeline/build_lecture14.py && python _pipeline/build.py 16 15 14 &&
   python _pipeline/verify_lineblanket.py && python _pipeline/verify_leankurucz.py &&
   python _pipeline/verify_converged.py`: finale read-order/prose restructure is green. L15 PASS;

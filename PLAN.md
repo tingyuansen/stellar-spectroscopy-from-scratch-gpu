@@ -29,6 +29,9 @@ Current status:
    - after each fix, rerun the lecture's build/render and narrow parity verifier;
    - do not erase this roadmap until every lecture either passes the closure checklist or has a
      precise, honest boundary that remains as future work.
+   - status: `PASSDOWN.md` now carries the per-lecture checkbox matrix. The remaining concrete
+     lecture fixes are dense-code pedagogy in L3/L5/L6/L8/L10/L13/L14, L8 fixture closure,
+     L14 true capstone/torch promotion, L15 fixture reduction, and L16 helper/fixture reduction.
 
 1. Establish the shared naming/glossary pass:
    - define readable names in `BIBLE.md` and use them consistently across lectures and kgpu;
@@ -78,7 +81,8 @@ Current status:
    - retain scalar loops only for true recurrences or fixed table logic.
 
 7. Finish dense-code teaching cleanup after the L14-L16 restructure:
-   - remaining long cell is L14 `compute_kapp`, the continuum opacity ledger;
+   - current `>=100` line audit: L3 has 1 long code cell, L5 has 2, L6 has 1, L8 has 2,
+     L10 has 1, L13 has 1, and L14 has 9;
    - add reader-walkthrough comments/docstrings inside dense code blocks after the sequence is
      stable, so comments describe the final structure rather than a soon-to-move draft;
    - split or comment dense cells only when the corresponding verifier is rerun.
