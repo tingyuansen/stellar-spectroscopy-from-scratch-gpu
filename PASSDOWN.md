@@ -66,12 +66,13 @@ Lectures 1-16 build and render. The local site is currently running at
   rerun.
 - Naming is now an explicit quality track. `BIBLE.md` contains the shared glossary; keep raw
   fixture/table keys stable at boundaries and translate to readable names in taught code.
-- Global readability is now closed for the pre-finale lecture sequence at the naming/line-break
-  gate: L1-L13 have builder/verifier-gated readable-name passes where the code was low risk. Legacy
-  names remain only for canonical Kurucz concepts, fixture keys, parity-reference labels, or
-  scalar-reference transcriptions where renaming would obscure provenance. The next readability
-  layer is not more naming churn; it is the deeper dense-code teaching-comment/docstring pass,
-  scheduled after the L14-L16 restructure gate.
+- Global readability is stricter than the first naming pass. L1-L13 have had a broad
+  builder/verifier-gated readable-name and line-break pass, and L3/L5/L6 now have an additional
+  internal-function rename pass for the densest KAPP, line-opacity, and HPROF4 code. Legacy names
+  should remain only for canonical Kurucz concepts, fixture keys, parity-reference labels, or
+  scalar-reference transcriptions where renaming would obscure provenance. Continue aggressive
+  local-name cleanup in small gated slices before calling readability closed. The deeper
+  reader-walkthrough comment/docstring pass remains scheduled after the L14-L16 restructure gate.
 
 ## L14 status
 
@@ -119,6 +120,17 @@ and transfer plus HR comparison.
   constants, hydrogen bound/free-free helper, H- helper, and scattering helper have been split and
   reverified. Split the remaining continuum cell only with matching parity reruns.
 - `git diff --check`: clean.
+- `python _pipeline/build_lecture3_gpu.py && python _pipeline/build.py 3 &&
+  python _pipeline/verify_kapp.py`: L3 stricter KAPP naming pass is green; KAPP verifier reports
+  continuum absorption max rel `9.015e-05`, scattering max rel `2.061e-07`, and photosphere max rel
+  `0.000e+00`.
+- `python _pipeline/build_lecture5_gpu.py && python _pipeline/build.py 5 &&
+  python _pipeline/verify_full_lines.py && python _pipeline/verify_linetypes.py`: L5 stricter
+  line-opacity naming pass is green; full-line max rel `2.254e-15`, special TYPE=1/81 records
+  bit-exact.
+- `python _pipeline/build_lecture6_gpu.py && python _pipeline/build.py 6 &&
+  python _pipeline/verify_josh.py`: L6 stricter HPROF4 naming pass is green; inline Planck source
+  max `2.62e-15`, normalized spectrum max `8.94e-09`, median `1.13e-11`.
 - `python _pipeline/verify_josh.py`: normalised spectrum max `8.94e-09`, median `1.13e-11`.
 - `python _pipeline/verify_lineblanket.py`: PASS, values listed above.
 - `python _pipeline/verify_leankurucz.py`: PASS, values listed above.
