@@ -9,17 +9,19 @@ operator (L10-11) — is inlined into the cells as a walk-through of how the boo
 components chain end to end.  For four stars across the HR diagram it COMPUTES the
 production-gated opacity from scratch from the verified equation-of-state populations plus the
 line data, carries it to the surface with the book's own JOSH transfer, and reproduces
-pykurucz's own end-to-end output on the SAME atmosphere to the single-precision float
+pykurucz's matched-atmosphere synthesis output on the SAME atmosphere to the single-precision float
 floor (max|rel|: Sun 8.2e-9, giant 2.1e-8, M dwarf 1.1e-8, hot dwarf 1.3e-7 in the
-saturated Hbeta core).  The atmosphere STRUCTURE is from scratch only for the Sun
-(emulator warm-start for the other three, as documented); NLTE / statistical
-equilibrium is explicitly out of scope.  The thermal RT source is the LTE Planck
-function B_nu (computed inline, Note A), with coherent scattering carried through the
-JOSH iteration; the Sun operator integrates its radiation pressure prad over column
-mass from the gradient (4pi/c) SUM kappa_nu H_nu dnu of the JOSH H moments inline
-(Note B).  Only genuine input data (atmosphere structure + EOS populations + line
-catalog) and the pykurucz comparison target are loaded from reference/*.npz; no
-precomputed spectrum is read.
+saturated Hbeta core).  The atmosphere STRUCTURE is not solved in this lecture:
+the Sun uses the loaded Part-VI line-blanketed solar atmosphere, the other three
+stars use documented matched-atmosphere starts, and this capstone recomputes the
+synthesis path plus the single solar temperature-correction operator audit.  NLTE /
+statistical equilibrium is explicitly out of scope.  The thermal RT source is the LTE
+Planck function B_nu (computed inline, Note A), with coherent scattering carried
+through the JOSH iteration; the Sun operator integrates its radiation pressure prad
+over column mass from the gradient (4pi/c) SUM kappa_nu H_nu dnu of the JOSH H
+moments inline (Note B).  Only genuine input data (atmosphere structure + EOS
+populations + line catalog) and the pykurucz comparison target are loaded from
+reference/*.npz; no precomputed spectrum is read.
 """
 from pathlib import Path
 import nbformat

@@ -72,8 +72,8 @@ and recovers machine precision. The deviation is **quantified, not hidden**.
 
 **Part VI — The line-blanketed atmosphere (the finale)**
 The other half of “end to end”: the model atmosphere itself, built genuinely from scratch.
-15. **Line Blanketing: the True Model Atmosphere** — the predicted line list and `SELECTLINES`, the `LINOP1` wing-walk deposit kernel (the asymmetric sub-pixel walk, the full Voigt, the cutoff reach) reproduced in a teaching window, the line-blanketed Rosseland mean, and the convergence-core precision audit. It still consumes loaded atmosphere/EOS/window/continuum/full-grid blanket fixtures, which are named in the lecture.
-16. **The Full Equation of State: Species Slots & the Convective Heat Capacity** — the per-iteration state the line deposit and continuum consume: the multi-element `POPSALL`/`NELECT` species slots, Doppler widths, van-der-Waals perturber number, continuum-cutoff bridge, molecular slots, and `EDENS` convective heat-capacity inputs. It recomputes this state for a loaded atmosphere fixture and documents the remaining helper-backed boundaries.
+15. **Line Blanketing: LINOP1 and the Atmosphere Correction** — the predicted line list and `SELECTLINES`, the `LINOP1` wing-walk deposit kernel (the asymmetric sub-pixel walk, the full Voigt, the cutoff reach) reproduced in a teaching window, the line-blanketed Rosseland mean, and the convergence-core precision audit. It still consumes loaded atmosphere/EOS/window/continuum/full-grid blanket fixtures, which are named in the lecture.
+16. **EOS State for Line-Blanketed Convergence** — the per-iteration state the line deposit and continuum consume: the multi-element `POPSALL`/`NELECT` species slots, Doppler widths, van-der-Waals perturber number, continuum-cutoff bridge, molecular slots, and `EDENS` convective heat-capacity inputs. It recomputes this state for a loaded atmosphere fixture and documents the remaining helper-backed boundaries.
 
 ## How to read this book
 

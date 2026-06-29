@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Lecture 15 — Line Blanketing: the True Model Atmosphere.
+"""Lecture 15 — Line Blanketing: LINOP1 and the Atmosphere Correction.
 
 Completes the continuum-only converged model of Lecture 11 by switching on the
 millions of spectral lines.  Teaches, from scratch in pure NumPy:
@@ -32,7 +32,7 @@ def md(s): cells.append(new_markdown_cell(s))
 def code(s): cells.append(new_code_cell(s.strip("\n")))
 
 # ── title + objectives ────────────────────────────────────────────────────────
-md(r"""# Lecture 15 — Line Blanketing: the True Model Atmosphere
+md(r"""# Lecture 15 — Line Blanketing: LINOP1 and the Atmosphere Correction
 
 *Stellar Spectroscopy from Scratch — rebuilding the physics of ATLAS and SYNTHE from first principles*
 

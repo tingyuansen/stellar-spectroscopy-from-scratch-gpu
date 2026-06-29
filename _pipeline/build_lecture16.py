@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Lecture 16 — The Full Equation of State: Species Slots & the Convective Heat Capacity.
+"""Lecture 16 — EOS State for Line-Blanketed Convergence.
 
 The bridge that lets the model atmosphere compute its OWN per-iteration state — no borrowed
 intermediates.  Self-contained: imports only numpy / matplotlib / pathlib + the from-scratch
@@ -16,7 +16,7 @@ cells = []
 def md(s): cells.append(new_markdown_cell(s))
 def code(s): cells.append(new_code_cell(s.strip("\n")))
 
-md(r"""# Lecture 16 — The Full Equation of State: Species Slots & the Convective Heat Capacity
+md(r"""# Lecture 16 — EOS State for Line-Blanketed Convergence
 
 *Stellar Spectroscopy from Scratch — rebuilding the physics of ATLAS and SYNTHE from first principles*
 

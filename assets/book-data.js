@@ -55,8 +55,8 @@ window.BOOK = {
       name: "Part VI", title: "The Line-Blanketed Atmosphere — the Finale",
       blurb: "The model-atmosphere half: switch on the predicted line list, the wing-walk deposit kernel, the line-blanketed Rosseland mean, and the convergence machinery; then build the multi-element equation of state and convective heat capacity needed by the line-blanketed Sun.",
       chapters: [
-        { n: 15, slug: "Lecture15", type: "html", title: "Line Blanketing: the True Model Atmosphere", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
-        { n: 16, slug: "Lecture16", type: "html", title: "The Full Equation of State: Species Slots & the Convective Heat Capacity", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
+        { n: 15, slug: "Lecture15", type: "html", title: "Line Blanketing: LINOP1 and the Atmosphere Correction", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
+        { n: 16, slug: "Lecture16", type: "html", title: "EOS State for Line-Blanketed Convergence", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
       ]
     }
   ]

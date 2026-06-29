@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Assemble content/Lecture15.ipynb (unexecuted). Execute + render via build.py.
 
-Lecture 15 — Line Blanketing: the True Model Atmosphere, with hard parity gates.
+Lecture 15 — Line Blanketing: LINOP1 and the Atmosphere Correction, with hard parity gates.
 The exact LINOP1 teaching-window deposit uses an in-notebook clean-room scalar
 recurrence, while the bulk Rosseland/line-record tensor work stays on the selected device.  The
 only raw-fp32 failure kept in the notebook is an explicitly-labelled diagnostic of the pressure
@@ -24,7 +24,7 @@ def code(s):
     cells.append(new_code_cell(s.strip("\n")))
 
 # ── title + objectives ────────────────────────────────────────────────────────
-md(r"""# Lecture 15 — Line Blanketing: the True Model Atmosphere
+md(r"""# Lecture 15 — Line Blanketing: LINOP1 and the Atmosphere Correction
 
 *Stellar Spectroscopy from Scratch — a self-contained torch/MPS reconstruction of stellar-atmosphere and spectrum synthesis physics*
 
