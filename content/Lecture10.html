@@ -660,7 +660,139 @@ NX = XTAU.shape[<span class="hljs-number">0</span>]</code></pre>
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[11]</span>Python</span>
         <button class="copy-btn" type="button" data-code="ITER_TOL = 1.0e-3
 
-def josh_profiles(continuum_absorption, continuum_source, continuum_scattering,
+def solve_physical_thin_layers(snu_grid, hnu_grid, jmins_grid, maxj,
+                               alpha, snubar, bnu, taunu, dtype):
+    &quot;&quot;&quot;Iterate the physical-grid optically thin layers in maxj buckets.&quot;&quot;&quot;
+    frequency_count, depth_count = snu_grid.shape
+    snu = snu_grid.clone()
+    hnu = torch.zeros_like(snu)
+    jmins = torch.zeros_like(snu)
+
+    for mj_t in torch.unique(maxj).detach().cpu().tolist():  # JUSTIFIED-LOOP: &lt;=51 JOSH-grid buckets.
+        mj = int(mj_t)
+        rows = torch.nonzero(maxj == mj, as_tuple=False).squeeze(1)
+        if rows.numel() == 0:
+            continue
+        maxj1 = mj + 1 if mj != 1 else 1
+        m0 = max(mj - 1, 1) - 1
+        nmj0 = mj - 1
+        sg = snu.index_select(0, rows).clone()
+        hg = hnu.index_select(0, rows).clone()
+        jg = jmins.index_select(0, rows).clone()
+        ag = alpha.index_select(0, rows)
+        sbg = snubar.index_select(0, rows).clone()
+        bg = bnu.index_select(0, rows)
+        tg = taunu.index_select(0, rows)
+        sg[:, maxj1-1:] = sbg[:, maxj1-1:]
+        active = torch.ones(rows.numel(), dtype=torch.bool, device=DEVICE)
+
+        for _ in range(NX):  # JUSTIFIED-LOOP: fixed JOSH thin-layer convergence cap.
+            if not bool(active.any()):
+                break
+            idx = torch.nonzero(active, as_tuple=False).squeeze(1)
+            ifneg = torch.any(sg[idx, m0:] &lt;= 0.0, dim=1)
+            if bool(ifneg.any()):
+                bad = idx[ifneg]
+                sbg[bad, m0:] = bg[bad, m0:]
+                sg[bad, m0:] = bg[bad, m0:]
+            htail = deriv(tg[idx, m0:], sg[idx, m0:]) / 3.0
+            hg[idx, m0:] = htail
+            hbad = torch.any(htail &lt;= 0.0, dim=1)
+            if bool(hbad.any()):
+                bad = idx[hbad]
+                ifneg = ifneg.clone()
+                ifneg[hbad] = True
+                sbg[bad, m0:] = bg[bad, m0:]
+                sg[bad, m0:] = bg[bad, m0:]
+                hg[bad, m0:] = deriv(tg[bad, m0:], sg[bad, m0:]) / 3.0
+            jg[idx, nmj0:] = deriv(tg[idx, nmj0:], hg[idx, nmj0:])
+            err = torch.zeros(idx.numel(), dtype=dtype, device=DEVICE)
+            for j in range(maxj1-1, depth_count):  # JUSTIFIED-LOOP: sequential source update.
+                jmins_j = torch.where(ifneg, torch.zeros_like(jg[idx, j]), jg[idx, j])
+                jg[idx, j] = jmins_j
+                jnu_j = jmins_j + sg[idx, j]
+                snew = (1.0 - ag[idx, j]) * sbg[idx, j] + ag[idx, j] * jnu_j
+                err = err + torch.abs(snew - sg[idx, j]) / torch.clamp(torch.abs(snew), min=1e-30)
+                sg[idx, j] = snew
+            active[idx] = err &gt;= ITER_TOL
+
+        snu.index_copy_(0, rows, sg)
+        hnu.index_copy_(0, rows, hg)
+        jmins.index_copy_(0, rows, jg)
+
+    return snu, hnu, jmins" aria-label="Copy code">
+          <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
+      </div>
+      <pre class="code-body"><code class="hljs language-python">ITER_TOL = <span class="hljs-number">1.0e-3</span>
+
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">solve_physical_thin_layers</span>(<span class="hljs-params">snu_grid, hnu_grid, jmins_grid, maxj,
+                               alpha, snubar, bnu, taunu, dtype</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Iterate the physical-grid optically thin layers in maxj buckets.&quot;&quot;&quot;</span>
+    frequency_count, depth_count = snu_grid.shape
+    snu = snu_grid.clone()
+    hnu = torch.zeros_like(snu)
+    jmins = torch.zeros_like(snu)
+
+    <span class="hljs-keyword">for</span> mj_t <span class="hljs-keyword">in</span> torch.unique(maxj).detach().cpu().tolist():  <span class="hljs-comment"># JUSTIFIED-LOOP: &lt;=51 JOSH-grid buckets.</span>
+        mj = <span class="hljs-built_in">int</span>(mj_t)
+        rows = torch.nonzero(maxj == mj, as_tuple=<span class="hljs-literal">False</span>).squeeze(<span class="hljs-number">1</span>)
+        <span class="hljs-keyword">if</span> rows.numel() == <span class="hljs-number">0</span>:
+            <span class="hljs-keyword">continue</span>
+        maxj1 = mj + <span class="hljs-number">1</span> <span class="hljs-keyword">if</span> mj != <span class="hljs-number">1</span> <span class="hljs-keyword">else</span> <span class="hljs-number">1</span>
+        m0 = <span class="hljs-built_in">max</span>(mj - <span class="hljs-number">1</span>, <span class="hljs-number">1</span>) - <span class="hljs-number">1</span>
+        nmj0 = mj - <span class="hljs-number">1</span>
+        sg = snu.index_select(<span class="hljs-number">0</span>, rows).clone()
+        hg = hnu.index_select(<span class="hljs-number">0</span>, rows).clone()
+        jg = jmins.index_select(<span class="hljs-number">0</span>, rows).clone()
+        ag = alpha.index_select(<span class="hljs-number">0</span>, rows)
+        sbg = snubar.index_select(<span class="hljs-number">0</span>, rows).clone()
+        bg = bnu.index_select(<span class="hljs-number">0</span>, rows)
+        tg = taunu.index_select(<span class="hljs-number">0</span>, rows)
+        sg[:, maxj1-<span class="hljs-number">1</span>:] = sbg[:, maxj1-<span class="hljs-number">1</span>:]
+        active = torch.ones(rows.numel(), dtype=torch.<span class="hljs-built_in">bool</span>, device=DEVICE)
+
+        <span class="hljs-keyword">for</span> _ <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(NX):  <span class="hljs-comment"># JUSTIFIED-LOOP: fixed JOSH thin-layer convergence cap.</span>
+            <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> <span class="hljs-built_in">bool</span>(active.<span class="hljs-built_in">any</span>()):
+                <span class="hljs-keyword">break</span>
+            idx = torch.nonzero(active, as_tuple=<span class="hljs-literal">False</span>).squeeze(<span class="hljs-number">1</span>)
+            ifneg = torch.<span class="hljs-built_in">any</span>(sg[idx, m0:] &lt;= <span class="hljs-number">0.0</span>, dim=<span class="hljs-number">1</span>)
+            <span class="hljs-keyword">if</span> <span class="hljs-built_in">bool</span>(ifneg.<span class="hljs-built_in">any</span>()):
+                bad = idx[ifneg]
+                sbg[bad, m0:] = bg[bad, m0:]
+                sg[bad, m0:] = bg[bad, m0:]
+            htail = deriv(tg[idx, m0:], sg[idx, m0:]) / <span class="hljs-number">3.0</span>
+            hg[idx, m0:] = htail
+            hbad = torch.<span class="hljs-built_in">any</span>(htail &lt;= <span class="hljs-number">0.0</span>, dim=<span class="hljs-number">1</span>)
+            <span class="hljs-keyword">if</span> <span class="hljs-built_in">bool</span>(hbad.<span class="hljs-built_in">any</span>()):
+                bad = idx[hbad]
+                ifneg = ifneg.clone()
+                ifneg[hbad] = <span class="hljs-literal">True</span>
+                sbg[bad, m0:] = bg[bad, m0:]
+                sg[bad, m0:] = bg[bad, m0:]
+                hg[bad, m0:] = deriv(tg[bad, m0:], sg[bad, m0:]) / <span class="hljs-number">3.0</span>
+            jg[idx, nmj0:] = deriv(tg[idx, nmj0:], hg[idx, nmj0:])
+            err = torch.zeros(idx.numel(), dtype=dtype, device=DEVICE)
+            <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(maxj1-<span class="hljs-number">1</span>, depth_count):  <span class="hljs-comment"># JUSTIFIED-LOOP: sequential source update.</span>
+                jmins_j = torch.where(ifneg, torch.zeros_like(jg[idx, j]), jg[idx, j])
+                jg[idx, j] = jmins_j
+                jnu_j = jmins_j + sg[idx, j]
+                snew = (<span class="hljs-number">1.0</span> - ag[idx, j]) * sbg[idx, j] + ag[idx, j] * jnu_j
+                err = err + torch.<span class="hljs-built_in">abs</span>(snew - sg[idx, j]) / torch.clamp(torch.<span class="hljs-built_in">abs</span>(snew), <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-30</span>)
+                sg[idx, j] = snew
+            active[idx] = err &gt;= ITER_TOL
+
+        snu.index_copy_(<span class="hljs-number">0</span>, rows, sg)
+        hnu.index_copy_(<span class="hljs-number">0</span>, rows, hg)
+        jmins.index_copy_(<span class="hljs-number">0</span>, rows, jg)
+
+    <span class="hljs-keyword">return</span> snu, hnu, jmins</code></pre>
+    </div></div><div class="prose"><p>With the thin-layer recurrence isolated, the profile driver reads as the high-level JOSH assembly:
+build optics, solve on the fixed <code>XTAU</code> grid, remap to the physical grid, and splice in the
+physical-grid thin-layer correction.</p>
+</div><div class="nb-cell"><div class="code-card">
+      <div class="code-top">
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[12]</span>Python</span>
+        <button class="copy-btn" type="button" data-code="def josh_profiles(continuum_absorption, continuum_source, continuum_scattering,
                   column_mass, planck_source):
     &quot;&quot;&quot;Solve JOSH transfer profiles for every sampled frequency at once.
 
@@ -695,60 +827,9 @@ def josh_profiles(continuum_absorption, continuum_source, continuum_scattering,
     j_idx = torch.arange(N, device=DEVICE).unsqueeze(0)
     shallow_mask = j_idx &lt; maxj.unsqueeze(1)
 
-    # Stage (c): exact physical-grid thin-layer iteration, bucketed by maxj.
-    snu = snu_grid.clone()
-    hnu = torch.zeros_like(snu)
-    jmins = torch.zeros_like(snu)
-    for mj_t in torch.unique(maxj).detach().cpu().tolist():  # JUSTIFIED-LOOP: &lt;=51 JOSH-grid buckets.
-        mj = int(mj_t)
-        rows = torch.nonzero(maxj == mj, as_tuple=False).squeeze(1)
-        if rows.numel() == 0:
-            continue
-        maxj1 = mj + 1 if mj != 1 else 1
-        m0 = max(mj - 1, 1) - 1
-        nmj0 = mj - 1
-        sg = snu.index_select(0, rows).clone()
-        hg = hnu.index_select(0, rows).clone()
-        jg = jmins.index_select(0, rows).clone()
-        ag = alpha.index_select(0, rows)
-        sbg = snubar.index_select(0, rows).clone()
-        bg = bnu.index_select(0, rows)
-        tg = taunu.index_select(0, rows)
-        sg[:, maxj1-1:] = sbg[:, maxj1-1:]
-        active = torch.ones(rows.numel(), dtype=torch.bool, device=DEVICE)
-        for _ in range(NX):  # JUSTIFIED-LOOP: fixed JOSH thin-layer convergence cap.
-            if not bool(active.any()):
-                break
-            idx = torch.nonzero(active, as_tuple=False).squeeze(1)
-            ifneg = torch.any(sg[idx, m0:] &lt;= 0.0, dim=1)
-            if bool(ifneg.any()):
-                bad = idx[ifneg]
-                sbg[bad, m0:] = bg[bad, m0:]
-                sg[bad, m0:] = bg[bad, m0:]
-            htail = deriv(tg[idx, m0:], sg[idx, m0:]) / 3.0
-            hg[idx, m0:] = htail
-            hbad = torch.any(htail &lt;= 0.0, dim=1)
-            if bool(hbad.any()):
-                bad = idx[hbad]
-                ifneg = ifneg.clone(); ifneg[hbad] = True
-                sbg[bad, m0:] = bg[bad, m0:]
-                sg[bad, m0:] = bg[bad, m0:]
-                hg[bad, m0:] = deriv(tg[bad, m0:], sg[bad, m0:]) / 3.0
-            jg[idx, nmj0:] = deriv(tg[idx, nmj0:], hg[idx, nmj0:])
-            err = torch.zeros(idx.numel(), dtype=dt, device=DEVICE)
-            for j in range(maxj1-1, N):  # JUSTIFIED-LOOP: sequential source update over 80 layers.
-                jmins_j = jg[idx, j]
-                jmins_j = torch.where(ifneg, torch.zeros_like(jmins_j), jmins_j)
-                jg[idx, j] = jmins_j
-                jnu_j = jmins_j + sg[idx, j]
-                snew = (1.0 - ag[idx, j]) * sbg[idx, j] + ag[idx, j] * jnu_j
-                err = err + torch.abs(snew - sg[idx, j]) / torch.clamp(torch.abs(snew), min=1e-30)
-                sg[idx, j] = snew
-            still = err &gt;= ITER_TOL
-            active[idx] = still
-        snu.index_copy_(0, rows, sg)
-        hnu.index_copy_(0, rows, hg)
-        jmins.index_copy_(0, rows, jg)
+    snu, hnu, jmins = solve_physical_thin_layers(
+        snu_grid, hnu_grid, jmins_grid, maxj, alpha, snubar, bnu, taunu, dt,
+    )
 
     hnu = torch.where(shallow_mask, hnu_grid, hnu)
     jmins = torch.where(shallow_mask, jmins_grid, jmins)
@@ -760,9 +841,7 @@ def josh_profiles(continuum_absorption, continuum_source, continuum_scattering,
             total_extinction, scattering_fraction)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">ITER_TOL = <span class="hljs-number">1.0e-3</span>
-
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">josh_profiles</span>(<span class="hljs-params">continuum_absorption, continuum_source, continuum_scattering,
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">josh_profiles</span>(<span class="hljs-params">continuum_absorption, continuum_source, continuum_scattering,
                   column_mass, planck_source</span>):
     <span class="hljs-string">&quot;&quot;&quot;Solve JOSH transfer profiles for every sampled frequency at once.
 
@@ -797,60 +876,9 @@ def josh_profiles(continuum_absorption, continuum_source, continuum_scattering,
     j_idx = torch.arange(N, device=DEVICE).unsqueeze(<span class="hljs-number">0</span>)
     shallow_mask = j_idx &lt; maxj.unsqueeze(<span class="hljs-number">1</span>)
 
-    <span class="hljs-comment"># Stage (c): exact physical-grid thin-layer iteration, bucketed by maxj.</span>
-    snu = snu_grid.clone()
-    hnu = torch.zeros_like(snu)
-    jmins = torch.zeros_like(snu)
-    <span class="hljs-keyword">for</span> mj_t <span class="hljs-keyword">in</span> torch.unique(maxj).detach().cpu().tolist():  <span class="hljs-comment"># JUSTIFIED-LOOP: &lt;=51 JOSH-grid buckets.</span>
-        mj = <span class="hljs-built_in">int</span>(mj_t)
-        rows = torch.nonzero(maxj == mj, as_tuple=<span class="hljs-literal">False</span>).squeeze(<span class="hljs-number">1</span>)
-        <span class="hljs-keyword">if</span> rows.numel() == <span class="hljs-number">0</span>:
-            <span class="hljs-keyword">continue</span>
-        maxj1 = mj + <span class="hljs-number">1</span> <span class="hljs-keyword">if</span> mj != <span class="hljs-number">1</span> <span class="hljs-keyword">else</span> <span class="hljs-number">1</span>
-        m0 = <span class="hljs-built_in">max</span>(mj - <span class="hljs-number">1</span>, <span class="hljs-number">1</span>) - <span class="hljs-number">1</span>
-        nmj0 = mj - <span class="hljs-number">1</span>
-        sg = snu.index_select(<span class="hljs-number">0</span>, rows).clone()
-        hg = hnu.index_select(<span class="hljs-number">0</span>, rows).clone()
-        jg = jmins.index_select(<span class="hljs-number">0</span>, rows).clone()
-        ag = alpha.index_select(<span class="hljs-number">0</span>, rows)
-        sbg = snubar.index_select(<span class="hljs-number">0</span>, rows).clone()
-        bg = bnu.index_select(<span class="hljs-number">0</span>, rows)
-        tg = taunu.index_select(<span class="hljs-number">0</span>, rows)
-        sg[:, maxj1-<span class="hljs-number">1</span>:] = sbg[:, maxj1-<span class="hljs-number">1</span>:]
-        active = torch.ones(rows.numel(), dtype=torch.<span class="hljs-built_in">bool</span>, device=DEVICE)
-        <span class="hljs-keyword">for</span> _ <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(NX):  <span class="hljs-comment"># JUSTIFIED-LOOP: fixed JOSH thin-layer convergence cap.</span>
-            <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> <span class="hljs-built_in">bool</span>(active.<span class="hljs-built_in">any</span>()):
-                <span class="hljs-keyword">break</span>
-            idx = torch.nonzero(active, as_tuple=<span class="hljs-literal">False</span>).squeeze(<span class="hljs-number">1</span>)
-            ifneg = torch.<span class="hljs-built_in">any</span>(sg[idx, m0:] &lt;= <span class="hljs-number">0.0</span>, dim=<span class="hljs-number">1</span>)
-            <span class="hljs-keyword">if</span> <span class="hljs-built_in">bool</span>(ifneg.<span class="hljs-built_in">any</span>()):
-                bad = idx[ifneg]
-                sbg[bad, m0:] = bg[bad, m0:]
-                sg[bad, m0:] = bg[bad, m0:]
-            htail = deriv(tg[idx, m0:], sg[idx, m0:]) / <span class="hljs-number">3.0</span>
-            hg[idx, m0:] = htail
-            hbad = torch.<span class="hljs-built_in">any</span>(htail &lt;= <span class="hljs-number">0.0</span>, dim=<span class="hljs-number">1</span>)
-            <span class="hljs-keyword">if</span> <span class="hljs-built_in">bool</span>(hbad.<span class="hljs-built_in">any</span>()):
-                bad = idx[hbad]
-                ifneg = ifneg.clone(); ifneg[hbad] = <span class="hljs-literal">True</span>
-                sbg[bad, m0:] = bg[bad, m0:]
-                sg[bad, m0:] = bg[bad, m0:]
-                hg[bad, m0:] = deriv(tg[bad, m0:], sg[bad, m0:]) / <span class="hljs-number">3.0</span>
-            jg[idx, nmj0:] = deriv(tg[idx, nmj0:], hg[idx, nmj0:])
-            err = torch.zeros(idx.numel(), dtype=dt, device=DEVICE)
-            <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(maxj1-<span class="hljs-number">1</span>, N):  <span class="hljs-comment"># JUSTIFIED-LOOP: sequential source update over 80 layers.</span>
-                jmins_j = jg[idx, j]
-                jmins_j = torch.where(ifneg, torch.zeros_like(jmins_j), jmins_j)
-                jg[idx, j] = jmins_j
-                jnu_j = jmins_j + sg[idx, j]
-                snew = (<span class="hljs-number">1.0</span> - ag[idx, j]) * sbg[idx, j] + ag[idx, j] * jnu_j
-                err = err + torch.<span class="hljs-built_in">abs</span>(snew - sg[idx, j]) / torch.clamp(torch.<span class="hljs-built_in">abs</span>(snew), <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-30</span>)
-                sg[idx, j] = snew
-            still = err &gt;= ITER_TOL
-            active[idx] = still
-        snu.index_copy_(<span class="hljs-number">0</span>, rows, sg)
-        hnu.index_copy_(<span class="hljs-number">0</span>, rows, hg)
-        jmins.index_copy_(<span class="hljs-number">0</span>, rows, jg)
+    snu, hnu, jmins = solve_physical_thin_layers(
+        snu_grid, hnu_grid, jmins_grid, maxj, alpha, snubar, bnu, taunu, dt,
+    )
 
     hnu = torch.where(shallow_mask, hnu_grid, hnu)
     jmins = torch.where(shallow_mask, jmins_grid, jmins)
@@ -871,7 +899,7 @@ def josh_profiles(continuum_absorption, continuum_source, continuum_scattering,
 <p>We evaluate the <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>E</mi><mn>3</mn></msub></mrow><annotation encoding="application/x-tex">E_3</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05764em;">E</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.0576em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">3</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> exponential integral via the same rational-polynomial approximation. PyTorch seamlessly evaluates all branches concurrently and selects via <code>torch.where</code>. The 2-step recurrences for <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>E</mi><mn>3</mn></msub></mrow><annotation encoding="application/x-tex">E_3</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05764em;">E</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.0576em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">3</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> are fully unrolled for vectorization speed.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[12]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[13]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def expi3_batched(x: torch.Tensor) -&gt; torch.Tensor:
     &quot;&quot;&quot;Evaluate the Fortran EXPI order-3 exponential integral on a tensor.
 
@@ -955,7 +983,7 @@ def josh_profiles(continuum_absorption, continuum_source, continuum_scattering,
 <p>Because <code>term1 = term2_prev</code> intrinsically cascades down the depth axis, the <code>rdiagj</code> sequence is formed by rolling shifted tensors — totally vectorized over depths and frequencies, avoiding any loops.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[13]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[14]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def accumulate_rdiagj(taunu, abtot, alpha, dbdt, rco, teff):
     &quot;&quot;&quot;Accumulate the depthwise local-Lambda temperature-response denominator.
 
@@ -1023,7 +1051,7 @@ def josh_profiles(continuum_absorption, continuum_source, continuum_scattering,
 <p><em>(Note: we permit a slightly higher parity tolerance for the <code>rjmins</code> net-heating accumulator because its value intrinsically carries the precision floor left behind by the float32 Gauss-Seidel JOSH solve.)</em></p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[14]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[15]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Batched inputs: transpose from [N, F] to [F, N]
 continuum_absorption = t(REF[&quot;acont&quot;]).T
 continuum_scattering = t(REF[&quot;sigmac&quot;]).T
@@ -1112,7 +1140,7 @@ bnu, stim, dbdt = planck_source, stimulated_emission_factor, dBnu_dT</code></pre
 </pre></div></div><div class="prose"><p>Those tensors now contain the monochromatic transfer profiles and the Rosseland depth scale. The next cell performs the frequency folds that feed the temperature correction; the wide reductions are intentionally done in fp64 on the CPU because they are small per-depth vectors and numerically fragile.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[15]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[16]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# The JOSH profiles stay MPS/fp32; NumPy&#39;s wide frequency accumulators are float64.
 d_total_extinction_d_column_mass = deriv(column_mass, total_extinction)
 opacity_gradient_flux_integral64 = (
@@ -1217,7 +1245,7 @@ rjmins (heating)            max|rel| = 8.66e-06   median = 4.28e-07   [agree]
 <p>The <code>RADIAP</code> moment represents the radiation pressure <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>P</mi><mrow><mi mathvariant="normal">r</mi><mi mathvariant="normal">a</mi><mi mathvariant="normal">d</mi></mrow></msub></mrow><annotation encoding="application/x-tex">P_{\rm rad}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3361em;"><span style="top:-2.55em;margin-left:-0.1389em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">rad</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>. Integrating the frequency-folded <code>accrad</code> directly on the physical depth grid yields <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>P</mi><mrow><mi mathvariant="normal">r</mi><mi mathvariant="normal">a</mi><mi mathvariant="normal">d</mi></mrow></msub></mrow><annotation encoding="application/x-tex">P_{\rm rad}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3361em;"><span style="top:-2.55em;margin-left:-0.1389em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">rad</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> completely from scratch.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[16]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[17]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# (1) the 4 pi / c factor
 conv = 12.5664 / 2.99792458e10
 accrad64 *= conv
@@ -1276,7 +1304,7 @@ radiation pressure: surface P_rad = 1.892e-09   deep P_rad = 1.654e+03 dyn/cm^2
 </ol>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[17]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[18]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# TCORR is an 80-value cancellation-sensitive correction core: evaluate it in CPU/fp64.
 dtdrhx64 = deriv(rhox64, T64)
 dabros64 = deriv(rhox64, abross64)
@@ -1320,7 +1348,7 @@ dtflux = dtflux64.to(device=DEVICE, dtype=DTYPE)</code></pre>
     </div></div><div class="prose"><p>The Avrett-Krook term fixes the flux drift through an integrated depth correction. The second term is local in the Lambda operator and damps the optically thin surface layers, so it keeps the small sequential ATLAS smoother.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[18]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[19]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# --- (2) local-Lambda surface term, preserving the sequential five-layer damping -
 teff25 = TEFF / 25.0
 flxdrv64 = rjmins64 / torch.clamp(abross64, min=1e-300) / flux * 100.0
@@ -1358,7 +1386,7 @@ dtlamb = dtlamb64.to(device=DEVICE, dtype=DTYPE)</code></pre>
     </div></div><div class="prose"><p>The third term is a surface-boundary adjustment. It offsets the correction so the emerging surface flux lands on the Eddington target without undoing the interior flux correction.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[19]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[20]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# --- (3) surface-boundary term --------------------------------------------------
 dtsur64 = torch.clamp((flux - flxrad64[0])/flux * 0.25 * T64[0], min=-teff25, max=teff25)
 tinteg64 = integ(tauros64, dtflux64 + dtlamb64, torch.tensor(0.0, dtype=torch.float64))
@@ -1389,7 +1417,7 @@ t1 = t1_64.to(device=DEVICE, dtype=DTYPE)</code></pre>
 <p>A runaway non-physical thermal inversion is suppressed from the bottom up. On the host this is a sequential reverse loop. On the GPU we exploit its functional purity: it is mathematically equivalent to a reverse cumulative-minimum <code>cummin</code> shifted by a constant slope.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[20]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[21]</span>Python</span>
         <button class="copy-btn" type="button" data-code="tnew64 = torch.clamp(T64 + t1_64, min=1.0)
 # JUSTIFIED-LOOP: exact bottom-up ATLAS monotonicity guard over 80 layers.
 for i in range(1, n):
@@ -1432,7 +1460,7 @@ T1 (total)                  max|rel| = 1.12e-05   median = 7.22e-07   [CHECK]
 <p>The secant represents the headline precision trap of this module. It requires differentiating two massive total-pressure profiles that differ solely by a tens-of-Kelvin perturbation. If computed natively in pure fp32, catastrophic cancellation would swallow the difference, diverting the structural column convergence entirely. Therefore, we safely offload the differential quotient to fp64 CPU evaluation with <code>fp64_reduce</code>.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[21]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[22]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def rosstab_eval(t_norm, p_norm, self_t, self_p, self_k, self_nn):
     &quot;&quot;&quot;Interpolate a normalized Rosseland opacity table at one (T, P) point.
 
@@ -1526,7 +1554,7 @@ T1 (total)                  max|rel| = 1.12e-05   median = 7.22e-07   [CHECK]
     </div></div><div class="prose"><p><code>rosstab_eval</code> is only the local table interpolation. <code>Rosstab</code> packages the normalized coordinates and leaves the predictor/corrector formulas as small named functions before the depth march.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[22]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[23]</span>Python</span>
         <button class="copy-btn" type="button" data-code="class Rosstab:
     &quot;&quot;&quot;Small Rosseland opacity table wrapper used by the TTAUP pressure march interpolation.&quot;&quot;&quot;
     def __init__(self, T_arr, P_arr, kappa):
@@ -1596,7 +1624,7 @@ def ttaup_correct(j, abstd_j, tau_j, grav, plog, dplog, p1, p3, p4, q1, q2, q3):
     </div></div><div class="prose"><p><code>Rosstab</code> wraps the opacity table and the two predictor/corrector formulas above. The actual hydrostatic march comes next; it is sequential in depth because each layer depends on the pressure history above it.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[23]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[24]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def ttaup(temperature_arr, tau, prad, grav, rosstab):
     &quot;&quot;&quot;Integrate hydrostatic total pressure on a standard optical-depth grid.
 
@@ -1706,7 +1734,7 @@ def ttaup_correct(j, abstd_j, tau_j, grav, plog, dplog, p1, p3, p4, q1, q2, q3):
     </div></div><div class="prose"><p>Now we run that march twice, once at the old temperature and once at the corrected temperature. Their fractional pressure difference is the column-mass correction, evaluated in fp64 to avoid subtracting nearly equal pressure profiles in fp32.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[24]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[25]</span>Python</span>
         <button class="copy-btn" type="button" data-code="gas_pressure64 = p_in.detach().cpu().to(torch.float64)
 rosseland_table = Rosstab(T64, gas_pressure64, abross64)
 prdnew64 = map1(tauros64, prad64, taustd64)
@@ -1735,7 +1763,7 @@ rhox_new = column_mass_new64.to(device=DEVICE, dtype=DTYPE)</code></pre>
 <p>To cap off the <code>TCORR</code> iteration, ATLAS returns all corrected state arrays to the standard <code>taustd</code> grid structure to prime the parameters for the subsequent iteration loop.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[25]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[26]</span>Python</span>
         <button class="copy-btn" type="button" data-code="T_out64 = map1(tauros64, tnew64, taustd64)
 rhox_out64 = map1(tauros64, column_mass_new64, taustd64)
 T_out = T_out64.to(device=DEVICE, dtype=DTYPE)
@@ -1762,7 +1790,7 @@ corrected RHOX              max|rel| = 2.31e-07   median = 1.71e-07   [agree]
 <p>Where, then, does the one single-precision step in the whole pipeline (the <strong>float32</strong> <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi mathvariant="normal">Λ</mi></mrow><annotation encoding="application/x-tex">\Lambda</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord">Λ</span></span></span></span>-iteration inside JOSH, Lecture 8) leave its mark? In the <em>frequency-integrated accumulators</em> themselves: the single precision affects the solved source and moment profiles, so its last-bit jitter in <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>H</mi><mi>ν</mi></msub></mrow><annotation encoding="application/x-tex">H_\nu</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.08125em;">H</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.0813em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> and <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">(</mo><msub><mi>J</mi><mi>ν</mi></msub><mo>−</mo><msub><mi>S</mi><mi>ν</mi></msub><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">(J_\nu-S_\nu)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.09618em;">J</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.0962em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05764em;">S</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.0576em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mclose">)</span></span></span></span> shows up as a <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>∼</mo><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>6</mn></mrow></msup></mrow><annotation encoding="application/x-tex">\sim10^{-6}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">∼</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">6</span></span></span></span></span></span></span></span></span></span></span></span>–<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>7</mn></mrow></msup></mrow><annotation encoding="application/x-tex">10^{-7}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">7</span></span></span></span></span></span></span></span></span></span></span></span> floor on <code>rjmins</code>, <code>flxrad</code>, and <code>rdabh</code> printed above. In our pure-fp32 MPS port, that noise is further amplified by catastrophic cancellation in the term <code>(flxrad - flux)</code>, inherently limiting <code>dtflux</code> to <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>∼</mo><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>3</mn></mrow></msup></mrow><annotation encoding="application/x-tex">\sim10^{-3}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">∼</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">3</span></span></span></span></span></span></span></span></span></span></span></span> precision. However, this jitter is far below the <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>4</mn></mrow></msup></mrow><annotation encoding="application/x-tex">10^{-4}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">4</span></span></span></span></span></span></span></span></span></span></span></span> convergence threshold, and it washes out over the iteration sequence.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[26]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[27]</span>Python</span>
         <button class="copy-btn" type="button" data-code="print(&quot;=&quot;*64)
 print(&quot;LECTURE 10 BENCHMARK&quot;)
 print(&quot;=&quot;*64)
@@ -1796,7 +1824,7 @@ LECTURE 10 BENCHMARK
 <p>Finally, a picture of what we just did, with both panels on the <strong>same</strong> <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>τ</mi><mrow><mi mathvariant="normal">R</mi><mi mathvariant="normal">o</mi><mi mathvariant="normal">s</mi><mi mathvariant="normal">s</mi></mrow></msub></mrow><annotation encoding="application/x-tex">\tau_{\rm Ross}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:-0.1132em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">Ross</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> axis so they line up depth for depth. The left panel overlays the grey starting temperature <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>T</mi></mrow><annotation encoding="application/x-tex">T</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span></span></span></span> and the corrected temperature <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>T</mi><mrow><mi mathvariant="normal">n</mi><mi mathvariant="normal">e</mi><mi mathvariant="normal">w</mi></mrow></msub><mo>=</mo><mi>T</mi><mo>+</mo><msub><mi>T</mi><mn>1</mn></msub></mrow><annotation encoding="application/x-tex">T_{\rm new}=T+T_1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.1389em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight" style="margin-right:0.01389em;">new</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.7667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.1389em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> across the photosphere — the correction is a smooth shift of tens to a few hundred kelvin, pulling the temperature toward the run that conserves flux. The right panel shows that same correction <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>T</mi><mn>1</mn></msub></mrow><annotation encoding="application/x-tex">T_1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.1389em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> versus depth, the sum of the three terms we assembled: the surface term setting the top, the local-<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi mathvariant="normal">Λ</mi></mrow><annotation encoding="application/x-tex">\Lambda</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord">Λ</span></span></span></span> term shaping the thin upper layers, and the Avrett–Krook term doing the bulk work in the deep, optically thick interior.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[27]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[28]</span>Python</span>
         <button class="copy-btn" type="button" data-code="tnew_plot = tnew.cpu().numpy()
 t1_plot = t1.cpu().numpy()
 tauros_plot = tauros.cpu().numpy()

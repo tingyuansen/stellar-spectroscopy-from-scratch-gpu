@@ -406,7 +406,74 @@ The scalar reference iterates the shallow layers directly on the physical grid a
 
 code(r'''ITER_TOL = 1.0e-3
 
-def josh_profiles(continuum_absorption, continuum_source, continuum_scattering,
+def solve_physical_thin_layers(snu_grid, hnu_grid, jmins_grid, maxj,
+                               alpha, snubar, bnu, taunu, dtype):
+    """Iterate the physical-grid optically thin layers in maxj buckets."""
+    frequency_count, depth_count = snu_grid.shape
+    snu = snu_grid.clone()
+    hnu = torch.zeros_like(snu)
+    jmins = torch.zeros_like(snu)
+
+    for mj_t in torch.unique(maxj).detach().cpu().tolist():  # JUSTIFIED-LOOP: <=51 JOSH-grid buckets.
+        mj = int(mj_t)
+        rows = torch.nonzero(maxj == mj, as_tuple=False).squeeze(1)
+        if rows.numel() == 0:
+            continue
+        maxj1 = mj + 1 if mj != 1 else 1
+        m0 = max(mj - 1, 1) - 1
+        nmj0 = mj - 1
+        sg = snu.index_select(0, rows).clone()
+        hg = hnu.index_select(0, rows).clone()
+        jg = jmins.index_select(0, rows).clone()
+        ag = alpha.index_select(0, rows)
+        sbg = snubar.index_select(0, rows).clone()
+        bg = bnu.index_select(0, rows)
+        tg = taunu.index_select(0, rows)
+        sg[:, maxj1-1:] = sbg[:, maxj1-1:]
+        active = torch.ones(rows.numel(), dtype=torch.bool, device=DEVICE)
+
+        for _ in range(NX):  # JUSTIFIED-LOOP: fixed JOSH thin-layer convergence cap.
+            if not bool(active.any()):
+                break
+            idx = torch.nonzero(active, as_tuple=False).squeeze(1)
+            ifneg = torch.any(sg[idx, m0:] <= 0.0, dim=1)
+            if bool(ifneg.any()):
+                bad = idx[ifneg]
+                sbg[bad, m0:] = bg[bad, m0:]
+                sg[bad, m0:] = bg[bad, m0:]
+            htail = deriv(tg[idx, m0:], sg[idx, m0:]) / 3.0
+            hg[idx, m0:] = htail
+            hbad = torch.any(htail <= 0.0, dim=1)
+            if bool(hbad.any()):
+                bad = idx[hbad]
+                ifneg = ifneg.clone()
+                ifneg[hbad] = True
+                sbg[bad, m0:] = bg[bad, m0:]
+                sg[bad, m0:] = bg[bad, m0:]
+                hg[bad, m0:] = deriv(tg[bad, m0:], sg[bad, m0:]) / 3.0
+            jg[idx, nmj0:] = deriv(tg[idx, nmj0:], hg[idx, nmj0:])
+            err = torch.zeros(idx.numel(), dtype=dtype, device=DEVICE)
+            for j in range(maxj1-1, depth_count):  # JUSTIFIED-LOOP: sequential source update.
+                jmins_j = torch.where(ifneg, torch.zeros_like(jg[idx, j]), jg[idx, j])
+                jg[idx, j] = jmins_j
+                jnu_j = jmins_j + sg[idx, j]
+                snew = (1.0 - ag[idx, j]) * sbg[idx, j] + ag[idx, j] * jnu_j
+                err = err + torch.abs(snew - sg[idx, j]) / torch.clamp(torch.abs(snew), min=1e-30)
+                sg[idx, j] = snew
+            active[idx] = err >= ITER_TOL
+
+        snu.index_copy_(0, rows, sg)
+        hnu.index_copy_(0, rows, hg)
+        jmins.index_copy_(0, rows, jg)
+
+    return snu, hnu, jmins
+''')
+
+md(r"""With the thin-layer recurrence isolated, the profile driver reads as the high-level JOSH assembly:
+build optics, solve on the fixed `XTAU` grid, remap to the physical grid, and splice in the
+physical-grid thin-layer correction.""")
+
+code(r'''def josh_profiles(continuum_absorption, continuum_source, continuum_scattering,
                   column_mass, planck_source):
     """Solve JOSH transfer profiles for every sampled frequency at once.
 
@@ -441,60 +508,9 @@ def josh_profiles(continuum_absorption, continuum_source, continuum_scattering,
     j_idx = torch.arange(N, device=DEVICE).unsqueeze(0)
     shallow_mask = j_idx < maxj.unsqueeze(1)
 
-    # Stage (c): exact physical-grid thin-layer iteration, bucketed by maxj.
-    snu = snu_grid.clone()
-    hnu = torch.zeros_like(snu)
-    jmins = torch.zeros_like(snu)
-    for mj_t in torch.unique(maxj).detach().cpu().tolist():  # JUSTIFIED-LOOP: <=51 JOSH-grid buckets.
-        mj = int(mj_t)
-        rows = torch.nonzero(maxj == mj, as_tuple=False).squeeze(1)
-        if rows.numel() == 0:
-            continue
-        maxj1 = mj + 1 if mj != 1 else 1
-        m0 = max(mj - 1, 1) - 1
-        nmj0 = mj - 1
-        sg = snu.index_select(0, rows).clone()
-        hg = hnu.index_select(0, rows).clone()
-        jg = jmins.index_select(0, rows).clone()
-        ag = alpha.index_select(0, rows)
-        sbg = snubar.index_select(0, rows).clone()
-        bg = bnu.index_select(0, rows)
-        tg = taunu.index_select(0, rows)
-        sg[:, maxj1-1:] = sbg[:, maxj1-1:]
-        active = torch.ones(rows.numel(), dtype=torch.bool, device=DEVICE)
-        for _ in range(NX):  # JUSTIFIED-LOOP: fixed JOSH thin-layer convergence cap.
-            if not bool(active.any()):
-                break
-            idx = torch.nonzero(active, as_tuple=False).squeeze(1)
-            ifneg = torch.any(sg[idx, m0:] <= 0.0, dim=1)
-            if bool(ifneg.any()):
-                bad = idx[ifneg]
-                sbg[bad, m0:] = bg[bad, m0:]
-                sg[bad, m0:] = bg[bad, m0:]
-            htail = deriv(tg[idx, m0:], sg[idx, m0:]) / 3.0
-            hg[idx, m0:] = htail
-            hbad = torch.any(htail <= 0.0, dim=1)
-            if bool(hbad.any()):
-                bad = idx[hbad]
-                ifneg = ifneg.clone(); ifneg[hbad] = True
-                sbg[bad, m0:] = bg[bad, m0:]
-                sg[bad, m0:] = bg[bad, m0:]
-                hg[bad, m0:] = deriv(tg[bad, m0:], sg[bad, m0:]) / 3.0
-            jg[idx, nmj0:] = deriv(tg[idx, nmj0:], hg[idx, nmj0:])
-            err = torch.zeros(idx.numel(), dtype=dt, device=DEVICE)
-            for j in range(maxj1-1, N):  # JUSTIFIED-LOOP: sequential source update over 80 layers.
-                jmins_j = jg[idx, j]
-                jmins_j = torch.where(ifneg, torch.zeros_like(jmins_j), jmins_j)
-                jg[idx, j] = jmins_j
-                jnu_j = jmins_j + sg[idx, j]
-                snew = (1.0 - ag[idx, j]) * sbg[idx, j] + ag[idx, j] * jnu_j
-                err = err + torch.abs(snew - sg[idx, j]) / torch.clamp(torch.abs(snew), min=1e-30)
-                sg[idx, j] = snew
-            still = err >= ITER_TOL
-            active[idx] = still
-        snu.index_copy_(0, rows, sg)
-        hnu.index_copy_(0, rows, hg)
-        jmins.index_copy_(0, rows, jg)
+    snu, hnu, jmins = solve_physical_thin_layers(
+        snu_grid, hnu_grid, jmins_grid, maxj, alpha, snubar, bnu, taunu, dt,
+    )
 
     hnu = torch.where(shallow_mask, hnu_grid, hnu)
     jmins = torch.where(shallow_mask, jmins_grid, jmins)
