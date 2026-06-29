@@ -65,7 +65,10 @@ say so and name the integration work needed to remove it.
   `python _pipeline/critic.py 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16`.
   Source/rendered cleanup commits after that sweep:
   `78505ca` tightened L3/L7/L12/L14/L15/L16 prose and boundaries;
-  `b96a277` tightened L13 molecular-chemistry terminology and boundary claims.
+  `b96a277` tightened L13 molecular-chemistry terminology and boundary claims;
+  `b6c7b62` improved L10/L12 pedagogical cell granularity;
+  `2667afe` removed "GPU edition"/companion framing from the website, top-level docs, and
+  visible lecture prose.
   Remaining critic work is now mostly larger integration/GPU-native closure, not hidden
   pass/fail wording.
 
@@ -94,6 +97,10 @@ Notebook audit:
   `python _pipeline/build.py 1 2 3 4 5 6 7 8` and
   `python _pipeline/build.py 9 10 11 12 13 14 15 16` both completed. All 16 notebooks
   executed and rendered.
+- Standalone cleanup rebuilds after `2667afe`:
+  `python _pipeline/build.py 1 2 3 4 5 6 7 9 10 11 13 15 16` completed; L8/L14 were unchanged
+  by that prose pass. The preview server returned HTTP 200 for `/`, `Lecture6.html`, and
+  `Lecture16.html`.
 - L11/L16 support checks:
   `python _pipeline/verify_convec_gaps.py` PASS, with GAP A/B bit-exact and sabotage checks OK.
   `python _pipeline/verify_converged.py` PASS: convection flux `2.376e-10`, one-step T
