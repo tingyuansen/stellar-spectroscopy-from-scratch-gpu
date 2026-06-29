@@ -1,184 +1,135 @@
 # GPU textbook passdown
 
-Read this before touching the GPU textbook. The goal of this repository is a standalone,
-self-contained torch/MPS decomposition of `kgpu` (`~/pykurucz_gpu`). A reader should be able
-to reconstruct the production `kgpu` engine from these lectures: each lecture is a clean
-pedagogical torch/MPS block, validates against shipped reference targets, and imports neither
-`kgpu` nor `pykurucz`.
+Read this before touching the GPU textbook. This repo is the standalone torch/MPS textbook for
+the `kgpu` implementation in `~/pykurucz_gpu`: a reader should be able to reconstruct the
+production kernels from the lectures without importing `kgpu`, `pykurucz`, or the original NumPy
+book at runtime.
 
-For the current ship-gate ledger, read `SHIP_GATES.md` after this file. It records the practical
-acceptance criteria: self-contained taught path, NumPy parity, kgpu coverage, and the named
-remaining boundaries.
+The hard quality order is:
 
-The final quality bar is standalone: reference files may provide physical data tables and
-comparison answers, but a lecture should not teach by loading a completed computed state that
-it claims to build. If a temporary bundle is used to keep a capstone honest, the passdown must
-say so and name the integration work needed to remove it.
+1. honest self-contained taught paths;
+2. parity with shipped reference targets to the documented float floor;
+3. faithful coverage of the production `kgpu` pieces;
+4. optimization only after the first three stay green.
 
-## Standing relationship
+Reference files are allowed, but they must be classified honestly. A checked-in file can be a
+physical/static input, a scoped fixture used to keep an integration lesson honest, or a comparison
+target. It must not masquerade as a value computed by the notebook.
 
-- `~/pykurucz` is the read-only production/reference implementation.
-- `~/Stellar_Spectroscopy_From_Scratch` is a read-only NumPy reference implementation used as a
-  parity oracle, not the identity or framing of this book.
-- `~/pykurucz_gpu` is the production torch/MPS product. Its implementation is the source of
-  useful algorithmic clues, but the textbook must not import it.
-- This repo is the GPU textbook: self-contained torch/MPS lectures, built from the same physics
-  pieces as `kgpu`, with comparison cells against shipped reference targets.
+## Repository relationship
+
+- `~/pykurucz` is read-only gold/reference code. Do not import it in taught lecture paths.
+- `~/Stellar_Spectroscopy_From_Scratch` is the read-only NumPy reference textbook and parity oracle,
+  not a dependency or framing device for this book.
+- `~/pykurucz_gpu` is the production torch/MPS product. It is useful for implementation clues, but
+  the textbook must remain independently readable and debuggable.
+- This repo is the GPU textbook. Lecture code should be torch-native where practical, pedagogical,
+  and explicit about precision floors, fixture boundaries, and parity checks.
 
 ## Current state
 
-- Lectures 1-16 exist and build.
-- L14 has been refreshed away from the stale continuum-only Sun bundle. Its solar capstone
-  reference is now the Part-VI line-blanketed solar atmosphere:
-  `base RHOX = 12.1439331`, `base T = 11425 K`.
-- Be precise about the RHOX numbers. `12.1439331` is the pyk exact-LINOP solar atmosphere
-  target currently loaded as the solar atmosphere input for this capstone. The production
-  `kgpu` / prior oracle fixed point is
-  12.3-class because its coarse opacity-sampled line deposit has a bounded deep-base residual
-  against pyk exact LINOP. That is a useful future squeeze target, not a reason to regress L14
-  to the old `RHOX = 10.5357` bundle.
-- L14 still computes the full opacity in-notebook from populations and line data, then carries
-  it through the inlined JOSH transfer. It does not import `_pipeline/verify_leankurucz`,
-  `kgpu`, or `pykurucz`.
-- But L14 is not yet the final "from stellar parameters to spectrum" GPU-native capstone. Today
-  it is self-contained for the synthesis half given an atmosphere/EOS state, and it loads the
-  solar line-blanketed atmosphere plus verified computed intermediate state (`population_per_ion`,
-  `doppler_per_ion`, continuum absorber populations, and related depth tables) as reference
-  inputs. The stricter end state is to wire or inline the L15/L16 atmosphere + state machinery so
-  the Sun atmosphere and EOS state are regenerated inside the capstone from stellar parameters,
-  then passed directly into the L14 synthesis path.
-- Reference-bundle bookkeeping is explicit in `reference/MANIFEST_L14_L16.md`. It classifies
-  L14-L16 arrays as physical inputs/static data, computed state currently loaded by a lecture,
-  comparison-only targets, or provenance. Use it before changing L14-L16 so target arrays do not
-  leak into the computed path.
-- GPU-native status is mixed, and should stay honest: lectures 1-7, 9-13, 15-16 have
-  `build_lecture<N>_gpu.py` torch/MPS builders. L8 now has a torch-native JOSH builder under
-  `_pipeline/build_lecture8.py`, but it is not strict data-purity closure: the taught path still
-  loads precomputed `diag.npz` opacity slabs and fixed `josh_tables.npz` operator tables. L14 still
-  uses a non-torch builder and is numerically honest, but not yet the final GPU-native capstone.
-- L15/L16 are not final GPU-native or strict self-contained closures yet. L15 contains
-  torch/vectorized line-record physics and now inlines its accepted scalar LINOP1 teaching-window
-  recurrence in the notebook; the standalone `verify_lineblanket.py` remains a regression oracle,
-  not a taught-path import. L15 still loads production-derived computed fixtures: the converged
-  atmosphere, per-iteration EOS/window state, continuum opacity/scattering/source arrays, and the
-  full-grid precomputed line blanket. Physical/static tables and line-list metadata are separate.
-  L16 recomputes EOS-derived state for a loaded atmosphere fixture and packs/audits the state in
-  torch, but PFSAHA/NELECT finite differences, continuum, and molecular pieces still come through
-  the clean-room NumPy helper modules (`eos_fromscratch.py`, `continuum_fromscratch.py`,
-  `molecular_fromscratch.py`). These helpers are self-contained and do not import `kgpu`/`pykurucz`,
-  but they are integration debts for the final GPU-native book.
-- A full L1-L16 API critic sweep completed earlier on 2026-06-29:
-  `python _pipeline/critic.py 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16`.
-  Source/rendered cleanup commits after that sweep:
-  `78505ca` tightened L3/L7/L12/L14/L15/L16 prose and boundaries;
-  `b96a277` tightened L13 molecular-chemistry terminology and boundary claims;
-  `b6c7b62` improved L10/L12 pedagogical cell granularity;
-  `2667afe` removed "GPU edition"/companion framing from the website, top-level docs, and
-  visible lecture prose.
-  A later targeted post-edit rerun over L8/L15/L16 completed L8 with both critics, L15 with
-  GPT-5.5, and L16 with both critics; Gemini timed out on L15 under the new bounded runner.
-  `_pipeline/critic.py` now has a hard per-call timeout and exits nonzero on any critic failure,
-  so future sweeps cannot be mistaken for clean prose closure. Remaining critic work is now mostly
-  larger integration/GPU-native closure, plus rerunning the timed-out L15 Gemini prose review.
+Lectures 1-16 build and render. The local and GitHub Pages sites are live.
 
-## L14 checks just run
+### Mostly green
 
-`python _pipeline/verify_leankurucz.py`:
+- L1-L7: torch/MPS builders and parity cells for core microphysics and opacity primitives.
+- L8: torch-native JOSH transfer path, no production solver import, strong algorithmic parity.
+  Remaining boundary: it still loads scoped opacity slabs (`diag.npz`) and fixed JOSH operator
+  tables (`josh_tables.npz`).
+- L9-L13: GPU builders for atmosphere primitives, molecular equilibrium, molecular bands, and
+  molecular continuum. Parity checks are green.
+- L15: GPU builder with in-notebook scalar LINOP1 teaching-window recurrence. The verifier reports
+  teaching-window deposit max rel `2.877e-06`, one-step T `6.606e-09`, RHOX `5.850e-09`, and
+  corrected Sun base `RHOX=12.152` versus `12.144`.
+- L16: GPU builder that recomputes EOS-derived state for a loaded atmosphere fixture and documents
+  the helper boundaries.
 
-- Sun spectrum max relative error: `1.02e-08`
-- Hot dwarf: `1.28e-07` at the documented H-beta/deep-hot-continuum floor
-- Giant: `2.15e-08`
-- M dwarf: `1.06e-08`
-- Tamper check: Fe I population x1.01 moves the spectrum by `4.867e-03`
+### Honest remaining blockers
 
-`python _pipeline/build.py 14` executed and rendered `content/Lecture14.ipynb/html`.
+- L8 is not strict closure until its opacity slabs come from the earlier lecture torch outputs and
+  the fixed JOSH operator tables are either derived in-book or explicitly vendor-provenanced.
+- L14 is numerically honest but not the final capstone. It computes opacity + JOSH spectra from a
+  supplied atmosphere/EOS/population/Doppler state. It does not yet regenerate the stellar
+  atmosphere and EOS state from stellar parameters inside the capstone.
+- L15 still consumes production-derived fixtures for the converged atmosphere, per-iteration
+  EOS/window state, continuum opacity/scattering/source arrays, and full-grid line blanket.
+- L16 still starts from a loaded atmosphere/radiation fixture and uses clean-room NumPy helper
+  modules (`eos_fromscratch.py`, `continuum_fromscratch.py`, `molecular_fromscratch.py`) for some
+  load-bearing physics. These helpers are not runtime `kgpu`/`pykurucz` imports, but they are not
+  final all-torch lecture closure.
+- Dense pedagogical cells remain, especially in L13/L14/L15. Break them only when the corresponding
+  parity gate is rerun.
 
-Notebook audit:
+## L14 status
 
-- no `verify_leankurucz` import
-- no `import kgpu`
-- no unguarded stale `10.535` use; mentions are guardrails only
-- prints the solar base `RHOX` guardrail
+L14 has been repaired away from the stale continuum-only Sun bundle. Its current solar capstone
+uses the Part-VI line-blanketed solar atmosphere as an input:
 
-## Broader checks just run
+- base `RHOX = 12.1439331`
+- base `T = 11425 K`
+
+Be precise about this number. `12.1439331` is the pyk exact-LINOP solar atmosphere target currently
+loaded into L14 as a solar atmosphere input. It does not prove that `kgpu` has already closed the
+exact-LINOP atmosphere build. The old `RHOX=10.5357` bundle is stale and should remain only as a
+guardrail against regression.
+
+`python _pipeline/verify_leankurucz.py` passes:
+
+- hot dwarf max rel `1.28e-07`
+- Sun max rel `1.02e-08`
+- giant max rel `2.15e-08`
+- M dwarf max rel `1.06e-08`
+- tamper check: Fe I population x1.01 moves the spectrum by `4.867e-03`
+
+The final L14 target is stricter: inline or call the L15/L16 line-blanketed atmosphere + EOS-state
+path so the Sun state is regenerated from stellar parameters, then feed that state into the L14
+synthesis path.
+
+## Checks just run
 
 - Full notebook execution/render:
-  `python _pipeline/build.py 1 2 3 4 5 6 7 8` and
-  `python _pipeline/build.py 9 10 11 12 13 14 15 16` both completed. All 16 notebooks
-  executed and rendered.
-- Standalone cleanup rebuilds after `2667afe`:
-  `python _pipeline/build.py 1 2 3 4 5 6 7 9 10 11 13 15 16` completed; L8/L14 were unchanged
-  by that prose pass. The preview server returned HTTP 200 for `/`, `Lecture6.html`, and
-  `Lecture16.html`.
-- L11/L16 support checks:
-  `python _pipeline/verify_convec_gaps.py` PASS, with GAP A/B bit-exact and sabotage checks OK.
-  `python _pipeline/verify_converged.py` PASS: convection flux `2.376e-10`, one-step T
+  `python _pipeline/build.py 1 2 3 4 5 6 7 8`
+  and
+  `python _pipeline/build.py 9 10 11 12 13 14 15 16`.
+- Code-cell hygiene audit: `total bad=0` for leading/trailing blank code cells.
+- `git diff --check`: clean.
+- `python _pipeline/verify_josh.py`: normalised spectrum max `8.94e-09`, median `1.13e-11`.
+- `python _pipeline/verify_lineblanket.py`: PASS, values listed above.
+- `python _pipeline/verify_leankurucz.py`: PASS, values listed above.
+- `python _pipeline/verify_molecules.py`: TiO band spectrum max rel `1.063e-08`, median
+  `1.679e-13`.
+- `python _pipeline/verify_nmolec.py`: all molecular densities max rel `9.920e-14`.
+- `python _pipeline/verify_mol_continuum.py`: molecular continuum max rel `0.000e+00`.
+- `python _pipeline/verify_convec_gaps.py`: PASS with sabotage checks.
+- `python _pipeline/verify_converged.py`: PASS; convection flux `2.376e-10`, one-step T
   `9.160e-09`, one-step RHOX `4.714e-08`.
-- L15 line-blanketing check:
-  `python _pipeline/verify_lineblanket.py` PASS. Teaching-window deposit max rel
-  `2.877e-06`; one-step line-blanketed engine fidelity T `6.606e-09`, RHOX `5.850e-09`;
-  corrected Sun base RHOX `12.152` vs sun `12.144`.
-- L12/L13 molecular checks after critic cleanup:
-  `python _pipeline/verify_molecules.py` PASS, TiO band spectrum max rel `1.063e-08`,
-  median `1.679e-13`;
-  `python _pipeline/verify_nmolec.py` PASS, all molecular densities max rel `9.920e-14`;
-  `python _pipeline/verify_mol_continuum.py` PASS, CH/OH/H2-CIA molecular continuum max rel
-  `0.000e+00`.
-- Targeted API critic review:
-  `_pipeline/critic_reports/GPU_textbook_selfcontained_gpu_native_gpt55.md` and
-  `_pipeline/critic_reports/GPU_textbook_selfcontained_gpu_native_gemini.md` both say the repo is
-  honest/numerically useful but not final-passdown-ready. They flag the same open gaps recorded
-  above: L14 loads atmosphere/EOS/population/Doppler state, L8 now has a torch-native code path but
-  still consumes precomputed opacity slabs and fixed JOSH operator tables, L15 still loads full-grid
-  line-blanket, continuum, atmosphere, and EOS/window computed fixtures, and L16 still relies on a
-  loaded atmosphere fixture plus clean-room NumPy helper modules
-  for load-bearing EOS/continuum/molecular computation.
 
-## Delegation policy
+## Editing standard
 
-Use the API workers for bounded generation/review:
-
-- `_pipeline/port_worker.py` for code-generation/squeeze jobs where the harness can parity-gate
-  the result automatically.
-- `_pipeline/critic.py` and `_pipeline/critic_visual.py` for prose/visual review.
-
-The orchestrator must keep ownership of the hard gates:
-
-- whether a from-scratch claim is honest;
-- whether a reference file is an input or a computed answer;
-- whether a parity number is meaningful;
-- whether generated prose contradicts `kgpu` passdown;
-- final diffs, test runs, and commit decisions.
+- Do not upgrade any claim from "loaded fixture" or "comparison target" to "computed here" unless
+  the notebook actually computes it in the taught path.
+- Every nontrivial function should have a useful docstring covering inputs, outputs, precision
+  caveats, and fixture boundaries.
+- Code cells should have enough comments for a reader to follow the physics and tensor shape
+  changes without reading production code.
+- Audit `for`/`while`/`if` blocks and `[i]`/`[i+1]` slicing. Prefer torch vectorization,
+  `gather`, `searchsorted`, masks, and batched reductions where parity allows. Keep scalar loops
+  only for structural recurrences, table parsers, boundary stencils, or exact-order parity paths,
+  and say why.
+- Avoid leading/trailing blank lines in generated code cells.
+- After any readability/vectorization change, rerun the smallest matching parity gate; after
+  builder/reference changes, rerun the full notebook ledger.
 
 ## Next useful work
 
-- Close L8's data-provenance boundary: pass opacity slabs from the Lecture 3-6 torch outputs and
-  derive/generate or explicitly vendor-provenance the fixed JOSH operator tables before calling it
-  strict self-contained closure.
-- Promote L14 to a true torch/MPS GPU builder. It should keep the same honesty gates: no hidden
-  computed spectra, no `kgpu`/`pykurucz` import, opacity computed from inputs, and parity to the same
-  floors.
-- Make the final L14 capstone stricter: call/inline the L15/L16 line-blanketed atmosphere path
-  for the Sun instead of loading the finished solar atmosphere bundle as an input.
-- Keep using targeted API critics to audit this standard: flag any lecture that loads a completed
-  computed state instead of rebuilding it from physical inputs; separately flag any non-GPU-native
-  implementation and any parity gap. The first targeted pass has already been run and is recorded
-  above.
-- Use `reference/MANIFEST_L14_L16.md` as the bookkeeping gate when promoting loaded L14/L15 state
-  into computed-in-notebook code.
-- Keep the textbook quality bar broader than numerical parity:
-  - Stored fixture files checked into this repo are acceptable when classified honestly as physical
-    input, scoped fixture, or comparison target. Runtime peeking into `pykurucz`/`leankurucz` code or
-    external computed state is not acceptable.
-  - Every nontrivial code cell needs teaching comments and useful function docstrings covering
-    inputs, outputs, precision/parity caveats, and fixture boundaries.
-  - Audit `for`/`while`/`if` blocks and `[i]`/`[i+1]` style slicing. Replace them with torch
-    vectorization/gather/searchsorted/masks where parity allows; otherwise mark them as structural
-    recurrences, table parsers, boundary stencils, or exact-order parity paths.
-  - Avoid leading blank lines in generated code cells; builder helpers should strip outer newlines.
-  - After any readability/vectorization change, rerun the matching NumPy/reference parity gate.
-- Maintain the full lecture build ledger. The 2026-06-28 full build passed; rerun after any
-  builder/reference changes.
-- Use the L15/L16 exact-line-blanketing material to design a future kgpu squeeze that moves the
-  atmosphere base from the coarse-deposit 12.3-class fixed point toward pyk's exact-LINOP
-  `RHOX = 12.1439331`, while preserving the solar spectrum gate.
+1. Close L8's data boundary by feeding opacity from earlier torch lecture outputs and documenting or
+   deriving the JOSH operator tables.
+2. Promote L14 to a torch/MPS builder while keeping the current no-leakage/parity guardrails.
+3. Wire L15/L16 into L14 so the solar atmosphere/EOS state is generated rather than loaded.
+4. Replace L15's production-derived atmosphere/EOS/window/continuum/full-grid blanket fixtures with
+   computed lecture cells in small parity-gated steps.
+5. Move L16 helper-backed clean-room NumPy pieces into pedagogical torch cells where practical.
+6. Break up the densest L13/L14/L15 code cells with interleaved markdown and docstrings, rerunning
+   parity after each chunk.
+7. Use the exact-LINOP L15/L16 material to design the future `kgpu` squeeze from the 12.3-class
+   coarse-deposit fixed point toward the pyk exact-LINOP `RHOX=12.1439331` target.
