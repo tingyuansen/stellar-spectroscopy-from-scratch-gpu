@@ -491,41 +491,7 @@ reference line_scattering is exactly zero: True
     a[:, n1 - 1] = a[:, -1]
     b[:, n1 - 1] = b[:, -1]
     c[:, n1 - 1] = c[:, -1]
-    return a, b, c
-
-def integ_batched(x, f, start):
-    &quot;&quot;&quot;Integrate f dx cumulatively with the PARCOE/INTEG quadrature.
-
-    Parameters
-    ----------
-    x : torch.Tensor, shape [depth]
-        Shared column-mass grid.
-    f : torch.Tensor, shape [batch, depth]
-        Total extinction for each wavelength row.
-    start : torch.Tensor, shape [batch]
-        Surface optical-depth seed, normally f[:, 0] * x[0].
-
-    Returns
-    -------
-    torch.Tensor, shape [batch, depth]
-        Monochromatic optical-depth scale for every wavelength. The depth
-        recurrence is a prefix sum, implemented as `torch.cumsum`.
-    &quot;&quot;&quot;
-    a, b, c = parcoe_batched(f, x)
-    out = torch.empty_like(f)
-    out[:, 0] = start
-    if f.shape[1] == 1:
-        return out
-    xi = x[:-1]
-    xip = x[1:]
-    dx = xip - xi
-    term = (
-        a[:, :-1]
-        + 0.5 * b[:, :-1] * (xip + xi)
-        + (c[:, :-1] / 3.0) * ((xip + xi) * xip + xi * xi)
-    )
-    out[:, 1:] = start[:, None] + torch.cumsum(term * dx, dim=1)
-    return out" aria-label="Copy code">
+    return a, b, c" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">parcoe_batched</span>(<span class="hljs-params">f, x</span>):
@@ -602,9 +568,48 @@ def integ_batched(x, f, start):
     a[:, n1 - <span class="hljs-number">1</span>] = a[:, -<span class="hljs-number">1</span>]
     b[:, n1 - <span class="hljs-number">1</span>] = b[:, -<span class="hljs-number">1</span>]
     c[:, n1 - <span class="hljs-number">1</span>] = c[:, -<span class="hljs-number">1</span>]
-    <span class="hljs-keyword">return</span> a, b, c
+    <span class="hljs-keyword">return</span> a, b, c</code></pre>
+    </div></div><div class="prose"><p><code>INTEG</code> consumes those local parabolas and analytically integrates each interval. The only depth
+recurrence is the cumulative sum of the interval integrals.</p>
+</div><div class="nb-cell"><div class="code-card">
+      <div class="code-top">
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[5]</span>Python</span>
+        <button class="copy-btn" type="button" data-code="def integ_batched(x, f, start):
+    &quot;&quot;&quot;Integrate f dx cumulatively with the PARCOE/INTEG quadrature.
 
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">integ_batched</span>(<span class="hljs-params">x, f, start</span>):
+    Parameters
+    ----------
+    x : torch.Tensor, shape [depth]
+        Shared column-mass grid.
+    f : torch.Tensor, shape [batch, depth]
+        Total extinction for each wavelength row.
+    start : torch.Tensor, shape [batch]
+        Surface optical-depth seed, normally f[:, 0] * x[0].
+
+    Returns
+    -------
+    torch.Tensor, shape [batch, depth]
+        Monochromatic optical-depth scale for every wavelength. The depth
+        recurrence is a prefix sum, implemented as `torch.cumsum`.
+    &quot;&quot;&quot;
+    a, b, c = parcoe_batched(f, x)
+    out = torch.empty_like(f)
+    out[:, 0] = start
+    if f.shape[1] == 1:
+        return out
+    xi = x[:-1]
+    xip = x[1:]
+    dx = xip - xi
+    term = (
+        a[:, :-1]
+        + 0.5 * b[:, :-1] * (xip + xi)
+        + (c[:, :-1] / 3.0) * ((xip + xi) * xip + xi * xi)
+    )
+    out[:, 1:] = start[:, None] + torch.cumsum(term * dx, dim=1)
+    return out" aria-label="Copy code">
+          <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
+      </div>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">integ_batched</span>(<span class="hljs-params">x, f, start</span>):
     <span class="hljs-string">&quot;&quot;&quot;Integrate f dx cumulatively with the PARCOE/INTEG quadrature.
 
     Parameters
@@ -641,7 +646,7 @@ def integ_batched(x, f, start):
 <p>The physical atmosphere has 80 depth points, but <code>COEFJ</code> and <code>CH</code> live on the fixed 51-point <code>XTAU</code> grid. The production <code>MAP1</code> interpolation chooses a local linear, backward-parabolic, or curvature-blended parabolic fit. The tensor version below finds all brackets with <code>torch.searchsorted</code> and evaluates the same canonical parabola for every wavelength/grid pair.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[5]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[6]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def map1_batched(taunu, fold, xnew):
     &quot;&quot;&quot;Interpolate fold(taunu) onto xnew with the MAP1 parabolic rule.
 
@@ -785,7 +790,7 @@ def integ_batched(x, f, start):
 <p>The iteration is deliberately fp32: that single-precision path is part of the reference arithmetic.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[6]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[7]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def iterate_source(xsbar, xalpha, coefj, coefj_diag, sweeps=DEFAULT_SWEEPS):
     &quot;&quot;&quot;Solve the scattering fixed point by backward Gauss-Seidel sweeps.
 
@@ -894,7 +899,7 @@ def integ_batched(x, f, start):
 <p>The total and continuum solves are independent, so they are stacked into one larger batch: first all total-spectrum wavelengths, then all continuum-only wavelengths.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[7]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[8]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def solve_josh_batched(acont, scont, aline, sline, sigmac, sigmal, rhox, sweeps=DEFAULT_SWEEPS):
     &quot;&quot;&quot;Compute emergent Eddington flux H(0) for a wavelength batch.
 
@@ -949,58 +954,7 @@ def integ_batched(x, f, start):
         sweeps=sweeps,
     )
     dot_dtype = torch.float32 if DEVICE.type == &quot;mps&quot; else torch.float64
-    return torch.matmul(source_function_fixed_grid.to(dot_dtype), CH.to(dot_dtype))
-
-def solve_spectrum(continuum_absorption, continuum_scattering, line_absorption, line_scattering,
-                   source_function, column_mass, sweeps=DEFAULT_SWEEPS):
-    &quot;&quot;&quot;Solve total and continuum spectra with one stacked JOSH batch.
-
-    Parameters
-    ----------
-    continuum_absorption, continuum_scattering, line_absorption, line_scattering : torch.Tensor, shape [depth, n_wl]
-        Opacity slabs for the window. These are the remaining taught-path data
-        boundary in this L8 patch: they are consumed as scoped inputs rather
-        than regenerated here from Lectures 3-6.
-    source_function : torch.Tensor, shape [depth, n_wl]
-        Inline LTE Planck source.
-    column_mass : torch.Tensor, shape [depth]
-        Column-mass grid.
-    sweeps : int
-        Fixed fp32 source-iteration sweep count.
-
-    Returns
-    -------
-    (flux_total, flux_cont, spectrum) : tuple of torch.Tensor
-        Total flux, continuum-only flux, and their normalised ratio. The
-        comparison target is loaded separately and is not used by this function.
-    &quot;&quot;&quot;
-    continuum_absorption_batch = continuum_absorption.transpose(0, 1).contiguous()
-    continuum_scattering_batch = continuum_scattering.transpose(0, 1).contiguous()
-    line_absorption_batch = line_absorption.transpose(0, 1).contiguous()
-    line_scattering_batch = line_scattering.transpose(0, 1).contiguous()
-    source_batch = source_function.transpose(0, 1).contiguous()
-    zero_line_opacity = torch.zeros_like(line_absorption_batch)
-
-    continuum_absorption_stacked = torch.cat((continuum_absorption_batch, continuum_absorption_batch), dim=0)
-    source_stacked = torch.cat((source_batch, source_batch), dim=0)
-    line_absorption_stacked = torch.cat((line_absorption_batch, zero_line_opacity), dim=0)
-    continuum_scattering_stacked = torch.cat((continuum_scattering_batch, continuum_scattering_batch), dim=0)
-    line_scattering_stacked = torch.cat((line_scattering_batch, zero_line_opacity), dim=0)
-
-    surface_flux = solve_josh_batched(
-        continuum_absorption_stacked,
-        source_stacked,
-        line_absorption_stacked,
-        source_stacked,
-        continuum_scattering_stacked,
-        line_scattering_stacked,
-        column_mass,
-        sweeps=sweeps,
-    )
-    n_wl = source_batch.shape[0]
-    flux_total = surface_flux[:n_wl]
-    flux_cont = surface_flux[n_wl:]
-    return flux_total, flux_cont, flux_total / flux_cont" aria-label="Copy code">
+    return torch.matmul(source_function_fixed_grid.to(dot_dtype), CH.to(dot_dtype))" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">solve_josh_batched</span>(<span class="hljs-params">acont, scont, aline, sline, sigmac, sigmal, rhox, sweeps=DEFAULT_SWEEPS</span>):
@@ -1057,9 +1011,65 @@ def solve_spectrum(continuum_absorption, continuum_scattering, line_absorption, 
         sweeps=sweeps,
     )
     dot_dtype = torch.float32 <span class="hljs-keyword">if</span> DEVICE.<span class="hljs-built_in">type</span> == <span class="hljs-string">&quot;mps&quot;</span> <span class="hljs-keyword">else</span> torch.float64
-    <span class="hljs-keyword">return</span> torch.matmul(source_function_fixed_grid.to(dot_dtype), CH.to(dot_dtype))
+    <span class="hljs-keyword">return</span> torch.matmul(source_function_fixed_grid.to(dot_dtype), CH.to(dot_dtype))</code></pre>
+    </div></div><div class="prose"><p>The final wrapper stacks the full-spectrum and continuum-only solves into one batch. This makes
+the comparison spectrum a direct consequence of two JOSH flux solves, not a loaded ratio.</p>
+</div><div class="nb-cell"><div class="code-card">
+      <div class="code-top">
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[9]</span>Python</span>
+        <button class="copy-btn" type="button" data-code="def solve_spectrum(continuum_absorption, continuum_scattering, line_absorption, line_scattering,
+                   source_function, column_mass, sweeps=DEFAULT_SWEEPS):
+    &quot;&quot;&quot;Solve total and continuum spectra with one stacked JOSH batch.
 
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">solve_spectrum</span>(<span class="hljs-params">continuum_absorption, continuum_scattering, line_absorption, line_scattering,
+    Parameters
+    ----------
+    continuum_absorption, continuum_scattering, line_absorption, line_scattering : torch.Tensor, shape [depth, n_wl]
+        Opacity slabs for the window. These are the remaining taught-path data
+        boundary in this L8 patch: they are consumed as scoped inputs rather
+        than regenerated here from Lectures 3-6.
+    source_function : torch.Tensor, shape [depth, n_wl]
+        Inline LTE Planck source.
+    column_mass : torch.Tensor, shape [depth]
+        Column-mass grid.
+    sweeps : int
+        Fixed fp32 source-iteration sweep count.
+
+    Returns
+    -------
+    (flux_total, flux_cont, spectrum) : tuple of torch.Tensor
+        Total flux, continuum-only flux, and their normalised ratio. The
+        comparison target is loaded separately and is not used by this function.
+    &quot;&quot;&quot;
+    continuum_absorption_batch = continuum_absorption.transpose(0, 1).contiguous()
+    continuum_scattering_batch = continuum_scattering.transpose(0, 1).contiguous()
+    line_absorption_batch = line_absorption.transpose(0, 1).contiguous()
+    line_scattering_batch = line_scattering.transpose(0, 1).contiguous()
+    source_batch = source_function.transpose(0, 1).contiguous()
+    zero_line_opacity = torch.zeros_like(line_absorption_batch)
+
+    continuum_absorption_stacked = torch.cat((continuum_absorption_batch, continuum_absorption_batch), dim=0)
+    source_stacked = torch.cat((source_batch, source_batch), dim=0)
+    line_absorption_stacked = torch.cat((line_absorption_batch, zero_line_opacity), dim=0)
+    continuum_scattering_stacked = torch.cat((continuum_scattering_batch, continuum_scattering_batch), dim=0)
+    line_scattering_stacked = torch.cat((line_scattering_batch, zero_line_opacity), dim=0)
+
+    surface_flux = solve_josh_batched(
+        continuum_absorption_stacked,
+        source_stacked,
+        line_absorption_stacked,
+        source_stacked,
+        continuum_scattering_stacked,
+        line_scattering_stacked,
+        column_mass,
+        sweeps=sweeps,
+    )
+    n_wl = source_batch.shape[0]
+    flux_total = surface_flux[:n_wl]
+    flux_cont = surface_flux[n_wl:]
+    return flux_total, flux_cont, flux_total / flux_cont" aria-label="Copy code">
+          <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
+      </div>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">solve_spectrum</span>(<span class="hljs-params">continuum_absorption, continuum_scattering, line_absorption, line_scattering,
                    source_function, column_mass, sweeps=DEFAULT_SWEEPS</span>):
     <span class="hljs-string">&quot;&quot;&quot;Solve total and continuum spectra with one stacked JOSH batch.
 
@@ -1113,7 +1123,7 @@ def solve_spectrum(continuum_absorption, continuum_scattering, line_absorption, 
 <p>The continuum surface can be scattering dominated because true absorption becomes tiny in the top layers, while the deep line cores in this solar window are almost pure absorption because the line opacity swamps the continuum scattering. The iteration matters where <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>α</mi></mrow><annotation encoding="application/x-tex">\alpha</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal" style="margin-right:0.0037em;">α</span></span></span></span> is large, not simply where a spectral feature is deep.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[8]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[10]</span>Python</span>
         <button class="copy-btn" type="button" data-code="reference = flux_total_ref_np / flux_cont_ref_np
 kc = int(np.argmin(reference))
 kk = int(np.argmin(np.abs(reference - 1.0)))
@@ -1208,7 +1218,7 @@ plt.show()</code></pre>
 <p>Now run the batched tensor solver over the whole 500--510 nm window. The ratio of the total and continuum fluxes is compared directly with the shipped production spectrum.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[9]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[11]</span>Python</span>
         <button class="copy-btn" type="button" data-code="flux_total, flux_cont, spectrum_t = solve_spectrum(
     continuum_absorption,
     continuum_scattering,
@@ -1247,7 +1257,7 @@ rel = np.<span class="hljs-built_in">abs</span>(spectrum - reference) / np.<span
 worst wavelength = 500.325878 nm
 </pre></div></div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[10]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[12]</span>Python</span>
         <button class="copy-btn" type="button" data-code="fig, (ax, axr) = plt.subplots(2, 1, figsize=(11, 5.2), sharex=True, gridspec_kw={&quot;height_ratios&quot;: [3, 1]})
 ax.plot(wavelength_nm_np, reference, color=&quot;0.6&quot;, lw=1.4, label=&quot;reference&quot;)
 ax.plot(wavelength_nm_np, spectrum, color=&quot;C3&quot;, lw=0.6, label=&quot;torch JOSH&quot;)

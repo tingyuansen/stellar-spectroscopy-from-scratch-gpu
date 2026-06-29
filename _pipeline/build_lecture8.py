@@ -370,9 +370,16 @@ code(
     a[:, n1 - 1] = a[:, -1]
     b[:, n1 - 1] = b[:, -1]
     c[:, n1 - 1] = c[:, -1]
-    return a, b, c
+    return a, b, c'''
+)
 
-def integ_batched(x, f, start):
+md(
+    r"""`INTEG` consumes those local parabolas and analytically integrates each interval. The only depth
+recurrence is the cumulative sum of the interval integrals."""
+)
+
+code(
+    r'''def integ_batched(x, f, start):
     """Integrate f dx cumulatively with the PARCOE/INTEG quadrature.
 
     Parameters
@@ -620,9 +627,16 @@ code(
         sweeps=sweeps,
     )
     dot_dtype = torch.float32 if DEVICE.type == "mps" else torch.float64
-    return torch.matmul(source_function_fixed_grid.to(dot_dtype), CH.to(dot_dtype))
+    return torch.matmul(source_function_fixed_grid.to(dot_dtype), CH.to(dot_dtype))'''
+)
 
-def solve_spectrum(continuum_absorption, continuum_scattering, line_absorption, line_scattering,
+md(
+    r"""The final wrapper stacks the full-spectrum and continuum-only solves into one batch. This makes
+the comparison spectrum a direct consequence of two JOSH flux solves, not a loaded ratio."""
+)
+
+code(
+    r'''def solve_spectrum(continuum_absorption, continuum_scattering, line_absorption, line_scattering,
                    source_function, column_mass, sweeps=DEFAULT_SWEEPS):
     """Solve total and continuum spectra with one stacked JOSH batch.
 
