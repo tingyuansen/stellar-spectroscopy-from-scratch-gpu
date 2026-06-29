@@ -2815,6 +2815,40 @@ def voigt(v, a, h0, h1, h2):
     out = np.where(a < 0.2, small, np.where(use_far, far, mid))
     return out''')
 
+md(r"""The far-wing continuation is separated from the near Voigt walk. Once a line survives to
+`n10dop`, its tail follows the same \(x_{\rm far}/n^2\) rule as the molecular ASYNTH kernel, with
+the production rule that a line dies permanently when both symmetric wing pixels are off-grid.""")
+
+code(r'''def accumulate_molecular_far_wings(buf, ci, n10dop, prof_n10, kapmin, early):
+    """Deposit molecular far wings after the near Voigt walk has survived to n10dop."""
+    n_wl = buf.size
+    do_far = (~early) & (n10dop > 0) & (prof_n10 > 0.0)
+    if not np.any(do_far):
+        return
+    x_far = prof_n10 * n10dop.astype(np.float64) ** 2
+    maxstep = np.zeros(prof_n10.shape, dtype=np.int64)
+    pos = do_far & (x_far > 0.0) & (kapmin > 0.0)
+    maxstep[pos] = np.minimum((np.sqrt(x_far[pos] / kapmin[pos]) + 1.0).astype(np.int64), 1_000_000)
+    zero_k = do_far & (x_far > 0.0) & (kapmin == 0.0)
+    maxstep[zero_k] = 1_000_000
+    far_alive = do_far.copy()
+
+    for ns in range(1, int(maxstep.max()) + 1):
+        active = far_alive & (ns > n10dop) & (ns <= maxstep)
+        if not np.any(active):
+            if ns > maxstep.max():
+                break
+            continue
+        pval = x_far / (float(ns) * float(ns))
+        ir = ci + ns
+        ib = ci - ns
+        on_r = (ir >= 0) & (ir < n_wl)
+        on_b = (ib >= 0) & (ib < n_wl)
+        np.add.at(buf, ir[active & on_r], pval[active & on_r])
+        np.add.at(buf, ib[active & on_b], pval[active & on_b])
+        far_alive &= ~(active & ~(on_r | on_b))
+''')
+
 md(r"""`accumulate_depth` deposits one molecular line's profile onto the grid at one depth — the band-head opacity is millions of these narrow lines packed together.""")
 
 code(r'''
@@ -2896,42 +2930,7 @@ def accumulate_depth(buf, cont_row, wavelength, ci, mol_wl, xnfdop, dop_val,
         prof_n10 = np.where(active & (ns == n10dop), pval, prof_n10)
         alive &= ~below
 
-    # ---- far wings (steps n10dop+1..maxstep): pval = x_far / n^2 ----
-    do_far = (~early) & (n10dop > 0) & (prof_n10 > 0.0)
-    if np.any(do_far):
-        x_far = prof_n10 * n10dop.astype(np.float64) ** 2
-        maxstep = np.zeros(kappa0.shape, dtype=np.int64)
-        pos = do_far & (x_far > 0.0) & (kapmin > 0.0)
-        maxstep[pos] = np.minimum((np.sqrt(x_far[pos] / kapmin[pos]) + 1.0).astype(np.int64), 1_000_000)
-        zero_k = do_far & (x_far > 0.0) & (kapmin == 0.0)
-        maxstep[zero_k] = 1_000_000
-        far_max = int(maxstep.max()) if maxstep.size else 0
-        far_alive = do_far.copy()
-        for ns in range(1, far_max + 1):
-            # only steps strictly greater than each line's n10dop and <= its maxstep
-            active = far_alive & (ns > n10dop) & (ns <= maxstep)
-            if not np.any(active):
-                if ns > maxstep.max():
-                    break
-                continue
-            pval = x_far / (float(ns) * float(ns))
-            ir = ci + ns; ib = ci - ns
-            on_r = (ir >= 0) & (ir < n_wl)
-            on_b = (ib >= 0) & (ib < n_wl)
-            okr = active & on_r
-            okb = active & on_b
-            np.add.at(buf, ir[okr], pval[okr])
-            np.add.at(buf, ib[okb], pval[okb])
-            # Production breaks a line's far wing the FIRST time NEITHER end is on
-            # the grid (synthe.for / _accumulate_mol_fused_batch: `if not red_on and
-            # not blue_on: break`). For a line whose center lies off the grid (e.g.
-            # several hundred bins red of the red edge), every far-wing step up to
-            # the offset has BOTH ends off-grid, so production stops immediately and
-            # the line contributes nothing in the far wing — it never "re-enters" the
-            # grid at a later step. We replicate that hard, irreversible break: once
-            # a line records a step with neither end on-grid, kill it for good.
-            kill = active & ~(on_r | on_b)
-            far_alive &= ~kill''')
+    accumulate_molecular_far_wings(buf, ci, n10dop, prof_n10, kapmin, early)''')
 
 md(r"""`compute_mol_opacity` is the driver: it loops the TiO (and other) band lines over depth and accumulates the molecular opacity — the band-head engine the M dwarf exercises.""")
 
@@ -3422,7 +3421,50 @@ code(r'''
 #    Returns the profiles TCORR / ROSS consume: taunu, hnu, jmins, abtot, alpha.
 #    Faithful port of atlas_py.physics.josh._josh_depth_profiles_nb (ifscat=1).
 # ===========================================================================
-def tc_josh_profiles(acont, scont, aline, sline, sigmac, sigmal, rhox, bnu,
+def tc_josh_xtau_source(taunu, snubar, alpha, bnu, xtau, coefj):
+    """Solve the fixed-XTAU scattering source in the float32 JOSH loop."""
+    nxtau = xtau.size
+    xs = np.zeros(nxtau, dtype=np.float32)
+    if taunu[0] > xtau[-1]:
+        return xs, 1
+
+    xsbar8, maxj = tc_map1(taunu, snubar, xtau)
+    xalpha8, maxj = tc_map1(taunu, alpha, xtau)
+    xalpha8 = np.maximum(xalpha8.astype(np.float32), np.float32(0.0))
+    xsbar8 = np.maximum(xsbar8.astype(np.float32), np.float32(1.0e-38))
+    mask = xtau < taunu[0]
+    if np.any(mask):
+        xsbar8[mask] = max(snubar[0], 1.0e-38)
+        xalpha8[mask] = max(alpha[0], 0.0)
+    xs[:] = xsbar8
+
+    one32 = np.float32(1.0)
+    diag = one32 - xalpha8 * np.diag(coefj).astype(np.float32)
+    xsbar_mod = (one32 - xalpha8) * xsbar8
+    for _ in range(nxtau):
+        iferr = 0
+        for kk in range(nxtau):
+            k = nxtau - 1 - kk
+            dot = np.float32(np.dot(coefj[k, :].astype(np.float32), xs))
+            num = np.float32(dot * xalpha8[k] + xsbar_mod[k] - xs[k])
+            dd = np.float32(diag[k])
+            if abs(float(dd)) < 1.0e-37:
+                dd = np.float32(1.0e-37 if float(dd) >= 0.0 else -1.0e-37)
+            delxs = np.float32(num / dd)
+            xbase = np.float32(xs[k])
+            if abs(float(xbase)) < 1.0e-37:
+                xbase = np.float32(1.0e-37 if float(xbase) >= 0.0 else -1.0e-37)
+            if np.float32(abs(float(delxs / xbase))) > np.float32(TC_ITER_TOL):
+                iferr = 1
+            xs[k] = np.float32(max(float(np.float32(xs[k] + delxs)), 1.0e-37))
+        if iferr == 0:
+            break
+    return xs, maxj''')
+
+md(r"""With the fixed-grid source solve isolated, `tc_josh_profiles` assembles the per-frequency moment
+profiles on the physical depth grid and maps the deeper JOSH moments back from `XTAU`.""")
+
+code(r'''def tc_josh_profiles(acont, scont, aline, sline, sigmac, sigmal, rhox, bnu,
                   xtau, ch, coefj):
     """Solve one-frequency JOSH moments over depth for the TCORR operator.
 
@@ -3432,8 +3474,6 @@ def tc_josh_profiles(acont, scont, aline, sline, sigmac, sigmal, rhox, bnu,
     """
     n = rhox.size
     nxtau = xtau.size
-    coefj_diag = np.diag(coefj).astype(np.float32)
-
     abtot = np.maximum(acont + aline + sigmac + sigmal, 1e-300)
     alpha = (sigmac + sigmal) / abtot
     den = acont + aline
@@ -3442,44 +3482,10 @@ def tc_josh_profiles(acont, scont, aline, sline, sigmac, sigmal, rhox, bnu,
 
     taunu = tc_integ(rhox, abtot, abtot[0] * rhox[0])
     snu = np.zeros(n); hnu = np.zeros(n); jnu = np.zeros(n); jmins = np.zeros(n)
-    xs = np.zeros(nxtau, dtype=np.float32)
 
     # --- scattering branch (ifscat=1) ---
-    if taunu[0] > xtau[-1]:
-        maxj = 1
-    else:
-        xsbar8, maxj = tc_map1(taunu, snubar, xtau)
-        xalpha8, maxj = tc_map1(taunu, alpha, xtau)
-        xalpha8 = np.maximum(xalpha8.astype(np.float32), np.float32(0.0))
-        xsbar8 = np.maximum(xsbar8.astype(np.float32), np.float32(1.0e-38))
-        mask = xtau < taunu[0]
-        if np.any(mask):
-            xsbar8[mask] = max(snubar[0], 1.0e-38)
-            xalpha8[mask] = max(alpha[0], 0.0)
-        xs[:] = xsbar8
-        one32 = np.float32(1.0)
-        diag = one32 - xalpha8 * coefj_diag
-        xsbar_mod = (one32 - xalpha8) * xsbar8
-        # backward Gauss-Seidel sweep, all arithmetic in float32 (REAL*4 JOSH loop)
-        for _ in range(nxtau):
-            iferr = 0
-            for kk in range(nxtau):
-                k = nxtau - 1 - kk
-                dot = np.float32(np.dot(coefj[k, :].astype(np.float32), xs))
-                num = np.float32(dot * xalpha8[k] + xsbar_mod[k] - xs[k])
-                dd = np.float32(diag[k])
-                if abs(float(dd)) < 1.0e-37:
-                    dd = np.float32(1.0e-37 if float(dd) >= 0.0 else -1.0e-37)
-                delxs = np.float32(num / dd)
-                xbase = np.float32(xs[k])
-                if abs(float(xbase)) < 1.0e-37:
-                    xbase = np.float32(1.0e-37 if float(xbase) >= 0.0 else -1.0e-37)
-                errx = np.float32(abs(float(delxs / xbase)))
-                if errx > np.float32(TC_ITER_TOL):
-                    iferr = 1
-                xs[k] = np.float32(max(float(np.float32(xs[k] + delxs)), 1.0e-37))
-            if iferr == 0:
-                break
+    xs, maxj = tc_josh_xtau_source(taunu, snubar, alpha, bnu, xtau, coefj)
+    if taunu[0] <= xtau[-1]:
         xs8 = xs.astype(np.float64)
         snu_head, _ = tc_map1(xtau, xs8, taunu[:maxj])
         snu[:maxj] = snu_head
@@ -3757,6 +3763,26 @@ def tc_nz_signed(x, eps=1e-300):
         return x
     return eps if x >= 0.0 else -eps''')
 
+md(r"""`tc_drhox_update` is the DRHOX half of TCORR: re-run hydrostatic integration on the standard
+Rosseland grid for the old and corrected temperatures, map the fractional pressure change back, and
+turn it into a column-mass correction.""")
+
+code(r'''def tc_drhox_update(T, t1, rhox, tauros, prad, gravity_cgs, rosstab, steplg, tau1lg):
+    """Compute the TCORR DRHOX column-mass update from two TTAUP integrations."""
+    n = T.size
+    taustd = 10.0 ** (tau1lg + np.arange(n) * steplg)
+    rfun = rosstab.eval
+    tnew1, _ = tc_map1(tauros, T, taustd)
+    prdnew, _ = tc_map1(tauros, prad, taustd)
+    _a1, ptot1, _p1 = tc_ttaup(tnew1, taustd, prdnew, np.zeros(n), gravity_cgs, rfun)
+    tnew2, _ = tc_map1(tauros, T + t1, taustd)
+    _a2, ptot2, _p2 = tc_ttaup(tnew2, taustd, prdnew, np.zeros(n), gravity_cgs, rfun)
+    ppp = (ptot2 - ptot1) / np.maximum(ptot1, 1e-300)
+    rrr, _ = tc_map1(taustd, ppp, tauros)
+    drhox = rrr * rhox
+    return rhox + drhox, drhox
+''')
+
 md(r"""`tc_tcorr_mode3` — the Avrett–Krook temperature correction (Lectures 10–11, run here with convection turned off for the initial grey-start step): compare the carried flux to the target, form the flux-error, Lambda, and surface corrections, and return the updated temperature and column mass. With this the operator is complete.""")
 
 code(r'''
@@ -3846,19 +3872,9 @@ def tc_tcorr_mode3(T, rhox, tauros, abross, flxrad, rjmins, rdabh, rdiagj,
         if not np.isfinite(tnew[j]):
             tnew[j] = max(T[j], 1.0)
 
-    # DRHOX: re-run TTAUP on TAUSTD for T and for T+t1, take fractional dP, map back
-    taustd = 10.0 ** (tau1lg + np.arange(n) * steplg)
-    rfun = rosstab.eval
-    tnew1, _ = tc_map1(tauros, T, taustd)
-    prdnew, _ = tc_map1(tauros, prad, taustd)
-    _a1, ptot1, _p1 = tc_ttaup(tnew1, taustd, prdnew, np.zeros(n), gravity_cgs, rfun)
-    tplus = T + t1
-    tnew2, _ = tc_map1(tauros, tplus, taustd)
-    _a2, ptot2, _p2 = tc_ttaup(tnew2, taustd, prdnew, np.zeros(n), gravity_cgs, rfun)
-    ppp = (ptot2 - ptot1) / np.maximum(ptot1, 1e-300)
-    rrr, _ = tc_map1(taustd, ppp, tauros)
-    drhox = rrr * rhox
-    rhox_new = rhox + drhox
+    rhox_new, drhox = tc_drhox_update(
+        T, t1, rhox, tauros, prad, gravity_cgs, rosstab, steplg, tau1lg,
+    )
 
     return dict(t1=t1, dtflux=dtflux, dtlamb=dtlamb, dtsurf=dtsurf,
                 flxerr=flxerr, flxdrv=flxdrv, tnew=tnew, rhox_new=rhox_new, drhox=drhox)''')

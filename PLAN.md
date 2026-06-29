@@ -30,7 +30,7 @@ Current status:
    - do not erase this roadmap until every lecture either passes the closure checklist or has a
      precise, honest boundary that remains as future work.
    - status: `PASSDOWN.md` now carries the per-lecture checkbox matrix. The remaining concrete
-     lecture fixes are dense-code pedagogy in L14, L8 fixture closure,
+     lecture fixes are L8 fixture closure,
      L14 true capstone/torch promotion, L15 fixture reduction, and L16 helper/fixture reduction.
 
 1. Establish the shared naming/glossary pass:
@@ -81,7 +81,8 @@ Current status:
    - retain scalar loops only for true recurrences or fixed table logic.
 
 7. Finish dense-code teaching cleanup after the L14-L16 restructure:
-   - current `>=100` line audit: L14 has 3 long code cells;
+   - status: closed under the current `>=100` line audit; all L1-L16 code cells are below this
+     threshold after the L14 helper split;
    - add reader-walkthrough comments/docstrings inside dense code blocks after the sequence is
      stable, so comments describe the final structure rather than a soon-to-move draft;
    - split or comment dense cells only when the corresponding verifier is rerun.

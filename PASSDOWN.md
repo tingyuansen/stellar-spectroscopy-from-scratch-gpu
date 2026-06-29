@@ -52,14 +52,14 @@ blocking miss remains. Unchecked means it is the next fix target, not a vague co
 | L11 | [x] | [x] comparison oracles are local verifier modules, not taught inputs | [x] | [x] | [x] | [x] | [x] `verify_convec_gaps.py`, `verify_converged.py` |
 | L12 | [x] | [x] | [x] | [x] | [x] | [x] | [x] `verify_molecules.py` |
 | L13 | [x] | [x] | [x] | [x] | [x] split one-depth Newton solve from pressure-continuation driver | [x] | [x] `verify_nmolec.py`, `verify_mol_continuum.py` |
-| L14 | [x] | [ ] loads atmosphere/EOS/population/Doppler state; not yet stellar-parameters-to-spectrum | [x] after L16 -> L15 -> L14 public read-order repair | [x] partial | [ ] multiple 100+ line capstone cells remain | [ ] capstone is not yet torch/MPS throughout | [x] `verify_leankurucz.py` |
+| L14 | [x] | [ ] loads atmosphere/EOS/population/Doppler state; not yet stellar-parameters-to-spectrum | [x] after L16 -> L15 -> L14 public read-order repair | [x] partial | [x] split continuum, line, molecular, JOSH, and TCORR helpers below 100-line threshold | [ ] capstone is not yet torch/MPS throughout | [x] `verify_leankurucz.py` |
 | L15 | [x] | [ ] still consumes production-derived atmosphere/EOS/window/continuum/full-grid blanket fixtures | [x] | [x] | [x] | [x] teaching-window deposit is torch; exact scalar recurrence retained for parity | [x] `verify_lineblanket.py` |
 | L16 | [x] | [ ] starts from loaded atmosphere/radiation fixture and helper-backed state modules | [x] | [x] | [x] | [ ] several load-bearing helpers are clean-room NumPy, not final torch cells | [x] `build.py 16`, L15/L14 downstream gates |
 
 ### Honest remaining blockers
 
-- Dense pedagogical code cells remain in L14 under the current
-  `>=100` line audit. Break or comment them only with the matching lecture build and verifier rerun.
+- Dense pedagogical code cells are closed under the current `>=100` line audit: no lecture has a
+  code cell at or above this threshold.
 - L8 is not strict closure until its opacity slabs come from the earlier lecture torch outputs and
   the fixed JOSH operator tables are either derived in-book or explicitly vendor-provenanced.
 - L14 is numerically honest but not the final capstone. It computes opacity + JOSH spectra from a
@@ -118,8 +118,8 @@ plus HR comparison.
 - Code-cell hygiene audit: `total bad=0` for leading/trailing blank code cells.
 - Function-docstring audit: `lowdoc>=20 = 0` under the current rule (functions/classes at least
   20 lines must have useful docstrings).
-- Remaining long-cell audit using the stricter `>=100` line threshold:
-  L14 has 3. L1-L13 and L15-L16 have no code cells at or above this threshold.
+- Remaining long-cell audit using the stricter `>=100` line threshold: zero code cells at or above
+  this threshold across L1-L16.
 - `git diff --check`: clean.
 - `python _pipeline/build_lecture3_gpu.py && python _pipeline/build.py 3 &&
   python _pipeline/verify_kapp.py`: L3 stricter KAPP naming pass is green; KAPP verifier reports
