@@ -802,9 +802,240 @@ code(r'''def _scattering_terms(freq, temp, rho, xne, xnf_h, he1_12, bhyd1, bhe1,
             sigh2[:, j] = sig * xnh2
     return sigh, sighe, sigel, sigh2''')
 
-md(r"""Now the engine itself. `compute_kapp` takes a frequency array and the population dictionary `pops`, and returns the continuum absorption `acont` and the scattering `sigmac`, each `(n_layers, nfreq)`. Read it block by block — each block is one continuum source from Lecture 3, evaluated from its population times its cross-section, summed at the end into `acont` (true absorption) and `sigmac` (scattering). The departure coefficients (`bhyd`, `bmin`, …) are all unity in LTE, exactly as the model assumes.
+md(r"""The remaining continuum source families are still KAPP ledgers, but they are split into two
+helpers so the final driver reads as an assembly map rather than a 300-line wall. The first helper
+contains helium: He$^-$ free-free, He I bound/free-free, and He II bound/free-free. The second helper
+contains the neutral-metal edges, Si II/`LUKEOP`, and `HOTOP`. They use the already-computed thermal
+columns and frequency rows from `compute_kapp`; no reference opacity arrays are read.""")
 
-This cell is intentionally still a single function definition. The continuum terms share the same local thermodynamic arrays (`stim`, `bnu`, `rho`, population slices, and departure coefficients), and splitting the body across cells would either duplicate those arrays or obscure the accumulation. The short cells above isolate the reusable lookup routines; this cell is the one long ledger where the absorbers are added.""")
+code(r'''def _helium_continuum_terms(freq, temp, rho, xne, pops, ifop, hckt, tlog, tkev,
+                            waveno, ehvkt, stim, bnu, bhe1, bhe2):
+    """Return He-, He I, and He II continuum absorption ledgers."""
+    n_layers = temp.size
+    nfreq = freq.size
+    ahemin = np.zeros((n_layers, nfreq))
+    ahe1 = np.zeros((n_layers, nfreq))
+    ahe2 = np.zeros((n_layers, nfreq))
+
+    he1_11 = pops["he1_mode11"]
+    he2_11 = pops["he2_mode11"]
+    he3_11 = pops["he3_mode11"]
+    he1_12 = pops["he1_mode12"]
+
+    # HEMIOP: He- free-free.
+    if ifop[6] == 1:
+        for j in range(nfreq):  # JUSTIFIED-LOOP: small KAPP edge-frequency set.
+            f = freq[j]
+            ac = 3.397e-01 + (-5.216e14 + 7.039e30 / f) / f
+            bc = -4.116e03 + (1.067e19 + 8.135e34 / f) / f
+            cc = 5.081e08 + (-8.724e22 - 5.659e37 / f) / f
+            ahemin[:, j] = (
+                (ac * temp + bc + cc / temp)
+                / 1.0e15 * xne / 1.0e15 * he1_12 / 1.0e15 / rho
+            )
+
+    # HE1OP: bound-free is weighted by He I mode-11; free-free by He II mode-11.
+    rydberg_he = 109722.267
+    HE1_N5 = [(4368.190, 3.0, 193942.57, 28), (4388.260, 9.0, 193922.5, 27),
+              (4388.260, 27.0, 193922.5, 26), (4389.390, 7.0, 193921.37, 25),
+              (4389.450, 15.0, 193921.31, 24), (4392.369, 5.0, 193918.391, 23),
+              (4393.515, 15.0, 193917.245, 22), (4509.980, 9.0, 193800.78, 21),
+              (4647.133, 1.0, 193663.627, 20), (4963.671, 3.0, 193347.089, 19)]
+    HE1_N4 = [(6817.943, 3.0, 191492.817, 18), (6858.680, 7.0, 191452.08, 17),
+              (6858.960, 21.0, 191451.80, 16), (6864.201, 5.0, 191446.559, 15),
+              (6866.172, 15.0, 191444.588, 14), (7093.620, 9.0, 191217.14, 13),
+              (7370.429, 1.0, 190940.331, 12), (8012.550, 3.0, 190298.210, 11)]
+    HE1_N3 = [(12101.289, (58.81, -2.89), 3.0, 186209.471, 10),
+              (12205.695, (85.20, -3.69), 5.0, 186105.065, 9),
+              (12209.106, (85.20, -3.69), 15.0, 186101.654, 8),
+              (12746.066, (49.30, -2.60), 9.0, 185564.694, 7),
+              (13445.824, (23.85, -1.86), 1.0, 184864.936, 6),
+              (15073.868, (12.69, -1.54), 3.0, 183236.892, 5)]
+    HE1_N2 = [(27175.760, (81.35, -3.5, 0.0), 3.0, 171135.000, 4),
+              (29223.753, (61.21, -2.9, 0.0), 9.0, 169087.007, 3),
+              (32033.214, (26.83, -1.91, 0.0), 1.0, 166277.546, 2)]
+    for j in range(nfreq):  # JUSTIFIED-LOOP: small KAPP edge-frequency set.
+        f = freq[j]; wno = waveno[j]; ehv = ehvkt[:, j]; st = stim[:, j]; bn = bnu[:, j]
+        freqlg = np.log(f); freq3 = 2.815e29 / (f * f * f)
+        bhe2_1 = bhe2[:, 0]
+        h = (freq3 * 4.0 / 2.0 / (rydberg_he * hckt)
+             * (np.exp(-np.maximum(195262.919, 198310.76 - wno) * hckt) - np.exp(-198310.76 * hckt))
+             * st * bhe2_1)
+        s = h * bn
+        for (thr, g, e, bi) in HE1_N5 + HE1_N4:
+            if wno >= thr:
+                x = freq3 / (3125.0 if bi >= 19 else 1024.0)
+                a = x * g * np.exp(-e * hckt) * (bhe1[:, bi] - bhe2_1 * ehv)
+                h = h + a
+                denom = bhe1[:, bi] / np.maximum(bhe2_1, 1e-40) - ehv
+                s = s + a * bn * st / np.maximum(denom, 1e-40)
+        for (thr, cf, g, e, bi) in HE1_N3:
+            if wno >= thr:
+                x = np.exp(cf[0] + cf[1] * freqlg)
+                a = x * g * np.exp(-e * hckt) * (bhe1[:, bi] - bhe2_1 * ehv)
+                h = h + a
+                denom = bhe1[:, bi] / np.maximum(bhe2_1, 1e-40) - ehv
+                s = s + a * bn * st / np.maximum(denom, 1e-40)
+        for (thr, cf, g, e, bi) in HE1_N2:
+            if wno >= thr:
+                x = np.exp(cf[0] + cf[1] * freqlg)
+                a = x * g * np.exp(-e * hckt) * (bhe1[:, bi] - bhe2_1 * ehv)
+                h = h + a
+                denom = bhe1[:, bi] / np.maximum(bhe2_1, 1e-40) - ehv
+                s = s + a * bn * st / np.maximum(denom, 1e-40)
+        if wno >= 38454.691:
+            x = np.exp(-390.026 + (21.035 - 0.318 * freqlg) * freqlg)
+            a = x * 3.0 * np.exp(-159856.069 * hckt) * (bhe1[:, 1] - bhe2_1 * ehv)
+            h = h + a
+            denom = bhe1[:, 1] / np.maximum(bhe2_1, 1e-40) - ehv
+            s = s + a * bn * st / np.maximum(denom, 1e-40)
+        if wno >= 198310.760:
+            x = np.exp(33.32 - 2.0 * freqlg)
+            a = x * (bhe1[:, 0] - bhe2_1 * ehv)
+            h = h + a
+            denom = bhe1[:, 0] / np.maximum(bhe2_1, 1e-40) - ehv
+            s = s + a * bn * st / np.maximum(denom, 1e-40)
+        h = h * he1_11 / rho
+        cff = coulff(1, f, freqlg, temp, tlog)
+        a_ff = 3.619e8 / np.sqrt(temp) * cff / f * xne / f * he2_11 / f * st / rho
+        ahe1[:, j] = h + a_ff
+
+    # HE2OP: bound-free uses He II mode-11; free-free uses He III mode-11.
+    rydberg_he2 = 438889.068
+    HE2_LEVELS = [(5418.390, 162.0, 433490.46, 59049.0), (6857.660, 128.0, 432051.19, 32768.0),
+                  (8956.950, 98.0, 429951.90, 16807.0)]
+    HE2_B = [(12191.437, 72.0, 426717.413, 7776.0, 5, (1.0986, -2.704e13, 1.229e27)),
+             (17555.715, 50.0, 421353.135, 3125.0, 4, (1.102, -3.909e13, 2.371e27)),
+             (27430.925, 32.0, 411477.925, 1024.0, 3, (1.101, -5.765e13, 4.593e27)),
+             (48766.491, 18.0, 390142.359, 243.0, 2, (1.101, -9.863e13, 1.035e28)),
+             (109726.529, 8.0, 329182.321, 32.0, 1, (1.105, -2.375e14, 4.077e28)),
+             (438908.850, 2.0, 0.0, 1.0, 0, (0.9916, 2.719e13, -2.268e30))]
+    for j in range(nfreq):  # JUSTIFIED-LOOP: small KAPP edge-frequency set.
+        f = freq[j]; wno = waveno[j]; ehv = ehvkt[:, j]; st = stim[:, j]
+        freq3 = 2.815e29 / (f * f * f)
+        xnfprho = he2_11 / rho
+        h = (freq3 * 16.0 * 2.0 / 2.0 / (rydberg_he2 * hckt)
+             * (np.exp(-np.maximum(434519.959, 438908.85 - wno) * hckt) - np.exp(-438908.85 * hckt))
+             * st * xnfprho)
+        for (thr, wt, e, div) in HE2_LEVELS:
+            if wno >= thr:
+                x = freq3 * 16.0 / div
+                h = h + x * wt * np.exp(-e * hckt) * st * xnfprho
+        for (thr, wt, e, div, bi, poly) in HE2_B:
+            if wno >= thr:
+                bb = bhe2[:, bi]
+                x = freq3 * 16.0 / div * (poly[0] + (poly[1] + poly[2] / f) / f)
+                fac = (bb - ehv) if e == 0.0 else np.exp(-e * hckt) * (bb - ehv)
+                h = h + x * wt * fac * xnfprho
+        cff = coulff(2, f, np.log(f), temp, tlog)
+        a_ff = 3.6919e8 * 4.0 / np.sqrt(temp) * cff / f * xne / f * he3_11 / f * st / rho
+        ahe2[:, j] = h + a_ff
+
+    return ahemin, ahe1, ahe2''')
+
+code(r'''def _metal_hot_continuum_terms(freq, temp, rho, xne, pops, ifop, hckt, tlog, tkev,
+                                waveno, ehvkt, stim):
+    """Return C/Mg/Al/Si/Fe, LUKEOP, and HOTOP continuum absorption ledgers."""
+    n_layers = temp.size
+    nfreq = freq.size
+    ac1 = np.zeros((n_layers, nfreq)); amg1 = np.zeros((n_layers, nfreq))
+    aal1 = np.zeros((n_layers, nfreq)); asi1 = np.zeros((n_layers, nfreq))
+    afe1 = np.zeros((n_layers, nfreq)); aluke = np.zeros((n_layers, nfreq))
+    ahot = np.zeros((n_layers, nfreq))
+
+    xnfpc = pops["xnfpc"]
+    for j in range(nfreq):  # JUSTIFIED-LOOP: small KAPP edge-frequency set.
+        wno = waveno[j]; ehv = ehvkt[:, j]
+        h = 1e-30 * np.ones(n_layers)
+        if wno >= 22006.370:
+            x = 2.1e-18 * (22006.370 / wno) ** 1.5
+            h = h + x * 3.0 * np.exp(-68856.33 * hckt) * (1.0 - ehv)
+        ac1[:, j] = h * xnfpc[:, 0] / rho
+
+    xnfpmg = pops["xnfpmg"]
+    MG1 = [(13713.986, 25e-18, 13713.986, 2.7, 15.0, 47957.034),
+           (13823.223, 33.8e-18, 13823.223, 2.8, 9.0, 47847.797),
+           (15267.955, 45e-18, 15267.955, 2.7, 5.0, 46403.065),
+           (18167.687, 0.43e-18, 18167.687, 2.6, 1.0, 43503.333),
+           (20473.617, 2.1e-18, 20473.617, 2.6, 3.0, 41197.043)]
+    for j in range(nfreq):  # JUSTIFIED-LOOP: small KAPP edge-frequency set.
+        wno = waveno[j]; ehv = ehvkt[:, j]
+        h = 1e-30 * np.ones(n_layers)
+        for (thr, c0, w0, p0, g, e) in MG1:
+            if wno >= thr:
+                x = c0 * (w0 / wno) ** p0
+                h = h + x * g * np.exp(-e * hckt) * (1.0 - ehv)
+        amg1[:, j] = h * xnfpmg / rho
+
+    xnfpal = pops["xnfpal"]; xnfpsi = pops["xnfpsi"]; xnfpfe = pops["xnfpfe"]
+    bal1 = np.ones((n_layers, 9))
+    AL1 = [(6958.993, None, 14.0, 41319.377, 8),
+           (8002.467, (50e-18, 8002.467, 3), 6.0, 40275.903, 7),
+           (9346.231, (50e-18, 9346.231, 3), 10.0, 38932.139, 6),
+           (10588.957, (56.7e-18, 10588.957, 1.9), 2.0, 37689.413, 5),
+           (15318.007, (14.5e-18, 15318.007, 1), 6.0, 32960.363, 4),
+           (15842.129, (47e-18, 15842.129, 1.83), 10.0, 32436.241, 3)]
+    for j in range(nfreq):  # JUSTIFIED-LOOP: small KAPP edge-frequency set.
+        wno = waveno[j]; ehv = ehvkt[:, j]
+        bal2_1 = np.exp(-48278.37 * hckt)
+        h = 1e-30 * np.ones(n_layers)
+        for (thr, xcoef, g, e, bi) in AL1:
+            if wno >= thr:
+                x = 0.0 if xcoef is None else xcoef[0] * (xcoef[1] / wno) ** xcoef[2]
+                h = h + x * g * np.exp(-e * hckt) * (bal1[:, bi] - bal2_1 * ehv)
+        aal1[:, j] = h * xnfpal / rho
+
+    bsi1 = np.ones((n_layers, 11)); bsi2 = np.ones((n_layers, 10))
+    SI1 = [(16810.969, None, 9.0, 49128.131, 10),
+           (17777.641, (18e-18, 17777.641, 3), 15.0, 48161.459, 9),
+           (18587.546, None, 5.0, 47351.554, 8),
+           (18655.039, None, 3.0, 47284.061, 7)]
+    for j in range(nfreq):  # JUSTIFIED-LOOP: small KAPP edge-frequency set.
+        wno = waveno[j]; ehv = ehvkt[:, j]
+        bsi2_1 = bsi2[:, 0]
+        h = 1e-30 * np.ones(n_layers)
+        for (thr, xcoef, g, e, bi) in SI1:
+            if wno >= thr:
+                x = 0.0 if xcoef is None else xcoef[0] * (xcoef[1] / wno) ** xcoef[2]
+                h = h + x * g * np.exp(-e * hckt) * (bsi1[:, bi] - bsi2_1 * ehv)
+        asi1[:, j] = h * xnfpsi / rho
+
+    if ifop[9] == 1:
+        xnfpn = pops["xnfpn"]; xnfpo = pops["xnfpo"]
+        xnfpmg2 = pops["xnfpmg2"]; xnfpsi2 = pops["xnfpsi2"]; xnfpca2 = pops["xnfpca2"]
+        for j in range(nfreq):  # JUSTIFIED-LOOP: small KAPP edge-frequency set.
+            f = freq[j]; freqlg = np.log(f); st = stim[:, j]
+            n1op = np.zeros(n_layers); o1op = 0.0; mg2op = np.zeros(n_layers); ca2op = np.zeros(n_layers)
+            si2op = si2op_vectorized(f, freqlg, temp, tlog)
+            aluke[:, j] = (n1op * xnfpn + o1op * xnfpo + mg2op * xnfpmg2
+                           + si2op * xnfpsi2 + ca2op * xnfpca2) * st / rho
+
+    if ifop[10] == 1:
+        sumqq = pops["xnf_sumqq"]
+        hotop_xnfp = pops["hotop_xnfp"]
+        sqrt_t = np.sqrt(np.maximum(temp, 1e-30))
+        exp_hot = np.exp(-HOTOP_TRANSITIONS[:, 5][None, :] / np.maximum(tkev[:, None], 1e-30))
+        hid = np.clip(HOTOP_TRANSITIONS[:, 6].astype(np.int64) - 1, 0, 20)
+        freqlg = np.log(freq)
+        free = np.zeros((n_layers, nfreq))
+        for q in range(1, 6):  # JUSTIFIED-LOOP: five fixed ionic charges.
+            free += coulff(q, freq, freqlg, temp[:, None], tlog[:, None]) * sumqq[:, q - 1][:, None]
+        ahot_v = free * (3.6919e8 / (freq[None, :] ** 3)) * (xne[:, None] / sqrt_t[:, None])
+        for k in range(HOTOP_TRANSITIONS.shape[0]):  # JUSTIFIED-LOOP: fixed HOTOP transition table.
+            f0, xs0, al0, pw0, mu0, _, _ = HOTOP_TRANSITIONS[k]
+            use = freq >= f0
+            if not np.any(use):
+                continue
+            ratio = f0 / freq[use]
+            xsect = xs0 * (al0 + ratio - al0 * ratio) * np.sqrt(ratio ** int(pw0))
+            xx = xsect[None, :] * hotop_xnfp[:, hid[k]][:, None] * mu0
+            threshold = ahot_v[:, use] / 100.0
+            ahot_v[:, use] += np.where(xx > threshold, xx * exp_hot[:, k][:, None], 0.0)
+        ahot = ahot_v * stim / rho[:, None]
+
+    return ac1, amg1, aal1, asi1, afe1, aluke, ahot''')
+
+md(r"""Now the engine itself. `compute_kapp` takes a frequency array and the population dictionary `pops`, and returns the continuum absorption `acont` and the scattering `sigmac`, each `(n_layers, nfreq)`. It now reads as a source-family assembly: H/H$^-$, scattering, helium, metal edges, and hot-star terms. The helper cells above keep the term ledgers visible without forcing this driver to carry every coefficient table inline.""")
 
 code(r'''def compute_kapp(freq, pops, ifop):
     """Reproduce kapp.compute_kapp_continuum for the given frequency array.
@@ -839,256 +1070,23 @@ code(r'''def compute_kapp(freq, pops, ifop):
     for j in range(nfreq):
         bnu[:, j] = planck_nu(freq[j], temp)
 
-    ahyd = np.zeros((n_layers, nfreq)); ahmin = np.zeros((n_layers, nfreq))
-    ah2p = np.zeros((n_layers, nfreq)); ahemin = np.zeros((n_layers, nfreq))
-    ahe1 = np.zeros((n_layers, nfreq)); ahe2 = np.zeros((n_layers, nfreq))
-    ac1 = np.zeros((n_layers, nfreq)); amg1 = np.zeros((n_layers, nfreq))
-    aal1 = np.zeros((n_layers, nfreq)); asi1 = np.zeros((n_layers, nfreq))
-    afe1 = np.zeros((n_layers, nfreq)); aluke = np.zeros((n_layers, nfreq))
-    ahot = np.zeros((n_layers, nfreq))
-    sigh = np.zeros((n_layers, nfreq)); sighe = np.zeros((n_layers, nfreq))
-    sigel = np.zeros((n_layers, nfreq)); sigh2 = np.zeros((n_layers, nfreq))
-
-    xnfph1 = xnfph[:, 0]; xnfph2 = xnfph[:, 1]
+    xnfph1 = xnfph[:, 0]
     bhyd1 = bhyd[:, 0]
     ahyd, ah2p = _hydrogen_bf_ff(freq, temp, rho, xne, xnfph, hckt, tlog, tkev,
                                  waveno, ehvkt, stim, bnu, bhyd)
     ahmin = _hminus_opacity(freq, temp, rho, xne, xnfph1, tkev, ehvkt, stim, bnu, bhyd1, bmin)
 
-    # HEMIOP (He- ff), gated by ifop[6]
-    if ifop[6] == 1:
-        for j in range(nfreq):
-            f = freq[j]
-            ac = 3.397e-01 + (-5.216e14 + 7.039e30 / f) / f
-            bc = -4.116e03 + (1.067e19 + 8.135e34 / f) / f
-            cc = 5.081e08 + (-8.724e22 - 5.659e37 / f) / f
-            ahemin[:, j] = (ac * temp + bc + cc / temp) / 1.0e15 * xne / 1.0e15 * he1_12 / 1.0e15 / rho
-
     sigh, sighe, sigel, sigh2 = _scattering_terms(
         freq, temp, rho, xne, xnf_h, he1_12, bhyd1, bhe1, ifop, tkev, tlog,
     )
-
-    # ── HE1OP ──
-    # bound: weighted by He I mode-11.  free-free: weighted by He II mode-11
-    #   (= mode-12 / U_HeII).  See module docstring / report for this deviation.
-    rydberg_he = 109722.267
-    HE1_N5 = [(4368.190, 3.0, 193942.57, 28), (4388.260, 9.0, 193922.5, 27),
-              (4388.260, 27.0, 193922.5, 26), (4389.390, 7.0, 193921.37, 25),
-              (4389.450, 15.0, 193921.31, 24), (4392.369, 5.0, 193918.391, 23),
-              (4393.515, 15.0, 193917.245, 22), (4509.980, 9.0, 193800.78, 21),
-              (4647.133, 1.0, 193663.627, 20), (4963.671, 3.0, 193347.089, 19)]
-    HE1_N4 = [(6817.943, 3.0, 191492.817, 18), (6858.680, 7.0, 191452.08, 17),
-              (6858.960, 21.0, 191451.80, 16), (6864.201, 5.0, 191446.559, 15),
-              (6866.172, 15.0, 191444.588, 14), (7093.620, 9.0, 191217.14, 13),
-              (7370.429, 1.0, 190940.331, 12), (8012.550, 3.0, 190298.210, 11)]
-    HE1_N3 = [(12101.289, (58.81, -2.89), 3.0, 186209.471, 10),
-              (12205.695, (85.20, -3.69), 5.0, 186105.065, 9),
-              (12209.106, (85.20, -3.69), 15.0, 186101.654, 8),
-              (12746.066, (49.30, -2.60), 9.0, 185564.694, 7),
-              (13445.824, (23.85, -1.86), 1.0, 184864.936, 6),
-              (15073.868, (12.69, -1.54), 3.0, 183236.892, 5)]
-    HE1_N2 = [(27175.760, (81.35, -3.5, 0.0), 3.0, 171135.000, 4),
-              (29223.753, (61.21, -2.9, 0.0), 9.0, 169087.007, 3),
-              (32033.214, (26.83, -1.91, 0.0), 1.0, 166277.546, 2)]
-    for j in range(nfreq):
-        f = freq[j]; wno = waveno[j]; ehv = ehvkt[:, j]; st = stim[:, j]; bn = bnu[:, j]
-        freqlg = np.log(f); freq3 = 2.815e29 / (f * f * f)
-        bhe2_1 = bhe2[:, 0]
-        h = (freq3 * 4.0 / 2.0 / (rydberg_he * hckt)
-             * (np.exp(-np.maximum(195262.919, 198310.76 - wno) * hckt) - np.exp(-198310.76 * hckt))
-             * st * bhe2_1)
-        s = h * bn
-        for (thr, g, e, bi) in HE1_N5 + HE1_N4:
-            if wno >= thr:
-                x = freq3 / (3125.0 if bi >= 19 else 1024.0)
-                a = x * g * np.exp(-e * hckt) * (bhe1[:, bi] - bhe2_1 * ehv)
-                h = h + a
-                denom = bhe1[:, bi] / np.maximum(bhe2_1, 1e-40) - ehv
-                s = s + a * bn * st / np.maximum(denom, 1e-40)
-        for (thr, cf, g, e, bi) in HE1_N3:
-            if wno >= thr:
-                x = np.exp(cf[0] + cf[1] * freqlg)
-                a = x * g * np.exp(-e * hckt) * (bhe1[:, bi] - bhe2_1 * ehv)
-                h = h + a
-                denom = bhe1[:, bi] / np.maximum(bhe2_1, 1e-40) - ehv
-                s = s + a * bn * st / np.maximum(denom, 1e-40)
-        for (thr, cf, g, e, bi) in HE1_N2:
-            if wno >= thr:
-                x = np.exp(cf[0] + cf[1] * freqlg)
-                a = x * g * np.exp(-e * hckt) * (bhe1[:, bi] - bhe2_1 * ehv)
-                h = h + a
-                denom = bhe1[:, bi] / np.maximum(bhe2_1, 1e-40) - ehv
-                s = s + a * bn * st / np.maximum(denom, 1e-40)
-        if wno >= 38454.691:  # 2S 3S
-            x = np.exp(-390.026 + (21.035 - 0.318 * freqlg) * freqlg)
-            a = x * 3.0 * np.exp(-159856.069 * hckt) * (bhe1[:, 1] - bhe2_1 * ehv)
-            h = h + a
-            denom = bhe1[:, 1] / np.maximum(bhe2_1, 1e-40) - ehv
-            s = s + a * bn * st / np.maximum(denom, 1e-40)
-        if wno >= 198310.760:  # 1S 1S
-            x = np.exp(33.32 - 2.0 * freqlg)
-            a = x * 1.0 * 1.0 * (bhe1[:, 0] - bhe2_1 * ehv)
-            h = h + a
-            denom = bhe1[:, 0] / np.maximum(bhe2_1, 1e-40) - ehv
-            s = s + a * bn * st / np.maximum(denom, 1e-40)
-        h = h * he1_11 / rho; s = s * he1_11 / rho
-        cff = coulff(1, f, freqlg, temp, tlog)
-        # DEVIATION: He II population is mode-11 (he2_11), not mode-12.
-        a_ff = 3.619e8 / np.sqrt(temp) * cff / f * xne / f * he2_11 / f * st / rho
-        h = h + a_ff
-        ahe1[:, j] = h
-
-    # ── HE2OP ── uses mode-11 He II (bound) and mode-11 He III (free-free)
-    rydberg_he2 = 438889.068
-    HE2_LEVELS = [(5418.390, 162.0, 433490.46, 59049.0), (6857.660, 128.0, 432051.19, 32768.0),
-                  (8956.950, 98.0, 429951.90, 16807.0)]
-    HE2_B = [(12191.437, 72.0, 426717.413, 7776.0, 5, (1.0986, -2.704e13, 1.229e27)),
-             (17555.715, 50.0, 421353.135, 3125.0, 4, (1.102, -3.909e13, 2.371e27)),
-             (27430.925, 32.0, 411477.925, 1024.0, 3, (1.101, -5.765e13, 4.593e27)),
-             (48766.491, 18.0, 390142.359, 243.0, 2, (1.101, -9.863e13, 1.035e28)),
-             (109726.529, 8.0, 329182.321, 32.0, 1, (1.105, -2.375e14, 4.077e28)),
-             (438908.850, 2.0, 0.0, 1.0, 0, (0.9916, 2.719e13, -2.268e30))]
-    for j in range(nfreq):
-        f = freq[j]; wno = waveno[j]; ehv = ehvkt[:, j]; st = stim[:, j]; bn = bnu[:, j]
-        freq3 = 2.815e29 / (f * f * f)
-        xnfprho = he2_11 / rho
-        h = (freq3 * 16.0 * 2.0 / 2.0 / (rydberg_he2 * hckt)
-             * (np.exp(-np.maximum(434519.959, 438908.85 - wno) * hckt) - np.exp(-438908.85 * hckt))
-             * st * xnfprho)
-        for (thr, wt, e, div) in HE2_LEVELS:
-            if wno >= thr:
-                x = freq3 * 16.0 / div
-                a = x * wt * np.exp(-e * hckt) * st * xnfprho
-                h = h + a
-        for (thr, wt, e, div, bi, poly) in HE2_B:
-            if wno >= thr:
-                bb = bhe2[:, bi]
-                x = freq3 * 16.0 / div * (poly[0] + (poly[1] + poly[2] / f) / f)
-                if e == 0.0:
-                    a = x * wt * 1.0 * (bb - ehv) * xnfprho
-                else:
-                    a = x * wt * np.exp(-e * hckt) * (bb - ehv) * xnfprho
-                h = h + a
-        cff = coulff(2, f, np.log(f), temp, tlog)
-        a_ff = 3.6919e8 * 4.0 / np.sqrt(temp) * cff / f * xne / f * he3_11 / f * st / rho
-        h = h + a_ff
-        ahe2[:, j] = h
-
-    # ── C1OP ── (active bf terms have x=0 placeholders below visible; h floor 1e-30)
-    xnfpc = pops["xnfpc"]
-    for j in range(nfreq):
-        wno = waveno[j]; ehv = ehvkt[:, j]; st = stim[:, j]; bn = bnu[:, j]
-        h = 1e-30 * np.ones(n_layers)
-        if wno >= 22006.370:
-            x = 2.1e-18 * (22006.370 / wno) ** 1.5
-            a = x * 3.0 * np.exp(-68856.33 * hckt) * (np.ones(n_layers) - np.ones(n_layers) * ehv)
-            h = h + a
-        # other C1 edges are far-UV (>=28880); inactive at 500-510 nm.
-        ac1[:, j] = h * xnfpc[:, 0] / rho
-
-    # ── MG1OP ──
-    xnfpmg = pops["xnfpmg"]
-    MG1 = [(13713.986, 25e-18, 13713.986, 2.7, 15.0, 47957.034),
-           (13823.223, 33.8e-18, 13823.223, 2.8, 9.0, 47847.797),
-           (15267.955, 45e-18, 15267.955, 2.7, 5.0, 46403.065),
-           (18167.687, 0.43e-18, 18167.687, 2.6, 1.0, 43503.333),
-           (20473.617, 2.1e-18, 20473.617, 2.6, 3.0, 41197.043)]
-    for j in range(nfreq):
-        wno = waveno[j]; ehv = ehvkt[:, j]; st = stim[:, j]; bn = bnu[:, j]
-        h = 1e-30 * np.ones(n_layers)
-        for (thr, c0, w0, p0, g, e) in MG1:
-            if wno >= thr:
-                x = c0 * (w0 / wno) ** p0
-                a = x * g * np.exp(-e * hckt) * (np.ones(n_layers) - np.ones(n_layers) * ehv)
-                h = h + a
-        # higher MG1 edges (>=26619) inactive at 500-510 nm.
-        amg1[:, j] = h * xnfpmg / rho
-
-    # ── AL1OP ── (Al I); bal2_1 = exp(-48278.37*hckt) is the ionization-limit factor.
-    #   bound-free uses (bal1 - bal2_1*ehvkt); bal1 = 1 (LTE).
-    xnfpal = pops["xnfpal"]; xnfpsi = pops["xnfpsi"]; xnfpfe = pops["xnfpfe"]
-    bal1 = np.ones((n_layers, 9))
-    AL1 = [(6958.993, None, 14.0, 41319.377, 8),           # 4F 2F (x=0)
-           (8002.467, (50e-18, 8002.467, 3), 6.0, 40275.903, 7),
-           (9346.231, (50e-18, 9346.231, 3), 10.0, 38932.139, 6),
-           (10588.957, (56.7e-18, 10588.957, 1.9), 2.0, 37689.413, 5),
-           (15318.007, (14.5e-18, 15318.007, 1), 6.0, 32960.363, 4),
-           (15842.129, (47e-18, 15842.129, 1.83), 10.0, 32436.241, 3)]
-    for j in range(nfreq):
-        wno = waveno[j]; ehv = ehvkt[:, j]
-        bal2_1 = np.exp(-48278.37 * hckt)
-        h = 1e-30 * np.ones(n_layers)
-        for (thr, xcoef, g, e, bi) in AL1:
-            if wno >= thr:
-                if xcoef is None:
-                    x = 0.0
-                else:
-                    c0, w0, p0 = xcoef
-                    x = c0 * (w0 / wno) ** p0
-                a = x * g * np.exp(-e * hckt) * (bal1[:, bi] - bal2_1 * ehv)
-                h = h + a
-        # higher AL1 edges (>=22930) inactive at 500-510 nm.
-        aal1[:, j] = h * xnfpal / rho
-
-    # ── SI1OP ── (Si I); bsi2_1 = 1 (LTE). Active visible edge: PP 3D (17777, x!=0);
-    #   16810/18587/18655 have x=0; higher edges (>=24947) far-UV.
-    bsi1 = np.ones((n_layers, 11)); bsi2 = np.ones((n_layers, 10))
-    SI1 = [(16810.969, None, 9.0, 49128.131, 10),                 # PP 3P (x=0)
-           (17777.641, (18e-18, 17777.641, 3), 15.0, 48161.459, 9),  # PP 3D
-           (18587.546, None, 5.0, 47351.554, 8),                  # PD 1D (x=0)
-           (18655.039, None, 3.0, 47284.061, 7)]                  # PP 1P (x=0)
-    for j in range(nfreq):
-        wno = waveno[j]; ehv = ehvkt[:, j]
-        bsi2_1 = bsi2[:, 0]
-        h = 1e-30 * np.ones(n_layers)
-        for (thr, xcoef, g, e, bi) in SI1:
-            if wno >= thr:
-                if xcoef is None:
-                    x = 0.0
-                else:
-                    c0, w0, p0 = xcoef
-                    x = c0 * (w0 / wno) ** p0
-                a = x * g * np.exp(-e * hckt) * (bsi1[:, bi] - bsi2_1 * ehv)
-                h = h + a
-        asi1[:, j] = h * xnfpsi / rho
-
-    # FE1OP: lowest transition edge fe1_wno=21000; at 500-510 nm (wno ~ 19600-19980)
-    #   the FE1OP loop is skipped (wno<21000), so afe1 stays exactly 0.
-
-    # ── LUKEOP ── (only Si II contributes a small constant at 500-510 nm)
-    if ifop[9] == 1:
-        xnfpn = pops["xnfpn"]; xnfpo = pops["xnfpo"]
-        xnfpmg2 = pops["xnfpmg2"]; xnfpsi2 = pops["xnfpsi2"]; xnfpca2 = pops["xnfpca2"]
-        for j in range(nfreq):
-            f = freq[j]; freqlg = np.log(f); st = stim[:, j]
-            n1op = np.zeros(n_layers); o1op = 0.0; mg2op = np.zeros(n_layers); ca2op = np.zeros(n_layers)
-            si2op = si2op_vectorized(f, freqlg, temp, tlog)
-            aluke[:, j] = (n1op * xnfpn + o1op * xnfpo + mg2op * xnfpmg2
-                           + si2op * xnfpsi2 + ca2op * xnfpca2) * st / rho
-
-    # ── HOTOP ── free-free + bound-free from the transition table
-    if ifop[10] == 1:
-        sumqq = pops["xnf_sumqq"]          # (n_layers,5)
-        hotop_xnfp = pops["hotop_xnfp"]    # (n_layers,21)
-        sqrt_t = np.sqrt(np.maximum(temp, 1e-30))
-        exp_hot = np.exp(-HOTOP_TRANSITIONS[:, 5][None, :] / np.maximum(tkev[:, None], 1e-30))
-        hid = np.clip(HOTOP_TRANSITIONS[:, 6].astype(np.int64) - 1, 0, 20)
-        freqlg = np.log(freq)
-        free = np.zeros((n_layers, nfreq))
-        for q in range(1, 6):
-            free += coulff(q, freq, freqlg, temp[:, None], tlog[:, None]) * sumqq[:, q - 1][:, None]
-        ahot_v = free * (3.6919e8 / (freq[None, :] ** 3)) * (xne[:, None] / sqrt_t[:, None])
-        for k in range(HOTOP_TRANSITIONS.shape[0]):
-            f0, xs0, al0, pw0, mu0, _, _ = HOTOP_TRANSITIONS[k]
-            use = freq >= f0
-            if not np.any(use):
-                continue
-            ratio = f0 / freq[use]
-            xsect = xs0 * (al0 + ratio - al0 * ratio) * np.sqrt(ratio ** int(pw0))
-            xx = xsect[None, :] * hotop_xnfp[:, hid[k]][:, None] * mu0
-            thr = ahot_v[:, use] / 100.0
-            ahot_v[:, use] += np.where(xx > thr, xx * exp_hot[:, k][:, None], 0.0)
-        ahot = ahot_v * stim / rho[:, None]
+    ahemin, ahe1, ahe2 = _helium_continuum_terms(
+        freq, temp, rho, xne, pops, ifop, hckt, tlog, tkev,
+        waveno, ehvkt, stim, bnu, bhe1, bhe2,
+    )
+    ac1, amg1, aal1, asi1, afe1, aluke, ahot = _metal_hot_continuum_terms(
+        freq, temp, rho, xne, pops, ifop, hckt, tlog, tkev,
+        waveno, ehvkt, stim,
+    )
 
     acont = (ah2p + ahemin + ahot + aluke + ahyd + ahmin + ahe1 + ahe2
              + ac1 + amg1 + aal1 + asi1 + afe1)
