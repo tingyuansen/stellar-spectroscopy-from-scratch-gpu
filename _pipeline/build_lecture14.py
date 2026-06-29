@@ -1916,25 +1916,23 @@ def _lyman_quasistatic_cutoff(freq, prqs, xnfph_0, xnfph_1, fo, dbeta, dop, n, m
             extra += (cutoff4000 / normalization * (prqs / fo_safe * dbeta) * 1.77245 * dop)
     return extra''')
 
-md(r"""`_hydrogen_line_profile` assembles the full per-line profile from the pieces above: the Stark $S(\beta)$ core, the resonance and van der Waals Lorentzians, and the Doppler convolution. It returns the profile a single hydrogen line deposits at one depth.""")
+md(r"""`_hydrogen_transition_constants` computes the line-dependent constants used by the
+HPROF4 profile: the transition frequency, Stark scaling, radiative damping, resonance damping,
+and van der Waals coefficient. These depend on the quantum numbers and static HPROF4 tables, not
+on depth.""")
 
-code(r'''
+code(r'''def _hydrogen_transition_constants(n, m, tabs):
+    """Return line constants for one hydrogen transition.
 
-def _hydrogen_line_profile(n, m, delta_lambda_nm, hyd, tabs, fine_offsets, fine_weights, n_fine):
-    """Port of _hydrogen_line_profile_jit. `hyd` is a dict of per-depth scalars;
-    `tabs` is a dict of the HPROF4 Stark tables."""
-    t3nhe = hyd["t3nhe"]; t3nh2 = hyd["t3nh2"]; fo = hyd["fo"]; dopph = hyd["dopph"]
-    c1d = hyd["c1d"]; c2d = hyd["c2d"]; y1s = hyd["y1s"]; y1b = hyd["y1b"]
-    gcon1 = hyd["gcon1"]; gcon2 = hyd["gcon2"]; pp_val = hyd["pp"]
-    xnfph_0 = hyd["xnfph_0"]; xnfph_1 = hyd["xnfph_1"]; electron_density = hyd["ne"]
+    Inputs are lower/upper levels `n,m` and the HPROF4 table dictionary. The
+    returned dictionary contains only line-dependent constants; depth-dependent
+    plasma state stays in `_hydrogen_depth_state`.
+    """
     asum = tabs["asum"]; asum_lyman = tabs["asum_lyman"]; y1wtm = tabs["y1wtm"]
-    xknmtb = tabs["xknmtb"]; propbm = tabs["propbm"]; c_tbl = tabs["c"]; d_tbl = tabs["d"]
-    pp_tbl = tabs["pp"]; beta_tbl = tabs["beta"]
-    cutoff_h2_plus = tabs["cutoff_h2_plus"]; cutoff_h2 = tabs["cutoff_h2"]
-
+    xknmtb = tabs["xknmtb"]
     mmn = m - n
     if mmn <= 0:
-        return 0.0
+        return None
     xn = float(n); xm = float(m)
     xn2 = xn * xn; xm2 = xm * xm
     xm2mn2 = xm2 - xn2
@@ -1968,6 +1966,35 @@ def _hydrogen_line_profile(n, m, delta_lambda_nm, hyd, tabs, fine_offsets, fine_
         resont += _hf_nm(1, n) / xn / (1.0 - 1.0 / xn2)
     resont *= 3.579e-24 / gnm
     vdw = 4.45e-26 / gnm * (xm2 * (7.0 * xm2 + 5.0)) ** 0.4
+    return dict(
+        mmn=mmn, xknm=xknm, freqnm=freqnm, wavenm=wavenm, dbeta=dbeta,
+        c1con=c1con, c2con=c2con, radamp=radamp, resont=resont,
+        vdw=vdw, y1wtm=y1wtm,
+    )''')
+
+md(r"""`_hydrogen_line_profile` assembles the full per-line profile from the pieces above: the Stark $S(\beta)$ core, the resonance and van der Waals Lorentzians, and the Doppler convolution. It returns the profile a single hydrogen line deposits at one depth.""")
+
+code(r'''
+
+def _hydrogen_line_profile(n, m, delta_lambda_nm, hyd, tabs, fine_offsets, fine_weights, n_fine):
+    """Port of _hydrogen_line_profile_jit. `hyd` is a dict of per-depth scalars;
+    `tabs` is a dict of the HPROF4 Stark tables."""
+    t3nhe = hyd["t3nhe"]; t3nh2 = hyd["t3nh2"]; fo = hyd["fo"]; dopph = hyd["dopph"]
+    c1d = hyd["c1d"]; c2d = hyd["c2d"]; y1s = hyd["y1s"]; y1b = hyd["y1b"]
+    gcon1 = hyd["gcon1"]; gcon2 = hyd["gcon2"]; pp_val = hyd["pp"]
+    xnfph_0 = hyd["xnfph_0"]; xnfph_1 = hyd["xnfph_1"]; electron_density = hyd["ne"]
+    propbm = tabs["propbm"]; c_tbl = tabs["c"]; d_tbl = tabs["d"]
+    pp_tbl = tabs["pp"]; beta_tbl = tabs["beta"]
+    cutoff_h2_plus = tabs["cutoff_h2_plus"]; cutoff_h2 = tabs["cutoff_h2"]
+
+    const = _hydrogen_transition_constants(n, m, tabs)
+    if const is None:
+        return 0.0
+    mmn = const["mmn"]; xknm = const["xknm"]; freqnm = const["freqnm"]; wavenm = const["wavenm"]
+    dbeta = const["dbeta"]; c1con = const["c1con"]; c2con = const["c2con"]
+    radamp = const["radamp"]; resont = const["resont"]; vdw = const["vdw"]
+    y1wtm = const["y1wtm"]
+
     hwvdw = vdw * t3nhe + 2.0 * vdw * t3nh2
     hwrad = radamp
     stark = 1.6678e-18 * freqnm * xknm

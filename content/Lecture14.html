@@ -3567,25 +3567,25 @@ _E1_TABLE = _build_e1_table()</code></pre>
         <span class="hljs-keyword">if</span> normalization &gt; <span class="hljs-number">0.0</span>:
             extra += (cutoff4000 / normalization * (prqs / fo_safe * dbeta) * <span class="hljs-number">1.77245</span> * dop)
     <span class="hljs-keyword">return</span> extra</code></pre>
-    </div></div><div class="prose"><p><code>_hydrogen_line_profile</code> assembles the full per-line profile from the pieces above: the Stark <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>S</mi><mo stretchy="false">(</mo><mi>β</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">S(\beta)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.05764em;">S</span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.05278em;">β</span><span class="mclose">)</span></span></span></span> core, the resonance and van der Waals Lorentzians, and the Doppler convolution. It returns the profile a single hydrogen line deposits at one depth.</p>
+    </div></div><div class="prose"><p><code>_hydrogen_transition_constants</code> computes the line-dependent constants used by the
+HPROF4 profile: the transition frequency, Stark scaling, radiative damping, resonance damping,
+and van der Waals coefficient. These depend on the quantum numbers and static HPROF4 tables, not
+on depth.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[41]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="def _hydrogen_line_profile(n, m, delta_lambda_nm, hyd, tabs, fine_offsets, fine_weights, n_fine):
-    &quot;&quot;&quot;Port of _hydrogen_line_profile_jit. `hyd` is a dict of per-depth scalars;
-    `tabs` is a dict of the HPROF4 Stark tables.&quot;&quot;&quot;
-    t3nhe = hyd[&quot;t3nhe&quot;]; t3nh2 = hyd[&quot;t3nh2&quot;]; fo = hyd[&quot;fo&quot;]; dopph = hyd[&quot;dopph&quot;]
-    c1d = hyd[&quot;c1d&quot;]; c2d = hyd[&quot;c2d&quot;]; y1s = hyd[&quot;y1s&quot;]; y1b = hyd[&quot;y1b&quot;]
-    gcon1 = hyd[&quot;gcon1&quot;]; gcon2 = hyd[&quot;gcon2&quot;]; pp_val = hyd[&quot;pp&quot;]
-    xnfph_0 = hyd[&quot;xnfph_0&quot;]; xnfph_1 = hyd[&quot;xnfph_1&quot;]; electron_density = hyd[&quot;ne&quot;]
-    asum = tabs[&quot;asum&quot;]; asum_lyman = tabs[&quot;asum_lyman&quot;]; y1wtm = tabs[&quot;y1wtm&quot;]
-    xknmtb = tabs[&quot;xknmtb&quot;]; propbm = tabs[&quot;propbm&quot;]; c_tbl = tabs[&quot;c&quot;]; d_tbl = tabs[&quot;d&quot;]
-    pp_tbl = tabs[&quot;pp&quot;]; beta_tbl = tabs[&quot;beta&quot;]
-    cutoff_h2_plus = tabs[&quot;cutoff_h2_plus&quot;]; cutoff_h2 = tabs[&quot;cutoff_h2&quot;]
+        <button class="copy-btn" type="button" data-code="def _hydrogen_transition_constants(n, m, tabs):
+    &quot;&quot;&quot;Return line constants for one hydrogen transition.
 
+    Inputs are lower/upper levels `n,m` and the HPROF4 table dictionary. The
+    returned dictionary contains only line-dependent constants; depth-dependent
+    plasma state stays in `_hydrogen_depth_state`.
+    &quot;&quot;&quot;
+    asum = tabs[&quot;asum&quot;]; asum_lyman = tabs[&quot;asum_lyman&quot;]; y1wtm = tabs[&quot;y1wtm&quot;]
+    xknmtb = tabs[&quot;xknmtb&quot;]
     mmn = m - n
     if mmn &lt;= 0:
-        return 0.0
+        return None
     xn = float(n); xm = float(m)
     xn2 = xn * xn; xm2 = xm * xm
     xm2mn2 = xm2 - xn2
@@ -3619,6 +3619,86 @@ _E1_TABLE = _build_e1_table()</code></pre>
         resont += _hf_nm(1, n) / xn / (1.0 - 1.0 / xn2)
     resont *= 3.579e-24 / gnm
     vdw = 4.45e-26 / gnm * (xm2 * (7.0 * xm2 + 5.0)) ** 0.4
+    return dict(
+        mmn=mmn, xknm=xknm, freqnm=freqnm, wavenm=wavenm, dbeta=dbeta,
+        c1con=c1con, c2con=c2con, radamp=radamp, resont=resont,
+        vdw=vdw, y1wtm=y1wtm,
+    )" aria-label="Copy code">
+          <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
+      </div>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_hydrogen_transition_constants</span>(<span class="hljs-params">n, m, tabs</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Return line constants for one hydrogen transition.
+
+    Inputs are lower/upper levels `n,m` and the HPROF4 table dictionary. The
+    returned dictionary contains only line-dependent constants; depth-dependent
+    plasma state stays in `_hydrogen_depth_state`.
+    &quot;&quot;&quot;</span>
+    asum = tabs[<span class="hljs-string">&quot;asum&quot;</span>]; asum_lyman = tabs[<span class="hljs-string">&quot;asum_lyman&quot;</span>]; y1wtm = tabs[<span class="hljs-string">&quot;y1wtm&quot;</span>]
+    xknmtb = tabs[<span class="hljs-string">&quot;xknmtb&quot;</span>]
+    mmn = m - n
+    <span class="hljs-keyword">if</span> mmn &lt;= <span class="hljs-number">0</span>:
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">None</span>
+    xn = <span class="hljs-built_in">float</span>(n); xm = <span class="hljs-built_in">float</span>(m)
+    xn2 = xn * xn; xm2 = xm * xm
+    xm2mn2 = xm2 - xn2
+    xmn2 = xm2 * xn2
+    gnm = xm2mn2 / xmn2
+    <span class="hljs-keyword">if</span> n &lt;= <span class="hljs-number">4</span> <span class="hljs-keyword">and</span> mmn &lt;= <span class="hljs-number">3</span> <span class="hljs-keyword">and</span> n &gt;= <span class="hljs-number">1</span> <span class="hljs-keyword">and</span> mmn &gt;= <span class="hljs-number">1</span>:
+        xknm = xknmtb[n - <span class="hljs-number">1</span>, mmn - <span class="hljs-number">1</span>]
+    <span class="hljs-keyword">else</span>:
+        xknm = <span class="hljs-number">5.5e-5</span> / gnm * xmn2 / (<span class="hljs-number">1.0</span> + <span class="hljs-number">0.13</span> / <span class="hljs-built_in">float</span>(mmn))
+    freqnm = RYDH * gnm
+    wavenm = C_LIGHT_AA / freqnm
+    dbeta = C_LIGHT_AA / (freqnm * freqnm * xknm)
+    c1con = xknm / wavenm * gnm * xm2mn2
+    c2con = (xknm / wavenm) ** <span class="hljs-number">2</span>
+    n_asum = asum.shape[<span class="hljs-number">0</span>]; m_asum = asum.shape[<span class="hljs-number">0</span>]
+    <span class="hljs-keyword">if</span> n &lt;= n_asum <span class="hljs-keyword">and</span> m &lt;= m_asum:
+        radamp = asum[n - <span class="hljs-number">1</span>] + asum[m - <span class="hljs-number">1</span>]
+    <span class="hljs-keyword">elif</span> n &lt;= n_asum:
+        radamp = asum[n - <span class="hljs-number">1</span>]
+    <span class="hljs-keyword">elif</span> m &lt;= m_asum:
+        radamp = asum[m - <span class="hljs-number">1</span>]
+    <span class="hljs-keyword">else</span>:
+        radamp = <span class="hljs-number">0.0</span>
+    n_asum_ly = asum_lyman.shape[<span class="hljs-number">0</span>]
+    <span class="hljs-keyword">if</span> n == <span class="hljs-number">1</span> <span class="hljs-keyword">and</span> m &lt;= n_asum_ly:
+        radamp = asum_lyman[m - <span class="hljs-number">1</span>]
+    radamp /= <span class="hljs-number">12.5664</span>
+    radamp /= freqnm
+    resont = _hf_nm(<span class="hljs-number">1</span>, m) / xm / (<span class="hljs-number">1.0</span> - <span class="hljs-number">1.0</span> / xm2)
+    <span class="hljs-keyword">if</span> n != <span class="hljs-number">1</span>:
+        resont += _hf_nm(<span class="hljs-number">1</span>, n) / xn / (<span class="hljs-number">1.0</span> - <span class="hljs-number">1.0</span> / xn2)
+    resont *= <span class="hljs-number">3.579e-24</span> / gnm
+    vdw = <span class="hljs-number">4.45e-26</span> / gnm * (xm2 * (<span class="hljs-number">7.0</span> * xm2 + <span class="hljs-number">5.0</span>)) ** <span class="hljs-number">0.4</span>
+    <span class="hljs-keyword">return</span> <span class="hljs-built_in">dict</span>(
+        mmn=mmn, xknm=xknm, freqnm=freqnm, wavenm=wavenm, dbeta=dbeta,
+        c1con=c1con, c2con=c2con, radamp=radamp, resont=resont,
+        vdw=vdw, y1wtm=y1wtm,
+    )</code></pre>
+    </div></div><div class="prose"><p><code>_hydrogen_line_profile</code> assembles the full per-line profile from the pieces above: the Stark <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>S</mi><mo stretchy="false">(</mo><mi>β</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">S(\beta)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.05764em;">S</span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.05278em;">β</span><span class="mclose">)</span></span></span></span> core, the resonance and van der Waals Lorentzians, and the Doppler convolution. It returns the profile a single hydrogen line deposits at one depth.</p>
+</div><div class="nb-cell"><div class="code-card">
+      <div class="code-top">
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[42]</span>Python</span>
+        <button class="copy-btn" type="button" data-code="def _hydrogen_line_profile(n, m, delta_lambda_nm, hyd, tabs, fine_offsets, fine_weights, n_fine):
+    &quot;&quot;&quot;Port of _hydrogen_line_profile_jit. `hyd` is a dict of per-depth scalars;
+    `tabs` is a dict of the HPROF4 Stark tables.&quot;&quot;&quot;
+    t3nhe = hyd[&quot;t3nhe&quot;]; t3nh2 = hyd[&quot;t3nh2&quot;]; fo = hyd[&quot;fo&quot;]; dopph = hyd[&quot;dopph&quot;]
+    c1d = hyd[&quot;c1d&quot;]; c2d = hyd[&quot;c2d&quot;]; y1s = hyd[&quot;y1s&quot;]; y1b = hyd[&quot;y1b&quot;]
+    gcon1 = hyd[&quot;gcon1&quot;]; gcon2 = hyd[&quot;gcon2&quot;]; pp_val = hyd[&quot;pp&quot;]
+    xnfph_0 = hyd[&quot;xnfph_0&quot;]; xnfph_1 = hyd[&quot;xnfph_1&quot;]; electron_density = hyd[&quot;ne&quot;]
+    propbm = tabs[&quot;propbm&quot;]; c_tbl = tabs[&quot;c&quot;]; d_tbl = tabs[&quot;d&quot;]
+    pp_tbl = tabs[&quot;pp&quot;]; beta_tbl = tabs[&quot;beta&quot;]
+    cutoff_h2_plus = tabs[&quot;cutoff_h2_plus&quot;]; cutoff_h2 = tabs[&quot;cutoff_h2&quot;]
+
+    const = _hydrogen_transition_constants(n, m, tabs)
+    if const is None:
+        return 0.0
+    mmn = const[&quot;mmn&quot;]; xknm = const[&quot;xknm&quot;]; freqnm = const[&quot;freqnm&quot;]; wavenm = const[&quot;wavenm&quot;]
+    dbeta = const[&quot;dbeta&quot;]; c1con = const[&quot;c1con&quot;]; c2con = const[&quot;c2con&quot;]
+    radamp = const[&quot;radamp&quot;]; resont = const[&quot;resont&quot;]; vdw = const[&quot;vdw&quot;]
+    y1wtm = const[&quot;y1wtm&quot;]
+
     hwvdw = vdw * t3nhe + 2.0 * vdw * t3nh2
     hwrad = radamp
     stark = 1.6678e-18 * freqnm * xknm
@@ -3726,47 +3806,18 @@ _E1_TABLE = _build_e1_table()</code></pre>
     c1d = hyd[<span class="hljs-string">&quot;c1d&quot;</span>]; c2d = hyd[<span class="hljs-string">&quot;c2d&quot;</span>]; y1s = hyd[<span class="hljs-string">&quot;y1s&quot;</span>]; y1b = hyd[<span class="hljs-string">&quot;y1b&quot;</span>]
     gcon1 = hyd[<span class="hljs-string">&quot;gcon1&quot;</span>]; gcon2 = hyd[<span class="hljs-string">&quot;gcon2&quot;</span>]; pp_val = hyd[<span class="hljs-string">&quot;pp&quot;</span>]
     xnfph_0 = hyd[<span class="hljs-string">&quot;xnfph_0&quot;</span>]; xnfph_1 = hyd[<span class="hljs-string">&quot;xnfph_1&quot;</span>]; electron_density = hyd[<span class="hljs-string">&quot;ne&quot;</span>]
-    asum = tabs[<span class="hljs-string">&quot;asum&quot;</span>]; asum_lyman = tabs[<span class="hljs-string">&quot;asum_lyman&quot;</span>]; y1wtm = tabs[<span class="hljs-string">&quot;y1wtm&quot;</span>]
-    xknmtb = tabs[<span class="hljs-string">&quot;xknmtb&quot;</span>]; propbm = tabs[<span class="hljs-string">&quot;propbm&quot;</span>]; c_tbl = tabs[<span class="hljs-string">&quot;c&quot;</span>]; d_tbl = tabs[<span class="hljs-string">&quot;d&quot;</span>]
+    propbm = tabs[<span class="hljs-string">&quot;propbm&quot;</span>]; c_tbl = tabs[<span class="hljs-string">&quot;c&quot;</span>]; d_tbl = tabs[<span class="hljs-string">&quot;d&quot;</span>]
     pp_tbl = tabs[<span class="hljs-string">&quot;pp&quot;</span>]; beta_tbl = tabs[<span class="hljs-string">&quot;beta&quot;</span>]
     cutoff_h2_plus = tabs[<span class="hljs-string">&quot;cutoff_h2_plus&quot;</span>]; cutoff_h2 = tabs[<span class="hljs-string">&quot;cutoff_h2&quot;</span>]
 
-    mmn = m - n
-    <span class="hljs-keyword">if</span> mmn &lt;= <span class="hljs-number">0</span>:
+    const = _hydrogen_transition_constants(n, m, tabs)
+    <span class="hljs-keyword">if</span> const <span class="hljs-keyword">is</span> <span class="hljs-literal">None</span>:
         <span class="hljs-keyword">return</span> <span class="hljs-number">0.0</span>
-    xn = <span class="hljs-built_in">float</span>(n); xm = <span class="hljs-built_in">float</span>(m)
-    xn2 = xn * xn; xm2 = xm * xm
-    xm2mn2 = xm2 - xn2
-    xmn2 = xm2 * xn2
-    gnm = xm2mn2 / xmn2
-    <span class="hljs-keyword">if</span> n &lt;= <span class="hljs-number">4</span> <span class="hljs-keyword">and</span> mmn &lt;= <span class="hljs-number">3</span> <span class="hljs-keyword">and</span> n &gt;= <span class="hljs-number">1</span> <span class="hljs-keyword">and</span> mmn &gt;= <span class="hljs-number">1</span>:
-        xknm = xknmtb[n - <span class="hljs-number">1</span>, mmn - <span class="hljs-number">1</span>]
-    <span class="hljs-keyword">else</span>:
-        xknm = <span class="hljs-number">5.5e-5</span> / gnm * xmn2 / (<span class="hljs-number">1.0</span> + <span class="hljs-number">0.13</span> / <span class="hljs-built_in">float</span>(mmn))
-    freqnm = RYDH * gnm
-    wavenm = C_LIGHT_AA / freqnm
-    dbeta = C_LIGHT_AA / (freqnm * freqnm * xknm)
-    c1con = xknm / wavenm * gnm * xm2mn2
-    c2con = (xknm / wavenm) ** <span class="hljs-number">2</span>
-    n_asum = asum.shape[<span class="hljs-number">0</span>]; m_asum = asum.shape[<span class="hljs-number">0</span>]
-    <span class="hljs-keyword">if</span> n &lt;= n_asum <span class="hljs-keyword">and</span> m &lt;= m_asum:
-        radamp = asum[n - <span class="hljs-number">1</span>] + asum[m - <span class="hljs-number">1</span>]
-    <span class="hljs-keyword">elif</span> n &lt;= n_asum:
-        radamp = asum[n - <span class="hljs-number">1</span>]
-    <span class="hljs-keyword">elif</span> m &lt;= m_asum:
-        radamp = asum[m - <span class="hljs-number">1</span>]
-    <span class="hljs-keyword">else</span>:
-        radamp = <span class="hljs-number">0.0</span>
-    n_asum_ly = asum_lyman.shape[<span class="hljs-number">0</span>]
-    <span class="hljs-keyword">if</span> n == <span class="hljs-number">1</span> <span class="hljs-keyword">and</span> m &lt;= n_asum_ly:
-        radamp = asum_lyman[m - <span class="hljs-number">1</span>]
-    radamp /= <span class="hljs-number">12.5664</span>
-    radamp /= freqnm
-    resont = _hf_nm(<span class="hljs-number">1</span>, m) / xm / (<span class="hljs-number">1.0</span> - <span class="hljs-number">1.0</span> / xm2)
-    <span class="hljs-keyword">if</span> n != <span class="hljs-number">1</span>:
-        resont += _hf_nm(<span class="hljs-number">1</span>, n) / xn / (<span class="hljs-number">1.0</span> - <span class="hljs-number">1.0</span> / xn2)
-    resont *= <span class="hljs-number">3.579e-24</span> / gnm
-    vdw = <span class="hljs-number">4.45e-26</span> / gnm * (xm2 * (<span class="hljs-number">7.0</span> * xm2 + <span class="hljs-number">5.0</span>)) ** <span class="hljs-number">0.4</span>
+    mmn = const[<span class="hljs-string">&quot;mmn&quot;</span>]; xknm = const[<span class="hljs-string">&quot;xknm&quot;</span>]; freqnm = const[<span class="hljs-string">&quot;freqnm&quot;</span>]; wavenm = const[<span class="hljs-string">&quot;wavenm&quot;</span>]
+    dbeta = const[<span class="hljs-string">&quot;dbeta&quot;</span>]; c1con = const[<span class="hljs-string">&quot;c1con&quot;</span>]; c2con = const[<span class="hljs-string">&quot;c2con&quot;</span>]
+    radamp = const[<span class="hljs-string">&quot;radamp&quot;</span>]; resont = const[<span class="hljs-string">&quot;resont&quot;</span>]; vdw = const[<span class="hljs-string">&quot;vdw&quot;</span>]
+    y1wtm = const[<span class="hljs-string">&quot;y1wtm&quot;</span>]
+
     hwvdw = vdw * t3nhe + <span class="hljs-number">2.0</span> * vdw * t3nh2
     hwrad = radamp
     stark = <span class="hljs-number">1.6678e-18</span> * freqnm * xknm
@@ -3868,7 +3919,7 @@ _E1_TABLE = _build_e1_table()</code></pre>
     </div></div><div class="prose"><p><code>_accumulate_hyd_line_depth</code> walks that profile out onto the wavelength grid at one depth — the hydrogen analogue of the metal-line wing accumulation, with its own (much wider) reach.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[42]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[43]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _accumulate_hyd_line_depth(buffer, continuum_row, stim_row, grid, center_index,
                                line_wavelength, kappa0, n_lower, n_upper, wcon, wtail,
                                wlminus1, wlminus2, wlplus1, wlplus2, redcut, bluecut, cutoff,
@@ -4090,7 +4141,7 @@ _E1_TABLE = _build_e1_table()</code></pre>
     </div></div><div class="prose"><p><code>_ehyd_cm</code> returns the hydrogen level energy <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>E</mi><mi>n</mi></msub></mrow><annotation encoding="application/x-tex">E_n</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05764em;">E</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.0576em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">n</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> in cm<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mrow><mo>−</mo><mn>1</mn></mrow></msup></mrow><annotation encoding="application/x-tex">^{-1}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">1</span></span></span></span></span></span></span></span></span></span></span></span> — used to set each line&#39;s lower-level population.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[43]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[44]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _ehyd_cm(n):
     if n &lt;= 0:
         return 0.0
@@ -4112,7 +4163,7 @@ builds the per-depth HPROF4 microfield, broadening, and Doppler scalars; <code>_
 computes the continuum-merge/tail wavelengths from the Inglis-Teller relation.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[44]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[45]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _hydrogen_depth_state(T, xne, xnf_he1, xnf_h2, xnfph, vturb_cms, di):
     &quot;&quot;&quot;Return the per-depth HPROF4 state dictionary for one atmospheric layer.
 
@@ -4244,7 +4295,7 @@ def _hydrogen_merge_limits(conth_val, emerge_h_di, wshift):
     </div></div><div class="prose"><p><code>compute_hydrogen_opacity</code> is the driver: it selects the visible hydrogen lines for the star, loops over depth, and deposits each line with the routines above, returning the hydrogen line opacity on the full grid. This is the Balmer-wing engine the hot dwarf&#39;s H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>β</mi></mrow><annotation encoding="application/x-tex">\beta</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.05278em;">β</span></span></span></span> exercises.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[45]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[46]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def compute_hydrogen_opacity(cat, atm, diag, L4):
     &quot;&quot;&quot;Hydrogen line opacity (HPROF4) — full from-scratch port of the JIT engine.&quot;&quot;&quot;
     grid = diag[&quot;wavelength&quot;]
@@ -4468,7 +4519,7 @@ def _hydrogen_merge_limits(conth_val, emerge_h_di, wshift):
     </div></div><div class="prose"><p><code>compute_hydrogen_opacity</code> drives that profile: it selects the H lines (type <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>−</mo><mn>1</mn><mi mathvariant="normal">/</mi><mo>−</mo><mn>2</mn></mrow><annotation encoding="application/x-tex">-1/-2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">−</span><span class="mord">1/</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">2</span></span></span></span>, ion 1), reads the HPROF4 Stark tables and fine-structure components from <code>KT</code>, computes the per-depth hydrogen state (the field strengths <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>F</mi><mn>0</mn></msub></mrow><annotation encoding="application/x-tex">F_0</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">F</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.1389em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">0</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>, the broadening parameters, the continuum-merge <code>wcon</code>/<code>wtail</code> from the Inglis–Teller relation), and walks each line&#39;s wings. The cutoff reference is the from-scratch continuum we built in Step 3.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[46]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[47]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Bundle the per-star catalog + the shared HPROF4/fine tables for the line engines.
 def _hyd_he_static(d):
     cat = {}
@@ -4500,7 +4551,7 @@ def _hyd_he_static(d):
 <p>The helium wings use a batched Voigt with an Inglis–Teller taper. <code>_voigt_hav</code> is the per-value Voigt <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>H</mi><mo stretchy="false">(</mo><mi>a</mi><mo separator="true">,</mo><mi>v</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">H(a,v)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.08125em;">H</span><span class="mopen">(</span><span class="mord mathnormal">a</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">v</span><span class="mclose">)</span></span></span></span> (the Harris-table form again), here written for the helium batch.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[47]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[48]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _voigt_hav(x_val, adamp, h0tab, h1tab, h2tab):
     &quot;&quot;&quot;Evaluate the helium-kernel Voigt H(a,v) for one absolute offset.
 
@@ -4578,7 +4629,7 @@ def _hyd_he_static(d):
     </div></div><div class="prose"><p><code>_accumulate_helium_line</code> walks one He line&#39;s wings onto the grid, with the taper that limits the reach where neighbouring lines merge (the Inglis–Teller dissolution).</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[48]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[49]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _accumulate_helium_line(wings_row, continuum_row, grid, center_index,
                             line_wavelength, kappa_eff, doppler, adamp, cutoff,
                             has_wcon, wcon_val, has_wtail, wtail_val, base_wave,
@@ -4676,7 +4727,7 @@ def _hyd_he_static(d):
     </div></div><div class="prose"><p><code>compute_helium_opacity</code> is the driver: it loops the selected He lines over depth and accumulates their opacity — the helium contribution to the blue continuum of the hot dwarf.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[49]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[50]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def compute_helium_opacity(cat, atm, diag, L4):
     &quot;&quot;&quot;Helium I/II wing opacity via the pre-STIM Voigt-batch walk; STIM applied last.
 
@@ -4868,7 +4919,7 @@ def _hyd_he_static(d):
     </div></div><div class="prose"><p>The taper limits are computed from scratch in <code>helium_taper_limits</code>: the Inglis–Teller merge level from the electron density, the <code>CONTX</code> continuum table, and the <code>fort.19</code> integers shipped with the star. No opacity answer is read.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[50]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[51]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def helium_taper_limits(d):
     &quot;&quot;&quot;Recompute he_wcon_2d / he_wtail_2d per (depth, helium line) from scratch.
 
@@ -4975,7 +5026,7 @@ def _hyd_he_static(d):
 <p>The coolest star, the M dwarf, has its window dominated not by a forest of atomic lines but by a <strong>molecular band</strong>: hundreds of thousands of TiO rotational lines blending into a depression toward the band head. The molecular ASYNTH of Lecture 12 handles them with the same recipe as the metals — <code>KAPPA0 = CGF * XNFDOP * Boltzmann(Elo)</code>, a Voigt centre, a near-wing, and a far-wing <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><mi mathvariant="normal">/</mi><msup><mi>n</mi><mn>2</mn></msup></mrow><annotation encoding="application/x-tex">1/n^2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1.0641em;vertical-align:-0.25em;"></span><span class="mord">1/</span><span class="mord"><span class="mord mathnormal">n</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span></span></span></span> tail — but vectorised over the enormous line list and with the molecular Doppler width from the per-species mass table. We inline it: the molecular Doppler <code>molecular_dopple</code>, a vectorised Voigt <code>voigt</code>, the per-depth accumulator <code>accumulate_depth</code>, and the driver <code>compute_mol_opacity</code>. The molecular populations come from the coupled equilibrium of Lecture 13 (the <code>population_per_ion</code> molecular slot), the verified state we consume.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[51]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[52]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# per-species molecular mass (amu), keyed by NELION (Lecture 12 / xnfpelsyn MOMASS)
 NELION_MASS = {240: 2.0, 246: 13.0, 258: 17.0, 264: 24.0, 270: 26.0,
                324: 43.0, 342: 41.0, 366: 64.0, 372: 67.0, 432: 52.0, 492: 24.0}
@@ -4995,7 +5046,7 @@ C_NM = <span class="hljs-number">2.99792458e17</span>       <span class="hljs-co
     </div></div><div class="prose"><p><code>molecular_dopple</code> is the molecular Doppler width <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi mathvariant="normal">Δ</mi><msub><mi>λ</mi><mi mathvariant="normal">D</mi></msub></mrow><annotation encoding="application/x-tex">\Delta\lambda_{\rm D}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8444em;vertical-align:-0.15em;"></span><span class="mord">Δ</span><span class="mord"><span class="mord mathnormal">λ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">D</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> — the thermal-plus-microturbulent width set by the molecule&#39;s mass (much narrower than a light atom&#39;s like hydrogen, though comparable to a heavy metal&#39;s: TiO at 64 amu sits close to iron&#39;s 56 amu).</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[52]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[53]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def molecular_dopple(T, vturb, mass):
     &quot;&quot;&quot;DOPPLE = sqrt( (2kT/m)/c^2 + (vturb/c)^2 )  (fractional velocity width).&quot;&quot;&quot;
     thermal = np.sqrt(2.0 * KB * T / (mass * AMU)) / C_CMS
@@ -5009,7 +5060,7 @@ C_NM = <span class="hljs-number">2.99792458e17</span>       <span class="hljs-co
     </div></div><div class="prose"><p><code>voigt</code> is the Voigt <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>H</mi><mo stretchy="false">(</mo><mi>a</mi><mo separator="true">,</mo><mi>v</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">H(a,v)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.08125em;">H</span><span class="mopen">(</span><span class="mord mathnormal">a</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">v</span><span class="mclose">)</span></span></span></span> for the molecular bands (the same Harris-table profile, kept local to this engine).</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[53]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[54]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# ── Voigt H(a,v) — book L4/L5 tabulated kernel (== pykurucz voigt_profile_jit) ─
 def voigt(v, a, h0, h1, h2):
     &quot;&quot;&quot;Tabulated Voigt H(a,|v|): a&lt;0.2 small-damping; far-wing; mid-regime blend.
@@ -5095,7 +5146,7 @@ def voigt(v, a, h0, h1, h2):
     </div></div><div class="prose"><p><code>accumulate_depth</code> deposits one molecular line&#39;s profile onto the grid at one depth — the band-head opacity is millions of these narrow lines packed together.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[54]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[55]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# ── (2) the molecular opacity kernel, vectorized per depth ───────────────────
 def accumulate_depth(buf, cont_row, wavelength, ci, mol_wl, xnfdop, dop_val,
                      cgf, elo, gr, gs, gw, xne, txnxn, hckt, h0, h1, h2):
@@ -5327,7 +5378,7 @@ def accumulate_depth(buf, cont_row, wavelength, ci, mol_wl, xnfdop, dop_val,
     </div></div><div class="prose"><p><code>compute_mol_opacity</code> is the driver: it loops the TiO (and other) band lines over depth and accumulates the molecular opacity — the band-head engine the M dwarf exercises.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[55]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[56]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def compute_mol_opacity(npz, dt, m, L4):
     &quot;&quot;&quot;Full molecular ASYNTH (with stim) over all depths and the 705-718 nm grid.&quot;&quot;&quot;
     wavelength = dt[&quot;wavelength&quot;].astype(np.float64)
@@ -5442,7 +5493,7 @@ def accumulate_depth(buf, cont_row, wavelength, ci, mol_wl, xnfdop, dop_val,
 <p>With every engine built, we assemble them. <code>NpzView</code> is a thin dict wrapper that lets the per-star reference <code>.npz</code> be addressed by attribute — a convenience for the assembler.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[56]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[57]</span>Python</span>
         <button class="copy-btn" type="button" data-code="class NpzView(dict):
     &quot;&quot;&quot;A dict that also answers .files, so the line engines read our arrays unchanged.&quot;&quot;&quot;
     @property
@@ -5458,7 +5509,7 @@ def accumulate_depth(buf, cont_row, wavelength, ci, mol_wl, xnfdop, dop_val,
     </div></div><div class="prose"><p><code>components</code> splits a model&#39;s shipped arrays into the continuum, line, and scattering pieces the transfer needs.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[57]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[58]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# which opacity sources a star&#39;s window contains (shipped has_* flags)
 def components(d):
     return {k[4:]: bool(d[k]) for k in d.files if k.startswith(&quot;has_&quot;)}
@@ -5476,7 +5527,7 @@ IFOP = [<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, 
     </div></div><div class="prose"><p><code>from_scratch_opacity</code> is the assembly point: it calls the continuum, atomic-line, hydrogen, helium, and molecular engines above and sums them into the total opacity — the synthesis half&#39;s opacity, entirely from scratch. (The <code>override_pop</code> hook is what the tamper check uses to perturb one input.)</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[58]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[59]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def from_scratch_opacity(d, override_pop=None):
     &quot;&quot;&quot;COMPUTE the entire (continuum + line + molecular) opacity from scratch.
 
@@ -5602,7 +5653,7 @@ IFOP = [<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, 
 <p><code>planck_source</code> builds the thermal source function <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>S</mi><mi>ν</mi></msub><mo>=</mo><msub><mi>B</mi><mi>ν</mi></msub></mrow><annotation encoding="application/x-tex">S_\nu=B_\nu</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05764em;">S</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.0576em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05017em;">B</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.0502em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> on the grid (with the scattering fraction the transfer needs) — the source the JOSH solver carries.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[59]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[60]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def planck_source(d):
     &quot;&quot;&quot;LTE Planck source B_nu(T) on the (depth, wavelength) grid (Note A: computed, not read).
 
@@ -5634,7 +5685,7 @@ IFOP = [<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, 
     </div></div><div class="prose"><p><code>synthesise</code> is the final chain: assemble the opacity from scratch, build the source, and solve the transfer at every wavelength to get the emergent spectrum. (The <code>override_pop</code> hook threads through to the tamper check.)</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[60]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[61]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def synthesise(d, override_pop=None):
     &quot;&quot;&quot;The full chain: from-scratch opacity + inline Planck source -&gt; JOSH -&gt; normalised spectrum.&quot;&quot;&quot;
     # atm_depth is the column-mass (RHOX) depth scale the transfer integrates over
@@ -5685,7 +5736,7 @@ IFOP = [<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, 
 <p>Before the spectrum, a check on the opacity <em>itself</em>. The reference also ships the production opacity (continuum + line) for each window — <em>as the comparison target only</em>. We compute the opacity from scratch and compare, to confirm the assembly reproduces the production code&#39;s own opacity arrays element by element, the same floors the individual lectures reported (continuum <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>∼</mo><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>15</mn></mrow></msup></mrow><annotation encoding="application/x-tex">\sim10^{-15}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">∼</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">15</span></span></span></span></span></span></span></span></span></span></span></span> in the photosphere, atomic lines <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>∼</mo><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>15</mn></mrow></msup></mrow><annotation encoding="application/x-tex">\sim10^{-15}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">∼</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">15</span></span></span></span></span></span></span></span></span></span></span></span>, molecular bands <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>∼</mo><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>11</mn></mrow></msup></mrow><annotation encoding="application/x-tex">\sim10^{-11}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">∼</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">11</span></span></span></span></span></span></span></span></span></span></span></span>).</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[61]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[62]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# COMPUTE the opacity from scratch for the Sun (computed, not read)
 d = data[&quot;sun&quot;]
 acont, sigmac, aline = from_scratch_opacity(d)
@@ -5730,7 +5781,7 @@ rl = np.<span class="hljs-built_in">abs</span>(aline[big] - line_ref[big]) / np.
 <p>Now we run the assembled synthesiser on all four stars — <strong>computing each star&#39;s opacity from scratch</strong> and carrying it to the surface — and compare each normalised spectrum to the production reference (<code>flux_total / flux_continuum</code> from the full pipeline), <em>on the same atmosphere the book built for that star</em>. The relative error is taken point-by-point across the window. This is the end-to-end test of the assembled pipeline: the same engines, the same solver, four very different stars, opacity built from scratch on every one.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[62]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[63]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def benchmark(slug):
     &quot;&quot;&quot;Synthesise one star (opacity from scratch) and return the spectrum + rel-error stats.&quot;&quot;&quot;
     d = data[slug]
@@ -5795,7 +5846,7 @@ M dwarf    705-718 nm  emulator       1.67e-13   2.27e-09   1.06e-08  711.723 nm
 <p>Now the four spectra side by side. Each panel overlays our from-scratch spectrum (thin coloured line) on the production reference (thick grey); at this scale the two are indistinguishable. Read across the gallery and you read across the HR diagram.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[63]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[64]</span>Python</span>
         <button class="copy-btn" type="button" data-code="fig, axes = plt.subplots(4, 1, figsize=(11, 13))   # one panel per star
 colours = [&quot;C3&quot;, &quot;C1&quot;, &quot;C2&quot;, &quot;C0&quot;]                  # hot, Sun, giant, M dwarf
 
@@ -5842,7 +5893,7 @@ fig.tight_layout(); plt.show()</code></pre>
 <p>To make the agreement quantitative, here are the four residual curves on one log axis. The Sun, giant, and M dwarf sit between <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>13</mn></mrow></msup></mrow><annotation encoding="application/x-tex">10^{-13}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">13</span></span></span></span></span></span></span></span></span></span></span></span> and <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>8</mn></mrow></msup></mrow><annotation encoding="application/x-tex">10^{-8}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">8</span></span></span></span></span></span></span></span></span></span></span></span> across their whole windows — the single-precision JOSH floor, with no systematic departure. The hot dwarf rides broadly just above, at <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>∼</mo><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>7</mn></mrow></msup></mrow><annotation encoding="application/x-tex">\sim10^{-7}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">∼</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">7</span></span></span></span></span></span></span></span></span></span></span></span> across its whole window — the documented continuum deep-hot-layer residual, which lives in the continuum and so elevates every pixel together rather than spiking at one. It reaches its maximum in the saturated H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>β</mi></mrow><annotation encoding="application/x-tex">\beta</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.05278em;">β</span></span></span></span> core, where the high-forming line flux no longer shares the deep-forming continuum residual, and its line opacity is bit-exact everywhere. There is no regime where the assembled pipeline drifts from the production code beyond the arithmetic floor and that one documented continuum term.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[64]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[65]</span>Python</span>
         <button class="copy-btn" type="button" data-code="fig, ax = plt.subplots(figsize=(9, 4.5))
 
 for (slug, label, *_), col in zip(STARS, colours):
@@ -5880,7 +5931,7 @@ ax.legend(loc=<span class="hljs-string">&quot;upper right&quot;</span>, fontsize
 <p>The atmosphere operator reruns one convergence step from the Sun&#39;s grey start, to show the synthesis half is fed by a from-scratch structure. It is the Lecture 11 engine again (here <code>tc_</code>-prefixed to keep it local); we lay it out one routine at a time. First the constants.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[65]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[66]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# ATLAS12&#39;s exact CGS constants for the temperature-correction operator (Lecture 10)
 TC_SIGMA  = 5.6697e-5            # Stefan-Boltzmann, erg cm^-2 s^-1 K^-4
 TC_PLANCK = 6.6256e-27          # erg s
@@ -5900,7 +5951,7 @@ TC_CH_MAT = <span class="hljs-literal">None</span>                <span class="h
     </div></div><div class="prose"><p><code>tc_parcoe</code> — the parabolic-coefficient fit (Lecture 8) the integrator and interpolator are built on.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[66]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[67]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def tc_parcoe(f, x):
     &quot;&quot;&quot;Parabolic coefficients a,b,c so f ~ a + b x + c x^2 (Fortran PARCOE).&quot;&quot;&quot;
     n = f.size
@@ -5974,7 +6025,7 @@ TC_CH_MAT = <span class="hljs-literal">None</span>                <span class="h
     </div></div><div class="prose"><p><code>tc_integ</code> — the running integral over the depth grid (optical depth, flux integrals).</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[67]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[68]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def tc_integ(x, f, start):
     &quot;&quot;&quot;Cumulative integral of f dx, left-point parabola per interval (Fortran INTEG).&quot;&quot;&quot;
     n = f.size
@@ -6006,7 +6057,7 @@ TC_CH_MAT = <span class="hljs-literal">None</span>                <span class="h
     </div></div><div class="prose"><p><code>tc_deriv</code> — the monotonic numerical derivative (Lecture 8) used by the transfer moments and the temperature correction.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[68]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[69]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def tc_deriv(x, f):
     &quot;&quot;&quot;Return the monotonic cubic-tangent numerical derivative df/dx.
 
@@ -6066,7 +6117,7 @@ TC_CH_MAT = <span class="hljs-literal">None</span>                <span class="h
     </div></div><div class="prose"><p><code>tc_map1</code> — the parabolic interpolator that re-maps a quantity between depth grids; <code>tc_map1_scalar</code> is the one-point version.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[69]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[70]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def tc_map1(xold, fold, xnew):
     &quot;&quot;&quot;Remap a profile onto a new depth grid with ATLAS MAP1 parabolas.
 
@@ -6181,7 +6232,7 @@ TC_CH_MAT = <span class="hljs-literal">None</span>                <span class="h
     <span class="hljs-keyword">return</span> fnew, <span class="hljs-built_in">max</span>(ll - <span class="hljs-number">1</span>, <span class="hljs-number">0</span>)</code></pre>
     </div></div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[70]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[71]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def tc_map1_scalar(xold, fold, xnew_val):
     out, _ = tc_map1(np.asarray(xold), np.asarray(fold), np.asarray([xnew_val]))
     return float(out[0])" aria-label="Copy code">
@@ -6193,7 +6244,7 @@ TC_CH_MAT = <span class="hljs-literal">None</span>                <span class="h
     </div></div><div class="prose"><p><code>tc_josh_profiles</code> — the JOSH full-depth flux solver (Lecture 8): at one frequency it forms the total extinction and the source, iterates the moment equations, and returns the intensity moments and the surface Eddington factor.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[71]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[72]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# ===========================================================================
 # 2. JOSH full depth-profile kernel (Lecture 8), float32 inner iteration.
 #    Returns the profiles TCORR / ROSS consume: taunu, hnu, jmins, abtot, alpha.
@@ -6435,7 +6486,7 @@ TC_CH_MAT = <span class="hljs-literal">None</span></code></pre>
     </div></div><div class="prose"><p><code>tc_ross_finalize</code> — turns the accumulated Rosseland integral into <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>κ</mi><mrow><mi mathvariant="normal">R</mi><mi mathvariant="normal">o</mi><mi mathvariant="normal">s</mi><mi mathvariant="normal">s</mi></mrow></msub></mrow><annotation encoding="application/x-tex">\kappa_{\rm Ross}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">κ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">Ross</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> and integrates it to <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>τ</mi><mrow><mi mathvariant="normal">R</mi><mi mathvariant="normal">o</mi><mi mathvariant="normal">s</mi><mi mathvariant="normal">s</mi></mrow></msub></mrow><annotation encoding="application/x-tex">\tau_{\rm Ross}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:-0.1132em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">Ross</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> (Lecture 10).</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[72]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[73]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# ===========================================================================
 # 3. ROSS: Rosseland mean + optical-depth scale (Fortran ROSS).
 # ===========================================================================
@@ -6457,7 +6508,7 @@ def tc_ross_finalize(acc, T, rhox):
     </div></div><div class="prose"><p><code>tc_expi3</code> — the third exponential integral <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>E</mi><mn>3</mn></msub></mrow><annotation encoding="application/x-tex">E_3</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05764em;">E</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.0576em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">3</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> for the surface boundary terms.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[73]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[74]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# ===========================================================================
 # 4. EXPI(3, x) = E3 exponential integral (Fortran FUNCTION EXPI), used by rdiagj.
 # ===========================================================================
@@ -6539,7 +6590,7 @@ def tc_expi3(x):
     </div></div><div class="prose"><p><code>TcRosstab</code> — the <code>ROSSTAB</code> opacity table (Lecture 9): ingest <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">(</mo><mi>T</mi><mo separator="true">,</mo><mi>P</mi><mo separator="true">,</mo><msub><mi>κ</mi><mrow><mi mathvariant="normal">R</mi><mi mathvariant="normal">o</mi><mi mathvariant="normal">s</mi><mi mathvariant="normal">s</mi></mrow></msub><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">(T,P,\kappa_{\rm Ross})</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">κ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">Ross</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mclose">)</span></span></span></span> and evaluate <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>κ</mi><mrow><mi mathvariant="normal">R</mi><mi mathvariant="normal">o</mi><mi mathvariant="normal">s</mi><mi mathvariant="normal">s</mi></mrow></msub><mo stretchy="false">(</mo><mi>T</mi><mo separator="true">,</mo><mi>P</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">\kappa_{\rm Ross}(T,P)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal">κ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">Ross</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="mclose">)</span></span></span></span> by four-quadrant interpolation inside the hydrostatic and convection solves.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[74]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[75]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# ===========================================================================
 # 4b. ROSSTAB: a small opacity table (log T&#39;, log P&#39;, log kappa) built from the
 #     just-finished iteration&#39;s (T, P, kappa_Ross) at every layer, then a
@@ -6737,7 +6788,7 @@ class TcRosstab:
     </div></div><div class="prose"><p><code>tc_ttaup</code> — the hydrostatic integration <code>TTAUP</code> (Lecture 9): march the pressure inward so <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>d</mi><mi>P</mi><mi mathvariant="normal">/</mi><mi>d</mi><mi>τ</mi><mo>=</mo><mi>g</mi><mi mathvariant="normal">/</mi><mi>κ</mi></mrow><annotation encoding="application/x-tex">dP/d\tau=g/\kappa</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal">d</span><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="mord">/</span><span class="mord mathnormal">d</span><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">g</span><span class="mord">/</span><span class="mord mathnormal">κ</span></span></span></span>.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[75]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[76]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# ===========================================================================
 # 5. TTAUP: hydrostatic re-integration (used by DRHOX in TCORR mode 3).
 #    The opacity comes from the ROSSTAB table built this iteration.
@@ -6843,7 +6894,7 @@ def tc_ttaup(t, tau, prad, pturb, grav, rosstab):
     </div></div><div class="prose"><p><code>tc_nz_signed</code> — the small guard that keeps a denominator non-zero without flipping its sign.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[76]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[77]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def tc_nz_signed(x, eps=1e-300):
     if abs(x) &gt;= eps:
         return x
@@ -6857,7 +6908,7 @@ def tc_ttaup(t, tau, prad, pturb, grav, rosstab):
     </div></div><div class="prose"><p><code>tc_tcorr_mode3</code> — the Avrett–Krook temperature correction (Lectures 10–11, run here with convection turned off for the initial grey-start step): compare the carried flux to the target, form the flux-error, Lambda, and surface corrections, and return the updated temperature and column mass. With this the operator is complete.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[77]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[78]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# ===========================================================================
 # 6. TCORR mode 3: assemble T1 = dtflux + dtlamb + dtsurf, DRHOX, monotonicity.
 #    Convection OFF, iteration 1 (oldt1 = 0, damping skipped).  Faithful port of
@@ -7065,7 +7116,7 @@ def tc_tcorr_mode3(T, rhox, tauros, abross, flxrad, rjmins, rdabh, rdiagj,
     </div></div><div class="prose"><p>Now the driver. It runs one operator step from the Sun&#39;s grey start, and — this is <strong>Note B</strong> — it computes the <strong>radiation-pressure profile</strong> <code>prad</code> that the hydrostatic re-integration needs <em>inline</em>, from the JOSH flux moments, rather than reading a precomputed array. Following the RADIAP integrator of ATLAS: in the frequency loop it accumulates <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mtext mathvariant="monospace">accrad</mtext><mo>=</mo><msub><mo>∑</mo><mi>ν</mi></msub><msub><mi>κ</mi><mi>ν</mi></msub><mtext> </mtext><msub><mi>H</mi><mi>ν</mi></msub><mtext> </mtext><mi>d</mi><mi>ν</mi></mrow><annotation encoding="application/x-tex">\texttt{accrad} = \sum_\nu \kappa_\nu\,H_\nu\,d\nu</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6111em;"></span><span class="mord text"><span class="mord texttt">accrad</span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1.0497em;vertical-align:-0.2997em;"></span><span class="mop"><span class="mop op-symbol small-op" style="position:relative;top:0em;">∑</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.0017em;"><span style="top:-2.4003em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2997em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">κ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.08125em;">H</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.0813em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal">d</span><span class="mord mathnormal" style="margin-right:0.06366em;">ν</span></span></span></span> (the total extinction times the Eddington flux moment, weighted by the frequency quadrature weight <code>rco</code>); after the loop it scales by <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>4</mn><mi>π</mi><mi mathvariant="normal">/</mi><mi>c</mi></mrow><annotation encoding="application/x-tex">4\pi/c</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">4</span><span class="mord mathnormal" style="margin-right:0.03588em;">π</span><span class="mord">/</span><span class="mord mathnormal">c</span></span></span></span>, caps any layer whose flux exceeds the target, and integrates over the column mass to get <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mtext mathvariant="monospace">prad</mtext><mo stretchy="false">(</mo><mi>ρ</mi><mi>x</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">\texttt{prad}(\rho x)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord texttt">prad</span></span><span class="mopen">(</span><span class="mord mathnormal">ρ</span><span class="mord mathnormal">x</span><span class="mclose">)</span></span></span></span>. Equivalently, this integrates the moment-equation gradient of <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>4</mn><mi>π</mi><mi>K</mi><mi mathvariant="normal">/</mi><mi>c</mi></mrow><annotation encoding="application/x-tex">4\pi K/c</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">4</span><span class="mord mathnormal" style="margin-right:0.03588em;">π</span><span class="mord mathnormal" style="margin-right:0.07153em;">K</span><span class="mord">/</span><span class="mord mathnormal">c</span></span></span></span> over column mass; it is the RADIAP hydrostatic radiation-pressure profile, not a new definition of radiation pressure. So the radiation pressure feeding the hydrostatic step is <em>computed from the from-scratch transfer</em>, not read.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[78]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[79]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def sun_atmosphere_operator(d):
     &quot;&quot;&quot;One TCORR step from the Sun&#39;s grey start (Lectures 10-11), prad COMPUTED inline (Note B).&quot;&quot;&quot;
     # the JOSH operators for the per-frequency transfer + the J-&gt;H moment matrix
@@ -7251,7 +7302,7 @@ def tc_tcorr_mode3(T, rhox, tauros, abross, flxrad, rjmins, rdabh, rdiagj,
     </div></div><div class="prose"><p>Run it. One step already pulls the deep layers toward radiative equilibrium and reproduces pykurucz&#39;s same single step to its documented floor: the corrected temperature to <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>∼</mo><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>9</mn></mrow></msup></mrow><annotation encoding="application/x-tex">\sim10^{-9}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">∼</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">9</span></span></span></span></span></span></span></span></span></span></span></span> (the Lecture-10 floor) and the corrected column mass to <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>∼</mo><mn>1.5</mn><mo>×</mo><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>5</mn></mrow></msup></mrow><annotation encoding="application/x-tex">\sim1.5\times10^{-5}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">∼</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em;"></span><span class="mord">1.5</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">5</span></span></span></span></span></span></span></span></span></span></span></span> (the float32 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>→</mo></mrow><annotation encoding="application/x-tex">\rightarrow</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">→</span></span></span></span> ROSSTAB-table floor, not machine precision). The radiation pressure that fed the hydrostatic re-integration was the one we just accumulated from the JOSH flux moments.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[79]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[80]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# run ONE temperature-correction step from the Sun&#39;s grey start, prad computed inline
 op_T_out, op_rhox_out, op_prad, T_rel, R_rel = sun_atmosphere_operator(data[&quot;sun&quot;])
 
@@ -7275,7 +7326,7 @@ op_T_out, op_rhox_out, op_prad, T_rel, R_rel = sun_atmosphere_operator(data[<spa
 </pre></div></div><div class="prose"><p>Now plot the operator step alongside the solar atmosphere used by the synthesis. The grey-start step demonstrates the local correction machinery; the final curve is the line-blanketed Part-VI solar structure that the capstone spectrum consumes.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[80]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[81]</span>Python</span>
         <button class="copy-btn" type="button" data-code="fig, ax = plt.subplots()
 
 d = data[&quot;sun&quot;]
@@ -7313,7 +7364,7 @@ ax.legend(loc=<span class="hljs-string">&quot;upper left&quot;</span>, fontsize=
 <p>One table collects every claim of this lecture with its measured floor, and marks honestly which stages were <strong>computed from scratch here</strong> and which were <strong>given</strong> (verified elsewhere). This is the lecture&#39;s benchmark, and the book&#39;s: the from-scratch chain, with its one named wall. The spectrum row reports the <strong>median, the 99th percentile, and the max / worst-pixel</strong> for each star — so the hot dwarf&#39;s window-wide <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>∼</mo><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>7</mn></mrow></msup></mrow><annotation encoding="application/x-tex">\sim10^{-7}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">∼</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">7</span></span></span></span></span></span></span></span></span></span></span></span> elevation (the continuum residual lifting every pixel and peaking at the H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>β</mi></mrow><annotation encoding="application/x-tex">\beta</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.05278em;">β</span></span></span></span> core where the line flux no longer cancels it) is visible as exactly that: a broad offset bounded by the worst pixel, with every point still agreeing with the production code to six figures.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[81]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[82]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# assemble the end-to-end precision summary
 print(&quot;=&quot; * 84)
 print(&quot;LEAN-KURUCZ END-TO-END PRECISION - Lecture 14&quot;)
@@ -7416,7 +7467,7 @@ STAGE PROVENANCE (this lecture)
 <p>A from-scratch claim deserves a negative control. If the opacity were secretly read from the reference, perturbing an <em>input</em> population would not move the spectrum. So we bump the Sun&#39;s Fe I population by 1% and re-synthesise: if the opacity is genuinely computed from that population, the spectrum must move far above the float floor — and it does, by a few parts in <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><msup><mn>0</mn><mn>3</mn></msup></mrow><annotation encoding="application/x-tex">10^3</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">3</span></span></span></span></span></span></span></span></span></span></span>, five orders of magnitude above the <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>8</mn></mrow></msup></mrow><annotation encoding="application/x-tex">10^{-8}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">8</span></span></span></span></span></span></span></span></span></span></span></span> floor.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[82]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[83]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# tamper check: perturb ONE from-scratch input (Fe I population) -&gt; the spectrum must move
 d = data[&quot;sun&quot;]
 base = synthesise(d)
