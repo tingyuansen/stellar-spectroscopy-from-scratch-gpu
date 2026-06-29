@@ -34,7 +34,7 @@ Generated from source inspection and local runs on 2026-06-29.
 | L9-L13 | GPU builders | Atmosphere primitives, molecular equilibrium, molecular bands, and molecular continuum are GPU-textbook form with named reference-input boundaries. |
 | L14 | non-torch builder | Honest same-atmosphere synthesis capstone. It computes opacity/transfer but loads atmosphere/EOS/population/Doppler state. Not final stellar-parameters-to-spectrum closure. |
 | L15 | GPU builder with in-notebook scalar LINOP1 gate | Teaching-window deposit is computed in the taught path. Strict boundary remains open because atmosphere/EOS/window/continuum/full-grid blanket fixtures are loaded. |
-| L16 | GPU builder with helper-backed closure debt | EOS-derived state is recomputed for a loaded atmosphere fixture. PFSAHA/finite-difference/continuum/molecular helpers remain clean-room NumPy, not final all-torch lecture cells. |
+| L16 | GPU builder with helper-backed closure debt | EOS-derived state is recomputed for a loaded atmosphere fixture. PFSAHA/finite-difference/continuum/molecular helpers remain clean-room NumPy, not final all-torch lecture cells. Any live atmosphere-loop gate is capped at `max_iter=1` until the production convergence path is fast enough for a full pedagogical solve. |
 
 ## Required gates before calling the textbook passdown-ready
 
@@ -68,7 +68,8 @@ Generated from source inspection and local runs on 2026-06-29.
   atmosphere+spectrum once the corresponding `kgpu` four-star ATLAS12+SYNTHE gate exists.
 - Replace L15's production-derived atmosphere/EOS/window/continuum/full-grid blanket fixtures and
   L16's loaded-atmosphere/helper-backed pieces with self-contained torch-native lecture cells where
-  practical.
+  practical. For L16, keep live execution to `max_iter=1` until the kgpu convergence squeeze closes
+  the full solar atmosphere solve.
 - Break dense L14/L15 code cells into smaller commented/docstringed units with interleaved
   markdown, preserving parity after each change.
 

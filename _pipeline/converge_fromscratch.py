@@ -1,21 +1,23 @@
 #!/usr/bin/env python
-"""Stage 8 — the FULL from-scratch line-blanketed convergence (NO pyk subprocess).
+"""Offline line-blanketed convergence trajectory generator.
 
-Replaces numpy_oracle.oracle_state (the per-iteration pyk subprocess) with the book's OWN
-from-scratch per-iteration state:
+This is not a taught notebook path and not the final all-local capstone.  It exists to regenerate
+the compact trajectory fixture summarized in Lecture 16 while the live lecture remains capped at a
+runnable one-iteration smoke gate.  It replaces the old per-iteration pyk subprocess oracle with
+the book's own from-scratch per-iteration state:
   * EOS (eos_fromscratch.popsall)                   — multi-element populations + flat slots
   * Doppler (eos_fromscratch)                        — xnfdop/dopple/txnxn
   * continuum + tabcont (continuum_fromscratch)      — L3 KAPP + the far-UV metal-bf forest
   * EDENS FD (eos_fromscratch.convec_fd_samples)     — the ionization-energy heat capacity
   * molecular populations (molecular_fromscratch)    — L13 NMOLEC -> molecular slots 841-940
-  * deposit (numpy_oracle.linop1_deposit + kgpu atmosphere_xlines/_hlines kernels — numba, NO pyk)
+  * deposit helpers from kgpu/numpy_oracle history — verified NumPy/Numba transcriptions, no pyk
 
-The structure update uses the book's OWN convergence engines (verify_converged: josh_profiles,
-ross_finalize, convec, tcorr_mode3, map1, integ, Rosstab, deriv, expi3) — exactly the Lecture-11
-machinery.  The deposit KERNELS are the verified bit-exact transcriptions (no pyk import).  Starts
-from the emulator warm-start; converges to near-sun.
+The structure update uses the book's convergence engines (verify_converged: josh_profiles,
+ross_finalize, convec, tcorr_mode3, map1, integ, Rosstab, deriv, expi3).  The deposit helpers are
+verified transcriptions, but this script still imports helper modules from `~/pykurucz_gpu`; that
+is acceptable for offline provenance tooling and not acceptable for executed lecture code.
 
-Run in the book .venv (has numpy/numba/torch).  pyk is NEVER imported.
+Run in the book .venv (has numpy/numba/torch).  pykurucz is never imported.
 """
 from __future__ import annotations
 
@@ -31,18 +33,18 @@ ROOT = Path(__file__).resolve().parent.parent
 REF = ROOT / "reference"
 GPU = Path("/Users/ysting/pykurucz_gpu")
 sys.path.insert(0, str(ROOT / "_pipeline"))
-sys.path.insert(0, str(GPU / "bench"))   # numpy_oracle.linop1_deposit (numba, no pyk)
-sys.path.insert(0, str(GPU))             # kgpu.atmosphere_xlines/_hlines (numba, no pyk)
+sys.path.insert(0, str(GPU / "bench"))   # offline numpy_oracle deposit helper
+sys.path.insert(0, str(GPU))             # offline kgpu atmosphere_xlines/_hlines helpers
 
 import eos_fromscratch as EOS
 import continuum_fromscratch as CF
 import molecular_fromscratch as MF
 import verify_converged as VC
 
-# the deposit kernels (verified bit-exact transcriptions; NO pyk import on these paths)
-import numpy_oracle as NO                      # linop1_deposit + read_fort12 (numba)
-from kgpu import atmosphere_xlines as KX       # xlinop type-0 + fort19 decode (numba)
-from kgpu import atmosphere_hlines as KH       # xlinop type-1 H HPROF4 (numba)
+# Offline deposit helpers used only to regenerate the shipped trajectory fixture.
+import numpy_oracle as NO                      # linop1_deposit + read_fort12
+from kgpu import atmosphere_xlines as KX       # xlinop type-0 + fort19 decode
+from kgpu import atmosphere_hlines as KH       # xlinop type-1 H HPROF4
 
 TEFF = 5777.0
 WTMOLE = 1.2584297579180466

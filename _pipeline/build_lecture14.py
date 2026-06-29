@@ -3115,8 +3115,9 @@ def synthesise(d, override_pop=None):
     # the LTE thermal source, computed inline (Note A); scattering is handled separately
     bnu = planck_source(d)
 
-    # line scattering is zero in the production LTE setup used for these windows
-    sigmal = d["line_scattering"].astype(float)
+    # line scattering is zero in the production LTE setup used for these windows.
+    # Keep it local rather than reading the comparison fixture's zero array.
+    sigmal = np.zeros((n_depths, n_wl), dtype=float)
     zero = np.zeros(n_depths)
 
     # full spectrum: all (from-scratch) opacity; continuum: zero line opacity
@@ -3211,7 +3212,7 @@ fig.tight_layout(); plt.show()''')
 md(r"""Four spectra, one pipeline. Reading top to bottom:
 
 - **Hot dwarf (9000 K).** A single broad, dark trough dominates the window: **H$\beta$**, the $n=2\rightarrow4$ Balmer line. Its far and intermediate wings are not primarily thermal — they are dominated by the charged-particle Stark broadening of Lecture 6; the core still carries Doppler, natural, and collisional contributions and is the part most vulnerable to NLTE. In this window the H$\beta$ line opacity dominates the spectrum, so the Balmer profile is the defining feature, and its wings are a sensitive gravity and temperature diagnostic.
-- **The Sun (5777 K).** A dense **forest of metal lines** on a smooth H$^-$ continuum — Fe, Ni, Ti, and others, neutral and singly ionised, each a Voigt profile from Lectures 4–5. This is the spectrum the whole book was built to reproduce, and here it sits on an atmosphere we converged from a grey start.
+- **The Sun (5777 K).** A dense **forest of metal lines** on a smooth H$^-$ continuum — Fe, Ni, Ti, and others, neutral and singly ionised, each a Voigt profile from Lectures 4–5. This is the spectrum the whole book was built to reproduce, and here it sits on the Part-VI line-blanketed solar atmosphere supplied to this capstone.
 - **Giant (4500 K, $\log g=2$).** The **Mg b triplet** and neighbouring metal lines. The giant's low surface gravity means low photospheric pressure, so the pressure-broadened (for these neutral metal lines, primarily van der Waals: collisions with neutral hydrogen) damping wings are *weaker and narrower* than in a dwarf of the same temperature; in this model the cores appear relatively sharp. Gravity is written into the line shapes, which is why these lines are luminosity diagnostics.
 - **M dwarf (3500 K).** Not a forest of lines but a **molecular band**: hundreds of TiO rotational lines blend into a depression plunging toward the band head, where the flux drops to an eighth of the continuum (Lectures 12–13). The atomic lines are still there, buried under the band.
 
@@ -3248,7 +3249,7 @@ The synthesis half is complete and verified on four stars. We close the loop on 
 
 We inline the operator's kernels (namespaced `tc_*` to sit alongside the synthesis kernels): the numerical helpers `tc_parcoe`/`tc_integ`/`tc_deriv`/`tc_map1`, the JOSH full depth-profile kernel `tc_josh_profiles` (which returns the per-layer flux $H_\nu$, the moment $J_\nu - S_\nu$, and $\tau_\nu$ that the correction needs), the Rosseland mean `tc_ross_finalize`, the exponential integral `tc_expi3`, the `TcRosstab` opacity table, the hydrostatic re-integrator `tc_ttaup`, and the correction itself `tc_tcorr_mode3`. In this initial grey-start demonstration the correction is run with convection turned off, matching the fixture. These use ATLAS's slightly different CGS constants, kept here as `TC_*`.""")
 
-md(r"""The atmosphere operator reruns one convergence step from the Sun's grey start, to show the synthesis half is fed by a from-scratch structure. It is the Lecture 11 engine again (here `tc_`-prefixed to keep it local); we lay it out one routine at a time. First the constants.""")
+md(r"""The atmosphere operator reruns one convergence step from the Sun's grey start, to show the operator that underlies the supplied Part-VI solar structure. It is the Lecture 11 engine again (here `tc_`-prefixed to keep it local); we lay it out one routine at a time. First the constants.""")
 
 code(r'''# ATLAS12's exact CGS constants for the temperature-correction operator (Lecture 10)
 TC_SIGMA  = 5.6697e-5            # Stefan-Boltzmann, erg cm^-2 s^-1 K^-4
@@ -4000,7 +4001,7 @@ ax.set_xlabel(r"column mass  RHOX  [g cm$^{-2}$]"); ax.set_ylabel("temperature  
 ax.set_title("The Sun's atmosphere: grey step and line-blanketed final state")
 ax.legend(loc="upper left", fontsize=9); fig.tight_layout(); plt.show()''')
 
-md(r"""One step already pulls the deep layers down toward the converged profile — the grey start over-predicts the temperature in the line-forming region, and the radiative-equilibrium correction fixes it. Twenty-seven such steps reach the converged model. The operator that does this is the book's own, verified from scratch in Lectures 10–11; here we have run it on a real star from a cold start, with its radiation pressure computed from the from-scratch transfer.""")
+md(r"""One step already pulls the deep layers down toward the converged profile — the grey start over-predicts the temperature in the line-forming region, and the radiative-equilibrium correction fixes it. Repeating this operator is the Part-VI convergence problem; this capstone runs one verified step and then uses the supplied line-blanketed solar model for spectrum synthesis. The operator itself is the book's own, verified from scratch in Lectures 10–11; here we have run it on a real star from a cold start, with its radiation pressure computed from the from-scratch transfer.""")
 
 # ── the in-notebook precision table ─────────────────────────────────────────────
 md(r"""## The end-to-end precision table

@@ -43,27 +43,32 @@ Used by `_pipeline/build_lecture15_gpu.py` and `_pipeline/verify_lineblanket.py`
 Physical input / static data:
 - Stellar and structure scalars: `teff`, `logg`, `gravity_cgs`, `T`, `rhox`, `P`, `rho`,
   `ptotal`, `xne`, `vturb`, `hckt`.
-- Frequency grid and continuum inputs: `freq_hz`, `waveset_nm`, `rco`, `acont`, `sigmac`,
-  `scont`.
+- Frequency grid and quadrature inputs: `freq_hz`, `waveset_nm`, `rco`.
 - Teaching-window line selection: `win_*`, `tabcont`, `iwavetab`, `ratiolg`, scale factors,
   and line-type flags.
 
 Computed state currently loaded by L15:
 - `win_xnfdop`, `win_dopple`, `win_xne`, `win_txnxn`, `win_hckt`: the per-line/per-depth state
   consumed by the teaching-window deposit. L16 is the lecture that rebuilds this class of state.
+- `acont`, `sigmac`, `scont`: continuum absorption, scattering, and source arrays consumed by the
+  line-blanketed correction step. They are still fixture state, not computed by L15.
+- `xlines_fullgrid`: the full sampled-grid line blanket used by the correction step. L15 computes
+  the exact teaching-window recurrence, but it still loads the full-grid blanket fixture.
 
 Comparison-only targets:
-- `xlines_window_ref`, `xlines_fullgrid`, `ahline_fullgrid`, `T_step`, `rhox_step`, `abross`,
-  `tauros`, `abross_raw`, `tauros_raw`, `prad`, `pradk`, `flxrad`, `flxcnv`, `grdadb`, `dltdlp`.
+- `xlines_window_ref`, `ahline_fullgrid`, `T_step`, `rhox_step`, `abross`, `tauros`, `abross_raw`,
+  `tauros_raw`, `prad`, `pradk`, `flxrad`, `flxcnv`, `grdadb`, `dltdlp`.
 
 ## Lecture 16: `converge_fromscratch_result.npz`
 
-Used by `_pipeline/build_lecture16_gpu.py` as a compact result statement.
+Used by `_pipeline/build_lecture16.py` as a compact result statement.
 
 Computed result:
-- `T`, `rhox`, `Tmed`, `base_T`, `base_RHOX`: the independent from-scratch line-blanketed solar
-  convergence result (`base_RHOX` is 12.3-class). It is not the pyk exact-LINOP target; the pyk
-  solar state used by L14 has `base RHOX = 12.1439331`.
+- `T`, `rhox`, `Tmed`, `base_T`, `base_RHOX`: the offline line-blanketed solar trajectory generated
+  by `_pipeline/converge_fromscratch.py` (`base_RHOX` is 12.3-class). This result is produced by the
+  textbook state builders plus verified NumPy/Numba deposit helpers and is summarized by L16; it is
+  not a live all-torch notebook solve. It is also not the pyk exact-LINOP target; the pyk solar
+  state used by L14 has `base RHOX = 12.1439331`.
 
 Comparison arrays:
 - `Ts`, `Rs`: reference solar temperature and column-mass arrays used to state residuals.

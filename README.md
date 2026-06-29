@@ -92,11 +92,12 @@ capstone.
   signposts, not prerequisites you must chase.
 - **The two halves of "end to end."** A stellar-atmosphere code is two halves. **Lecture 14** is the
   *spectrum* half — atmosphere in, spectrum out — assembled and run from scratch across the HR
-  diagram. **Part VI (Lectures 15–16)** is the *atmosphere* half — parameters in, line-blanketed
-  model atmosphere out — the book's true finale. Lecture 11's converged model is the *continuum-only*
-  scaffold; Part VI switches the blanket on and builds the per-iteration equation of state that
-  closes the last borrowed intermediate. Lecture 14 now consumes that Part-VI line-blanketed solar
-  state for the Sun, while the hot dwarf, giant, and M dwarf remain documented emulator warm-starts.
+  diagram. **Part VI (Lectures 15–16)** is the *atmosphere-state* half: it switches the blanket on,
+  builds the per-iteration equation of state, and shows the correction machinery, but the live
+  notebook gate intentionally stops at a runnable one-iteration smoke boundary until the production
+  convergence loop is fast enough to teach cleanly. Lecture 14 now consumes the Part-VI
+  line-blanketed solar state for the Sun, while the hot dwarf, giant, and M dwarf remain documented
+  emulator warm-starts.
 - **The boundaries are named, not hidden.** Out of scope, by design: full optical bandwidth (an
   engineering problem of compiled kernels and parallelism — the physics is all here), and NLTE
   statistical equilibrium (the real physics frontier). The geometry is 1D plane-parallel throughout,

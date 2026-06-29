@@ -67,23 +67,18 @@ Current status:
      blanketing and atmosphere correction, then L14 atmosphere-to-spectrum capstone, with stable
      lecture numbers and URLs. L14/L15/L16 rebuilt and verified after the prose/order move.
 
-3. Close L8's data boundary:
-   - status: closed for this round. Opacity slabs feed from `reference/L6.npz`, the preceding
-     lecture artifact, and the fixed `XTAU`/`COEFJ`/`CH` JOSH operator arrays are explicitly
-     documented as static method constants, not spectrum answers.
-
-4. Promote L14 from same-atmosphere synthesis to true capstone:
+3. Promote L14 from same-atmosphere synthesis to true capstone:
    - wire or inline L15/L16 so the Sun state is regenerated from stellar parameters;
    - keep the four HR-window `verify_leankurucz.py` gate green;
    - do not claim non-solar atmosphere closure until kgpu has a corresponding four-star
      ATLAS12+SYNTHE gate.
 
-5. Reduce L15 fixtures:
+4. Reduce L15 fixtures:
    - replace loaded atmosphere/EOS/window/continuum/full-grid blanket fixtures in small
      parity-gated steps;
    - keep the exact LINOP1 recurrence and float32 accumulation-order gate intact.
 
-6. Reduce L16 helper boundaries:
+5. Reduce L16 helper boundaries:
    - keep any live kgpu-style atmosphere loop in the lecture to `max_iter=1` for now, so the
      notebook remains runnable;
    - after the kgpu squeeze, extend that local loop to full convergence and target the 12.3-class /
@@ -94,9 +89,11 @@ Current status:
      cells where practical; use the NumPy clean-room solve only as a verifier for the GPU path;
    - retain scalar loops only for true recurrences or fixed table logic.
 
-7. Finish dense-code teaching cleanup after the L14-L16 restructure:
+6. Finish dense-code teaching cleanup after the L14-L16 restructure:
    - status: closed under the current `>=100` line audit; all L1-L16 code cells are below this
      threshold after the L14 helper split;
+   - stricter optional cleanup remains for 80-99 line cells, especially L14, L15, L13, L11, L9,
+     L6, and L5, but this is readability work rather than a correctness blocker;
    - add reader-walkthrough comments/docstrings inside dense code blocks after the sequence is
      stable, so comments describe the final structure rather than a soon-to-move draft;
    - split or comment dense cells only when the corresponding verifier is rerun.

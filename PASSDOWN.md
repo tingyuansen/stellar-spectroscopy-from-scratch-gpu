@@ -53,13 +53,14 @@ blocking miss remains. Unchecked means it is the next fix target, not a vague co
 | L12 | [x] | [x] | [x] | [x] | [x] | [x] | [x] `verify_molecules.py` |
 | L13 | [x] | [x] | [x] | [x] | [x] split one-depth Newton solve from pressure-continuation driver | [x] | [x] `verify_nmolec.py`, `verify_mol_continuum.py` |
 | L14 | [x] | [ ] loads atmosphere/EOS/population/Doppler state; not yet stellar-parameters-to-spectrum | [x] after L16 -> L15 -> L14 public read-order repair | [x] partial | [x] split continuum, line, molecular, JOSH, and TCORR helpers below 100-line threshold | [ ] capstone is not yet torch/MPS throughout | [x] `verify_leankurucz.py` |
-| L15 | [x] | [ ] still consumes production-derived atmosphere/EOS/window/continuum/full-grid blanket fixtures | [x] | [x] | [x] | [x] teaching-window deposit is torch; exact scalar recurrence retained for parity | [x] `verify_lineblanket.py` |
+| L15 | [x] | [ ] still consumes production-derived atmosphere/EOS/window/continuum/full-grid blanket fixtures | [x] | [x] | [x] | [ ] exact accepted teaching-window recurrence is scalar for parity; torch approximation is not the accepted gate | [x] `verify_lineblanket.py` |
 | L16 | [x] | [ ] current notebook computes per-iteration state and should keep only a runnable `max_iter=1` live-smoke gate; full converged solar solve is parked until kgpu convergence is fast enough for pedagogy | [x] | [x] | [x] | [ ] live solve must be torch/device-first; NumPy clean-room code is verifier only | [x] `build.py 16`, L15/L14 downstream gates |
 
 ### Honest remaining blockers
 
 - Dense pedagogical code cells are closed under the current `>=100` line audit: no lecture has a
-  code cell at or above this threshold.
+  code cell at or above this threshold. A stricter readability pass can still target 80-99 line
+  cells, led by L14 and followed by L15/L13/L11/L9/L6/L5; this is not a current parity blocker.
 - L14 is numerically honest but not the final capstone. It computes opacity + JOSH spectra from a
   supplied atmosphere/EOS/population/Doppler state. It does not yet regenerate the stellar
   atmosphere and EOS state from stellar parameters inside the capstone, and it is not yet a
@@ -118,8 +119,8 @@ plus HR comparison.
 - Code-cell hygiene audit: `total bad=0` for leading/trailing blank code cells.
 - Function-docstring audit: `lowdoc>=20 = 0` under the current rule (functions/classes at least
   20 lines must have useful docstrings).
-- Remaining long-cell audit using the stricter `>=100` line threshold: zero code cells at or above
-  this threshold across L1-L16.
+- Long-cell audit using the current blocking `>=100` line threshold: zero code cells at or above
+  this threshold across L1-L16. A non-blocking stricter pass now tracks 80-99 line cells.
 - `git diff --check`: clean.
 - `python _pipeline/build_lecture3_gpu.py && python _pipeline/build.py 3 &&
   python _pipeline/verify_kapp.py`: L3 stricter KAPP naming pass is green; KAPP verifier reports
@@ -198,8 +199,8 @@ misses have either been fixed with a passing gate or explicitly marked as a real
    computed lecture cells in small parity-gated steps.
 4. Move L16 helper-backed clean-room NumPy pieces into pedagogical torch cells where practical;
    keep NumPy only as the parity oracle for the GPU-native lecture path.
-5. Break up the densest L14/L15 code cells with interleaved markdown and docstrings, rerunning
-   parity after each chunk.
+5. Break up or add reader-walkthrough comments to the remaining 80-99 line cells, starting with
+   L14/L15, and rerun parity after each chunk.
 6. Continue the shared naming pass: use the `BIBLE.md` glossary, avoid destructive fixture/schema
    renames, and verify each pure readability slice with the touched lecture's builder/verifier.
 7. For L16, add or keep only a local `max_iter=1` live-smoke atmosphere cell until the loop is fast;
