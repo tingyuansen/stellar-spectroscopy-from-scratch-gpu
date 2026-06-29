@@ -210,11 +210,12 @@ code(r'''def planck_nu(freq_hz, temperature):
     x = H * freq / (K * temp)
 
     # work with e^{-x}, which is <= 1 and so never overflows on the Wien tail
-    ehvkt = torch.exp(-x)
+    exp_minus_hnu_over_kT = torch.exp(-x)
 
     # nu_15^3 prefactor times the photon occupation factor e^{-x} / (1 - e^{-x})
     pref = torch.as_tensor(1.47439e-2, dtype=DTYPE, device=DEVICE)
-    return pref * (freq / torch.as_tensor(1.0e15, dtype=DTYPE, device=DEVICE))**3 * ehvkt / (1.0 - ehvkt)''')
+    return (pref * (freq / torch.as_tensor(1.0e15, dtype=DTYPE, device=DEVICE))**3
+            * exp_minus_hnu_over_kT / (1.0 - exp_minus_hnu_over_kT))''')
 
 md(r"""Let us look at it: $B_\lambda(T)$ for three temperatures bracketing the Sun. As $T$ rises the curve lifts at every wavelength and its peak slides blueward (Wien's displacement law, $\lambda_{\rm peak}T = \text{const}$). For $T\approx5770$ K the $B_\lambda$ peak falls near $500\ \mathrm{nm}$, so our $500$–$510\ \mathrm{nm}$ window lies essentially right on the solar blackbody peak.
 

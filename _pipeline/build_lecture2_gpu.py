@@ -396,9 +396,15 @@ EV_TO_CM = 8065.479          # 1 eV in cm^-1
 LN10     = math.log(10.0)
 
 # depth state (continuous -> device tensors; the discrete-lookup copies stay fp64 on host)
-T_pf   = dev(PF["T"]);   tkev = dev(PF["tkev"]); hckt = dev(PF["hckt"])
-tlog   = dev(PF["tlog"]); tk_pf = dev(PF["tk"]); Pg = dev(PF["gas_pressure"])
-xne_pf = dev(PF["electron_density"]); xnatom = dev(PF["xnatom"]); xab_pf = dev(PF["xabund"])
+T_pf = dev(PF["T"])
+kT_eV = dev(PF["tkev"])
+hc_over_kT = dev(PF["hckt"])
+tlog = dev(PF["tlog"])
+tk_pf = dev(PF["tk"])
+Pg = dev(PF["gas_pressure"])
+electron_density_pf = dev(PF["electron_density"])
+xnatom = dev(PF["xnatom"])
+xab_pf = dev(PF["xabund"])
 T_h    = PF["T"].astype(np.float64);    tlog_h = PF["tlog"].astype(np.float64)   # fp64 host copies
 nion_per_Z = PF["nion_per_Z"].astype(np.int64); LOCZ = PF["LOCZ"].astype(np.int64)
 ndp = T_h.size
@@ -417,25 +423,28 @@ print(f"PFSAHA tables on {DEVICE.type}: {ndp} layers, 99 elements, up to 6 ion s
 
 md(r"""**The Debye lowering, again — but the gate decision in fp64.** PFSAHA uses the same Kurucz Debye lowering as the charge-balance core, with one wrinkle: the high-$T$ occupation correction switches on only when the per-charge lowering $\Delta\chi \geq 0.1\ \mathrm{eV}$, a *discrete gate*. So we compute the lowering twice — once on the device (the continuous value that enters $U$) and once on the fp64 host (the value that decides the gate).""")
 
-code(r'''def debye_lowering(xne, tk, Pg):
+code(r'''def debye_lowering(electron_density, kT_erg, gas_pressure):
     """Per-unit-charge Debye lowering Delta_chi [eV], depth-batched on the device."""
-    charge = 2.0 * xne
-    excess = 2.0 * xne - Pg / tk
+    charge = 2.0 * electron_density
+    excess = 2.0 * electron_density - gas_pressure / kT_erg
     charge = torch.where(excess > 0.0, charge + 2.0 * excess, charge)
     charge = torch.where(charge == 0.0, torch.ones_like(charge), charge)
-    debye = torch.sqrt(tk / 2.8965e-18 / charge)
+    debye = torch.sqrt(kT_erg / 2.8965e-18 / charge)
     return torch.clamp(1.44e-7 / debye, max=1.0)
 
-def debye_lowering_np(xne, tk, Pg):
+def debye_lowering_np(electron_density, kT_erg, gas_pressure):
     """The same lowering in fp64 on the host — for the discrete occupation-gate decision."""
-    xne = np.asarray(xne, np.float64); tk = np.asarray(tk, np.float64); Pg = np.asarray(Pg, np.float64)
-    charge = 2.0 * xne; excess = 2.0 * xne - Pg / tk
+    electron_density = np.asarray(electron_density, np.float64)
+    kT_erg = np.asarray(kT_erg, np.float64)
+    gas_pressure = np.asarray(gas_pressure, np.float64)
+    charge = 2.0 * electron_density
+    excess = 2.0 * electron_density - gas_pressure / kT_erg
     charge = np.where(excess > 0.0, charge + 2.0 * excess, charge)
     charge = np.where(charge == 0.0, 1.0, charge)
-    debye = np.sqrt(tk / 2.8965e-18 / charge)
+    debye = np.sqrt(kT_erg / 2.8965e-18 / charge)
     return np.minimum(1.0, 1.44e-7 / debye)
 
-potlow    = debye_lowering(xne_pf, tk_pf, Pg)                                  # device tensor
+potlow    = debye_lowering(electron_density_pf, tk_pf, Pg)                     # device tensor
 potlow_h  = debye_lowering_np(PF["electron_density"], PF["tk"], PF["gas_pressure"])  # fp64 host
 print(f"Debye lowering per charge: {float(potlow.min()):.2e} -> {float(potlow.max()):.3f} eV")''')
 
@@ -499,78 +508,78 @@ code(r'''def nnn_partition(c0, ip_val):
 md(r"""**The light-element level sums (special blocks), depth-batched.** H, He, and the metals C/O/Na/Mg/Al/Si/Ca/K/B build $U$ as an explicit Boltzmann sum over measured energy levels, $U = U_0 + \sum_i g_i\,e^{-E_i\,hc/kT}$, with high-lying continuum-like terms bolted on. Each block is a single depth-batched tensor expression; the per-element dispatch (which block, which override) is resolved on the host. This is the longest function — one branch per special ion — but every branch is a vectorized sum over all 80 depths.""")
 
 code(r'''def _block(Ekey, Gkey, nlev, part0):
-    """Boltzmann sum part0 + sum_i g_i exp(-E_i hckt) over measured levels, depth-batched."""
+    """Boltzmann sum part0 + sum_i g_i exp(-E_i hc_over_kT) over measured levels, depth-batched."""
     E, g = SP["sp_" + Ekey], SP["sp_" + Gkey]
-    s = part0.clone() if torch.is_tensor(part0) else torch.full_like(hckt, float(part0))
+    s = part0.clone() if torch.is_tensor(part0) else torch.full_like(hc_over_kT, float(part0))
     for i in range(1, nlev):
-        s = s + g[i] * torch.exp(-E[i] * hckt)
+        s = s + g[i] * torch.exp(-E[i] * hc_over_kT)
     return s
 
 def special_partition(col, ion):
     """Per-ion explicit level sum for the special light elements. Returns (PART, g_override, D1)
     or None if `col` is not a special column. PART/D1 are (nd,) tensors; g_override is a scalar/None."""
-    z = torch.zeros_like(hckt)
-    if col == 2:  return torch.ones_like(hckt), None, z                          # bare ion (H II-like)
+    z = torch.zeros_like(hc_over_kT)
+    if col == 2:  return torch.ones_like(hc_over_kT), None, z                          # bare ion (H II-like)
     if col == 1:                                                                 # H I
-        return torch.where(T_pf >= 9000.0, _block("EHYD","GHYD",6,2.0), torch.full_like(hckt,2.0)), None, 109677.576/6.5/6.5*hckt
+        return torch.where(T_pf >= 9000.0, _block("EHYD","GHYD",6,2.0), torch.full_like(hc_over_kT,2.0)), None, 109677.576/6.5/6.5*hc_over_kT
     if col == 3:                                                                 # He I
-        return torch.where(T_pf >= 15000.0, _block("EHE1","GHE1",29,1.0), torch.ones_like(hckt)), None, 109677.576/5.5/5.5*hckt
+        return torch.where(T_pf >= 15000.0, _block("EHE1","GHE1",29,1.0), torch.ones_like(hc_over_kT)), None, 109677.576/5.5/5.5*hc_over_kT
     if col == 4:                                                                 # He II
-        return torch.where(T_pf >= 30000.0, _block("EHE2","GHE2",6,2.0), torch.full_like(hckt,2.0)), None, 4.0*109722.267/6.5/6.5*hckt
+        return torch.where(T_pf >= 30000.0, _block("EHE2","GHE2",6,2.0), torch.full_like(hc_over_kT,2.0)), None, 4.0*109722.267/6.5/6.5*hc_over_kT
     if col == 354:                                                               # C I
-        p = _block("EC1","GC1",14, 1.0 + 3.0*torch.exp(-16.42*hckt) + 5.0*torch.exp(-43.42*hckt))
-        p = p + (108.0*torch.exp(-80000.0*hckt) + 189.0*torch.exp(-84000.0*hckt) + 247.0*torch.exp(-87000.0*hckt)
-                 + 231.0*torch.exp(-88000.0*hckt) + 190.0*torch.exp(-89000.0*hckt) + 300.0*torch.exp(-90000.0*hckt))
+        p = _block("EC1","GC1",14, 1.0 + 3.0*torch.exp(-16.42*hc_over_kT) + 5.0*torch.exp(-43.42*hc_over_kT))
+        p = p + (108.0*torch.exp(-80000.0*hc_over_kT) + 189.0*torch.exp(-84000.0*hc_over_kT) + 247.0*torch.exp(-87000.0*hc_over_kT)
+                 + 231.0*torch.exp(-88000.0*hc_over_kT) + 190.0*torch.exp(-89000.0*hc_over_kT) + 300.0*torch.exp(-90000.0*hc_over_kT))
         return p, None, z
     if col == 355:                                                               # C II
-        p = _block("EC2","GC2",6, 2.0 + 4.0*torch.exp(-63.42*hckt))
-        p = p + (6.0*torch.exp(-131731.80*hckt) + 4.0*torch.exp(-142027.1*hckt) + 10.0*torch.exp(-145550.13*hckt)
-                 + 10.0*torch.exp(-150463.62*hckt) + 2.0*torch.exp(-157234.07*hckt) + 6.0*torch.exp(-162500.0*hckt)
-                 + 42.0*torch.exp(-168000.0*hckt) + 56.0*torch.exp(-178000.0*hckt) + 102.0*torch.exp(-183000.0*hckt)
-                 + 400.0*torch.exp(-188000.0*hckt))
+        p = _block("EC2","GC2",6, 2.0 + 4.0*torch.exp(-63.42*hc_over_kT))
+        p = p + (6.0*torch.exp(-131731.80*hc_over_kT) + 4.0*torch.exp(-142027.1*hc_over_kT) + 10.0*torch.exp(-145550.13*hc_over_kT)
+                 + 10.0*torch.exp(-150463.62*hc_over_kT) + 2.0*torch.exp(-157234.07*hc_over_kT) + 6.0*torch.exp(-162500.0*hc_over_kT)
+                 + 42.0*torch.exp(-168000.0*hc_over_kT) + 56.0*torch.exp(-178000.0*hc_over_kT) + 102.0*torch.exp(-183000.0*hc_over_kT)
+                 + 400.0*torch.exp(-188000.0*hc_over_kT))
         return p, None, z
     if col == 51:                                                                # Mg I
         p = _block("EMG1","GMG1",11, 1.0)
-        p = p + (5.0*torch.exp(-53134.0*hckt) + 15.0*torch.exp(-54192.0*hckt) + 28.0*torch.exp(-54676.0*hckt) + 9.0*torch.exp(-57853.0*hckt))
-        return p, 4.0, 109734.83/4.5/4.5*hckt
+        p = p + (5.0*torch.exp(-53134.0*hc_over_kT) + 15.0*torch.exp(-54192.0*hc_over_kT) + 28.0*torch.exp(-54676.0*hc_over_kT) + 9.0*torch.exp(-57853.0*hc_over_kT))
+        return p, 4.0, 109734.83/4.5/4.5*hc_over_kT
     if col == 52:                                                                # Mg II
         p = _block("EMG2","GMG2",6, 2.0)
-        p = p + (10.0*torch.exp(-93310.80*hckt) + 14.0*torch.exp(-93799.70*hckt) + 6.0*torch.exp(-97464.32*hckt)
-                 + 10.0*torch.exp(-103419.82*hckt) + 14.0*torch.exp(-103689.89*hckt) + 18.0*torch.exp(-103705.66*hckt))
-        return p, 2.0, 4.0*109734.83/5.5/5.5*hckt
+        p = p + (10.0*torch.exp(-93310.80*hc_over_kT) + 14.0*torch.exp(-93799.70*hc_over_kT) + 6.0*torch.exp(-97464.32*hc_over_kT)
+                 + 10.0*torch.exp(-103419.82*hc_over_kT) + 14.0*torch.exp(-103689.89*hc_over_kT) + 18.0*torch.exp(-103705.66*hc_over_kT))
+        return p, 2.0, 4.0*109734.83/5.5/5.5*hc_over_kT
     if col == 57:                                                                # Al I
-        p = _block("EAL1","GAL1",9, 2.0 + 4.0*torch.exp(-112.061*hckt))
-        p = p + 10.0*torch.exp(-42235.0*hckt) + 14.0*torch.exp(-43831.0*hckt)
-        return p, 2.0, 109735.08/5.5/5.5*hckt
+        p = _block("EAL1","GAL1",9, 2.0 + 4.0*torch.exp(-112.061*hc_over_kT))
+        p = p + 10.0*torch.exp(-42235.0*hc_over_kT) + 14.0*torch.exp(-43831.0*hc_over_kT)
+        return p, 2.0, 109735.08/5.5/5.5*hc_over_kT
     if col == 63:                                                                # Si I
-        p = _block("ESI1","GSI1",11, 1.0 + 3.0*torch.exp(-77.115*hckt) + 5.0*torch.exp(-223.157*hckt))
-        p = p + (76.0*torch.exp(-53000.0*hckt) + 71.0*torch.exp(-57000.0*hckt) + 191.0*torch.exp(-60000.0*hckt)
-                 + 240.0*torch.exp(-62000.0*hckt) + 251.0*torch.exp(-63000.0*hckt) + 300.0*torch.exp(-65000.0*hckt))
+        p = _block("ESI1","GSI1",11, 1.0 + 3.0*torch.exp(-77.115*hc_over_kT) + 5.0*torch.exp(-223.157*hc_over_kT))
+        p = p + (76.0*torch.exp(-53000.0*hc_over_kT) + 71.0*torch.exp(-57000.0*hc_over_kT) + 191.0*torch.exp(-60000.0*hc_over_kT)
+                 + 240.0*torch.exp(-62000.0*hc_over_kT) + 251.0*torch.exp(-63000.0*hc_over_kT) + 300.0*torch.exp(-65000.0*hc_over_kT))
         return p, None, z
     if col == 64:                                                                # Si II
-        p = _block("ESI2","GSI2",6, 2.0 + 4.0*torch.exp(-287.32*hckt))
-        p = p + (6.0*torch.exp(-81231.59*hckt) + 6.0*torch.exp(-83937.08*hckt) + 10.0*torch.exp(-101024.09*hckt)
-                 + 14.0*torch.exp(-103556.35*hckt) + 10.0*torch.exp(-108800.0*hckt) + 42.0*torch.exp(-115000.0*hckt)
-                 + 6.0*torch.exp(-121000.0*hckt) + 38.0*torch.exp(-125000.0*hckt) + 34.0*torch.exp(-132000.0*hckt))
-        return p, 2.0, 4.0*109734.83/4.5/4.5*hckt
+        p = _block("ESI2","GSI2",6, 2.0 + 4.0*torch.exp(-287.32*hc_over_kT))
+        p = p + (6.0*torch.exp(-81231.59*hc_over_kT) + 6.0*torch.exp(-83937.08*hc_over_kT) + 10.0*torch.exp(-101024.09*hc_over_kT)
+                 + 14.0*torch.exp(-103556.35*hc_over_kT) + 10.0*torch.exp(-108800.0*hc_over_kT) + 42.0*torch.exp(-115000.0*hc_over_kT)
+                 + 6.0*torch.exp(-121000.0*hc_over_kT) + 38.0*torch.exp(-125000.0*hc_over_kT) + 34.0*torch.exp(-132000.0*hc_over_kT))
+        return p, 2.0, 4.0*109734.83/4.5/4.5*hc_over_kT
     if col == 96:                                                                # Ca I
         p = _block("ECA1","GCA1",8, 1.0)
-        p = p + (28.0*torch.exp(-37000.0*hckt) + 67.0*torch.exp(-40000.0*hckt) + 21.0*torch.exp(-43000.0*hckt) + 34.0*torch.exp(-48000.0*hckt))
-        return p, 4.0, 109734.82/4.5/4.5*hckt
+        p = p + (28.0*torch.exp(-37000.0*hc_over_kT) + 67.0*torch.exp(-40000.0*hc_over_kT) + 21.0*torch.exp(-43000.0*hc_over_kT) + 34.0*torch.exp(-48000.0*hc_over_kT))
+        return p, 4.0, 109734.82/4.5/4.5*hc_over_kT
     if col == 97:                                                                # Ca II
-        return _block("ECA2","GCA2",5, 2.0) + 12.0*torch.exp(-68000.0*hckt), 2.0, 109734.83/4.5/4.5*hckt
+        return _block("ECA2","GCA2",5, 2.0) + 12.0*torch.exp(-68000.0*hc_over_kT), 2.0, 109734.83/4.5/4.5*hc_over_kT
     if col == 367:                                                               # O I
-        p = _block("EO1","GO1",13, 5.0 + 3.0*torch.exp(-158.265*hckt) + torch.exp(-226.977*hckt))
-        p = p + (15.0*torch.exp(-101140.0*hckt) + 131.0*torch.exp(-103000.0*hckt) + 128.0*torch.exp(-105000.0*hckt) + 600.0*torch.exp(-107000.0*hckt))
+        p = _block("EO1","GO1",13, 5.0 + 3.0*torch.exp(-158.265*hc_over_kT) + torch.exp(-226.977*hc_over_kT))
+        p = p + (15.0*torch.exp(-101140.0*hc_over_kT) + 131.0*torch.exp(-103000.0*hc_over_kT) + 128.0*torch.exp(-105000.0*hc_over_kT) + 600.0*torch.exp(-107000.0*hc_over_kT))
         return p, None, z
     if col == 45:                                                                # Na I
-        return _block("ENA1","GNA1",8, 2.0) + 10.0*torch.exp(-34548.745*hckt) + 14.0*torch.exp(-34586.96*hckt), 2.0, 109734.83/4.5/4.5*hckt
+        return _block("ENA1","GNA1",8, 2.0) + 10.0*torch.exp(-34548.745*hc_over_kT) + 14.0*torch.exp(-34586.96*hc_over_kT), 2.0, 109734.83/4.5/4.5*hc_over_kT
     if col == 14:                                                                # B I
-        p = _block("EB1","GB1",7, 2.0 + 4.0*torch.exp(-15.25*hckt))
-        p = p + (6.0*torch.exp(-57786.80*hckt) + 10.0*torch.exp(-59989.0*hckt) + 14.0*torch.exp(-60031.03*hckt) + 2.0*torch.exp(-63561.0*hckt))
-        return p, 2.0, 109734.83/4.5/4.5*hckt
+        p = _block("EB1","GB1",7, 2.0 + 4.0*torch.exp(-15.25*hc_over_kT))
+        p = p + (6.0*torch.exp(-57786.80*hc_over_kT) + 10.0*torch.exp(-59989.0*hc_over_kT) + 14.0*torch.exp(-60031.03*hc_over_kT) + 2.0*torch.exp(-63561.0*hc_over_kT))
+        return p, 2.0, 109734.83/4.5/4.5*hc_over_kT
     if col == 91:                                                                # K I
-        return _block("EK1","GK1",8, 2.0) + 10.0*torch.exp(-27397.077*hckt) + 14.0*torch.exp(-28127.85*hckt), 2.0, 109734.83/5.5/5.5*hckt
+        return _block("EK1","GK1",8, 2.0) + 10.0*torch.exp(-27397.077*hc_over_kT) + 14.0*torch.exp(-28127.85*hc_over_kT), 2.0, 109734.83/5.5/5.5*hc_over_kT
     return None''')
 
 md(r"""**Assembling $U$ for one element, over all depths.** This function ties the three machines together for a single element $Z$: for each ion stage it picks the ionization potential, builds the raw $U$ (PFIRON / special / NNN), applies the low-$T$ ground-state floor, and adds the high-$T$ occupation correction — every step a depth-batched tensor op, the discrete gates decided on the fp64 host. It returns the $(\text{nion2}, \text{nd})$ stacks of $U$, the ionization potentials, and the lowering that the Saha ladder consumes.""")
@@ -646,7 +655,7 @@ def build_part(iz, nion_track):
                 potlo_ge = torch.as_tensor((potlow_h * float(ion)) >= 0.1, device=DEVICE)
                 gate = (D1_pos | potlo_ge) & (D1_pos | gate_T) & (~low_t)
                 tcap = torch.as_tensor(T_h > (T2000 * 11.0), device=DEVICE)
-                tv = torch.where(tcap, torch.full_like(T_pf, (T2000*11.0) * KEV), tkev)
+                tv = torch.where(tcap, torch.full_like(T_pf, (T2000*11.0) * KEV), kT_eV)
                 d1c = torch.where(D1 <= 0.0, 0.1 / tv, D1); d2c = POTLO[k] / tv
                 if G > 0.0:
                     add = G * torch.exp(-ip_val / tv) * (occupation_term(d2c, zion, tv) - occupation_term(d1c, zion, tv))
@@ -664,14 +673,14 @@ code(r'''def saha_ladder(PART, IP, POTLO):
     the parity-critical detail: direct fp32 Saha products overflow in the deepest hot layers.
     """
     nion2 = PART.shape[0]
-    log_cf = math.log(2.0 * SAHA) + 1.5 * torch.log(T_pf) - torch.log(xne_pf)   # (nd,)
+    log_cf = math.log(2.0 * SAHA) + 1.5 * torch.log(T_pf) - torch.log(electron_density_pf)   # (nd,)
     logF = torch.zeros(nion2, ndp, dtype=DTYPE, device=DEVICE)                   # logF[0]=0 (F[0]=1)
     eps = torch.finfo(DTYPE).tiny
     for ion in range(2, nion2 + 1):
         k = ion - 1
         logratio = (log_cf + torch.log(torch.clamp(PART[k], min=eps))
                     - torch.log(torch.clamp(PART[k-1], min=eps))
-                    - (IP[k-1] - POTLO[k-1]) / tkev)
+                    - (IP[k-1] - POTLO[k-1]) / kT_eV)
         logF[k] = torch.where(PART[k-1] > 0.0, logratio, torch.full_like(logratio, -float("inf")))
     logout = torch.cumsum(logF, dim=0)                          # un-normalised log stage population
     w = torch.exp(logout - torch.amax(logout, dim=0, keepdim=True))             # softmax (overflow-free)
@@ -760,7 +769,7 @@ $$
 U(T) = \sum_i g_i\,e^{-E_i/kT},
 $$
 
-just with the measured levels spelled out. In this implementation this is the `special_partition` dispatcher above. Each branch is a **vectorized tensor expression over all depths**: the level energies and statistical weights live on the device, `hckt` is the depth vector, and the exponentials are evaluated for the whole atmosphere at once. The dispatcher itself is heterogeneous bookkeeping — `col=45` means Na I, `col=51` means Mg I, and so on — but once a branch is chosen there is no loop over depth.
+just with the measured levels spelled out. In this implementation this is the `special_partition` dispatcher above. Each branch is a **vectorized tensor expression over all depths**: the level energies and statistical weights live on the device, `hc_over_kT` is the depth vector, and the exponentials are evaluated for the whole atmosphere at once. The dispatcher itself is heterogeneous bookkeeping — `col=45` means Na I, `col=51` means Mg I, and so on — but once a branch is chosen there is no loop over depth.
 
 The returned `g_override` and `D1` are the two pieces the high-temperature occupation correction needs. `g_override` supplies the statistical weight of the high Rydberg tail; `D1` supplies a lower cutoff for alkali-like ions whose loosely bound valence electron is especially sensitive to plasma lowering. Those corrections are what make PFSAHA a depth-correct partition-function engine, not merely a temperature table.""")
 

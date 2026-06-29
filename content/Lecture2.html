@@ -587,9 +587,15 @@ EV_TO_CM = 8065.479          # 1 eV in cm^-1
 LN10     = math.log(10.0)
 
 # depth state (continuous -&gt; device tensors; the discrete-lookup copies stay fp64 on host)
-T_pf   = dev(PF[&quot;T&quot;]);   tkev = dev(PF[&quot;tkev&quot;]); hckt = dev(PF[&quot;hckt&quot;])
-tlog   = dev(PF[&quot;tlog&quot;]); tk_pf = dev(PF[&quot;tk&quot;]); Pg = dev(PF[&quot;gas_pressure&quot;])
-xne_pf = dev(PF[&quot;electron_density&quot;]); xnatom = dev(PF[&quot;xnatom&quot;]); xab_pf = dev(PF[&quot;xabund&quot;])
+T_pf = dev(PF[&quot;T&quot;])
+kT_eV = dev(PF[&quot;tkev&quot;])
+hc_over_kT = dev(PF[&quot;hckt&quot;])
+tlog = dev(PF[&quot;tlog&quot;])
+tk_pf = dev(PF[&quot;tk&quot;])
+Pg = dev(PF[&quot;gas_pressure&quot;])
+electron_density_pf = dev(PF[&quot;electron_density&quot;])
+xnatom = dev(PF[&quot;xnatom&quot;])
+xab_pf = dev(PF[&quot;xabund&quot;])
 T_h    = PF[&quot;T&quot;].astype(np.float64);    tlog_h = PF[&quot;tlog&quot;].astype(np.float64)   # fp64 host copies
 nion_per_Z = PF[&quot;nion_per_Z&quot;].astype(np.int64); LOCZ = PF[&quot;LOCZ&quot;].astype(np.int64)
 ndp = T_h.size
@@ -616,9 +622,15 @@ EV_TO_CM = <span class="hljs-number">8065.479</span>          <span class="hljs-
 LN10     = math.log(<span class="hljs-number">10.0</span>)
 
 <span class="hljs-comment"># depth state (continuous -&gt; device tensors; the discrete-lookup copies stay fp64 on host)</span>
-T_pf   = dev(PF[<span class="hljs-string">&quot;T&quot;</span>]);   tkev = dev(PF[<span class="hljs-string">&quot;tkev&quot;</span>]); hckt = dev(PF[<span class="hljs-string">&quot;hckt&quot;</span>])
-tlog   = dev(PF[<span class="hljs-string">&quot;tlog&quot;</span>]); tk_pf = dev(PF[<span class="hljs-string">&quot;tk&quot;</span>]); Pg = dev(PF[<span class="hljs-string">&quot;gas_pressure&quot;</span>])
-xne_pf = dev(PF[<span class="hljs-string">&quot;electron_density&quot;</span>]); xnatom = dev(PF[<span class="hljs-string">&quot;xnatom&quot;</span>]); xab_pf = dev(PF[<span class="hljs-string">&quot;xabund&quot;</span>])
+T_pf = dev(PF[<span class="hljs-string">&quot;T&quot;</span>])
+kT_eV = dev(PF[<span class="hljs-string">&quot;tkev&quot;</span>])
+hc_over_kT = dev(PF[<span class="hljs-string">&quot;hckt&quot;</span>])
+tlog = dev(PF[<span class="hljs-string">&quot;tlog&quot;</span>])
+tk_pf = dev(PF[<span class="hljs-string">&quot;tk&quot;</span>])
+Pg = dev(PF[<span class="hljs-string">&quot;gas_pressure&quot;</span>])
+electron_density_pf = dev(PF[<span class="hljs-string">&quot;electron_density&quot;</span>])
+xnatom = dev(PF[<span class="hljs-string">&quot;xnatom&quot;</span>])
+xab_pf = dev(PF[<span class="hljs-string">&quot;xabund&quot;</span>])
 T_h    = PF[<span class="hljs-string">&quot;T&quot;</span>].astype(np.float64);    tlog_h = PF[<span class="hljs-string">&quot;tlog&quot;</span>].astype(np.float64)   <span class="hljs-comment"># fp64 host copies</span>
 nion_per_Z = PF[<span class="hljs-string">&quot;nion_per_Z&quot;</span>].astype(np.int64); LOCZ = PF[<span class="hljs-string">&quot;LOCZ&quot;</span>].astype(np.int64)
 ndp = T_h.size
@@ -639,48 +651,54 @@ SP = {k: dev(v) <span class="hljs-keyword">for</span> k, v <span class="hljs-key
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[14]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="def debye_lowering(xne, tk, Pg):
+        <button class="copy-btn" type="button" data-code="def debye_lowering(electron_density, kT_erg, gas_pressure):
     &quot;&quot;&quot;Per-unit-charge Debye lowering Delta_chi [eV], depth-batched on the device.&quot;&quot;&quot;
-    charge = 2.0 * xne
-    excess = 2.0 * xne - Pg / tk
+    charge = 2.0 * electron_density
+    excess = 2.0 * electron_density - gas_pressure / kT_erg
     charge = torch.where(excess &gt; 0.0, charge + 2.0 * excess, charge)
     charge = torch.where(charge == 0.0, torch.ones_like(charge), charge)
-    debye = torch.sqrt(tk / 2.8965e-18 / charge)
+    debye = torch.sqrt(kT_erg / 2.8965e-18 / charge)
     return torch.clamp(1.44e-7 / debye, max=1.0)
 
-def debye_lowering_np(xne, tk, Pg):
+def debye_lowering_np(electron_density, kT_erg, gas_pressure):
     &quot;&quot;&quot;The same lowering in fp64 on the host — for the discrete occupation-gate decision.&quot;&quot;&quot;
-    xne = np.asarray(xne, np.float64); tk = np.asarray(tk, np.float64); Pg = np.asarray(Pg, np.float64)
-    charge = 2.0 * xne; excess = 2.0 * xne - Pg / tk
+    electron_density = np.asarray(electron_density, np.float64)
+    kT_erg = np.asarray(kT_erg, np.float64)
+    gas_pressure = np.asarray(gas_pressure, np.float64)
+    charge = 2.0 * electron_density
+    excess = 2.0 * electron_density - gas_pressure / kT_erg
     charge = np.where(excess &gt; 0.0, charge + 2.0 * excess, charge)
     charge = np.where(charge == 0.0, 1.0, charge)
-    debye = np.sqrt(tk / 2.8965e-18 / charge)
+    debye = np.sqrt(kT_erg / 2.8965e-18 / charge)
     return np.minimum(1.0, 1.44e-7 / debye)
 
-potlow    = debye_lowering(xne_pf, tk_pf, Pg)                                  # device tensor
+potlow    = debye_lowering(electron_density_pf, tk_pf, Pg)                     # device tensor
 potlow_h  = debye_lowering_np(PF[&quot;electron_density&quot;], PF[&quot;tk&quot;], PF[&quot;gas_pressure&quot;])  # fp64 host
 print(f&quot;Debye lowering per charge: {float(potlow.min()):.2e} -&gt; {float(potlow.max()):.3f} eV&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">debye_lowering</span>(<span class="hljs-params">xne, tk, Pg</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">debye_lowering</span>(<span class="hljs-params">electron_density, kT_erg, gas_pressure</span>):
     <span class="hljs-string">&quot;&quot;&quot;Per-unit-charge Debye lowering Delta_chi [eV], depth-batched on the device.&quot;&quot;&quot;</span>
-    charge = <span class="hljs-number">2.0</span> * xne
-    excess = <span class="hljs-number">2.0</span> * xne - Pg / tk
+    charge = <span class="hljs-number">2.0</span> * electron_density
+    excess = <span class="hljs-number">2.0</span> * electron_density - gas_pressure / kT_erg
     charge = torch.where(excess &gt; <span class="hljs-number">0.0</span>, charge + <span class="hljs-number">2.0</span> * excess, charge)
     charge = torch.where(charge == <span class="hljs-number">0.0</span>, torch.ones_like(charge), charge)
-    debye = torch.sqrt(tk / <span class="hljs-number">2.8965e-18</span> / charge)
+    debye = torch.sqrt(kT_erg / <span class="hljs-number">2.8965e-18</span> / charge)
     <span class="hljs-keyword">return</span> torch.clamp(<span class="hljs-number">1.44e-7</span> / debye, <span class="hljs-built_in">max</span>=<span class="hljs-number">1.0</span>)
 
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">debye_lowering_np</span>(<span class="hljs-params">xne, tk, Pg</span>):
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">debye_lowering_np</span>(<span class="hljs-params">electron_density, kT_erg, gas_pressure</span>):
     <span class="hljs-string">&quot;&quot;&quot;The same lowering in fp64 on the host — for the discrete occupation-gate decision.&quot;&quot;&quot;</span>
-    xne = np.asarray(xne, np.float64); tk = np.asarray(tk, np.float64); Pg = np.asarray(Pg, np.float64)
-    charge = <span class="hljs-number">2.0</span> * xne; excess = <span class="hljs-number">2.0</span> * xne - Pg / tk
+    electron_density = np.asarray(electron_density, np.float64)
+    kT_erg = np.asarray(kT_erg, np.float64)
+    gas_pressure = np.asarray(gas_pressure, np.float64)
+    charge = <span class="hljs-number">2.0</span> * electron_density
+    excess = <span class="hljs-number">2.0</span> * electron_density - gas_pressure / kT_erg
     charge = np.where(excess &gt; <span class="hljs-number">0.0</span>, charge + <span class="hljs-number">2.0</span> * excess, charge)
     charge = np.where(charge == <span class="hljs-number">0.0</span>, <span class="hljs-number">1.0</span>, charge)
-    debye = np.sqrt(tk / <span class="hljs-number">2.8965e-18</span> / charge)
+    debye = np.sqrt(kT_erg / <span class="hljs-number">2.8965e-18</span> / charge)
     <span class="hljs-keyword">return</span> np.minimum(<span class="hljs-number">1.0</span>, <span class="hljs-number">1.44e-7</span> / debye)
 
-potlow    = debye_lowering(xne_pf, tk_pf, Pg)                                  <span class="hljs-comment"># device tensor</span>
+potlow    = debye_lowering(electron_density_pf, tk_pf, Pg)                     <span class="hljs-comment"># device tensor</span>
 potlow_h  = debye_lowering_np(PF[<span class="hljs-string">&quot;electron_density&quot;</span>], PF[<span class="hljs-string">&quot;tk&quot;</span>], PF[<span class="hljs-string">&quot;gas_pressure&quot;</span>])  <span class="hljs-comment"># fp64 host</span>
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;Debye lowering per charge: <span class="hljs-subst">{<span class="hljs-built_in">float</span>(potlow.<span class="hljs-built_in">min</span>()):<span class="hljs-number">.2</span>e}</span> -&gt; <span class="hljs-subst">{<span class="hljs-built_in">float</span>(potlow.<span class="hljs-built_in">max</span>()):<span class="hljs-number">.3</span>f}</span> eV&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">Debye lowering per charge: 4.20e-06 -&gt; 0.301 eV
@@ -803,154 +821,154 @@ potlow_h  = debye_lowering_np(PF[<span class="hljs-string">&quot;electron_densit
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[17]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _block(Ekey, Gkey, nlev, part0):
-    &quot;&quot;&quot;Boltzmann sum part0 + sum_i g_i exp(-E_i hckt) over measured levels, depth-batched.&quot;&quot;&quot;
+    &quot;&quot;&quot;Boltzmann sum part0 + sum_i g_i exp(-E_i hc_over_kT) over measured levels, depth-batched.&quot;&quot;&quot;
     E, g = SP[&quot;sp_&quot; + Ekey], SP[&quot;sp_&quot; + Gkey]
-    s = part0.clone() if torch.is_tensor(part0) else torch.full_like(hckt, float(part0))
+    s = part0.clone() if torch.is_tensor(part0) else torch.full_like(hc_over_kT, float(part0))
     for i in range(1, nlev):
-        s = s + g[i] * torch.exp(-E[i] * hckt)
+        s = s + g[i] * torch.exp(-E[i] * hc_over_kT)
     return s
 
 def special_partition(col, ion):
     &quot;&quot;&quot;Per-ion explicit level sum for the special light elements. Returns (PART, g_override, D1)
     or None if `col` is not a special column. PART/D1 are (nd,) tensors; g_override is a scalar/None.&quot;&quot;&quot;
-    z = torch.zeros_like(hckt)
-    if col == 2:  return torch.ones_like(hckt), None, z                          # bare ion (H II-like)
+    z = torch.zeros_like(hc_over_kT)
+    if col == 2:  return torch.ones_like(hc_over_kT), None, z                          # bare ion (H II-like)
     if col == 1:                                                                 # H I
-        return torch.where(T_pf &gt;= 9000.0, _block(&quot;EHYD&quot;,&quot;GHYD&quot;,6,2.0), torch.full_like(hckt,2.0)), None, 109677.576/6.5/6.5*hckt
+        return torch.where(T_pf &gt;= 9000.0, _block(&quot;EHYD&quot;,&quot;GHYD&quot;,6,2.0), torch.full_like(hc_over_kT,2.0)), None, 109677.576/6.5/6.5*hc_over_kT
     if col == 3:                                                                 # He I
-        return torch.where(T_pf &gt;= 15000.0, _block(&quot;EHE1&quot;,&quot;GHE1&quot;,29,1.0), torch.ones_like(hckt)), None, 109677.576/5.5/5.5*hckt
+        return torch.where(T_pf &gt;= 15000.0, _block(&quot;EHE1&quot;,&quot;GHE1&quot;,29,1.0), torch.ones_like(hc_over_kT)), None, 109677.576/5.5/5.5*hc_over_kT
     if col == 4:                                                                 # He II
-        return torch.where(T_pf &gt;= 30000.0, _block(&quot;EHE2&quot;,&quot;GHE2&quot;,6,2.0), torch.full_like(hckt,2.0)), None, 4.0*109722.267/6.5/6.5*hckt
+        return torch.where(T_pf &gt;= 30000.0, _block(&quot;EHE2&quot;,&quot;GHE2&quot;,6,2.0), torch.full_like(hc_over_kT,2.0)), None, 4.0*109722.267/6.5/6.5*hc_over_kT
     if col == 354:                                                               # C I
-        p = _block(&quot;EC1&quot;,&quot;GC1&quot;,14, 1.0 + 3.0*torch.exp(-16.42*hckt) + 5.0*torch.exp(-43.42*hckt))
-        p = p + (108.0*torch.exp(-80000.0*hckt) + 189.0*torch.exp(-84000.0*hckt) + 247.0*torch.exp(-87000.0*hckt)
-                 + 231.0*torch.exp(-88000.0*hckt) + 190.0*torch.exp(-89000.0*hckt) + 300.0*torch.exp(-90000.0*hckt))
+        p = _block(&quot;EC1&quot;,&quot;GC1&quot;,14, 1.0 + 3.0*torch.exp(-16.42*hc_over_kT) + 5.0*torch.exp(-43.42*hc_over_kT))
+        p = p + (108.0*torch.exp(-80000.0*hc_over_kT) + 189.0*torch.exp(-84000.0*hc_over_kT) + 247.0*torch.exp(-87000.0*hc_over_kT)
+                 + 231.0*torch.exp(-88000.0*hc_over_kT) + 190.0*torch.exp(-89000.0*hc_over_kT) + 300.0*torch.exp(-90000.0*hc_over_kT))
         return p, None, z
     if col == 355:                                                               # C II
-        p = _block(&quot;EC2&quot;,&quot;GC2&quot;,6, 2.0 + 4.0*torch.exp(-63.42*hckt))
-        p = p + (6.0*torch.exp(-131731.80*hckt) + 4.0*torch.exp(-142027.1*hckt) + 10.0*torch.exp(-145550.13*hckt)
-                 + 10.0*torch.exp(-150463.62*hckt) + 2.0*torch.exp(-157234.07*hckt) + 6.0*torch.exp(-162500.0*hckt)
-                 + 42.0*torch.exp(-168000.0*hckt) + 56.0*torch.exp(-178000.0*hckt) + 102.0*torch.exp(-183000.0*hckt)
-                 + 400.0*torch.exp(-188000.0*hckt))
+        p = _block(&quot;EC2&quot;,&quot;GC2&quot;,6, 2.0 + 4.0*torch.exp(-63.42*hc_over_kT))
+        p = p + (6.0*torch.exp(-131731.80*hc_over_kT) + 4.0*torch.exp(-142027.1*hc_over_kT) + 10.0*torch.exp(-145550.13*hc_over_kT)
+                 + 10.0*torch.exp(-150463.62*hc_over_kT) + 2.0*torch.exp(-157234.07*hc_over_kT) + 6.0*torch.exp(-162500.0*hc_over_kT)
+                 + 42.0*torch.exp(-168000.0*hc_over_kT) + 56.0*torch.exp(-178000.0*hc_over_kT) + 102.0*torch.exp(-183000.0*hc_over_kT)
+                 + 400.0*torch.exp(-188000.0*hc_over_kT))
         return p, None, z
     if col == 51:                                                                # Mg I
         p = _block(&quot;EMG1&quot;,&quot;GMG1&quot;,11, 1.0)
-        p = p + (5.0*torch.exp(-53134.0*hckt) + 15.0*torch.exp(-54192.0*hckt) + 28.0*torch.exp(-54676.0*hckt) + 9.0*torch.exp(-57853.0*hckt))
-        return p, 4.0, 109734.83/4.5/4.5*hckt
+        p = p + (5.0*torch.exp(-53134.0*hc_over_kT) + 15.0*torch.exp(-54192.0*hc_over_kT) + 28.0*torch.exp(-54676.0*hc_over_kT) + 9.0*torch.exp(-57853.0*hc_over_kT))
+        return p, 4.0, 109734.83/4.5/4.5*hc_over_kT
     if col == 52:                                                                # Mg II
         p = _block(&quot;EMG2&quot;,&quot;GMG2&quot;,6, 2.0)
-        p = p + (10.0*torch.exp(-93310.80*hckt) + 14.0*torch.exp(-93799.70*hckt) + 6.0*torch.exp(-97464.32*hckt)
-                 + 10.0*torch.exp(-103419.82*hckt) + 14.0*torch.exp(-103689.89*hckt) + 18.0*torch.exp(-103705.66*hckt))
-        return p, 2.0, 4.0*109734.83/5.5/5.5*hckt
+        p = p + (10.0*torch.exp(-93310.80*hc_over_kT) + 14.0*torch.exp(-93799.70*hc_over_kT) + 6.0*torch.exp(-97464.32*hc_over_kT)
+                 + 10.0*torch.exp(-103419.82*hc_over_kT) + 14.0*torch.exp(-103689.89*hc_over_kT) + 18.0*torch.exp(-103705.66*hc_over_kT))
+        return p, 2.0, 4.0*109734.83/5.5/5.5*hc_over_kT
     if col == 57:                                                                # Al I
-        p = _block(&quot;EAL1&quot;,&quot;GAL1&quot;,9, 2.0 + 4.0*torch.exp(-112.061*hckt))
-        p = p + 10.0*torch.exp(-42235.0*hckt) + 14.0*torch.exp(-43831.0*hckt)
-        return p, 2.0, 109735.08/5.5/5.5*hckt
+        p = _block(&quot;EAL1&quot;,&quot;GAL1&quot;,9, 2.0 + 4.0*torch.exp(-112.061*hc_over_kT))
+        p = p + 10.0*torch.exp(-42235.0*hc_over_kT) + 14.0*torch.exp(-43831.0*hc_over_kT)
+        return p, 2.0, 109735.08/5.5/5.5*hc_over_kT
     if col == 63:                                                                # Si I
-        p = _block(&quot;ESI1&quot;,&quot;GSI1&quot;,11, 1.0 + 3.0*torch.exp(-77.115*hckt) + 5.0*torch.exp(-223.157*hckt))
-        p = p + (76.0*torch.exp(-53000.0*hckt) + 71.0*torch.exp(-57000.0*hckt) + 191.0*torch.exp(-60000.0*hckt)
-                 + 240.0*torch.exp(-62000.0*hckt) + 251.0*torch.exp(-63000.0*hckt) + 300.0*torch.exp(-65000.0*hckt))
+        p = _block(&quot;ESI1&quot;,&quot;GSI1&quot;,11, 1.0 + 3.0*torch.exp(-77.115*hc_over_kT) + 5.0*torch.exp(-223.157*hc_over_kT))
+        p = p + (76.0*torch.exp(-53000.0*hc_over_kT) + 71.0*torch.exp(-57000.0*hc_over_kT) + 191.0*torch.exp(-60000.0*hc_over_kT)
+                 + 240.0*torch.exp(-62000.0*hc_over_kT) + 251.0*torch.exp(-63000.0*hc_over_kT) + 300.0*torch.exp(-65000.0*hc_over_kT))
         return p, None, z
     if col == 64:                                                                # Si II
-        p = _block(&quot;ESI2&quot;,&quot;GSI2&quot;,6, 2.0 + 4.0*torch.exp(-287.32*hckt))
-        p = p + (6.0*torch.exp(-81231.59*hckt) + 6.0*torch.exp(-83937.08*hckt) + 10.0*torch.exp(-101024.09*hckt)
-                 + 14.0*torch.exp(-103556.35*hckt) + 10.0*torch.exp(-108800.0*hckt) + 42.0*torch.exp(-115000.0*hckt)
-                 + 6.0*torch.exp(-121000.0*hckt) + 38.0*torch.exp(-125000.0*hckt) + 34.0*torch.exp(-132000.0*hckt))
-        return p, 2.0, 4.0*109734.83/4.5/4.5*hckt
+        p = _block(&quot;ESI2&quot;,&quot;GSI2&quot;,6, 2.0 + 4.0*torch.exp(-287.32*hc_over_kT))
+        p = p + (6.0*torch.exp(-81231.59*hc_over_kT) + 6.0*torch.exp(-83937.08*hc_over_kT) + 10.0*torch.exp(-101024.09*hc_over_kT)
+                 + 14.0*torch.exp(-103556.35*hc_over_kT) + 10.0*torch.exp(-108800.0*hc_over_kT) + 42.0*torch.exp(-115000.0*hc_over_kT)
+                 + 6.0*torch.exp(-121000.0*hc_over_kT) + 38.0*torch.exp(-125000.0*hc_over_kT) + 34.0*torch.exp(-132000.0*hc_over_kT))
+        return p, 2.0, 4.0*109734.83/4.5/4.5*hc_over_kT
     if col == 96:                                                                # Ca I
         p = _block(&quot;ECA1&quot;,&quot;GCA1&quot;,8, 1.0)
-        p = p + (28.0*torch.exp(-37000.0*hckt) + 67.0*torch.exp(-40000.0*hckt) + 21.0*torch.exp(-43000.0*hckt) + 34.0*torch.exp(-48000.0*hckt))
-        return p, 4.0, 109734.82/4.5/4.5*hckt
+        p = p + (28.0*torch.exp(-37000.0*hc_over_kT) + 67.0*torch.exp(-40000.0*hc_over_kT) + 21.0*torch.exp(-43000.0*hc_over_kT) + 34.0*torch.exp(-48000.0*hc_over_kT))
+        return p, 4.0, 109734.82/4.5/4.5*hc_over_kT
     if col == 97:                                                                # Ca II
-        return _block(&quot;ECA2&quot;,&quot;GCA2&quot;,5, 2.0) + 12.0*torch.exp(-68000.0*hckt), 2.0, 109734.83/4.5/4.5*hckt
+        return _block(&quot;ECA2&quot;,&quot;GCA2&quot;,5, 2.0) + 12.0*torch.exp(-68000.0*hc_over_kT), 2.0, 109734.83/4.5/4.5*hc_over_kT
     if col == 367:                                                               # O I
-        p = _block(&quot;EO1&quot;,&quot;GO1&quot;,13, 5.0 + 3.0*torch.exp(-158.265*hckt) + torch.exp(-226.977*hckt))
-        p = p + (15.0*torch.exp(-101140.0*hckt) + 131.0*torch.exp(-103000.0*hckt) + 128.0*torch.exp(-105000.0*hckt) + 600.0*torch.exp(-107000.0*hckt))
+        p = _block(&quot;EO1&quot;,&quot;GO1&quot;,13, 5.0 + 3.0*torch.exp(-158.265*hc_over_kT) + torch.exp(-226.977*hc_over_kT))
+        p = p + (15.0*torch.exp(-101140.0*hc_over_kT) + 131.0*torch.exp(-103000.0*hc_over_kT) + 128.0*torch.exp(-105000.0*hc_over_kT) + 600.0*torch.exp(-107000.0*hc_over_kT))
         return p, None, z
     if col == 45:                                                                # Na I
-        return _block(&quot;ENA1&quot;,&quot;GNA1&quot;,8, 2.0) + 10.0*torch.exp(-34548.745*hckt) + 14.0*torch.exp(-34586.96*hckt), 2.0, 109734.83/4.5/4.5*hckt
+        return _block(&quot;ENA1&quot;,&quot;GNA1&quot;,8, 2.0) + 10.0*torch.exp(-34548.745*hc_over_kT) + 14.0*torch.exp(-34586.96*hc_over_kT), 2.0, 109734.83/4.5/4.5*hc_over_kT
     if col == 14:                                                                # B I
-        p = _block(&quot;EB1&quot;,&quot;GB1&quot;,7, 2.0 + 4.0*torch.exp(-15.25*hckt))
-        p = p + (6.0*torch.exp(-57786.80*hckt) + 10.0*torch.exp(-59989.0*hckt) + 14.0*torch.exp(-60031.03*hckt) + 2.0*torch.exp(-63561.0*hckt))
-        return p, 2.0, 109734.83/4.5/4.5*hckt
+        p = _block(&quot;EB1&quot;,&quot;GB1&quot;,7, 2.0 + 4.0*torch.exp(-15.25*hc_over_kT))
+        p = p + (6.0*torch.exp(-57786.80*hc_over_kT) + 10.0*torch.exp(-59989.0*hc_over_kT) + 14.0*torch.exp(-60031.03*hc_over_kT) + 2.0*torch.exp(-63561.0*hc_over_kT))
+        return p, 2.0, 109734.83/4.5/4.5*hc_over_kT
     if col == 91:                                                                # K I
-        return _block(&quot;EK1&quot;,&quot;GK1&quot;,8, 2.0) + 10.0*torch.exp(-27397.077*hckt) + 14.0*torch.exp(-28127.85*hckt), 2.0, 109734.83/5.5/5.5*hckt
+        return _block(&quot;EK1&quot;,&quot;GK1&quot;,8, 2.0) + 10.0*torch.exp(-27397.077*hc_over_kT) + 14.0*torch.exp(-28127.85*hc_over_kT), 2.0, 109734.83/5.5/5.5*hc_over_kT
     return None" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_block</span>(<span class="hljs-params">Ekey, Gkey, nlev, part0</span>):
-    <span class="hljs-string">&quot;&quot;&quot;Boltzmann sum part0 + sum_i g_i exp(-E_i hckt) over measured levels, depth-batched.&quot;&quot;&quot;</span>
+    <span class="hljs-string">&quot;&quot;&quot;Boltzmann sum part0 + sum_i g_i exp(-E_i hc_over_kT) over measured levels, depth-batched.&quot;&quot;&quot;</span>
     E, g = SP[<span class="hljs-string">&quot;sp_&quot;</span> + Ekey], SP[<span class="hljs-string">&quot;sp_&quot;</span> + Gkey]
-    s = part0.clone() <span class="hljs-keyword">if</span> torch.is_tensor(part0) <span class="hljs-keyword">else</span> torch.full_like(hckt, <span class="hljs-built_in">float</span>(part0))
+    s = part0.clone() <span class="hljs-keyword">if</span> torch.is_tensor(part0) <span class="hljs-keyword">else</span> torch.full_like(hc_over_kT, <span class="hljs-built_in">float</span>(part0))
     <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, nlev):
-        s = s + g[i] * torch.exp(-E[i] * hckt)
+        s = s + g[i] * torch.exp(-E[i] * hc_over_kT)
     <span class="hljs-keyword">return</span> s
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">special_partition</span>(<span class="hljs-params">col, ion</span>):
     <span class="hljs-string">&quot;&quot;&quot;Per-ion explicit level sum for the special light elements. Returns (PART, g_override, D1)
     or None if `col` is not a special column. PART/D1 are (nd,) tensors; g_override is a scalar/None.&quot;&quot;&quot;</span>
-    z = torch.zeros_like(hckt)
-    <span class="hljs-keyword">if</span> col == <span class="hljs-number">2</span>:  <span class="hljs-keyword">return</span> torch.ones_like(hckt), <span class="hljs-literal">None</span>, z                          <span class="hljs-comment"># bare ion (H II-like)</span>
+    z = torch.zeros_like(hc_over_kT)
+    <span class="hljs-keyword">if</span> col == <span class="hljs-number">2</span>:  <span class="hljs-keyword">return</span> torch.ones_like(hc_over_kT), <span class="hljs-literal">None</span>, z                          <span class="hljs-comment"># bare ion (H II-like)</span>
     <span class="hljs-keyword">if</span> col == <span class="hljs-number">1</span>:                                                                 <span class="hljs-comment"># H I</span>
-        <span class="hljs-keyword">return</span> torch.where(T_pf &gt;= <span class="hljs-number">9000.0</span>, _block(<span class="hljs-string">&quot;EHYD&quot;</span>,<span class="hljs-string">&quot;GHYD&quot;</span>,<span class="hljs-number">6</span>,<span class="hljs-number">2.0</span>), torch.full_like(hckt,<span class="hljs-number">2.0</span>)), <span class="hljs-literal">None</span>, <span class="hljs-number">109677.576</span>/<span class="hljs-number">6.5</span>/<span class="hljs-number">6.5</span>*hckt
+        <span class="hljs-keyword">return</span> torch.where(T_pf &gt;= <span class="hljs-number">9000.0</span>, _block(<span class="hljs-string">&quot;EHYD&quot;</span>,<span class="hljs-string">&quot;GHYD&quot;</span>,<span class="hljs-number">6</span>,<span class="hljs-number">2.0</span>), torch.full_like(hc_over_kT,<span class="hljs-number">2.0</span>)), <span class="hljs-literal">None</span>, <span class="hljs-number">109677.576</span>/<span class="hljs-number">6.5</span>/<span class="hljs-number">6.5</span>*hc_over_kT
     <span class="hljs-keyword">if</span> col == <span class="hljs-number">3</span>:                                                                 <span class="hljs-comment"># He I</span>
-        <span class="hljs-keyword">return</span> torch.where(T_pf &gt;= <span class="hljs-number">15000.0</span>, _block(<span class="hljs-string">&quot;EHE1&quot;</span>,<span class="hljs-string">&quot;GHE1&quot;</span>,<span class="hljs-number">29</span>,<span class="hljs-number">1.0</span>), torch.ones_like(hckt)), <span class="hljs-literal">None</span>, <span class="hljs-number">109677.576</span>/<span class="hljs-number">5.5</span>/<span class="hljs-number">5.5</span>*hckt
+        <span class="hljs-keyword">return</span> torch.where(T_pf &gt;= <span class="hljs-number">15000.0</span>, _block(<span class="hljs-string">&quot;EHE1&quot;</span>,<span class="hljs-string">&quot;GHE1&quot;</span>,<span class="hljs-number">29</span>,<span class="hljs-number">1.0</span>), torch.ones_like(hc_over_kT)), <span class="hljs-literal">None</span>, <span class="hljs-number">109677.576</span>/<span class="hljs-number">5.5</span>/<span class="hljs-number">5.5</span>*hc_over_kT
     <span class="hljs-keyword">if</span> col == <span class="hljs-number">4</span>:                                                                 <span class="hljs-comment"># He II</span>
-        <span class="hljs-keyword">return</span> torch.where(T_pf &gt;= <span class="hljs-number">30000.0</span>, _block(<span class="hljs-string">&quot;EHE2&quot;</span>,<span class="hljs-string">&quot;GHE2&quot;</span>,<span class="hljs-number">6</span>,<span class="hljs-number">2.0</span>), torch.full_like(hckt,<span class="hljs-number">2.0</span>)), <span class="hljs-literal">None</span>, <span class="hljs-number">4.0</span>*<span class="hljs-number">109722.267</span>/<span class="hljs-number">6.5</span>/<span class="hljs-number">6.5</span>*hckt
+        <span class="hljs-keyword">return</span> torch.where(T_pf &gt;= <span class="hljs-number">30000.0</span>, _block(<span class="hljs-string">&quot;EHE2&quot;</span>,<span class="hljs-string">&quot;GHE2&quot;</span>,<span class="hljs-number">6</span>,<span class="hljs-number">2.0</span>), torch.full_like(hc_over_kT,<span class="hljs-number">2.0</span>)), <span class="hljs-literal">None</span>, <span class="hljs-number">4.0</span>*<span class="hljs-number">109722.267</span>/<span class="hljs-number">6.5</span>/<span class="hljs-number">6.5</span>*hc_over_kT
     <span class="hljs-keyword">if</span> col == <span class="hljs-number">354</span>:                                                               <span class="hljs-comment"># C I</span>
-        p = _block(<span class="hljs-string">&quot;EC1&quot;</span>,<span class="hljs-string">&quot;GC1&quot;</span>,<span class="hljs-number">14</span>, <span class="hljs-number">1.0</span> + <span class="hljs-number">3.0</span>*torch.exp(-<span class="hljs-number">16.42</span>*hckt) + <span class="hljs-number">5.0</span>*torch.exp(-<span class="hljs-number">43.42</span>*hckt))
-        p = p + (<span class="hljs-number">108.0</span>*torch.exp(-<span class="hljs-number">80000.0</span>*hckt) + <span class="hljs-number">189.0</span>*torch.exp(-<span class="hljs-number">84000.0</span>*hckt) + <span class="hljs-number">247.0</span>*torch.exp(-<span class="hljs-number">87000.0</span>*hckt)
-                 + <span class="hljs-number">231.0</span>*torch.exp(-<span class="hljs-number">88000.0</span>*hckt) + <span class="hljs-number">190.0</span>*torch.exp(-<span class="hljs-number">89000.0</span>*hckt) + <span class="hljs-number">300.0</span>*torch.exp(-<span class="hljs-number">90000.0</span>*hckt))
+        p = _block(<span class="hljs-string">&quot;EC1&quot;</span>,<span class="hljs-string">&quot;GC1&quot;</span>,<span class="hljs-number">14</span>, <span class="hljs-number">1.0</span> + <span class="hljs-number">3.0</span>*torch.exp(-<span class="hljs-number">16.42</span>*hc_over_kT) + <span class="hljs-number">5.0</span>*torch.exp(-<span class="hljs-number">43.42</span>*hc_over_kT))
+        p = p + (<span class="hljs-number">108.0</span>*torch.exp(-<span class="hljs-number">80000.0</span>*hc_over_kT) + <span class="hljs-number">189.0</span>*torch.exp(-<span class="hljs-number">84000.0</span>*hc_over_kT) + <span class="hljs-number">247.0</span>*torch.exp(-<span class="hljs-number">87000.0</span>*hc_over_kT)
+                 + <span class="hljs-number">231.0</span>*torch.exp(-<span class="hljs-number">88000.0</span>*hc_over_kT) + <span class="hljs-number">190.0</span>*torch.exp(-<span class="hljs-number">89000.0</span>*hc_over_kT) + <span class="hljs-number">300.0</span>*torch.exp(-<span class="hljs-number">90000.0</span>*hc_over_kT))
         <span class="hljs-keyword">return</span> p, <span class="hljs-literal">None</span>, z
     <span class="hljs-keyword">if</span> col == <span class="hljs-number">355</span>:                                                               <span class="hljs-comment"># C II</span>
-        p = _block(<span class="hljs-string">&quot;EC2&quot;</span>,<span class="hljs-string">&quot;GC2&quot;</span>,<span class="hljs-number">6</span>, <span class="hljs-number">2.0</span> + <span class="hljs-number">4.0</span>*torch.exp(-<span class="hljs-number">63.42</span>*hckt))
-        p = p + (<span class="hljs-number">6.0</span>*torch.exp(-<span class="hljs-number">131731.80</span>*hckt) + <span class="hljs-number">4.0</span>*torch.exp(-<span class="hljs-number">142027.1</span>*hckt) + <span class="hljs-number">10.0</span>*torch.exp(-<span class="hljs-number">145550.13</span>*hckt)
-                 + <span class="hljs-number">10.0</span>*torch.exp(-<span class="hljs-number">150463.62</span>*hckt) + <span class="hljs-number">2.0</span>*torch.exp(-<span class="hljs-number">157234.07</span>*hckt) + <span class="hljs-number">6.0</span>*torch.exp(-<span class="hljs-number">162500.0</span>*hckt)
-                 + <span class="hljs-number">42.0</span>*torch.exp(-<span class="hljs-number">168000.0</span>*hckt) + <span class="hljs-number">56.0</span>*torch.exp(-<span class="hljs-number">178000.0</span>*hckt) + <span class="hljs-number">102.0</span>*torch.exp(-<span class="hljs-number">183000.0</span>*hckt)
-                 + <span class="hljs-number">400.0</span>*torch.exp(-<span class="hljs-number">188000.0</span>*hckt))
+        p = _block(<span class="hljs-string">&quot;EC2&quot;</span>,<span class="hljs-string">&quot;GC2&quot;</span>,<span class="hljs-number">6</span>, <span class="hljs-number">2.0</span> + <span class="hljs-number">4.0</span>*torch.exp(-<span class="hljs-number">63.42</span>*hc_over_kT))
+        p = p + (<span class="hljs-number">6.0</span>*torch.exp(-<span class="hljs-number">131731.80</span>*hc_over_kT) + <span class="hljs-number">4.0</span>*torch.exp(-<span class="hljs-number">142027.1</span>*hc_over_kT) + <span class="hljs-number">10.0</span>*torch.exp(-<span class="hljs-number">145550.13</span>*hc_over_kT)
+                 + <span class="hljs-number">10.0</span>*torch.exp(-<span class="hljs-number">150463.62</span>*hc_over_kT) + <span class="hljs-number">2.0</span>*torch.exp(-<span class="hljs-number">157234.07</span>*hc_over_kT) + <span class="hljs-number">6.0</span>*torch.exp(-<span class="hljs-number">162500.0</span>*hc_over_kT)
+                 + <span class="hljs-number">42.0</span>*torch.exp(-<span class="hljs-number">168000.0</span>*hc_over_kT) + <span class="hljs-number">56.0</span>*torch.exp(-<span class="hljs-number">178000.0</span>*hc_over_kT) + <span class="hljs-number">102.0</span>*torch.exp(-<span class="hljs-number">183000.0</span>*hc_over_kT)
+                 + <span class="hljs-number">400.0</span>*torch.exp(-<span class="hljs-number">188000.0</span>*hc_over_kT))
         <span class="hljs-keyword">return</span> p, <span class="hljs-literal">None</span>, z
     <span class="hljs-keyword">if</span> col == <span class="hljs-number">51</span>:                                                                <span class="hljs-comment"># Mg I</span>
         p = _block(<span class="hljs-string">&quot;EMG1&quot;</span>,<span class="hljs-string">&quot;GMG1&quot;</span>,<span class="hljs-number">11</span>, <span class="hljs-number">1.0</span>)
-        p = p + (<span class="hljs-number">5.0</span>*torch.exp(-<span class="hljs-number">53134.0</span>*hckt) + <span class="hljs-number">15.0</span>*torch.exp(-<span class="hljs-number">54192.0</span>*hckt) + <span class="hljs-number">28.0</span>*torch.exp(-<span class="hljs-number">54676.0</span>*hckt) + <span class="hljs-number">9.0</span>*torch.exp(-<span class="hljs-number">57853.0</span>*hckt))
-        <span class="hljs-keyword">return</span> p, <span class="hljs-number">4.0</span>, <span class="hljs-number">109734.83</span>/<span class="hljs-number">4.5</span>/<span class="hljs-number">4.5</span>*hckt
+        p = p + (<span class="hljs-number">5.0</span>*torch.exp(-<span class="hljs-number">53134.0</span>*hc_over_kT) + <span class="hljs-number">15.0</span>*torch.exp(-<span class="hljs-number">54192.0</span>*hc_over_kT) + <span class="hljs-number">28.0</span>*torch.exp(-<span class="hljs-number">54676.0</span>*hc_over_kT) + <span class="hljs-number">9.0</span>*torch.exp(-<span class="hljs-number">57853.0</span>*hc_over_kT))
+        <span class="hljs-keyword">return</span> p, <span class="hljs-number">4.0</span>, <span class="hljs-number">109734.83</span>/<span class="hljs-number">4.5</span>/<span class="hljs-number">4.5</span>*hc_over_kT
     <span class="hljs-keyword">if</span> col == <span class="hljs-number">52</span>:                                                                <span class="hljs-comment"># Mg II</span>
         p = _block(<span class="hljs-string">&quot;EMG2&quot;</span>,<span class="hljs-string">&quot;GMG2&quot;</span>,<span class="hljs-number">6</span>, <span class="hljs-number">2.0</span>)
-        p = p + (<span class="hljs-number">10.0</span>*torch.exp(-<span class="hljs-number">93310.80</span>*hckt) + <span class="hljs-number">14.0</span>*torch.exp(-<span class="hljs-number">93799.70</span>*hckt) + <span class="hljs-number">6.0</span>*torch.exp(-<span class="hljs-number">97464.32</span>*hckt)
-                 + <span class="hljs-number">10.0</span>*torch.exp(-<span class="hljs-number">103419.82</span>*hckt) + <span class="hljs-number">14.0</span>*torch.exp(-<span class="hljs-number">103689.89</span>*hckt) + <span class="hljs-number">18.0</span>*torch.exp(-<span class="hljs-number">103705.66</span>*hckt))
-        <span class="hljs-keyword">return</span> p, <span class="hljs-number">2.0</span>, <span class="hljs-number">4.0</span>*<span class="hljs-number">109734.83</span>/<span class="hljs-number">5.5</span>/<span class="hljs-number">5.5</span>*hckt
+        p = p + (<span class="hljs-number">10.0</span>*torch.exp(-<span class="hljs-number">93310.80</span>*hc_over_kT) + <span class="hljs-number">14.0</span>*torch.exp(-<span class="hljs-number">93799.70</span>*hc_over_kT) + <span class="hljs-number">6.0</span>*torch.exp(-<span class="hljs-number">97464.32</span>*hc_over_kT)
+                 + <span class="hljs-number">10.0</span>*torch.exp(-<span class="hljs-number">103419.82</span>*hc_over_kT) + <span class="hljs-number">14.0</span>*torch.exp(-<span class="hljs-number">103689.89</span>*hc_over_kT) + <span class="hljs-number">18.0</span>*torch.exp(-<span class="hljs-number">103705.66</span>*hc_over_kT))
+        <span class="hljs-keyword">return</span> p, <span class="hljs-number">2.0</span>, <span class="hljs-number">4.0</span>*<span class="hljs-number">109734.83</span>/<span class="hljs-number">5.5</span>/<span class="hljs-number">5.5</span>*hc_over_kT
     <span class="hljs-keyword">if</span> col == <span class="hljs-number">57</span>:                                                                <span class="hljs-comment"># Al I</span>
-        p = _block(<span class="hljs-string">&quot;EAL1&quot;</span>,<span class="hljs-string">&quot;GAL1&quot;</span>,<span class="hljs-number">9</span>, <span class="hljs-number">2.0</span> + <span class="hljs-number">4.0</span>*torch.exp(-<span class="hljs-number">112.061</span>*hckt))
-        p = p + <span class="hljs-number">10.0</span>*torch.exp(-<span class="hljs-number">42235.0</span>*hckt) + <span class="hljs-number">14.0</span>*torch.exp(-<span class="hljs-number">43831.0</span>*hckt)
-        <span class="hljs-keyword">return</span> p, <span class="hljs-number">2.0</span>, <span class="hljs-number">109735.08</span>/<span class="hljs-number">5.5</span>/<span class="hljs-number">5.5</span>*hckt
+        p = _block(<span class="hljs-string">&quot;EAL1&quot;</span>,<span class="hljs-string">&quot;GAL1&quot;</span>,<span class="hljs-number">9</span>, <span class="hljs-number">2.0</span> + <span class="hljs-number">4.0</span>*torch.exp(-<span class="hljs-number">112.061</span>*hc_over_kT))
+        p = p + <span class="hljs-number">10.0</span>*torch.exp(-<span class="hljs-number">42235.0</span>*hc_over_kT) + <span class="hljs-number">14.0</span>*torch.exp(-<span class="hljs-number">43831.0</span>*hc_over_kT)
+        <span class="hljs-keyword">return</span> p, <span class="hljs-number">2.0</span>, <span class="hljs-number">109735.08</span>/<span class="hljs-number">5.5</span>/<span class="hljs-number">5.5</span>*hc_over_kT
     <span class="hljs-keyword">if</span> col == <span class="hljs-number">63</span>:                                                                <span class="hljs-comment"># Si I</span>
-        p = _block(<span class="hljs-string">&quot;ESI1&quot;</span>,<span class="hljs-string">&quot;GSI1&quot;</span>,<span class="hljs-number">11</span>, <span class="hljs-number">1.0</span> + <span class="hljs-number">3.0</span>*torch.exp(-<span class="hljs-number">77.115</span>*hckt) + <span class="hljs-number">5.0</span>*torch.exp(-<span class="hljs-number">223.157</span>*hckt))
-        p = p + (<span class="hljs-number">76.0</span>*torch.exp(-<span class="hljs-number">53000.0</span>*hckt) + <span class="hljs-number">71.0</span>*torch.exp(-<span class="hljs-number">57000.0</span>*hckt) + <span class="hljs-number">191.0</span>*torch.exp(-<span class="hljs-number">60000.0</span>*hckt)
-                 + <span class="hljs-number">240.0</span>*torch.exp(-<span class="hljs-number">62000.0</span>*hckt) + <span class="hljs-number">251.0</span>*torch.exp(-<span class="hljs-number">63000.0</span>*hckt) + <span class="hljs-number">300.0</span>*torch.exp(-<span class="hljs-number">65000.0</span>*hckt))
+        p = _block(<span class="hljs-string">&quot;ESI1&quot;</span>,<span class="hljs-string">&quot;GSI1&quot;</span>,<span class="hljs-number">11</span>, <span class="hljs-number">1.0</span> + <span class="hljs-number">3.0</span>*torch.exp(-<span class="hljs-number">77.115</span>*hc_over_kT) + <span class="hljs-number">5.0</span>*torch.exp(-<span class="hljs-number">223.157</span>*hc_over_kT))
+        p = p + (<span class="hljs-number">76.0</span>*torch.exp(-<span class="hljs-number">53000.0</span>*hc_over_kT) + <span class="hljs-number">71.0</span>*torch.exp(-<span class="hljs-number">57000.0</span>*hc_over_kT) + <span class="hljs-number">191.0</span>*torch.exp(-<span class="hljs-number">60000.0</span>*hc_over_kT)
+                 + <span class="hljs-number">240.0</span>*torch.exp(-<span class="hljs-number">62000.0</span>*hc_over_kT) + <span class="hljs-number">251.0</span>*torch.exp(-<span class="hljs-number">63000.0</span>*hc_over_kT) + <span class="hljs-number">300.0</span>*torch.exp(-<span class="hljs-number">65000.0</span>*hc_over_kT))
         <span class="hljs-keyword">return</span> p, <span class="hljs-literal">None</span>, z
     <span class="hljs-keyword">if</span> col == <span class="hljs-number">64</span>:                                                                <span class="hljs-comment"># Si II</span>
-        p = _block(<span class="hljs-string">&quot;ESI2&quot;</span>,<span class="hljs-string">&quot;GSI2&quot;</span>,<span class="hljs-number">6</span>, <span class="hljs-number">2.0</span> + <span class="hljs-number">4.0</span>*torch.exp(-<span class="hljs-number">287.32</span>*hckt))
-        p = p + (<span class="hljs-number">6.0</span>*torch.exp(-<span class="hljs-number">81231.59</span>*hckt) + <span class="hljs-number">6.0</span>*torch.exp(-<span class="hljs-number">83937.08</span>*hckt) + <span class="hljs-number">10.0</span>*torch.exp(-<span class="hljs-number">101024.09</span>*hckt)
-                 + <span class="hljs-number">14.0</span>*torch.exp(-<span class="hljs-number">103556.35</span>*hckt) + <span class="hljs-number">10.0</span>*torch.exp(-<span class="hljs-number">108800.0</span>*hckt) + <span class="hljs-number">42.0</span>*torch.exp(-<span class="hljs-number">115000.0</span>*hckt)
-                 + <span class="hljs-number">6.0</span>*torch.exp(-<span class="hljs-number">121000.0</span>*hckt) + <span class="hljs-number">38.0</span>*torch.exp(-<span class="hljs-number">125000.0</span>*hckt) + <span class="hljs-number">34.0</span>*torch.exp(-<span class="hljs-number">132000.0</span>*hckt))
-        <span class="hljs-keyword">return</span> p, <span class="hljs-number">2.0</span>, <span class="hljs-number">4.0</span>*<span class="hljs-number">109734.83</span>/<span class="hljs-number">4.5</span>/<span class="hljs-number">4.5</span>*hckt
+        p = _block(<span class="hljs-string">&quot;ESI2&quot;</span>,<span class="hljs-string">&quot;GSI2&quot;</span>,<span class="hljs-number">6</span>, <span class="hljs-number">2.0</span> + <span class="hljs-number">4.0</span>*torch.exp(-<span class="hljs-number">287.32</span>*hc_over_kT))
+        p = p + (<span class="hljs-number">6.0</span>*torch.exp(-<span class="hljs-number">81231.59</span>*hc_over_kT) + <span class="hljs-number">6.0</span>*torch.exp(-<span class="hljs-number">83937.08</span>*hc_over_kT) + <span class="hljs-number">10.0</span>*torch.exp(-<span class="hljs-number">101024.09</span>*hc_over_kT)
+                 + <span class="hljs-number">14.0</span>*torch.exp(-<span class="hljs-number">103556.35</span>*hc_over_kT) + <span class="hljs-number">10.0</span>*torch.exp(-<span class="hljs-number">108800.0</span>*hc_over_kT) + <span class="hljs-number">42.0</span>*torch.exp(-<span class="hljs-number">115000.0</span>*hc_over_kT)
+                 + <span class="hljs-number">6.0</span>*torch.exp(-<span class="hljs-number">121000.0</span>*hc_over_kT) + <span class="hljs-number">38.0</span>*torch.exp(-<span class="hljs-number">125000.0</span>*hc_over_kT) + <span class="hljs-number">34.0</span>*torch.exp(-<span class="hljs-number">132000.0</span>*hc_over_kT))
+        <span class="hljs-keyword">return</span> p, <span class="hljs-number">2.0</span>, <span class="hljs-number">4.0</span>*<span class="hljs-number">109734.83</span>/<span class="hljs-number">4.5</span>/<span class="hljs-number">4.5</span>*hc_over_kT
     <span class="hljs-keyword">if</span> col == <span class="hljs-number">96</span>:                                                                <span class="hljs-comment"># Ca I</span>
         p = _block(<span class="hljs-string">&quot;ECA1&quot;</span>,<span class="hljs-string">&quot;GCA1&quot;</span>,<span class="hljs-number">8</span>, <span class="hljs-number">1.0</span>)
-        p = p + (<span class="hljs-number">28.0</span>*torch.exp(-<span class="hljs-number">37000.0</span>*hckt) + <span class="hljs-number">67.0</span>*torch.exp(-<span class="hljs-number">40000.0</span>*hckt) + <span class="hljs-number">21.0</span>*torch.exp(-<span class="hljs-number">43000.0</span>*hckt) + <span class="hljs-number">34.0</span>*torch.exp(-<span class="hljs-number">48000.0</span>*hckt))
-        <span class="hljs-keyword">return</span> p, <span class="hljs-number">4.0</span>, <span class="hljs-number">109734.82</span>/<span class="hljs-number">4.5</span>/<span class="hljs-number">4.5</span>*hckt
+        p = p + (<span class="hljs-number">28.0</span>*torch.exp(-<span class="hljs-number">37000.0</span>*hc_over_kT) + <span class="hljs-number">67.0</span>*torch.exp(-<span class="hljs-number">40000.0</span>*hc_over_kT) + <span class="hljs-number">21.0</span>*torch.exp(-<span class="hljs-number">43000.0</span>*hc_over_kT) + <span class="hljs-number">34.0</span>*torch.exp(-<span class="hljs-number">48000.0</span>*hc_over_kT))
+        <span class="hljs-keyword">return</span> p, <span class="hljs-number">4.0</span>, <span class="hljs-number">109734.82</span>/<span class="hljs-number">4.5</span>/<span class="hljs-number">4.5</span>*hc_over_kT
     <span class="hljs-keyword">if</span> col == <span class="hljs-number">97</span>:                                                                <span class="hljs-comment"># Ca II</span>
-        <span class="hljs-keyword">return</span> _block(<span class="hljs-string">&quot;ECA2&quot;</span>,<span class="hljs-string">&quot;GCA2&quot;</span>,<span class="hljs-number">5</span>, <span class="hljs-number">2.0</span>) + <span class="hljs-number">12.0</span>*torch.exp(-<span class="hljs-number">68000.0</span>*hckt), <span class="hljs-number">2.0</span>, <span class="hljs-number">109734.83</span>/<span class="hljs-number">4.5</span>/<span class="hljs-number">4.5</span>*hckt
+        <span class="hljs-keyword">return</span> _block(<span class="hljs-string">&quot;ECA2&quot;</span>,<span class="hljs-string">&quot;GCA2&quot;</span>,<span class="hljs-number">5</span>, <span class="hljs-number">2.0</span>) + <span class="hljs-number">12.0</span>*torch.exp(-<span class="hljs-number">68000.0</span>*hc_over_kT), <span class="hljs-number">2.0</span>, <span class="hljs-number">109734.83</span>/<span class="hljs-number">4.5</span>/<span class="hljs-number">4.5</span>*hc_over_kT
     <span class="hljs-keyword">if</span> col == <span class="hljs-number">367</span>:                                                               <span class="hljs-comment"># O I</span>
-        p = _block(<span class="hljs-string">&quot;EO1&quot;</span>,<span class="hljs-string">&quot;GO1&quot;</span>,<span class="hljs-number">13</span>, <span class="hljs-number">5.0</span> + <span class="hljs-number">3.0</span>*torch.exp(-<span class="hljs-number">158.265</span>*hckt) + torch.exp(-<span class="hljs-number">226.977</span>*hckt))
-        p = p + (<span class="hljs-number">15.0</span>*torch.exp(-<span class="hljs-number">101140.0</span>*hckt) + <span class="hljs-number">131.0</span>*torch.exp(-<span class="hljs-number">103000.0</span>*hckt) + <span class="hljs-number">128.0</span>*torch.exp(-<span class="hljs-number">105000.0</span>*hckt) + <span class="hljs-number">600.0</span>*torch.exp(-<span class="hljs-number">107000.0</span>*hckt))
+        p = _block(<span class="hljs-string">&quot;EO1&quot;</span>,<span class="hljs-string">&quot;GO1&quot;</span>,<span class="hljs-number">13</span>, <span class="hljs-number">5.0</span> + <span class="hljs-number">3.0</span>*torch.exp(-<span class="hljs-number">158.265</span>*hc_over_kT) + torch.exp(-<span class="hljs-number">226.977</span>*hc_over_kT))
+        p = p + (<span class="hljs-number">15.0</span>*torch.exp(-<span class="hljs-number">101140.0</span>*hc_over_kT) + <span class="hljs-number">131.0</span>*torch.exp(-<span class="hljs-number">103000.0</span>*hc_over_kT) + <span class="hljs-number">128.0</span>*torch.exp(-<span class="hljs-number">105000.0</span>*hc_over_kT) + <span class="hljs-number">600.0</span>*torch.exp(-<span class="hljs-number">107000.0</span>*hc_over_kT))
         <span class="hljs-keyword">return</span> p, <span class="hljs-literal">None</span>, z
     <span class="hljs-keyword">if</span> col == <span class="hljs-number">45</span>:                                                                <span class="hljs-comment"># Na I</span>
-        <span class="hljs-keyword">return</span> _block(<span class="hljs-string">&quot;ENA1&quot;</span>,<span class="hljs-string">&quot;GNA1&quot;</span>,<span class="hljs-number">8</span>, <span class="hljs-number">2.0</span>) + <span class="hljs-number">10.0</span>*torch.exp(-<span class="hljs-number">34548.745</span>*hckt) + <span class="hljs-number">14.0</span>*torch.exp(-<span class="hljs-number">34586.96</span>*hckt), <span class="hljs-number">2.0</span>, <span class="hljs-number">109734.83</span>/<span class="hljs-number">4.5</span>/<span class="hljs-number">4.5</span>*hckt
+        <span class="hljs-keyword">return</span> _block(<span class="hljs-string">&quot;ENA1&quot;</span>,<span class="hljs-string">&quot;GNA1&quot;</span>,<span class="hljs-number">8</span>, <span class="hljs-number">2.0</span>) + <span class="hljs-number">10.0</span>*torch.exp(-<span class="hljs-number">34548.745</span>*hc_over_kT) + <span class="hljs-number">14.0</span>*torch.exp(-<span class="hljs-number">34586.96</span>*hc_over_kT), <span class="hljs-number">2.0</span>, <span class="hljs-number">109734.83</span>/<span class="hljs-number">4.5</span>/<span class="hljs-number">4.5</span>*hc_over_kT
     <span class="hljs-keyword">if</span> col == <span class="hljs-number">14</span>:                                                                <span class="hljs-comment"># B I</span>
-        p = _block(<span class="hljs-string">&quot;EB1&quot;</span>,<span class="hljs-string">&quot;GB1&quot;</span>,<span class="hljs-number">7</span>, <span class="hljs-number">2.0</span> + <span class="hljs-number">4.0</span>*torch.exp(-<span class="hljs-number">15.25</span>*hckt))
-        p = p + (<span class="hljs-number">6.0</span>*torch.exp(-<span class="hljs-number">57786.80</span>*hckt) + <span class="hljs-number">10.0</span>*torch.exp(-<span class="hljs-number">59989.0</span>*hckt) + <span class="hljs-number">14.0</span>*torch.exp(-<span class="hljs-number">60031.03</span>*hckt) + <span class="hljs-number">2.0</span>*torch.exp(-<span class="hljs-number">63561.0</span>*hckt))
-        <span class="hljs-keyword">return</span> p, <span class="hljs-number">2.0</span>, <span class="hljs-number">109734.83</span>/<span class="hljs-number">4.5</span>/<span class="hljs-number">4.5</span>*hckt
+        p = _block(<span class="hljs-string">&quot;EB1&quot;</span>,<span class="hljs-string">&quot;GB1&quot;</span>,<span class="hljs-number">7</span>, <span class="hljs-number">2.0</span> + <span class="hljs-number">4.0</span>*torch.exp(-<span class="hljs-number">15.25</span>*hc_over_kT))
+        p = p + (<span class="hljs-number">6.0</span>*torch.exp(-<span class="hljs-number">57786.80</span>*hc_over_kT) + <span class="hljs-number">10.0</span>*torch.exp(-<span class="hljs-number">59989.0</span>*hc_over_kT) + <span class="hljs-number">14.0</span>*torch.exp(-<span class="hljs-number">60031.03</span>*hc_over_kT) + <span class="hljs-number">2.0</span>*torch.exp(-<span class="hljs-number">63561.0</span>*hc_over_kT))
+        <span class="hljs-keyword">return</span> p, <span class="hljs-number">2.0</span>, <span class="hljs-number">109734.83</span>/<span class="hljs-number">4.5</span>/<span class="hljs-number">4.5</span>*hc_over_kT
     <span class="hljs-keyword">if</span> col == <span class="hljs-number">91</span>:                                                                <span class="hljs-comment"># K I</span>
-        <span class="hljs-keyword">return</span> _block(<span class="hljs-string">&quot;EK1&quot;</span>,<span class="hljs-string">&quot;GK1&quot;</span>,<span class="hljs-number">8</span>, <span class="hljs-number">2.0</span>) + <span class="hljs-number">10.0</span>*torch.exp(-<span class="hljs-number">27397.077</span>*hckt) + <span class="hljs-number">14.0</span>*torch.exp(-<span class="hljs-number">28127.85</span>*hckt), <span class="hljs-number">2.0</span>, <span class="hljs-number">109734.83</span>/<span class="hljs-number">5.5</span>/<span class="hljs-number">5.5</span>*hckt
+        <span class="hljs-keyword">return</span> _block(<span class="hljs-string">&quot;EK1&quot;</span>,<span class="hljs-string">&quot;GK1&quot;</span>,<span class="hljs-number">8</span>, <span class="hljs-number">2.0</span>) + <span class="hljs-number">10.0</span>*torch.exp(-<span class="hljs-number">27397.077</span>*hc_over_kT) + <span class="hljs-number">14.0</span>*torch.exp(-<span class="hljs-number">28127.85</span>*hc_over_kT), <span class="hljs-number">2.0</span>, <span class="hljs-number">109734.83</span>/<span class="hljs-number">5.5</span>/<span class="hljs-number">5.5</span>*hc_over_kT
     <span class="hljs-keyword">return</span> <span class="hljs-literal">None</span></code></pre>
     </div></div><div class="prose"><p><strong>Assembling <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>U</mi></mrow><annotation encoding="application/x-tex">U</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">U</span></span></span></span> for one element, over all depths.</strong> This function ties the three machines together for a single element <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>Z</mi></mrow><annotation encoding="application/x-tex">Z</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.07153em;">Z</span></span></span></span>: for each ion stage it picks the ionization potential, builds the raw <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>U</mi></mrow><annotation encoding="application/x-tex">U</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">U</span></span></span></span> (PFIRON / special / NNN), applies the low-<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>T</mi></mrow><annotation encoding="application/x-tex">T</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span></span></span></span> ground-state floor, and adds the high-<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>T</mi></mrow><annotation encoding="application/x-tex">T</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span></span></span></span> occupation correction — every step a depth-batched tensor op, the discrete gates decided on the fp64 host. It returns the <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">(</mo><mtext>nion2</mtext><mo separator="true">,</mo><mtext>nd</mtext><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">(\text{nion2}, \text{nd})</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord text"><span class="mord">nion2</span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord text"><span class="mord">nd</span></span><span class="mclose">)</span></span></span></span> stacks of <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>U</mi></mrow><annotation encoding="application/x-tex">U</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">U</span></span></span></span>, the ionization potentials, and the lowering that the Saha ladder consumes.</p>
 </div><div class="nb-cell"><div class="code-card">
@@ -1027,7 +1045,7 @@ def build_part(iz, nion_track):
                 potlo_ge = torch.as_tensor((potlow_h * float(ion)) &gt;= 0.1, device=DEVICE)
                 gate = (D1_pos | potlo_ge) &amp; (D1_pos | gate_T) &amp; (~low_t)
                 tcap = torch.as_tensor(T_h &gt; (T2000 * 11.0), device=DEVICE)
-                tv = torch.where(tcap, torch.full_like(T_pf, (T2000*11.0) * KEV), tkev)
+                tv = torch.where(tcap, torch.full_like(T_pf, (T2000*11.0) * KEV), kT_eV)
                 d1c = torch.where(D1 &lt;= 0.0, 0.1 / tv, D1); d2c = POTLO[k] / tv
                 if G &gt; 0.0:
                     add = G * torch.exp(-ip_val / tv) * (occupation_term(d2c, zion, tv) - occupation_term(d1c, zion, tv))
@@ -1106,7 +1124,7 @@ def build_part(iz, nion_track):
                 potlo_ge = torch.as_tensor((potlow_h * <span class="hljs-built_in">float</span>(ion)) &gt;= <span class="hljs-number">0.1</span>, device=DEVICE)
                 gate = (D1_pos | potlo_ge) &amp; (D1_pos | gate_T) &amp; (~low_t)
                 tcap = torch.as_tensor(T_h &gt; (T2000 * <span class="hljs-number">11.0</span>), device=DEVICE)
-                tv = torch.where(tcap, torch.full_like(T_pf, (T2000*<span class="hljs-number">11.0</span>) * KEV), tkev)
+                tv = torch.where(tcap, torch.full_like(T_pf, (T2000*<span class="hljs-number">11.0</span>) * KEV), kT_eV)
                 d1c = torch.where(D1 &lt;= <span class="hljs-number">0.0</span>, <span class="hljs-number">0.1</span> / tv, D1); d2c = POTLO[k] / tv
                 <span class="hljs-keyword">if</span> G &gt; <span class="hljs-number">0.0</span>:
                     add = G * torch.exp(-ip_val / tv) * (occupation_term(d2c, zion, tv) - occupation_term(d1c, zion, tv))
@@ -1125,14 +1143,14 @@ def build_part(iz, nion_track):
     the parity-critical detail: direct fp32 Saha products overflow in the deepest hot layers.
     &quot;&quot;&quot;
     nion2 = PART.shape[0]
-    log_cf = math.log(2.0 * SAHA) + 1.5 * torch.log(T_pf) - torch.log(xne_pf)   # (nd,)
+    log_cf = math.log(2.0 * SAHA) + 1.5 * torch.log(T_pf) - torch.log(electron_density_pf)   # (nd,)
     logF = torch.zeros(nion2, ndp, dtype=DTYPE, device=DEVICE)                   # logF[0]=0 (F[0]=1)
     eps = torch.finfo(DTYPE).tiny
     for ion in range(2, nion2 + 1):
         k = ion - 1
         logratio = (log_cf + torch.log(torch.clamp(PART[k], min=eps))
                     - torch.log(torch.clamp(PART[k-1], min=eps))
-                    - (IP[k-1] - POTLO[k-1]) / tkev)
+                    - (IP[k-1] - POTLO[k-1]) / kT_eV)
         logF[k] = torch.where(PART[k-1] &gt; 0.0, logratio, torch.full_like(logratio, -float(&quot;inf&quot;)))
     logout = torch.cumsum(logF, dim=0)                          # un-normalised log stage population
     w = torch.exp(logout - torch.amax(logout, dim=0, keepdim=True))             # softmax (overflow-free)
@@ -1149,14 +1167,14 @@ def build_part(iz, nion_track):
     the parity-critical detail: direct fp32 Saha products overflow in the deepest hot layers.
     &quot;&quot;&quot;</span>
     nion2 = PART.shape[<span class="hljs-number">0</span>]
-    log_cf = math.log(<span class="hljs-number">2.0</span> * SAHA) + <span class="hljs-number">1.5</span> * torch.log(T_pf) - torch.log(xne_pf)   <span class="hljs-comment"># (nd,)</span>
+    log_cf = math.log(<span class="hljs-number">2.0</span> * SAHA) + <span class="hljs-number">1.5</span> * torch.log(T_pf) - torch.log(electron_density_pf)   <span class="hljs-comment"># (nd,)</span>
     logF = torch.zeros(nion2, ndp, dtype=DTYPE, device=DEVICE)                   <span class="hljs-comment"># logF[0]=0 (F[0]=1)</span>
     eps = torch.finfo(DTYPE).tiny
     <span class="hljs-keyword">for</span> ion <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">2</span>, nion2 + <span class="hljs-number">1</span>):
         k = ion - <span class="hljs-number">1</span>
         logratio = (log_cf + torch.log(torch.clamp(PART[k], <span class="hljs-built_in">min</span>=eps))
                     - torch.log(torch.clamp(PART[k-<span class="hljs-number">1</span>], <span class="hljs-built_in">min</span>=eps))
-                    - (IP[k-<span class="hljs-number">1</span>] - POTLO[k-<span class="hljs-number">1</span>]) / tkev)
+                    - (IP[k-<span class="hljs-number">1</span>] - POTLO[k-<span class="hljs-number">1</span>]) / kT_eV)
         logF[k] = torch.where(PART[k-<span class="hljs-number">1</span>] &gt; <span class="hljs-number">0.0</span>, logratio, torch.full_like(logratio, -<span class="hljs-built_in">float</span>(<span class="hljs-string">&quot;inf&quot;</span>)))
     logout = torch.cumsum(logF, dim=<span class="hljs-number">0</span>)                          <span class="hljs-comment"># un-normalised log stage population</span>
     w = torch.exp(logout - torch.amax(logout, dim=<span class="hljs-number">0</span>, keepdim=<span class="hljs-literal">True</span>))             <span class="hljs-comment"># softmax (overflow-free)</span>
@@ -1305,7 +1323,7 @@ The GPU PFSAHA per-ion partition functions and population factors match the refe
 <h3>Part 2 — hand-built level sums for the common light elements</h3>
 <p>A set of common light elements that dominate the spectrum — H, He, C, O, Na, Mg, Al, Si, K, B, and Ca — get their neutral and first-ion partition functions assembled by hand from explicit, curated lists of measured levels, rather than from the coarse packed <code>NNN</code> table. Each block is the same Boltzmann sum we wrote at the beginning of the lecture,</p>
 <span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>U</mi><mo stretchy="false">(</mo><mi>T</mi><mo stretchy="false">)</mo><mo>=</mo><munder><mo>∑</mo><mi>i</mi></munder><msub><mi>g</mi><mi>i</mi></msub><mtext> </mtext><msup><mi>e</mi><mrow><mo>−</mo><msub><mi>E</mi><mi>i</mi></msub><mi mathvariant="normal">/</mi><mi>k</mi><mi>T</mi></mrow></msup><mo separator="true">,</mo></mrow><annotation encoding="application/x-tex">U(T) = \sum_i g_i\,e^{-E_i/kT},</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">U</span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mclose">)</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:2.3277em;vertical-align:-1.2777em;"></span><span class="mop op-limits"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.05em;"><span style="top:-1.8723em;margin-left:0em;"><span class="pstrut" style="height:3.05em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span><span style="top:-3.05em;"><span class="pstrut" style="height:3.05em;"></span><span><span class="mop op-symbol large-op">∑</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:1.2777em;"><span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.03588em;">g</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:-0.0359em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">e</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.938em;"><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight"><span class="mord mathnormal mtight" style="margin-right:0.05764em;">E</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3281em;"><span style="top:-2.357em;margin-left:-0.0576em;margin-right:0.0714em;"><span class="pstrut" style="height:2.5em;"></span><span class="sizing reset-size3 size1 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.143em;"><span></span></span></span></span></span></span><span class="mord mtight">/</span><span class="mord mathnormal mtight" style="margin-right:0.03148em;">k</span><span class="mord mathnormal mtight" style="margin-right:0.13889em;">T</span></span></span></span></span></span></span></span></span><span class="mpunct">,</span></span></span></span></span>
-<p>just with the measured levels spelled out. In this implementation this is the <code>special_partition</code> dispatcher above. Each branch is a <strong>vectorized tensor expression over all depths</strong>: the level energies and statistical weights live on the device, <code>hckt</code> is the depth vector, and the exponentials are evaluated for the whole atmosphere at once. The dispatcher itself is heterogeneous bookkeeping — <code>col=45</code> means Na I, <code>col=51</code> means Mg I, and so on — but once a branch is chosen there is no loop over depth.</p>
+<p>just with the measured levels spelled out. In this implementation this is the <code>special_partition</code> dispatcher above. Each branch is a <strong>vectorized tensor expression over all depths</strong>: the level energies and statistical weights live on the device, <code>hc_over_kT</code> is the depth vector, and the exponentials are evaluated for the whole atmosphere at once. The dispatcher itself is heterogeneous bookkeeping — <code>col=45</code> means Na I, <code>col=51</code> means Mg I, and so on — but once a branch is chosen there is no loop over depth.</p>
 <p>The returned <code>g_override</code> and <code>D1</code> are the two pieces the high-temperature occupation correction needs. <code>g_override</code> supplies the statistical weight of the high Rydberg tail; <code>D1</code> supplies a lower cutoff for alkali-like ions whose loosely bound valence electron is especially sensitive to plasma lowering. Those corrections are what make PFSAHA a depth-correct partition-function engine, not merely a temperature table.</p>
 <h2>Synthesis: what you built and where it goes</h2>
 <p>You closed the atmosphere. Starting from the temperature and pressure of Lecture 1, you used the <strong>Boltzmann</strong> distribution to populate energy levels, the <strong>Saha</strong> equation to balance ionization stages, <strong>Debye lowering</strong> to account for the dense-plasma environment, and <strong>charge conservation</strong> to solve for the electron density at every depth. Every one of those steps was written as a depth-batched <code>torch</code> calculation: the 80 atmospheric layers are tensor lanes, not Python-loop iterations. The resulting electron density and hydrogen ionization reproduce the reference to the documented float floor.</p>
