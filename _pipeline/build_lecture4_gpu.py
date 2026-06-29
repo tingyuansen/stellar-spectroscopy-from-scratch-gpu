@@ -7,10 +7,8 @@ expression evaluated on the WHOLE (a,v) grid at once (every regime computed, sel
 `torch.where`), and the single Fe I line's opacity profile is assembled on the device. Each result
 is validated against reference/L4.npz to the documented float floor (~1e-6 fp32).
 
-The clean torch implementation is a pedagogical reduction of the production kgpu/line_opacity.py (the
-branchless `harris_hav` kernel, read-only); the notebook imports neither kgpu nor pykurucz. The
-torch kernels below were produced + parity-gated by the external-API port worker
-(_pipeline/port_worker.py, job 'lecture4') and validated to max|rel| = 7.85e-7 vs reference/L4.npz.
+The notebook imports neither kgpu nor pykurucz. It is self-contained except for the
+small reference bundle reference/L4.npz used as the comparison oracle.
 """
 from pathlib import Path
 import nbformat
@@ -29,9 +27,7 @@ md(r"""# Lecture 4 — Line Opacity I: A Single Line
 
 *Yuan-Sen Ting*
 
-*Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
-
-*This lecture builds the **Voigt function** and the single-line opacity in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). The lecture's new pedagogy is the **vectorization**: how Kurucz's branchy, per-point Voigt routine becomes a single **branchless** tensor expression evaluated on the whole $(a, v)$ grid at once. It ends with a **comparison cell** that validates the Voigt and line opacity against `reference/L4.npz` to the documented float floor. The clean torch implementation is a pedagogical reduction of the production `kgpu` engine's `harris_hav` kernel — the notebook imports neither `kgpu` nor pykurucz.*
+*This lecture builds the **Voigt function** and the single-line opacity in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). The lecture's new pedagogy is the **vectorization**: how Kurucz's branchy, per-point Voigt routine becomes a single **branchless** tensor expression evaluated on the whole $(a, v)$ grid at once. It ends with a **comparison cell** that validates the Voigt and line opacity against `reference/L4.npz` to the documented float floor. The notebook imports neither `kgpu` nor pykurucz; the shipped reference bundle is used only as the comparison oracle.*
 
 ---
 
@@ -110,9 +106,9 @@ $$
 \alpha_\nu = \frac{\pi e^2}{m_e c}\, f_{\ell u}\, n_\ell\, \phi(\nu)\,\big(1 - e^{-h\nu/kT}\big)\quad[\mathrm{cm^{-1}}],
 $$
 
-a product of four pieces. The classical constant $\pi e^2/m_e c = 0.02654\ \mathrm{cm^2\,Hz}$ is the cross-section a classical oscillator would present, integrated over frequency. The **oscillator strength** $f_{\ell u}$ corrects that classical value for the real transition; the **lower-level population** $n_\ell$ counts the available absorbers; $\phi(\nu)$ is the line profile, normalised to $\int\phi\,d\nu = 1$; and the last factor is the stimulated-emission correction $(1 - e^{-h\nu/kT})$ from Lecture 1.
+a product of four pieces. In LTE this is the net bound-bound absorption coefficient, the upward absorption after subtracting stimulated emission; outside LTE the final factor is replaced by the corresponding upper/lower population ratio. The classical constant $\pi e^2/m_e c = 0.02654\ \mathrm{cm^2\,Hz}$ is the cross-section a classical oscillator would present, integrated over frequency. The **oscillator strength** $f_{\ell u}$ — a dimensionless quantum-mechanical number, usually of order unity or smaller but not strictly bounded by 1 — corrects that classical value for the real transition; the **lower-level population** $n_\ell$ counts the available absorbers; $\phi(\nu)$ is the line profile, normalised to $\int\phi\,d\nu = 1$; and the last factor is the stimulated-emission correction $(1 - e^{-h\nu/kT})$ from Lecture 1.
 
-Line lists give **$\log gf$** — the base-ten log of the oscillator strength times the lower level's statistical weight $g_\ell$ — because the opacity uses $f_{\ell u}\,n_\ell = gf \cdot (n_\ell/g_\ell)$, and $n_\ell/g_\ell$ is exactly what the Boltzmann factor gives. This whole expression is elementwise, so on the GPU it is one tensor multiply; nothing here needs care beyond carrying the constant. We evaluate the classical constant now and assemble the rest once we have the profile.""")
+Line lists give **$\log gf$** — the base-ten log of the oscillator strength times the lower level's statistical weight $g_\ell$ — because the opacity uses $f_{\ell u}\,n_\ell = gf \cdot (n_\ell/g_\ell)$, and $n_\ell/g_\ell$ is exactly what the Boltzmann factor gives. Thus $\log gf$ is the tabulated radiative-strength factor, while the realized opacity also depends on the population, abundance, and atmospheric conditions. This whole expression is elementwise, so on the GPU it is one tensor multiply; nothing here needs care beyond carrying the constant. We evaluate the classical constant now and assemble the rest once we have the profile.""")
 
 code(r'''# Classical line constant pi e^2 / (m_e c), from the electron charge and mass in CGS.
 CLASSICAL = math.pi * (4.803204e-10)**2 / (9.1093837e-28 * C)    # [cm^2 Hz]
@@ -167,7 +163,7 @@ where $v$ measures distance from line centre in Doppler widths and the **damping
 
 md(r"""### From Kurucz's branchy kernel to one branchless tensor expression
 
-$H(a,v)$ is, mathematically, the real part of the **Faddeeva function** $w(z) = e^{-z^2}\mathrm{erfc}(-iz)$ at $z = v + ia$. The reference does not evaluate that directly; it uses Kurucz's fast **Harris-series approximation**, built from three precomputed tables — $H_0(v) = e^{-v^2}$, $H_1(v)$, and $H_2(v) = (1-2v^2)e^{-v^2}$ — sampled every $0.005$ in $v$, with three regimes selected by the damping $a$:
+$H(a,v)$ is, mathematically, the real part of the **Faddeeva function** $w(z) = e^{-z^2}\mathrm{erfc}(-iz)$ at $z = v + ia$. The reference does not evaluate that directly; it uses Kurucz's fast **Harris-series approximation**, built from three precomputed tables — $H_0(v) = e^{-v^2}$, $H_1(v)$, and $H_2(v) = (1-2v^2)e^{-v^2}$ — sampled every $0.005$ in $v$, with three regimes selected by the damping $a$. These are numerical reference tables for a special function, not atomic data, and the Harris approximation itself differs from the true Faddeeva function in some large-damping corners. Here the goal is compatibility with the reference kernel, not a new Voigt approximation:
 
 - **weak damping** ($a < 0.2$): the second-order series $H_0 + a H_1 + a^2 H_2$, falling back to a bare Lorentzian wing where $|v| > 10$;
 - **strong damping / far wing** ($a > 1.4$, or $a + |v| > 3.2$): an asymptotic Lorentzian form;
@@ -241,7 +237,7 @@ md(r"""The GPU Voigt reproduces pykurucz to the float floor — and it evaluated
 # ── assemble one line ───────────────────────────────────────────────────
 md(r"""## Assembling one iron line
 
-Now put it together for a representative neutral-iron line: rest wavelength $\lambda_0 = 500.5\ \mathrm{nm}$, $\log gf = -1.0$, lower-level excitation $\chi_\ell = 3.3\ \mathrm{eV}$, microturbulence $\xi = 2\ \mathrm{km\,s^{-1}}$. The Stark and van der Waals coefficients here are deliberately simple order-of-magnitude **placeholders** for one demonstration line; real synthesis uses transition-specific constants (Lecture 5).
+Now put it together for a representative neutral-iron line: rest wavelength $\lambda_0 = 500.5\ \mathrm{nm}$, $\log gf = -1.0$, lower-level excitation $\chi_\ell = 3.3\ \mathrm{eV}$, microturbulence $\xi = 2\ \mathrm{km\,s^{-1}}$. The Stark and van der Waals coefficients here are deliberately simple order-of-magnitude **placeholders** for one demonstration line; real synthesis uses transition-specific constants and temperature scalings, such as the ABO van der Waals broadening data introduced with the line list in Lecture 5.
 
 Because this is a single line at a single depth, the Doppler width, the damping $a$, and the strength prefactor are all **scalars** — there is no depth or line axis to batch over yet (that is Lecture 5's million-line forest). The genuinely vectorized work here is the **profile**: the 800-point wavelength grid runs through the branchless `voigt_H` in one call. We compute the scalar shape parameters first.""")
 
@@ -254,19 +250,19 @@ nu0 = C / (lam0_nm * 1e-7)       # line-centre frequency [Hz]
 # Doppler width (Gaussian 1/e half-width) at the photosphere layer jp.
 dnu_D = (nu0 / C) * torch.sqrt(2*K*temperature[jp]/m_Fe + xi**2)    # [Hz]
 
-# The three broadening channels (rates), summed; Stark/vdW coefficients are toy placeholders.
+# The three broadening channels (rates), summed; Stark/vdW coefficients are demonstration placeholders.
 gamma = 2.0e8 + 1.0e-7*neutral_hydrogen_density[jp] + 1.0e-8*electron_density[jp]  # [s^-1]
 a_damp = gamma / (4*math.pi*dnu_D)                        # damping parameter (Lorentzian/Doppler)
 print(f"Doppler width = {float(dnu_D):.3e} Hz;  damping a = {float(a_damp):.3f}")''')
 
-md(r"""**A precision trap, and the fix.** The reduced frequency is $v = (\nu - \nu_0)/\Delta\nu_D$. Here $\nu \approx \nu_0 \approx 6\times10^{14}\ \mathrm{Hz}$, but their *difference* across the line is only $\sim5\times10^{10}\ \mathrm{Hz}$ — four orders of magnitude smaller. In **fp32** (≈7 significant digits) that subtraction is **catastrophic cancellation**: it loses ~4 digits, giving a *12%* error in $v$ and wrecking the profile. This is the one place in the lecture where the default fp32 budget is not enough. The bible's rule (§2.4) is to **fp64-promote just that reduction**: we form the small difference $\nu - \nu_0$ in fp64 on the host (where this scalar grid is tiny and cheap), then move the well-conditioned $v$ onto the device for the Voigt. Everything else stays fp32 on the GPU.
+md(r"""**A precision trap, and the fix.** The reduced frequency is $v = (\nu - \nu_0)/\Delta\nu_D$. Here $\nu \approx \nu_0 \approx 6\times10^{14}\ \mathrm{Hz}$, but their *difference* across the line is only $\sim5\times10^{10}\ \mathrm{Hz}$ — four orders of magnitude smaller. In **fp32** (about seven significant digits) that subtraction is **catastrophic cancellation**: it loses several digits, giving a large error in $v$ and wrecking the profile. This is the one place in the lecture where the default fp32 budget is not enough. The local precision rule is to **fp64-promote just that reduction**: we form the small difference $\nu - \nu_0$ in fp64 on the host (where this scalar grid is tiny and cheap), then move the well-conditioned $v$ onto the device for the Voigt. Everything else stays fp32 on the GPU.
 
 Then the full absorption coefficient: the classical constant times $10^{\log gf}$ (strength), the Boltzmann population, the **branchless Voigt** profile (shape), and the stimulated-emission factor; dividing by the mass density gives the opacity per gram. The Voigt call passes `a_damp` as a one-element tensor, so it slots into the same grid kernel.""")
 
 code(r'''# Wavelength grid +-0.04 nm around line centre. Form the reduced frequency v = (nu-nu0)/dnu_D
 # in fp64 on the host: nu and nu0 are ~6e14 Hz but differ by only ~5e10, so the subtraction is
-# catastrophic cancellation in fp32 (~12% error). fp64-promote JUST this tiny scalar reduction
-# (bible 2.4), then move the conditioned v onto the device for the GPU Voigt.
+# catastrophic cancellation in fp32. Promote just this tiny scalar reduction,
+# then move the conditioned v onto the device for the GPU Voigt.
 lam_np = np.linspace(lam0_nm-0.04, lam0_nm+0.04, 800)         # host fp64
 nu_np = C / (lam_np*1e-7)
 v = dev((nu_np - float(nu0)) / float(dnu_D))                 # conditioned, then -> device
@@ -291,7 +287,7 @@ plt.yscale("log"); plt.xlabel("wavelength [nm]"); plt.ylabel(r"$\kappa$  [cm$^2$
 plt.title(r"Opacity profile of one Fe I line at the photosphere ($\lambda_0=500.5$ nm)")
 plt.legend(); plt.tight_layout(); plt.show()''')
 
-md(r"""The line raises the opacity more than a hundredfold at its centre, falling through a Gaussian core into Lorentzian wings that merge back into the continuum a fraction of an ångström away. The levers are exposed: $\log gf$ and the Boltzmann factor scale the whole profile, while the damping $a$ controls how much of the line lives in the wings. Vary $\log gf$ (or the abundance hidden in $n(\mathrm{Fe\,I})$) and you trace the **curve of growth**.""")
+md(r"""The line raises the opacity more than a hundredfold at its centre, falling through a Gaussian core into Lorentzian wings that merge back into the continuum a fraction of an ångström away. At line centre the $\tau_\lambda\sim1$ surface is pushed upward into cooler layers, so the emergent flux drops once radiative transfer is applied. The levers are exposed: $\log gf$ and the Boltzmann factor scale the whole profile, while the damping $a$ controls how much of the line lives in the wings. Vary $\log gf$ (or the abundance hidden in $n(\mathrm{Fe\,I})$) and you trace the **curve of growth** — the relation between line strength and equivalent width used to infer abundance.""")
 
 # ── the validation cell ──────────────────────────────────────────────────
 md(r"""## The comparison cell — validating the tensor result against the reference

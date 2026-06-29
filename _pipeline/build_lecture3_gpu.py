@@ -31,8 +31,6 @@ md(r"""# Lecture 3 — Continuous Opacity
 
 *Yuan-Sen Ting*
 
-*Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
-
 *This lecture builds the continuous opacity in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). The crucial new axis here is **wavelength**: where Lecture 2 batched over the 80 atmospheric depths, the continuum is a function of depth **and** wavelength, so every opacity source is a single tensor expression broadcast over the full $(80 \times 200)$ grid — no Python loop over depths or wavelengths. The lecture ends with two comparison cells: one against the production reference `L3.npz` (the analytic model's honest few-percent physics fidelity), and one against a **NumPy fp64 twin** of the same formulas (the fp32 float floor, which proves the vectorization is numerically faithful). The notebook imports neither `kgpu` nor pykurucz.*
 
 ---
@@ -133,7 +131,7 @@ $$
 n(\mathrm{H}^-) = \frac{n(\mathrm{H\,I})\,n_e}{4\,(2.4148\times10^{15})\,T^{3/2}}\;e^{+\chi/kT}.
 $$
 
-The positive exponent says H$^-$ is *favoured* at low temperature, and the explicit $n_e$ is why H$^-$ opacity tracks the electron density — and hence the metal abundance — that Lecture 2 worked out. We derive this density once, on the GPU; both opacity channels reuse it.
+The factor of four is the statistical-weight bookkeeping: two spin states for the free electron times the neutral-hydrogen ground-state weight, divided by the closed-shell H$^-$ weight. The positive exponent says H$^-$ is *favoured* at low temperature, and the explicit $n_e$ is why H$^-$ opacity tracks the electron density — and hence the metal abundance — that Lecture 2 worked out. We derive this density once, on the GPU; both opacity channels reuse it.
 
 ![The H$^-$ ion — a hydrogen atom holding a second, weakly bound electron (0.754 eV) — is the dominant continuous absorber in cool stars; a photon detaches the electron, and its abundance tracks the electron density.](resources/figures/s3_hminus.png)""")
 
@@ -393,7 +391,6 @@ md(r"""**What the two numbers mean.** The tensor continuum reproduces its fp64 r
 **Where this goes next.** With a continuous opacity on the GPU — built on Lecture 2's per-ion populations, fully vectorized over depth *and* wavelength, and validated both against the production reference and against its own fp64 twin — the next lecture carves the **spectral lines** into this continuum floor. Lines add a third axis (the line list) to the batch, and the same broadcasting discipline scales to it: depth $\times$ wavelength $\times$ line, all on the GPU.""")
 
 
-# ── CATCH-AND-FILL: appended sections (port_worker fill) ──
 md(r"""## The dominant absorber: the negative hydrogen ion
 
 The analytic half has already shown the physical reason the solar optical continuum is mostly H$^-$: the ion is rare, but neutral hydrogen and free electrons are abundant enough that its weakly-bound electron supplies an enormous photodetachment cross-section. The production continuum engine keeps that same physics, but it no longer uses the John (1988) closed-form fit. It reads the Kurucz/KAPP tables directly.
@@ -429,7 +426,7 @@ KT_np = np.load(pathlib.Path("..") / "reference" / "kapp_tables.npz")           
 # its bound-free terms are differences of nearly-equal large exponentials and its
 # table lookups bracket a cell, so fp32 slips ~1e-2 in the deep/hot layers (T>1e4 K),
 # far above any float floor. The engine is tiny (80 depths x 3 sampled freqs), so we
-# fp64-promote ALL of it (sources + Lagrange reconstruction) to reach the numpy twin
+# fp64-promote ALL of it (sources + Lagrange reconstruction) to reach the fp64 oracle
 # to the float floor at EVERY depth, then move the result to the display device.
 # (Part A above stays GPU-resident fp32; only this precision-critical engine changes dtype.)
 EDEV, EDTYPE = torch.device("cpu"), torch.float64

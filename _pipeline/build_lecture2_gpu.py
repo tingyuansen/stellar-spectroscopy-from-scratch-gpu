@@ -7,9 +7,8 @@ and the charge-conservation solve for the electron density n_e — all in torch,
 over the depth axis, on the GPU (MPS/CUDA if present, else CPU/fp64). Each result is
 validated against reference/L2.npz to the documented float floor.
 
-This is the proof-of-concept for the batched tensor pattern. The clean
-torch implementation is a pedagogical reduction of the production kgpu/eos.py (read-only); the
-notebook never imports kgpu or pykurucz.
+This is the proof-of-concept for the batched tensor pattern. The notebook never imports
+kgpu or pykurucz; it uses the shipped reference bundles only as comparison oracles.
 """
 from pathlib import Path
 import nbformat
@@ -28,9 +27,7 @@ md(r"""# Lecture 2 — The Equation of State
 
 *Yuan-Sen Ting*
 
-*Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
-
-*This lecture builds the equation of state in clean, depth-batched **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback that runs in fp64). The lecture ends with a **comparison cell** that validates the electron density and hydrogen ionization against `reference/L2.npz` to the documented float floor. The clean torch implementation is a pedagogical reduction of the production `kgpu` engine — the notebook imports neither `kgpu` nor pykurucz.*
+*This lecture builds the equation of state in clean, depth-batched **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback that runs in fp64). The lecture ends with a **comparison cell** that validates the electron density and hydrogen ionization against `reference/L2.npz` to the documented float floor. The notebook imports neither `kgpu` nor pykurucz; the shipped reference bundles are used only as comparison oracles.*
 
 ---
 
@@ -48,7 +45,7 @@ md(r"""## Introduction
 
 Lecture 1 left us with a grey model atmosphere of the Sun: temperature, pressure, and density at every depth — but with the electron density set to zero, a placeholder we promised to fill. That gap is not a detail. The dominant continuum opacity of a cool star, H$^-$, is a hydrogen atom that has *captured* a free electron, so it depends directly on $n_e$; and most line strengths depend on $n_e$ indirectly, through the ionization balance that decides how many atoms sit in the right stage to absorb. Before we can compute a single opacity we must answer two questions at each depth: **which ionization stage is each element in, and how are its electrons distributed among energy levels?**
 
-In local thermodynamic equilibrium the answer is fixed by the temperature, the particle densities, and the chemical abundances, through two classical results: the **Boltzmann** distribution for the populations of energy levels within an ion, and the **Saha** equation for the balance between successive ionization stages. Closing the system requires one more condition — **charge conservation**, that the free electrons exactly balance the positive ions — and that is what finally pins down $n_e$.
+In local thermodynamic equilibrium the answer is fixed by the temperature, the particle densities, and the chemical abundances, through two classical results: the **Boltzmann** distribution for the populations of energy levels within an ion, and the **Saha** equation for the balance between successive ionization stages. We work in the ideal-gas LTE equation of state and, for this solar example, set molecular equilibria aside. Closing the system requires one more condition — **charge conservation**, that the free electrons exactly balance the positive ions — and that is what finally pins down $n_e$.
 
 We build all three pieces in `torch`, **vectorized over depth**. The atmosphere has 80 layers; we make depth the batch axis, so a single tensor expression evaluates the Saha balance at every layer at once — no per-depth Python loop. This is the same structure the production `kgpu` engine uses, written plainly. At the end we load the reference data and confirm the numbers match it to the documented float floor.""")
 
@@ -111,7 +108,7 @@ print(f"{nd} layers on {DEVICE.type}; photosphere near tau=2/3 at "
 # ── Boltzmann + partition function ──────────────────────────────────────
 md(r"""## The Boltzmann distribution and the partition function
 
-Within a single ion, the population of an energy level is set by the **Boltzmann distribution**. If level $i$ has energy $E_i$ above the ground state and statistical weight $g_i$, then in LTE the fraction of that ion's atoms in level $i$ is
+Within a single ion, the population of an energy level is set by the **Boltzmann distribution**. If level $i$ has energy $E_i$ above the ground state and statistical weight (degeneracy) $g_i=2J_i+1$, then in LTE the fraction of that ion's atoms in level $i$ is
 
 $$
 \frac{n_i}{n_{\rm ion}} = \frac{g_i}{U(T)}\,e^{-E_i/kT},
@@ -119,7 +116,7 @@ $$
 U(T) = \sum_i g_i\,e^{-E_i/kT},
 $$
 
-where $U(T)$ is the **partition function** — the effective number of accessible states at temperature $T$. Computing $U(T)$ from scratch means summing thousands of measured levels per ion — atomic *data*, not physics we derive — so we **reuse the tabulated partition functions** and focus on the ionization physics that consumes them. Here they are (moved onto the device) for neutral hydrogen and neutral iron across the atmosphere.""")
+where $n_{\rm ion}$ is the total number density of that one ionization stage and $U(T)$ is the **partition function** — the effective number of accessible states at temperature $T$. Computing $U(T)$ from scratch means summing thousands of measured levels per ion — atomic *data*, not physics we derive — so we **reuse the tabulated partition functions** and focus on the ionization physics that consumes them. Here they are (moved onto the device) for neutral hydrogen and neutral iron across the atmosphere.""")
 
 code(r'''# partition functions U[layer, Z-1, ion]; ion=0 is the neutral stage — onto the device
 U = dev(REF["U"])
@@ -135,7 +132,7 @@ plt.legend(); plt.tight_layout(); plt.show()
 print(f"U(H I) ranges {float(U[:,0,0].min()):.2f}-{float(U[:,0,0].max()):.2f};  "
       f"U(Fe I) ranges {float(U[:,25,0].min()):.1f}-{float(U[:,25,0].max()):.1f}")''')
 
-md(r"""Hydrogen's neutral partition function hugs $2$ — its first excited level sits $10.2\ \mathrm{eV}$ up, out of reach at photospheric temperatures, so only the ground state ($g_0 = 2$) is populated. Iron, with a forest of low-lying levels from its open $d$-shell, climbs to $\sim 30$ as those levels thermally switch on. These numbers feed straight into the Saha equation next.
+md(r"""Hydrogen's neutral partition function hugs $2$ — its first excited level sits $10.2\ \mathrm{eV}$ up, out of reach at photospheric temperatures, so only the ground state ($g_0 = 2$) is populated. Formally the hydrogen partition function diverges without truncating the Rydberg series; pressure and occupation physics cut off those high levels, and at photospheric temperatures the result is essentially the ground doublet. Iron, with a forest of low-lying levels from its open $d$-shell, climbs to $\sim 30$ as those levels thermally switch on. These numbers feed straight into the Saha equation next.
 
 ![Saha sets the balance between ionization stages; Boltzmann sets the level populations within an ion — together they fix which species can absorb, and in the solar line-forming photosphere the metals are the major electron donors.](resources/figures/s2_saha_boltzmann.png)""")
 
@@ -205,7 +202,7 @@ $$
 n_e = \sum_{\text{elements } Z}\; n_Z \sum_{i} i\,f_{Z,i},
 $$
 
-where $n_Z = A_Z\,n_{\rm atom}$ and $f_{Z,i}$ is the fraction of $Z$ in stage $i$ (chained Saha ratios). There is a circularity — the Saha fractions need $n_e$, and $n_e$ needs them — broken by iteration. Every step here is a **depth tensor**: the per-element ionization ladder is built with vectorized `torch` ops over the 80 layers, and the charge sum reduces over elements. The nuclei density follows from $P_{\rm gas} = (n_{\rm atom} + n_e)\,kT$.
+where $n_Z = A_Z\,n_{\rm atom}$ and $A_Z$ is the number fraction of element $Z$ over all atomic nuclei (the `xab` array, already converted from the usual astronomical abundance scale). The fraction $f_{Z,i}$ is the fraction of $Z$ in stage $i$ (chained Saha ratios), with the code convention $i=0$ neutral, $i=1$ singly ionized, and so on — offset by one from spectroscopic Roman numerals (H I, H II, ...). There is a circularity — the Saha fractions need $n_e$, and $n_e$ needs them — broken by iteration. Every step here is a **depth tensor**: the per-element ionization ladder is built with vectorized `torch` ops over the 80 layers, and the charge sum reduces over elements. The nuclei density follows from $P_{\rm gas} = (n_{\rm atom} + n_e)\,kT$.
 
 The reference normalises each element over a slightly longer ladder (`nion2` stages) than the stages whose charge we count (`nion`); we match that to reproduce the reference to a part in a million.""")
 
@@ -754,7 +751,6 @@ md(r"""**What the PFSAHA numbers mean.** The per-ion partition functions $U$ rep
 **Where this goes next.** The equation of state is now complete on the GPU — both the charge-balance $n_e$ and the full per-ion $U$, physical stage fractions $F$, and population factors $\Phi=n_ZF/U$, all depth-batched in `torch`, all validated against the reference. With these factors in hand, Lecture 3 builds the **continuous opacity** — H$^-$ bound-free and free-free, Rayleigh and Thomson scattering — fully vectorized over depth *and* wavelength on the GPU, and validated against its fp64 reference to the same float floor.""")
 
 
-# ── CATCH-AND-FILL: appended sections (port_worker fill) ──
 md(r"""### Part 1 — the iron group reads a tabulated grid
 
 The Kurucz $Z=20$--$28$ Ca--Ni/PFIRON block, which includes the traditional iron-group elements, has such dense, tangled level structures that these partition functions are not summed level by level but **read from a pre-computed grid**, `PFTAB`, indexed by temperature and by how much the ionization potential has been lowered. In this implementation this is the `pfiron` helper above: it brackets $\log_{10}T$ on the grid's three-piece temperature axis, brackets the Debye lowering in $\log_{10}(\Delta\chi)$ when the lowering is large enough to matter, and returns the bilinear interpolation as a depth tensor.

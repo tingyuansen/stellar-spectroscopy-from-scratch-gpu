@@ -10,10 +10,8 @@ so it is the gentlest first taste of the course pattern: pick the device once, w
 step torch-native, and end each computation with a numpy-vs-GPU comparison to the documented float
 floor.
 
-The torch is a pedagogical reduction (no kgpu import); the notebook imports neither kgpu nor
-pykurucz. The body + comparison cells + closers are generated and completeness/parity-gated by the
-external-API port worker (_pipeline/port_worker.py, fill job 'lecture1') against the numpy twin
-(~/Stellar_Spectroscopy_From_Scratch/_pipeline/build_lecture1.py) and reference/L1.npz.
+The notebook imports neither kgpu nor pykurucz. It is self-contained except for the
+small reference bundle reference/L1.npz used as the comparison oracle.
 """
 from pathlib import Path
 import nbformat
@@ -32,8 +30,6 @@ md(r"""# Lecture 1 — Overview & a First Model Atmosphere
 *Stellar Spectroscopy from Scratch — tensor-native stellar spectroscopy, validated against reference calculations*
 
 *Yuan-Sen Ting*
-
-*Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
 
 *This lecture builds every computation in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). Lecture 1 is mostly the **map of the whole course** — the pipeline from parameters to photons — and its three small computations (the overflow-safe **Planck** function, the grey/Hopf **temperature** structure, and the cold-start **hydrostatic** pressure) are the gentlest possible first taste of the working rhythm: choose the device once at the top, write every step **torch-native** (even the trivial ones), and close each computation with a **reference comparison** to the documented float floor. Every result is checked against the values shipped in `reference/L1.npz` — computed once with [**pykurucz**](https://arxiv.org/abs/2603.11693), a pure-Python implementation of Kurucz's ATLAS12 and SYNTHE. The notebook imports neither `kgpu` nor pykurucz.*
 
@@ -94,7 +90,6 @@ print("reference values loaded:", ", ".join(REF.files))''')
 
 # ── write ───────────────────────────────────────────────────────────────
 
-# ── CATCH-AND-FILL: appended sections (port_worker fill) ──
 md(r"""## Introduction
 
 A stellar spectrum — the star's brightness as a function of wavelength — is the richest measurement we can make of a star we will never visit. Encoded in the depths and shapes of its absorption lines are the photosphere's temperature, its surface gravity, and the abundance of every element that leaves a fingerprint in the light. Reading those numbers off an observed spectrum is an *inverse* problem, and the only way to solve it reliably is to be able to solve the *forward* problem first: given a star's parameters, compute the spectrum it should produce.
