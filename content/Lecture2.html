@@ -311,6 +311,14 @@ nion2 = REF[<span class="hljs-string">&quot;nion2&quot;</span>].astype(<span cla
 CHARGE = torch.arange(6, dtype=DTYPE, device=DEVICE)
 
 def solve_electron_density(max_iter=400, tol=1e-10):
+    &quot;&quot;&quot;Iterate the LTE charge-balance equation for n_e over all depths.
+
+    Inputs are the fixed gas pressure, temperature, elemental abundances, partition tables,
+    and ionization energies already loaded as tensors. The element loop handles heterogeneous
+    atomic data, while each element&#39;s 80 atmospheric layers are solved as one batched tensor.
+    Returns the converged electron density in cm^-3; fp32 GPU runs are checked against the
+    documented float floor, while CPU fp64 reaches the tighter reference floor.
+    &quot;&quot;&quot;
     n_e = P_gas / tk / 2.0                       # initial guess: half the particles are electrons
 
     for _ in range(max_iter):
@@ -342,6 +350,14 @@ compare(&quot;electron density n_e&quot;, n_e, REF[&quot;xne&quot;], tol=1e-3)" 
 CHARGE = torch.arange(<span class="hljs-number">6</span>, dtype=DTYPE, device=DEVICE)
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">solve_electron_density</span>(<span class="hljs-params">max_iter=<span class="hljs-number">400</span>, tol=<span class="hljs-number">1e-10</span></span>):
+    <span class="hljs-string">&quot;&quot;&quot;Iterate the LTE charge-balance equation for n_e over all depths.
+
+    Inputs are the fixed gas pressure, temperature, elemental abundances, partition tables,
+    and ionization energies already loaded as tensors. The element loop handles heterogeneous
+    atomic data, while each element&#x27;s 80 atmospheric layers are solved as one batched tensor.
+    Returns the converged electron density in cm^-3; fp32 GPU runs are checked against the
+    documented float floor, while CPU fp64 reaches the tighter reference floor.
+    &quot;&quot;&quot;</span>
     n_e = P_gas / tk / <span class="hljs-number">2.0</span>                       <span class="hljs-comment"># initial guess: half the particles are electrons</span>
 
     <span class="hljs-keyword">for</span> _ <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(max_iter):
@@ -1101,7 +1117,13 @@ def build_part(iz, nion_track):
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[19]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def saha_ladder(PART, IP, POTLO):
-    &quot;&quot;&quot;Saha stage fractions F/PART, depth-batched, in log space (overflow-safe softmax).&quot;&quot;&quot;
+    &quot;&quot;&quot;Return depth-batched Saha stage factors F/PART using a log-space softmax.
+
+    PART, IP, and POTLO carry one element&#39;s partition functions, ionization potentials, and Debye
+    lowering for each ion stage. The result is shaped like PART and stores the population factor
+    later opacity routines multiply by level weights and Boltzmann terms. The log formulation is
+    the parity-critical detail: direct fp32 Saha products overflow in the deepest hot layers.
+    &quot;&quot;&quot;
     nion2 = PART.shape[0]
     log_cf = math.log(2.0 * SAHA) + 1.5 * torch.log(T_pf) - torch.log(xne_pf)   # (nd,)
     logF = torch.zeros(nion2, ndp, dtype=DTYPE, device=DEVICE)                   # logF[0]=0 (F[0]=1)
@@ -1119,7 +1141,13 @@ def build_part(iz, nion_track):
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">saha_ladder</span>(<span class="hljs-params">PART, IP, POTLO</span>):
-    <span class="hljs-string">&quot;&quot;&quot;Saha stage fractions F/PART, depth-batched, in log space (overflow-safe softmax).&quot;&quot;&quot;</span>
+    <span class="hljs-string">&quot;&quot;&quot;Return depth-batched Saha stage factors F/PART using a log-space softmax.
+
+    PART, IP, and POTLO carry one element&#x27;s partition functions, ionization potentials, and Debye
+    lowering for each ion stage. The result is shaped like PART and stores the population factor
+    later opacity routines multiply by level weights and Boltzmann terms. The log formulation is
+    the parity-critical detail: direct fp32 Saha products overflow in the deepest hot layers.
+    &quot;&quot;&quot;</span>
     nion2 = PART.shape[<span class="hljs-number">0</span>]
     log_cf = math.log(<span class="hljs-number">2.0</span> * SAHA) + <span class="hljs-number">1.5</span> * torch.log(T_pf) - torch.log(xne_pf)   <span class="hljs-comment"># (nd,)</span>
     logF = torch.zeros(nion2, ndp, dtype=DTYPE, device=DEVICE)                   <span class="hljs-comment"># logF[0]=0 (F[0]=1)</span>

@@ -234,6 +234,14 @@ code(r'''# stage-charge weights [0,1,2,...] as a device tensor, sliced per eleme
 CHARGE = torch.arange(6, dtype=DTYPE, device=DEVICE)
 
 def solve_electron_density(max_iter=400, tol=1e-10):
+    """Iterate the LTE charge-balance equation for n_e over all depths.
+
+    Inputs are the fixed gas pressure, temperature, elemental abundances, partition tables,
+    and ionization energies already loaded as tensors. The element loop handles heterogeneous
+    atomic data, while each element's 80 atmospheric layers are solved as one batched tensor.
+    Returns the converged electron density in cm^-3; fp32 GPU runs are checked against the
+    documented float floor, while CPU fp64 reaches the tighter reference floor.
+    """
     n_e = P_gas / tk / 2.0                       # initial guess: half the particles are electrons
 
     for _ in range(max_iter):
@@ -648,7 +656,13 @@ def build_part(iz, nion_track):
 md(r"""**The Saha ladder, in log space.** Given $U$, $\chi$, and the lowering for every stage, the Saha ladder chains the stage-to-stage ratios and normalises them. We do this in **log space** — accumulate $\log F$ by cumulative sum, subtract the per-depth maximum, exponentiate, and normalise (a softmax). The raw running product of Saha ratios reaches $\sim 10^{13}$ per stage and overflows fp32's $3.4\times 10^{38}$ ceiling in the deep, hot layers; clamping would silently break particle conservation, while the log-space softmax is overflow-free and accurate to the float floor. The output is the stored stage factor $F/U$.""")
 
 code(r'''def saha_ladder(PART, IP, POTLO):
-    """Saha stage fractions F/PART, depth-batched, in log space (overflow-safe softmax)."""
+    """Return depth-batched Saha stage factors F/PART using a log-space softmax.
+
+    PART, IP, and POTLO carry one element's partition functions, ionization potentials, and Debye
+    lowering for each ion stage. The result is shaped like PART and stores the population factor
+    later opacity routines multiply by level weights and Boltzmann terms. The log formulation is
+    the parity-critical detail: direct fp32 Saha products overflow in the deepest hot layers.
+    """
     nion2 = PART.shape[0]
     log_cf = math.log(2.0 * SAHA) + 1.5 * torch.log(T_pf) - torch.log(xne_pf)   # (nd,)
     logF = torch.zeros(nion2, ndp, dtype=DTYPE, device=DEVICE)                   # logF[0]=0 (F[0]=1)
