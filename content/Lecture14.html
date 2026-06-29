@@ -1021,73 +1021,42 @@ H_MAX_LEVEL = <span class="hljs-number">6</span></code></pre>
     <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(H_MAX_LEVEL):
         U += H_STAT_WEIGHT[i] * np.exp(-H_ENERGY_EV[i] / kt)
     <span class="hljs-keyword">return</span> U</code></pre>
-    </div></div><div class="prose"><p>Now the engine itself. <code>compute_kapp</code> takes a frequency array and the population dictionary <code>pops</code>, and returns the continuum absorption <code>acont</code> and the scattering <code>sigmac</code>, each <code>(n_layers, nfreq)</code>. Read it block by block — each block is one continuum source from Lecture 3, evaluated from its population times its cross-section, summed at the end into <code>acont</code> (true absorption) and <code>sigmac</code> (scattering). The departure coefficients (<code>bhyd</code>, <code>bmin</code>, …) are all unity in LTE, exactly as the model assumes.</p>
-<p>This cell is intentionally still a single function definition. The continuum terms share the same local thermodynamic arrays (<code>stim</code>, <code>bnu</code>, <code>rho</code>, population slices, and departure coefficients), and splitting the body across cells would either duplicate those arrays or obscure the accumulation. The short cells above isolate the reusable lookup routines; this cell is the one long ledger where the absorbers are added.</p>
+    </div></div><div class="prose"><p>The continuum engine is easiest to audit source-by-source. The first helper computes the H I
+bound-free/free-free opacity and H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msubsup><mrow></mrow><mn>2</mn><mo>+</mo></msubsup></mrow><annotation encoding="application/x-tex">_2^+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1.0778em;vertical-align:-0.2663em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.8115em;"><span style="top:-2.4337em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span><span style="top:-3.1031em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mbin mtight">+</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2663em;"><span></span></span></span></span></span></span></span></span></span> contribution. It is still NumPy in L14 because L14 is the
+same-atmosphere capstone; the later GPU closure will port each helper independently.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[18]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="def compute_kapp(freq, pops, ifop):
-    &quot;&quot;&quot;Reproduce kapp.compute_kapp_continuum for the given frequency array.
+        <button class="copy-btn" type="button" data-code="HOP_LEVELS = [
+    (15, 487.456, 450.0, 109191.313), (14, 559.579, 392.0, 109119.188),
+    (13, 648.980, 338.0, 109029.789), (12, 761.649, 288.0, 108917.117),
+    (11, 906.426, 242.0, 108772.336), (10, 1096.776, 200.0, 108581.992),
+    (9, 1354.044, 162.0, 108324.719), (8, 1713.713, 128.0, 107965.051),
+    (7, 2238.320, 98.0, 107440.444),
+]
+HOP_LEVELS_B = [
+    (6, 3046.604, 72.0, 106632.160, 5), (5, 4387.113, 50.0, 105291.651, 4),
+    (4, 6854.871, 32.0, 102823.893, 3), (3, 12186.462, 18.0, 97492.302, 2),
+    (2, 27419.659, 8.0, 82259.105, 1),
+]
 
-    pops: dict of per-layer atmosphere quantities (see __main__ assembly).
-    Returns acont, sigmac  (each (n_layers, nfreq)).
+def _hydrogen_bf_ff(freq, temp, rho, xne, xnfph, hckt, tlog, tkev, waveno, ehvkt,
+                    stim, bnu, bhyd):
+    &quot;&quot;&quot;Return H I bound/free-free and H2+ opacity arrays.
+
+    Inputs are the shared continuum grids and LTE departure coefficients. The
+    loops are over the small continuum-edge frequency set, not the dense synthesis
+    wavelength grid, and preserve the KAPP source ordering.
     &quot;&quot;&quot;
-    temp = pops[&quot;temperature&quot;]
-    rho = np.maximum(pops[&quot;mass_density&quot;], 1e-30)
-    xne = pops[&quot;electron_density&quot;]
-    n_layers = temp.size
-    nfreq = freq.size
+    n_layers, nfreq = temp.size, freq.size
+    ahyd = np.zeros((n_layers, nfreq))
+    ah2p = np.zeros((n_layers, nfreq))
+    xnfph1 = xnfph[:, 0]
+    xnfph2 = xnfph[:, 1]
 
-    # b-tables are all unity (LTE) in this model; KAPP reads atlas_tables.get(...,ones)
-    bhyd = np.ones((n_layers, 8)); bmin = np.ones(n_layers)
-    bhe1 = np.ones((n_layers, 29)); bhe2 = np.ones((n_layers, 6))
-
-    xnfph = pops[&quot;xnfph&quot;]              # (n_layers,2) mode-11 H I ground, H II
-    xnf_h = pops[&quot;xnf_h&quot;]             # mode-12 total neutral H
-    # HE populations from the POPS mode-11 grid
-    he1_11 = pops[&quot;he1_mode11&quot;]; he2_11 = pops[&quot;he2_mode11&quot;]; he3_11 = pops[&quot;he3_mode11&quot;]
-    he1_12 = pops[&quot;he1_mode12&quot;]; he2_12 = pops[&quot;he2_mode12&quot;]
-
-    hkt = H_PLANCK / (K_BOLTZ * temp)
-    hckt = hkt * C_LIGHT_CM
-    tlog = np.log(np.maximum(temp, 1e-10))
-    tkev = temp * KBOLTZ_EV
-    waveno = freq / C_LIGHT_CM
-    ehvkt = np.exp(-H_PLANCK * freq[None, :] / (K_BOLTZ * temp[:, None]))
-    stim = 1.0 - ehvkt
-    bnu = np.zeros((n_layers, nfreq))
-    for j in range(nfreq):
-        bnu[:, j] = planck_nu(freq[j], temp)
-
-    ahyd = np.zeros((n_layers, nfreq)); ahmin = np.zeros((n_layers, nfreq))
-    ah2p = np.zeros((n_layers, nfreq)); ahemin = np.zeros((n_layers, nfreq))
-    ahe1 = np.zeros((n_layers, nfreq)); ahe2 = np.zeros((n_layers, nfreq))
-    ac1 = np.zeros((n_layers, nfreq)); amg1 = np.zeros((n_layers, nfreq))
-    aal1 = np.zeros((n_layers, nfreq)); asi1 = np.zeros((n_layers, nfreq))
-    afe1 = np.zeros((n_layers, nfreq)); aluke = np.zeros((n_layers, nfreq))
-    ahot = np.zeros((n_layers, nfreq))
-    sigh = np.zeros((n_layers, nfreq)); sighe = np.zeros((n_layers, nfreq))
-    sigel = np.zeros((n_layers, nfreq)); sigh2 = np.zeros((n_layers, nfreq))
-
-    # H I bf level thresholds (wavenumber, weight 2n^2, energy cm^-1)
-    HOP_LEVELS = [
-        (15, 487.456, 450.0, 109191.313), (14, 559.579, 392.0, 109119.188),
-        (13, 648.980, 338.0, 109029.789), (12, 761.649, 288.0, 108917.117),
-        (11, 906.426, 242.0, 108772.336), (10, 1096.776, 200.0, 108581.992),
-        (9, 1354.044, 162.0, 108324.719), (8, 1713.713, 128.0, 107965.051),
-        (7, 2238.320, 98.0, 107440.444),
-    ]
-    HOP_LEVELS_B = [  # n&lt;=6 use departure coeff (b - ehvkt) instead of *stim
-        (6, 3046.604, 72.0, 106632.160, 5), (5, 4387.113, 50.0, 105291.651, 4),
-        (4, 6854.871, 32.0, 102823.893, 3), (3, 12186.462, 18.0, 97492.302, 2),
-        (2, 27419.659, 8.0, 82259.105, 1),
-    ]
-
-    xnfph1 = xnfph[:, 0]; xnfph2 = xnfph[:, 1]
     for j in range(nfreq):
         f = freq[j]; wno = waveno[j]; ehv = ehvkt[:, j]; st = stim[:, j]; bn = bnu[:, j]
         freq3 = 2.815e29 / (f * f * f)
-        # N=16 to infinity
         h = freq3 * 2.0 / 2.0 / (RYDBERG_CM * hckt) * (
             np.exp(-np.maximum(109250.336, 109678.764 - wno) * hckt)
             - np.exp(-109678.764 * hckt)) * st
@@ -1101,32 +1070,101 @@ H_MAX_LEVEL = <span class="hljs-number">6</span></code></pre>
                 bh = bhyd[:, bi]
                 a = xkarsas(f, 1.0, n, n) * wt * np.exp(-e * hckt) * (bh - ehv)
                 h = h + a; s = s + a * bn * st / np.maximum(bh - ehv, 1e-40)
-        if wno &gt;= 109678.764:  # N=1
+        if wno &gt;= 109678.764:
             bh = bhyd[:, 0]
-            a = xkarsas(f, 1.0, 1, 1) * 2.0 * 1.0 * (bh - ehv)
+            a = xkarsas(f, 1.0, 1, 1) * 2.0 * (bh - ehv)
             h = h + a; s = s + a * bn * st / np.maximum(bh - ehv, 1e-40)
         h = h * xnfph1 / rho; s = s * xnfph1 / rho
-        # free-free
         cff = coulff(1, f, np.log(f), temp, tlog)
         a_ff = 3.6919e8 / np.sqrt(temp) * cff / f * xne / f * xnfph2 / f * st / rho
-        h = h + a_ff; s = s + a_ff * bn
-        ahyd[:, j] = h
+        ahyd[:, j] = h + a_ff
 
-    # H2PLOP (H2+); only for f &lt;= 3.28805e15 (always true at visible)
-    for j in range(nfreq):
-        f = freq[j]
-        if f &gt; 3.28805e15:
-            continue
-        freqlg = np.log(f)
-        freq15 = f / 1.0e15
-        fr = -3.0233e3 + (3.7797e2 + (-1.82496e1 + (3.9207e-1 - 3.1672e-3 * freqlg) * freqlg) * freqlg) * freqlg
-        es = -7.342e-3 + (-2.409e0 + (1.028e0 + (-4.230e-1 + (1.224e-1 - 1.351e-2 * freq15) * freq15) * freq15) * freq15) * freq15
-        st = stim[:, j]
-        ah2p[:, j] = (np.exp(-es / tkev + fr + np.log(np.maximum(xnfph1, 1e-40)))
-                      * 2.0 * bhyd[:, 0] * xnfph2 / rho * st)
+        if f &lt;= 3.28805e15:
+            freqlg = np.log(f)
+            freq15 = f / 1.0e15
+            fr = -3.0233e3 + (3.7797e2 + (-1.82496e1 + (3.9207e-1 - 3.1672e-3 * freqlg) * freqlg) * freqlg) * freqlg
+            es = -7.342e-3 + (-2.409e0 + (1.028e0 + (-4.230e-1 + (1.224e-1 - 1.351e-2 * freq15) * freq15) * freq15) * freq15) * freq15
+            ah2p[:, j] = (np.exp(-es / tkev + fr + np.log(np.maximum(xnfph1, 1e-40)))
+                          * 2.0 * bhyd[:, 0] * xnfph2 / rho * st)
+    return ahyd, ah2p" aria-label="Copy code">
+          <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
+      </div>
+      <pre class="code-body"><code class="hljs language-python">HOP_LEVELS = [
+    (<span class="hljs-number">15</span>, <span class="hljs-number">487.456</span>, <span class="hljs-number">450.0</span>, <span class="hljs-number">109191.313</span>), (<span class="hljs-number">14</span>, <span class="hljs-number">559.579</span>, <span class="hljs-number">392.0</span>, <span class="hljs-number">109119.188</span>),
+    (<span class="hljs-number">13</span>, <span class="hljs-number">648.980</span>, <span class="hljs-number">338.0</span>, <span class="hljs-number">109029.789</span>), (<span class="hljs-number">12</span>, <span class="hljs-number">761.649</span>, <span class="hljs-number">288.0</span>, <span class="hljs-number">108917.117</span>),
+    (<span class="hljs-number">11</span>, <span class="hljs-number">906.426</span>, <span class="hljs-number">242.0</span>, <span class="hljs-number">108772.336</span>), (<span class="hljs-number">10</span>, <span class="hljs-number">1096.776</span>, <span class="hljs-number">200.0</span>, <span class="hljs-number">108581.992</span>),
+    (<span class="hljs-number">9</span>, <span class="hljs-number">1354.044</span>, <span class="hljs-number">162.0</span>, <span class="hljs-number">108324.719</span>), (<span class="hljs-number">8</span>, <span class="hljs-number">1713.713</span>, <span class="hljs-number">128.0</span>, <span class="hljs-number">107965.051</span>),
+    (<span class="hljs-number">7</span>, <span class="hljs-number">2238.320</span>, <span class="hljs-number">98.0</span>, <span class="hljs-number">107440.444</span>),
+]
+HOP_LEVELS_B = [
+    (<span class="hljs-number">6</span>, <span class="hljs-number">3046.604</span>, <span class="hljs-number">72.0</span>, <span class="hljs-number">106632.160</span>, <span class="hljs-number">5</span>), (<span class="hljs-number">5</span>, <span class="hljs-number">4387.113</span>, <span class="hljs-number">50.0</span>, <span class="hljs-number">105291.651</span>, <span class="hljs-number">4</span>),
+    (<span class="hljs-number">4</span>, <span class="hljs-number">6854.871</span>, <span class="hljs-number">32.0</span>, <span class="hljs-number">102823.893</span>, <span class="hljs-number">3</span>), (<span class="hljs-number">3</span>, <span class="hljs-number">12186.462</span>, <span class="hljs-number">18.0</span>, <span class="hljs-number">97492.302</span>, <span class="hljs-number">2</span>),
+    (<span class="hljs-number">2</span>, <span class="hljs-number">27419.659</span>, <span class="hljs-number">8.0</span>, <span class="hljs-number">82259.105</span>, <span class="hljs-number">1</span>),
+]
 
-    # HMINOP (H- bf + ff)
-    bhyd1 = bhyd[:, 0]
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">_hydrogen_bf_ff</span>(<span class="hljs-params">freq, temp, rho, xne, xnfph, hckt, tlog, tkev, waveno, ehvkt,
+                    stim, bnu, bhyd</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Return H I bound/free-free and H2+ opacity arrays.
+
+    Inputs are the shared continuum grids and LTE departure coefficients. The
+    loops are over the small continuum-edge frequency set, not the dense synthesis
+    wavelength grid, and preserve the KAPP source ordering.
+    &quot;&quot;&quot;</span>
+    n_layers, nfreq = temp.size, freq.size
+    ahyd = np.zeros((n_layers, nfreq))
+    ah2p = np.zeros((n_layers, nfreq))
+    xnfph1 = xnfph[:, <span class="hljs-number">0</span>]
+    xnfph2 = xnfph[:, <span class="hljs-number">1</span>]
+
+    <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nfreq):
+        f = freq[j]; wno = waveno[j]; ehv = ehvkt[:, j]; st = stim[:, j]; bn = bnu[:, j]
+        freq3 = <span class="hljs-number">2.815e29</span> / (f * f * f)
+        h = freq3 * <span class="hljs-number">2.0</span> / <span class="hljs-number">2.0</span> / (RYDBERG_CM * hckt) * (
+            np.exp(-np.maximum(<span class="hljs-number">109250.336</span>, <span class="hljs-number">109678.764</span> - wno) * hckt)
+            - np.exp(-<span class="hljs-number">109678.764</span> * hckt)) * st
+        s = h * bn
+        <span class="hljs-keyword">for</span> (n, thr, wt, e) <span class="hljs-keyword">in</span> HOP_LEVELS:
+            <span class="hljs-keyword">if</span> wno &gt;= thr:
+                a = xkarsas(f, <span class="hljs-number">1.0</span>, n, n) * wt * np.exp(-e * hckt) * st
+                h = h + a; s = s + a * bn
+        <span class="hljs-keyword">for</span> (n, thr, wt, e, bi) <span class="hljs-keyword">in</span> HOP_LEVELS_B:
+            <span class="hljs-keyword">if</span> wno &gt;= thr:
+                bh = bhyd[:, bi]
+                a = xkarsas(f, <span class="hljs-number">1.0</span>, n, n) * wt * np.exp(-e * hckt) * (bh - ehv)
+                h = h + a; s = s + a * bn * st / np.maximum(bh - ehv, <span class="hljs-number">1e-40</span>)
+        <span class="hljs-keyword">if</span> wno &gt;= <span class="hljs-number">109678.764</span>:
+            bh = bhyd[:, <span class="hljs-number">0</span>]
+            a = xkarsas(f, <span class="hljs-number">1.0</span>, <span class="hljs-number">1</span>, <span class="hljs-number">1</span>) * <span class="hljs-number">2.0</span> * (bh - ehv)
+            h = h + a; s = s + a * bn * st / np.maximum(bh - ehv, <span class="hljs-number">1e-40</span>)
+        h = h * xnfph1 / rho; s = s * xnfph1 / rho
+        cff = coulff(<span class="hljs-number">1</span>, f, np.log(f), temp, tlog)
+        a_ff = <span class="hljs-number">3.6919e8</span> / np.sqrt(temp) * cff / f * xne / f * xnfph2 / f * st / rho
+        ahyd[:, j] = h + a_ff
+
+        <span class="hljs-keyword">if</span> f &lt;= <span class="hljs-number">3.28805e15</span>:
+            freqlg = np.log(f)
+            freq15 = f / <span class="hljs-number">1.0e15</span>
+            fr = -<span class="hljs-number">3.0233e3</span> + (<span class="hljs-number">3.7797e2</span> + (-<span class="hljs-number">1.82496e1</span> + (<span class="hljs-number">3.9207e-1</span> - <span class="hljs-number">3.1672e-3</span> * freqlg) * freqlg) * freqlg) * freqlg
+            es = -<span class="hljs-number">7.342e-3</span> + (-<span class="hljs-number">2.409e0</span> + (<span class="hljs-number">1.028e0</span> + (-<span class="hljs-number">4.230e-1</span> + (<span class="hljs-number">1.224e-1</span> - <span class="hljs-number">1.351e-2</span> * freq15) * freq15) * freq15) * freq15) * freq15
+            ah2p[:, j] = (np.exp(-es / tkev + fr + np.log(np.maximum(xnfph1, <span class="hljs-number">1e-40</span>)))
+                          * <span class="hljs-number">2.0</span> * bhyd[:, <span class="hljs-number">0</span>] * xnfph2 / rho * st)
+    <span class="hljs-keyword">return</span> ahyd, ah2p</code></pre>
+    </div></div><div class="prose"><p><code>_hminus_opacity</code> isolates H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mo>−</mo></msup></mrow><annotation encoding="application/x-tex">^-</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7713em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7713em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mbin mtight">−</span></span></span></span></span></span></span></span></span></span></span> bound-free and free-free opacity. The table interpolation is
+left scalar over the small H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mo>−</mo></msup></mrow><annotation encoding="application/x-tex">^-</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7713em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7713em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mbin mtight">−</span></span></span></span></span></span></span></span></span></span></span> grid because this capstone cell is a reference-preserving NumPy
+path; the GPU port can replace it with gathered torch interpolation later.</p>
+</div><div class="nb-cell"><div class="code-card">
+      <div class="code-top">
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[19]</span>Python</span>
+        <button class="copy-btn" type="button" data-code="def _hminus_opacity(freq, temp, rho, xne, xnfph1, tkev, ehvkt, stim, bnu, bhyd1, bmin):
+    &quot;&quot;&quot;Return H- bound-free plus free-free absorption on ``(layer, frequency)``.
+
+    The inputs are the local thermodynamic vectors and the precomputed stimulated
+    emission/Planck factors shared by the continuum ledger.  The small H- tables
+    are interpolated in the original order to preserve the pykurucz float floor;
+    the output is a true absorption opacity in cm^2/g.
+    &quot;&quot;&quot;
+    n_layers, nfreq = temp.size, freq.size
+    ahmin = np.zeros((n_layers, nfreq))
     xhmin = (np.exp(0.754209 / tkev) / (2.0 * 2.4148e15 * temp * np.sqrt(temp))
              * bmin * bhyd1 * xnfph1 * xne)
     theta = 5040.0 / temp
@@ -1141,7 +1179,7 @@ H_MAX_LEVEL = <span class="hljs-number">6</span></code></pre>
             fflog[iw, it] = np.log(ff_full[it, iw] / HMINOP_THETAFF[it] * 5040.0 * K_BOLTZ)
     wfflog = np.log(91.134 / HMINOP_WAVEK)
     for j in range(nfreq):
-        f = freq[j]; ehv = ehvkt[:, j]; st = stim[:, j]; bn = bnu[:, j]
+        f = freq[j]; ehv = ehvkt[:, j]
         wave = 2.99792458e17 / f
         wavelog = np.log(wave)
         fftheta = np.zeros(n_layers)
@@ -1154,21 +1192,69 @@ H_MAX_LEVEL = <span class="hljs-number">6</span></code></pre>
         hminff = fftheta * xnfph1 * 2.0 * bhyd1 * xne / rho * 1e-26
         h_bf = hminbf * 1e-18 * (1.0 - ehv / np.maximum(bmin, 1e-40)) * xhmin / rho
         ahmin[:, j] = h_bf + hminff
+    return ahmin" aria-label="Copy code">
+          <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
+      </div>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_hminus_opacity</span>(<span class="hljs-params">freq, temp, rho, xne, xnfph1, tkev, ehvkt, stim, bnu, bhyd1, bmin</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Return H- bound-free plus free-free absorption on ``(layer, frequency)``.
 
-    # HEMIOP (He- ff), gated by ifop[6]
-    if ifop[6] == 1:
-        for j in range(nfreq):
-            f = freq[j]
-            ac = 3.397e-01 + (-5.216e14 + 7.039e30 / f) / f
-            bc = -4.116e03 + (1.067e19 + 8.135e34 / f) / f
-            cc = 5.081e08 + (-8.724e22 - 5.659e37 / f) / f
-            ahemin[:, j] = (ac * temp + bc + cc / temp) / 1.0e15 * xne / 1.0e15 * he1_12 / 1.0e15 / rho
+    The inputs are the local thermodynamic vectors and the precomputed stimulated
+    emission/Planck factors shared by the continuum ledger.  The small H- tables
+    are interpolated in the original order to preserve the pykurucz float floor;
+    the output is a true absorption opacity in cm^2/g.
+    &quot;&quot;&quot;</span>
+    n_layers, nfreq = temp.size, freq.size
+    ahmin = np.zeros((n_layers, nfreq))
+    xhmin = (np.exp(<span class="hljs-number">0.754209</span> / tkev) / (<span class="hljs-number">2.0</span> * <span class="hljs-number">2.4148e15</span> * temp * np.sqrt(temp))
+             * bmin * bhyd1 * xnfph1 * xne)
+    theta = <span class="hljs-number">5040.0</span> / temp
+    nthetaff = HMINOP_THETAFF.size
+    ff_full = np.zeros((nthetaff, <span class="hljs-number">22</span>))
+    <span class="hljs-keyword">for</span> it <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nthetaff):
+        <span class="hljs-keyword">for</span> iw <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">22</span>):
+            ff_full[it, iw] = HMINOP_FFBEG[iw, it] <span class="hljs-keyword">if</span> iw &lt; <span class="hljs-number">11</span> <span class="hljs-keyword">else</span> HMINOP_FFEND[iw - <span class="hljs-number">11</span>, it]
+    fflog = np.zeros((<span class="hljs-number">22</span>, nthetaff))
+    <span class="hljs-keyword">for</span> iw <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">22</span>):
+        <span class="hljs-keyword">for</span> it <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nthetaff):
+            fflog[iw, it] = np.log(ff_full[it, iw] / HMINOP_THETAFF[it] * <span class="hljs-number">5040.0</span> * K_BOLTZ)
+    wfflog = np.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK)
+    <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nfreq):
+        f = freq[j]; ehv = ehvkt[:, j]
+        wave = <span class="hljs-number">2.99792458e17</span> / f
+        wavelog = np.log(wave)
+        fftheta = np.zeros(n_layers)
+        fftt_for_theta = np.zeros(nthetaff)
+        <span class="hljs-keyword">for</span> it <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nthetaff):
+            fftt_for_theta[it] = np.exp(linter(wfflog, fflog[:, it], np.array([wavelog]))[<span class="hljs-number">0</span>])
+        <span class="hljs-keyword">for</span> layer <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(n_layers):
+            fftheta[layer] = linter(HMINOP_THETAFF, fftt_for_theta, np.array([theta[layer]]))[<span class="hljs-number">0</span>]
+        hminbf = map1(HMINOP_WBF, HMINOP_BF, np.array([wave]))[<span class="hljs-number">0</span>] <span class="hljs-keyword">if</span> f &gt; <span class="hljs-number">1.82365e14</span> <span class="hljs-keyword">else</span> <span class="hljs-number">0.0</span>
+        hminff = fftheta * xnfph1 * <span class="hljs-number">2.0</span> * bhyd1 * xne / rho * <span class="hljs-number">1e-26</span>
+        h_bf = hminbf * <span class="hljs-number">1e-18</span> * (<span class="hljs-number">1.0</span> - ehv / np.maximum(bmin, <span class="hljs-number">1e-40</span>)) * xhmin / rho
+        ahmin[:, j] = h_bf + hminff
+    <span class="hljs-keyword">return</span> ahmin</code></pre>
+    </div></div><div class="prose"><p>The scattering helper collects the Thomson, H Rayleigh, He Rayleigh, and H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mrow></mrow><mn>2</mn></msub></mrow><annotation encoding="application/x-tex">_2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4511em;vertical-align:-0.15em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> Rayleigh
+terms. These are scattering opacities, so they return <code>sigmac</code> components rather than true
+absorption.</p>
+</div><div class="nb-cell"><div class="code-card">
+      <div class="code-top">
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[20]</span>Python</span>
+        <button class="copy-btn" type="button" data-code="def _scattering_terms(freq, temp, rho, xne, xnf_h, he1_12, bhyd1, bhe1, ifop, tkev, tlog):
+    &quot;&quot;&quot;Return the continuum scattering ledger on ``(layer, frequency)``.
 
-    # ELECOP (Thomson) - no stim
-    for j in range(nfreq):
-        sigel[:, j] = 0.6653e-24 * xne / rho
+    This collects Thomson electron scattering, H Rayleigh, He Rayleigh, and H2
+    Rayleigh terms.  The H Rayleigh branches follow the original tabulated
+    frequency intervals exactly, so they stay scalar over the short edge list;
+    layer dependence remains vectorized.
+    &quot;&quot;&quot;
+    n_layers, nfreq = temp.size, freq.size
+    sigh = np.zeros((n_layers, nfreq))
+    sighe = np.zeros((n_layers, nfreq))
+    sigel = np.zeros((n_layers, nfreq))
+    sigh2 = np.zeros((n_layers, nfreq))
 
-    # HRAYOP (H Rayleigh) - ground-state H from xnf_h / U(T)
+    sigel[:, :] = (0.6653e-24 * xne / rho)[:, None]
+
     xnfph1_ray = xnf_h / hydrogen_partition(temp)
     freq_lyman = 3.288051e15; freq_step = 3.288051e13
     for j in range(nfreq):
@@ -1223,10 +1309,8 @@ H_MAX_LEVEL = <span class="hljs-number">6</span></code></pre>
             g = HRAYOP_GAVRILALYMANCONT[0]
         else:
             g = map1(HRAYOP_FGAVRILALYMANCONT, HRAYOP_GAVRILALYMANCONT, np.array([f / freq_lyman]))[0]
-        xsect = 6.65e-25 * g**2
-        sigh[:, j] = xsect * xnfph1_ray * 2.0 * bhyd1 / rho
+        sigh[:, j] = 6.65e-25 * g**2 * xnfph1_ray * 2.0 * bhyd1 / rho
 
-    # HERAOP (He Rayleigh), gated by ifop[7]
     if ifop[7] == 1:
         for j in range(nfreq):
             f = freq[j]
@@ -1235,7 +1319,6 @@ H_MAX_LEVEL = <span class="hljs-number">6</span></code></pre>
             sig = 5.484e-14 / (ww * ww) * (1.0 + (2.44e5 + 5.94e10 / max(ww - 2.90e5, 1e-10)) / ww) ** 2
             sighe[:, j] = sig * he1_12 / rho * bhe1[:, 0]
 
-    # H2RAOP (H2 Rayleigh), gated by ifop[12]
     if ifop[12] == 1:
         poly_T = (1.63660e-3 + (-4.93992e-7 + (1.11822e-10 + (-1.49567e-14 + (1.06206e-18 - 3.08720e-23 * temp) * temp) * temp) * temp) * temp) * temp
         exp_term = np.clip(4.478 / tkev - 4.64584e1 + poly_T - 1.5 * tlog, -100, 100)
@@ -1246,6 +1329,166 @@ H_MAX_LEVEL = <span class="hljs-number">6</span></code></pre>
             ww = wave**2
             sig = (8.14e-13 + 1.28e-6 / ww + 1.61 / (ww * ww)) / (ww * ww)
             sigh2[:, j] = sig * xnh2
+    return sigh, sighe, sigel, sigh2" aria-label="Copy code">
+          <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
+      </div>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_scattering_terms</span>(<span class="hljs-params">freq, temp, rho, xne, xnf_h, he1_12, bhyd1, bhe1, ifop, tkev, tlog</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Return the continuum scattering ledger on ``(layer, frequency)``.
+
+    This collects Thomson electron scattering, H Rayleigh, He Rayleigh, and H2
+    Rayleigh terms.  The H Rayleigh branches follow the original tabulated
+    frequency intervals exactly, so they stay scalar over the short edge list;
+    layer dependence remains vectorized.
+    &quot;&quot;&quot;</span>
+    n_layers, nfreq = temp.size, freq.size
+    sigh = np.zeros((n_layers, nfreq))
+    sighe = np.zeros((n_layers, nfreq))
+    sigel = np.zeros((n_layers, nfreq))
+    sigh2 = np.zeros((n_layers, nfreq))
+
+    sigel[:, :] = (<span class="hljs-number">0.6653e-24</span> * xne / rho)[:, <span class="hljs-literal">None</span>]
+
+    xnfph1_ray = xnf_h / hydrogen_partition(temp)
+    freq_lyman = <span class="hljs-number">3.288051e15</span>; freq_step = <span class="hljs-number">3.288051e13</span>
+    <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nfreq):
+        f = freq[j]
+        <span class="hljs-keyword">if</span> f &lt; freq_lyman * <span class="hljs-number">0.01</span>:
+            g = HRAYOP_GAVRILAM[<span class="hljs-number">0</span>] * (f / freq_step) ** <span class="hljs-number">2</span>
+        <span class="hljs-keyword">elif</span> f &lt;= freq_lyman * <span class="hljs-number">0.74</span>:
+            i = <span class="hljs-built_in">int</span>(f / freq_step); i = <span class="hljs-built_in">min</span>(i + <span class="hljs-number">1</span>, <span class="hljs-number">74</span>); i = <span class="hljs-built_in">max</span>(<span class="hljs-number">1</span>, i)
+            <span class="hljs-keyword">if</span> i &gt;= <span class="hljs-built_in">len</span>(HRAYOP_GAVRILAM):
+                i = <span class="hljs-built_in">len</span>(HRAYOP_GAVRILAM) - <span class="hljs-number">1</span>
+            <span class="hljs-keyword">if</span> i &gt; <span class="hljs-number">1</span>:
+                g = HRAYOP_GAVRILAM[i - <span class="hljs-number">2</span>] + (HRAYOP_GAVRILAM[i - <span class="hljs-number">1</span>] - HRAYOP_GAVRILAM[i - <span class="hljs-number">2</span>]) / freq_step * (f - (i - <span class="hljs-number">1</span>) * freq_step)
+            <span class="hljs-keyword">else</span>:
+                g = HRAYOP_GAVRILAM[<span class="hljs-number">0</span>]
+        <span class="hljs-keyword">elif</span> f &lt; freq_lyman * <span class="hljs-number">0.755</span>:
+            g = <span class="hljs-number">15.57</span>
+        <span class="hljs-keyword">elif</span> f &lt;= freq_lyman * <span class="hljs-number">0.885</span>:
+            step_ab = <span class="hljs-number">1.644026e13</span>
+            i = <span class="hljs-built_in">int</span>((f - freq_lyman * <span class="hljs-number">0.755</span>) / step_ab) + <span class="hljs-number">1</span>; i = <span class="hljs-built_in">min</span>(i + <span class="hljs-number">1</span>, <span class="hljs-number">27</span>); i = <span class="hljs-built_in">max</span>(<span class="hljs-number">1</span>, i)
+            <span class="hljs-keyword">if</span> i &gt;= <span class="hljs-built_in">len</span>(HRAYOP_GAVRILAMAB):
+                i = <span class="hljs-built_in">len</span>(HRAYOP_GAVRILAMAB) - <span class="hljs-number">1</span>
+            <span class="hljs-keyword">if</span> i &gt; <span class="hljs-number">1</span>:
+                f1 = freq_lyman * <span class="hljs-number">0.755</span> + ((i - <span class="hljs-number">1</span>) - <span class="hljs-number">1</span>) * <span class="hljs-number">1.664026e13</span>
+                g = HRAYOP_GAVRILAMAB[i - <span class="hljs-number">2</span>] + (HRAYOP_GAVRILAMAB[i - <span class="hljs-number">1</span>] - HRAYOP_GAVRILAMAB[i - <span class="hljs-number">2</span>]) / step_ab * (f - f1)
+            <span class="hljs-keyword">else</span>:
+                g = HRAYOP_GAVRILAMAB[<span class="hljs-number">0</span>]
+        <span class="hljs-keyword">elif</span> f &lt; freq_lyman * <span class="hljs-number">0.890</span>:
+            g = <span class="hljs-number">8.0</span>
+        <span class="hljs-keyword">elif</span> f &lt;= freq_lyman * <span class="hljs-number">0.936</span>:
+            step_bc = <span class="hljs-number">0.657610e13</span>
+            i = <span class="hljs-built_in">int</span>((f - freq_lyman * <span class="hljs-number">0.890</span>) / step_bc) + <span class="hljs-number">1</span>; i = <span class="hljs-built_in">min</span>(i + <span class="hljs-number">1</span>, <span class="hljs-number">24</span>); i = <span class="hljs-built_in">max</span>(<span class="hljs-number">1</span>, i)
+            <span class="hljs-keyword">if</span> i &gt;= <span class="hljs-built_in">len</span>(HRAYOP_GAVRILAMBC):
+                i = <span class="hljs-built_in">len</span>(HRAYOP_GAVRILAMBC) - <span class="hljs-number">1</span>
+            <span class="hljs-keyword">if</span> i &gt; <span class="hljs-number">1</span>:
+                f1 = freq_lyman * <span class="hljs-number">0.890</span> + ((i - <span class="hljs-number">1</span>) - <span class="hljs-number">1</span>) * step_bc
+                g = HRAYOP_GAVRILAMBC[i - <span class="hljs-number">2</span>] + (HRAYOP_GAVRILAMBC[i - <span class="hljs-number">1</span>] - HRAYOP_GAVRILAMBC[i - <span class="hljs-number">2</span>]) / step_bc * (f - f1)
+            <span class="hljs-keyword">else</span>:
+                g = HRAYOP_GAVRILAMBC[<span class="hljs-number">0</span>]
+        <span class="hljs-keyword">elif</span> f &lt; freq_lyman * <span class="hljs-number">0.938</span>:
+            g = <span class="hljs-number">9.0</span>
+        <span class="hljs-keyword">elif</span> f &lt;= freq_lyman * <span class="hljs-number">0.959</span>:
+            step_cd = <span class="hljs-number">0.3288051e13</span>
+            i = <span class="hljs-built_in">int</span>((f - freq_lyman * <span class="hljs-number">0.938</span>) / step_cd) + <span class="hljs-number">1</span>; i = <span class="hljs-built_in">min</span>(i + <span class="hljs-number">1</span>, <span class="hljs-number">22</span>); i = <span class="hljs-built_in">max</span>(<span class="hljs-number">1</span>, i)
+            <span class="hljs-keyword">if</span> i &gt;= <span class="hljs-built_in">len</span>(HRAYOP_GAVRILAMCD):
+                i = <span class="hljs-built_in">len</span>(HRAYOP_GAVRILAMCD) - <span class="hljs-number">1</span>
+            <span class="hljs-keyword">if</span> i &gt; <span class="hljs-number">1</span>:
+                f1 = freq_lyman * <span class="hljs-number">0.938</span> + ((i - <span class="hljs-number">1</span>) - <span class="hljs-number">1</span>) * step_cd
+                g = HRAYOP_GAVRILAMCD[i - <span class="hljs-number">2</span>] + (HRAYOP_GAVRILAMCD[i - <span class="hljs-number">1</span>] - HRAYOP_GAVRILAMCD[i - <span class="hljs-number">2</span>]) / step_cd * (f - f1)
+            <span class="hljs-keyword">else</span>:
+                g = HRAYOP_GAVRILAMCD[<span class="hljs-number">0</span>]
+        <span class="hljs-keyword">elif</span> f &lt;= freq_lyman:
+            g = HRAYOP_GAVRILALYMANCONT[<span class="hljs-number">0</span>]
+        <span class="hljs-keyword">else</span>:
+            g = map1(HRAYOP_FGAVRILALYMANCONT, HRAYOP_GAVRILALYMANCONT, np.array([f / freq_lyman]))[<span class="hljs-number">0</span>]
+        sigh[:, j] = <span class="hljs-number">6.65e-25</span> * g**<span class="hljs-number">2</span> * xnfph1_ray * <span class="hljs-number">2.0</span> * bhyd1 / rho
+
+    <span class="hljs-keyword">if</span> ifop[<span class="hljs-number">7</span>] == <span class="hljs-number">1</span>:
+        <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nfreq):
+            f = freq[j]
+            wave = <span class="hljs-number">2.99792458e18</span> / <span class="hljs-built_in">min</span>(f, <span class="hljs-number">5.15e15</span>)
+            ww = wave**<span class="hljs-number">2</span>
+            sig = <span class="hljs-number">5.484e-14</span> / (ww * ww) * (<span class="hljs-number">1.0</span> + (<span class="hljs-number">2.44e5</span> + <span class="hljs-number">5.94e10</span> / <span class="hljs-built_in">max</span>(ww - <span class="hljs-number">2.90e5</span>, <span class="hljs-number">1e-10</span>)) / ww) ** <span class="hljs-number">2</span>
+            sighe[:, j] = sig * he1_12 / rho * bhe1[:, <span class="hljs-number">0</span>]
+
+    <span class="hljs-keyword">if</span> ifop[<span class="hljs-number">12</span>] == <span class="hljs-number">1</span>:
+        poly_T = (<span class="hljs-number">1.63660e-3</span> + (-<span class="hljs-number">4.93992e-7</span> + (<span class="hljs-number">1.11822e-10</span> + (-<span class="hljs-number">1.49567e-14</span> + (<span class="hljs-number">1.06206e-18</span> - <span class="hljs-number">3.08720e-23</span> * temp) * temp) * temp) * temp) * temp) * temp
+        exp_term = np.clip(<span class="hljs-number">4.478</span> / tkev - <span class="hljs-number">4.64584e1</span> + poly_T - <span class="hljs-number">1.5</span> * tlog, -<span class="hljs-number">100</span>, <span class="hljs-number">100</span>)
+        xnh2 = (xnfph1_ray * <span class="hljs-number">2.0</span> * bhyd1) ** <span class="hljs-number">2</span> * np.exp(exp_term) / rho
+        <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nfreq):
+            f = freq[j]
+            wave = <span class="hljs-number">2.99792458e18</span> / <span class="hljs-built_in">min</span>(f, <span class="hljs-number">2.922e15</span>)
+            ww = wave**<span class="hljs-number">2</span>
+            sig = (<span class="hljs-number">8.14e-13</span> + <span class="hljs-number">1.28e-6</span> / ww + <span class="hljs-number">1.61</span> / (ww * ww)) / (ww * ww)
+            sigh2[:, j] = sig * xnh2
+    <span class="hljs-keyword">return</span> sigh, sighe, sigel, sigh2</code></pre>
+    </div></div><div class="prose"><p>Now the engine itself. <code>compute_kapp</code> takes a frequency array and the population dictionary <code>pops</code>, and returns the continuum absorption <code>acont</code> and the scattering <code>sigmac</code>, each <code>(n_layers, nfreq)</code>. Read it block by block — each block is one continuum source from Lecture 3, evaluated from its population times its cross-section, summed at the end into <code>acont</code> (true absorption) and <code>sigmac</code> (scattering). The departure coefficients (<code>bhyd</code>, <code>bmin</code>, …) are all unity in LTE, exactly as the model assumes.</p>
+<p>This cell is intentionally still a single function definition. The continuum terms share the same local thermodynamic arrays (<code>stim</code>, <code>bnu</code>, <code>rho</code>, population slices, and departure coefficients), and splitting the body across cells would either duplicate those arrays or obscure the accumulation. The short cells above isolate the reusable lookup routines; this cell is the one long ledger where the absorbers are added.</p>
+</div><div class="nb-cell"><div class="code-card">
+      <div class="code-top">
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[21]</span>Python</span>
+        <button class="copy-btn" type="button" data-code="def compute_kapp(freq, pops, ifop):
+    &quot;&quot;&quot;Reproduce kapp.compute_kapp_continuum for the given frequency array.
+
+    pops: dict of per-layer atmosphere quantities (see __main__ assembly).
+    Returns acont, sigmac  (each (n_layers, nfreq)).
+    &quot;&quot;&quot;
+    temp = pops[&quot;temperature&quot;]
+    rho = np.maximum(pops[&quot;mass_density&quot;], 1e-30)
+    xne = pops[&quot;electron_density&quot;]
+    n_layers = temp.size
+    nfreq = freq.size
+
+    # b-tables are all unity (LTE) in this model; KAPP reads atlas_tables.get(...,ones)
+    bhyd = np.ones((n_layers, 8)); bmin = np.ones(n_layers)
+    bhe1 = np.ones((n_layers, 29)); bhe2 = np.ones((n_layers, 6))
+
+    xnfph = pops[&quot;xnfph&quot;]              # (n_layers,2) mode-11 H I ground, H II
+    xnf_h = pops[&quot;xnf_h&quot;]             # mode-12 total neutral H
+    # HE populations from the POPS mode-11 grid
+    he1_11 = pops[&quot;he1_mode11&quot;]; he2_11 = pops[&quot;he2_mode11&quot;]; he3_11 = pops[&quot;he3_mode11&quot;]
+    he1_12 = pops[&quot;he1_mode12&quot;]; he2_12 = pops[&quot;he2_mode12&quot;]
+
+    hkt = H_PLANCK / (K_BOLTZ * temp)
+    hckt = hkt * C_LIGHT_CM
+    tlog = np.log(np.maximum(temp, 1e-10))
+    tkev = temp * KBOLTZ_EV
+    waveno = freq / C_LIGHT_CM
+    ehvkt = np.exp(-H_PLANCK * freq[None, :] / (K_BOLTZ * temp[:, None]))
+    stim = 1.0 - ehvkt
+    bnu = np.zeros((n_layers, nfreq))
+    for j in range(nfreq):
+        bnu[:, j] = planck_nu(freq[j], temp)
+
+    ahyd = np.zeros((n_layers, nfreq)); ahmin = np.zeros((n_layers, nfreq))
+    ah2p = np.zeros((n_layers, nfreq)); ahemin = np.zeros((n_layers, nfreq))
+    ahe1 = np.zeros((n_layers, nfreq)); ahe2 = np.zeros((n_layers, nfreq))
+    ac1 = np.zeros((n_layers, nfreq)); amg1 = np.zeros((n_layers, nfreq))
+    aal1 = np.zeros((n_layers, nfreq)); asi1 = np.zeros((n_layers, nfreq))
+    afe1 = np.zeros((n_layers, nfreq)); aluke = np.zeros((n_layers, nfreq))
+    ahot = np.zeros((n_layers, nfreq))
+    sigh = np.zeros((n_layers, nfreq)); sighe = np.zeros((n_layers, nfreq))
+    sigel = np.zeros((n_layers, nfreq)); sigh2 = np.zeros((n_layers, nfreq))
+
+    xnfph1 = xnfph[:, 0]; xnfph2 = xnfph[:, 1]
+    bhyd1 = bhyd[:, 0]
+    ahyd, ah2p = _hydrogen_bf_ff(freq, temp, rho, xne, xnfph, hckt, tlog, tkev,
+                                 waveno, ehvkt, stim, bnu, bhyd)
+    ahmin = _hminus_opacity(freq, temp, rho, xne, xnfph1, tkev, ehvkt, stim, bnu, bhyd1, bmin)
+
+    # HEMIOP (He- ff), gated by ifop[6]
+    if ifop[6] == 1:
+        for j in range(nfreq):
+            f = freq[j]
+            ac = 3.397e-01 + (-5.216e14 + 7.039e30 / f) / f
+            bc = -4.116e03 + (1.067e19 + 8.135e34 / f) / f
+            cc = 5.081e08 + (-8.724e22 - 5.659e37 / f) / f
+            ahemin[:, j] = (ac * temp + bc + cc / temp) / 1.0e15 * xne / 1.0e15 * he1_12 / 1.0e15 / rho
+
+    sigh, sighe, sigel, sigh2 = _scattering_terms(
+        freq, temp, rho, xne, xnf_h, he1_12, bhyd1, bhe1, ifop, tkev, tlog,
+    )
 
     # ── HE1OP ──
     # bound: weighted by He I mode-11.  free-free: weighted by He II mode-11
@@ -1518,91 +1761,11 @@ H_MAX_LEVEL = <span class="hljs-number">6</span></code></pre>
     sigh = np.zeros((n_layers, nfreq)); sighe = np.zeros((n_layers, nfreq))
     sigel = np.zeros((n_layers, nfreq)); sigh2 = np.zeros((n_layers, nfreq))
 
-    <span class="hljs-comment"># H I bf level thresholds (wavenumber, weight 2n^2, energy cm^-1)</span>
-    HOP_LEVELS = [
-        (<span class="hljs-number">15</span>, <span class="hljs-number">487.456</span>, <span class="hljs-number">450.0</span>, <span class="hljs-number">109191.313</span>), (<span class="hljs-number">14</span>, <span class="hljs-number">559.579</span>, <span class="hljs-number">392.0</span>, <span class="hljs-number">109119.188</span>),
-        (<span class="hljs-number">13</span>, <span class="hljs-number">648.980</span>, <span class="hljs-number">338.0</span>, <span class="hljs-number">109029.789</span>), (<span class="hljs-number">12</span>, <span class="hljs-number">761.649</span>, <span class="hljs-number">288.0</span>, <span class="hljs-number">108917.117</span>),
-        (<span class="hljs-number">11</span>, <span class="hljs-number">906.426</span>, <span class="hljs-number">242.0</span>, <span class="hljs-number">108772.336</span>), (<span class="hljs-number">10</span>, <span class="hljs-number">1096.776</span>, <span class="hljs-number">200.0</span>, <span class="hljs-number">108581.992</span>),
-        (<span class="hljs-number">9</span>, <span class="hljs-number">1354.044</span>, <span class="hljs-number">162.0</span>, <span class="hljs-number">108324.719</span>), (<span class="hljs-number">8</span>, <span class="hljs-number">1713.713</span>, <span class="hljs-number">128.0</span>, <span class="hljs-number">107965.051</span>),
-        (<span class="hljs-number">7</span>, <span class="hljs-number">2238.320</span>, <span class="hljs-number">98.0</span>, <span class="hljs-number">107440.444</span>),
-    ]
-    HOP_LEVELS_B = [  <span class="hljs-comment"># n&lt;=6 use departure coeff (b - ehvkt) instead of *stim</span>
-        (<span class="hljs-number">6</span>, <span class="hljs-number">3046.604</span>, <span class="hljs-number">72.0</span>, <span class="hljs-number">106632.160</span>, <span class="hljs-number">5</span>), (<span class="hljs-number">5</span>, <span class="hljs-number">4387.113</span>, <span class="hljs-number">50.0</span>, <span class="hljs-number">105291.651</span>, <span class="hljs-number">4</span>),
-        (<span class="hljs-number">4</span>, <span class="hljs-number">6854.871</span>, <span class="hljs-number">32.0</span>, <span class="hljs-number">102823.893</span>, <span class="hljs-number">3</span>), (<span class="hljs-number">3</span>, <span class="hljs-number">12186.462</span>, <span class="hljs-number">18.0</span>, <span class="hljs-number">97492.302</span>, <span class="hljs-number">2</span>),
-        (<span class="hljs-number">2</span>, <span class="hljs-number">27419.659</span>, <span class="hljs-number">8.0</span>, <span class="hljs-number">82259.105</span>, <span class="hljs-number">1</span>),
-    ]
-
     xnfph1 = xnfph[:, <span class="hljs-number">0</span>]; xnfph2 = xnfph[:, <span class="hljs-number">1</span>]
-    <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nfreq):
-        f = freq[j]; wno = waveno[j]; ehv = ehvkt[:, j]; st = stim[:, j]; bn = bnu[:, j]
-        freq3 = <span class="hljs-number">2.815e29</span> / (f * f * f)
-        <span class="hljs-comment"># N=16 to infinity</span>
-        h = freq3 * <span class="hljs-number">2.0</span> / <span class="hljs-number">2.0</span> / (RYDBERG_CM * hckt) * (
-            np.exp(-np.maximum(<span class="hljs-number">109250.336</span>, <span class="hljs-number">109678.764</span> - wno) * hckt)
-            - np.exp(-<span class="hljs-number">109678.764</span> * hckt)) * st
-        s = h * bn
-        <span class="hljs-keyword">for</span> (n, thr, wt, e) <span class="hljs-keyword">in</span> HOP_LEVELS:
-            <span class="hljs-keyword">if</span> wno &gt;= thr:
-                a = xkarsas(f, <span class="hljs-number">1.0</span>, n, n) * wt * np.exp(-e * hckt) * st
-                h = h + a; s = s + a * bn
-        <span class="hljs-keyword">for</span> (n, thr, wt, e, bi) <span class="hljs-keyword">in</span> HOP_LEVELS_B:
-            <span class="hljs-keyword">if</span> wno &gt;= thr:
-                bh = bhyd[:, bi]
-                a = xkarsas(f, <span class="hljs-number">1.0</span>, n, n) * wt * np.exp(-e * hckt) * (bh - ehv)
-                h = h + a; s = s + a * bn * st / np.maximum(bh - ehv, <span class="hljs-number">1e-40</span>)
-        <span class="hljs-keyword">if</span> wno &gt;= <span class="hljs-number">109678.764</span>:  <span class="hljs-comment"># N=1</span>
-            bh = bhyd[:, <span class="hljs-number">0</span>]
-            a = xkarsas(f, <span class="hljs-number">1.0</span>, <span class="hljs-number">1</span>, <span class="hljs-number">1</span>) * <span class="hljs-number">2.0</span> * <span class="hljs-number">1.0</span> * (bh - ehv)
-            h = h + a; s = s + a * bn * st / np.maximum(bh - ehv, <span class="hljs-number">1e-40</span>)
-        h = h * xnfph1 / rho; s = s * xnfph1 / rho
-        <span class="hljs-comment"># free-free</span>
-        cff = coulff(<span class="hljs-number">1</span>, f, np.log(f), temp, tlog)
-        a_ff = <span class="hljs-number">3.6919e8</span> / np.sqrt(temp) * cff / f * xne / f * xnfph2 / f * st / rho
-        h = h + a_ff; s = s + a_ff * bn
-        ahyd[:, j] = h
-
-    <span class="hljs-comment"># H2PLOP (H2+); only for f &lt;= 3.28805e15 (always true at visible)</span>
-    <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nfreq):
-        f = freq[j]
-        <span class="hljs-keyword">if</span> f &gt; <span class="hljs-number">3.28805e15</span>:
-            <span class="hljs-keyword">continue</span>
-        freqlg = np.log(f)
-        freq15 = f / <span class="hljs-number">1.0e15</span>
-        fr = -<span class="hljs-number">3.0233e3</span> + (<span class="hljs-number">3.7797e2</span> + (-<span class="hljs-number">1.82496e1</span> + (<span class="hljs-number">3.9207e-1</span> - <span class="hljs-number">3.1672e-3</span> * freqlg) * freqlg) * freqlg) * freqlg
-        es = -<span class="hljs-number">7.342e-3</span> + (-<span class="hljs-number">2.409e0</span> + (<span class="hljs-number">1.028e0</span> + (-<span class="hljs-number">4.230e-1</span> + (<span class="hljs-number">1.224e-1</span> - <span class="hljs-number">1.351e-2</span> * freq15) * freq15) * freq15) * freq15) * freq15
-        st = stim[:, j]
-        ah2p[:, j] = (np.exp(-es / tkev + fr + np.log(np.maximum(xnfph1, <span class="hljs-number">1e-40</span>)))
-                      * <span class="hljs-number">2.0</span> * bhyd[:, <span class="hljs-number">0</span>] * xnfph2 / rho * st)
-
-    <span class="hljs-comment"># HMINOP (H- bf + ff)</span>
     bhyd1 = bhyd[:, <span class="hljs-number">0</span>]
-    xhmin = (np.exp(<span class="hljs-number">0.754209</span> / tkev) / (<span class="hljs-number">2.0</span> * <span class="hljs-number">2.4148e15</span> * temp * np.sqrt(temp))
-             * bmin * bhyd1 * xnfph1 * xne)
-    theta = <span class="hljs-number">5040.0</span> / temp
-    nthetaff = HMINOP_THETAFF.size
-    ff_full = np.zeros((nthetaff, <span class="hljs-number">22</span>))
-    <span class="hljs-keyword">for</span> it <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nthetaff):
-        <span class="hljs-keyword">for</span> iw <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">22</span>):
-            ff_full[it, iw] = HMINOP_FFBEG[iw, it] <span class="hljs-keyword">if</span> iw &lt; <span class="hljs-number">11</span> <span class="hljs-keyword">else</span> HMINOP_FFEND[iw - <span class="hljs-number">11</span>, it]
-    fflog = np.zeros((<span class="hljs-number">22</span>, nthetaff))
-    <span class="hljs-keyword">for</span> iw <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">22</span>):
-        <span class="hljs-keyword">for</span> it <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nthetaff):
-            fflog[iw, it] = np.log(ff_full[it, iw] / HMINOP_THETAFF[it] * <span class="hljs-number">5040.0</span> * K_BOLTZ)
-    wfflog = np.log(<span class="hljs-number">91.134</span> / HMINOP_WAVEK)
-    <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nfreq):
-        f = freq[j]; ehv = ehvkt[:, j]; st = stim[:, j]; bn = bnu[:, j]
-        wave = <span class="hljs-number">2.99792458e17</span> / f
-        wavelog = np.log(wave)
-        fftheta = np.zeros(n_layers)
-        fftt_for_theta = np.zeros(nthetaff)
-        <span class="hljs-keyword">for</span> it <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nthetaff):
-            fftt_for_theta[it] = np.exp(linter(wfflog, fflog[:, it], np.array([wavelog]))[<span class="hljs-number">0</span>])
-        <span class="hljs-keyword">for</span> layer <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(n_layers):
-            fftheta[layer] = linter(HMINOP_THETAFF, fftt_for_theta, np.array([theta[layer]]))[<span class="hljs-number">0</span>]
-        hminbf = map1(HMINOP_WBF, HMINOP_BF, np.array([wave]))[<span class="hljs-number">0</span>] <span class="hljs-keyword">if</span> f &gt; <span class="hljs-number">1.82365e14</span> <span class="hljs-keyword">else</span> <span class="hljs-number">0.0</span>
-        hminff = fftheta * xnfph1 * <span class="hljs-number">2.0</span> * bhyd1 * xne / rho * <span class="hljs-number">1e-26</span>
-        h_bf = hminbf * <span class="hljs-number">1e-18</span> * (<span class="hljs-number">1.0</span> - ehv / np.maximum(bmin, <span class="hljs-number">1e-40</span>)) * xhmin / rho
-        ahmin[:, j] = h_bf + hminff
+    ahyd, ah2p = _hydrogen_bf_ff(freq, temp, rho, xne, xnfph, hckt, tlog, tkev,
+                                 waveno, ehvkt, stim, bnu, bhyd)
+    ahmin = _hminus_opacity(freq, temp, rho, xne, xnfph1, tkev, ehvkt, stim, bnu, bhyd1, bmin)
 
     <span class="hljs-comment"># HEMIOP (He- ff), gated by ifop[6]</span>
     <span class="hljs-keyword">if</span> ifop[<span class="hljs-number">6</span>] == <span class="hljs-number">1</span>:
@@ -1613,88 +1776,9 @@ H_MAX_LEVEL = <span class="hljs-number">6</span></code></pre>
             cc = <span class="hljs-number">5.081e08</span> + (-<span class="hljs-number">8.724e22</span> - <span class="hljs-number">5.659e37</span> / f) / f
             ahemin[:, j] = (ac * temp + bc + cc / temp) / <span class="hljs-number">1.0e15</span> * xne / <span class="hljs-number">1.0e15</span> * he1_12 / <span class="hljs-number">1.0e15</span> / rho
 
-    <span class="hljs-comment"># ELECOP (Thomson) - no stim</span>
-    <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nfreq):
-        sigel[:, j] = <span class="hljs-number">0.6653e-24</span> * xne / rho
-
-    <span class="hljs-comment"># HRAYOP (H Rayleigh) - ground-state H from xnf_h / U(T)</span>
-    xnfph1_ray = xnf_h / hydrogen_partition(temp)
-    freq_lyman = <span class="hljs-number">3.288051e15</span>; freq_step = <span class="hljs-number">3.288051e13</span>
-    <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nfreq):
-        f = freq[j]
-        <span class="hljs-keyword">if</span> f &lt; freq_lyman * <span class="hljs-number">0.01</span>:
-            g = HRAYOP_GAVRILAM[<span class="hljs-number">0</span>] * (f / freq_step) ** <span class="hljs-number">2</span>
-        <span class="hljs-keyword">elif</span> f &lt;= freq_lyman * <span class="hljs-number">0.74</span>:
-            i = <span class="hljs-built_in">int</span>(f / freq_step); i = <span class="hljs-built_in">min</span>(i + <span class="hljs-number">1</span>, <span class="hljs-number">74</span>); i = <span class="hljs-built_in">max</span>(<span class="hljs-number">1</span>, i)
-            <span class="hljs-keyword">if</span> i &gt;= <span class="hljs-built_in">len</span>(HRAYOP_GAVRILAM):
-                i = <span class="hljs-built_in">len</span>(HRAYOP_GAVRILAM) - <span class="hljs-number">1</span>
-            <span class="hljs-keyword">if</span> i &gt; <span class="hljs-number">1</span>:
-                g = HRAYOP_GAVRILAM[i - <span class="hljs-number">2</span>] + (HRAYOP_GAVRILAM[i - <span class="hljs-number">1</span>] - HRAYOP_GAVRILAM[i - <span class="hljs-number">2</span>]) / freq_step * (f - (i - <span class="hljs-number">1</span>) * freq_step)
-            <span class="hljs-keyword">else</span>:
-                g = HRAYOP_GAVRILAM[<span class="hljs-number">0</span>]
-        <span class="hljs-keyword">elif</span> f &lt; freq_lyman * <span class="hljs-number">0.755</span>:
-            g = <span class="hljs-number">15.57</span>
-        <span class="hljs-keyword">elif</span> f &lt;= freq_lyman * <span class="hljs-number">0.885</span>:
-            step_ab = <span class="hljs-number">1.644026e13</span>
-            i = <span class="hljs-built_in">int</span>((f - freq_lyman * <span class="hljs-number">0.755</span>) / step_ab) + <span class="hljs-number">1</span>; i = <span class="hljs-built_in">min</span>(i + <span class="hljs-number">1</span>, <span class="hljs-number">27</span>); i = <span class="hljs-built_in">max</span>(<span class="hljs-number">1</span>, i)
-            <span class="hljs-keyword">if</span> i &gt;= <span class="hljs-built_in">len</span>(HRAYOP_GAVRILAMAB):
-                i = <span class="hljs-built_in">len</span>(HRAYOP_GAVRILAMAB) - <span class="hljs-number">1</span>
-            <span class="hljs-keyword">if</span> i &gt; <span class="hljs-number">1</span>:
-                f1 = freq_lyman * <span class="hljs-number">0.755</span> + ((i - <span class="hljs-number">1</span>) - <span class="hljs-number">1</span>) * <span class="hljs-number">1.664026e13</span>
-                g = HRAYOP_GAVRILAMAB[i - <span class="hljs-number">2</span>] + (HRAYOP_GAVRILAMAB[i - <span class="hljs-number">1</span>] - HRAYOP_GAVRILAMAB[i - <span class="hljs-number">2</span>]) / step_ab * (f - f1)
-            <span class="hljs-keyword">else</span>:
-                g = HRAYOP_GAVRILAMAB[<span class="hljs-number">0</span>]
-        <span class="hljs-keyword">elif</span> f &lt; freq_lyman * <span class="hljs-number">0.890</span>:
-            g = <span class="hljs-number">8.0</span>
-        <span class="hljs-keyword">elif</span> f &lt;= freq_lyman * <span class="hljs-number">0.936</span>:
-            step_bc = <span class="hljs-number">0.657610e13</span>
-            i = <span class="hljs-built_in">int</span>((f - freq_lyman * <span class="hljs-number">0.890</span>) / step_bc) + <span class="hljs-number">1</span>; i = <span class="hljs-built_in">min</span>(i + <span class="hljs-number">1</span>, <span class="hljs-number">24</span>); i = <span class="hljs-built_in">max</span>(<span class="hljs-number">1</span>, i)
-            <span class="hljs-keyword">if</span> i &gt;= <span class="hljs-built_in">len</span>(HRAYOP_GAVRILAMBC):
-                i = <span class="hljs-built_in">len</span>(HRAYOP_GAVRILAMBC) - <span class="hljs-number">1</span>
-            <span class="hljs-keyword">if</span> i &gt; <span class="hljs-number">1</span>:
-                f1 = freq_lyman * <span class="hljs-number">0.890</span> + ((i - <span class="hljs-number">1</span>) - <span class="hljs-number">1</span>) * step_bc
-                g = HRAYOP_GAVRILAMBC[i - <span class="hljs-number">2</span>] + (HRAYOP_GAVRILAMBC[i - <span class="hljs-number">1</span>] - HRAYOP_GAVRILAMBC[i - <span class="hljs-number">2</span>]) / step_bc * (f - f1)
-            <span class="hljs-keyword">else</span>:
-                g = HRAYOP_GAVRILAMBC[<span class="hljs-number">0</span>]
-        <span class="hljs-keyword">elif</span> f &lt; freq_lyman * <span class="hljs-number">0.938</span>:
-            g = <span class="hljs-number">9.0</span>
-        <span class="hljs-keyword">elif</span> f &lt;= freq_lyman * <span class="hljs-number">0.959</span>:
-            step_cd = <span class="hljs-number">0.3288051e13</span>
-            i = <span class="hljs-built_in">int</span>((f - freq_lyman * <span class="hljs-number">0.938</span>) / step_cd) + <span class="hljs-number">1</span>; i = <span class="hljs-built_in">min</span>(i + <span class="hljs-number">1</span>, <span class="hljs-number">22</span>); i = <span class="hljs-built_in">max</span>(<span class="hljs-number">1</span>, i)
-            <span class="hljs-keyword">if</span> i &gt;= <span class="hljs-built_in">len</span>(HRAYOP_GAVRILAMCD):
-                i = <span class="hljs-built_in">len</span>(HRAYOP_GAVRILAMCD) - <span class="hljs-number">1</span>
-            <span class="hljs-keyword">if</span> i &gt; <span class="hljs-number">1</span>:
-                f1 = freq_lyman * <span class="hljs-number">0.938</span> + ((i - <span class="hljs-number">1</span>) - <span class="hljs-number">1</span>) * step_cd
-                g = HRAYOP_GAVRILAMCD[i - <span class="hljs-number">2</span>] + (HRAYOP_GAVRILAMCD[i - <span class="hljs-number">1</span>] - HRAYOP_GAVRILAMCD[i - <span class="hljs-number">2</span>]) / step_cd * (f - f1)
-            <span class="hljs-keyword">else</span>:
-                g = HRAYOP_GAVRILAMCD[<span class="hljs-number">0</span>]
-        <span class="hljs-keyword">elif</span> f &lt;= freq_lyman:
-            g = HRAYOP_GAVRILALYMANCONT[<span class="hljs-number">0</span>]
-        <span class="hljs-keyword">else</span>:
-            g = map1(HRAYOP_FGAVRILALYMANCONT, HRAYOP_GAVRILALYMANCONT, np.array([f / freq_lyman]))[<span class="hljs-number">0</span>]
-        xsect = <span class="hljs-number">6.65e-25</span> * g**<span class="hljs-number">2</span>
-        sigh[:, j] = xsect * xnfph1_ray * <span class="hljs-number">2.0</span> * bhyd1 / rho
-
-    <span class="hljs-comment"># HERAOP (He Rayleigh), gated by ifop[7]</span>
-    <span class="hljs-keyword">if</span> ifop[<span class="hljs-number">7</span>] == <span class="hljs-number">1</span>:
-        <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nfreq):
-            f = freq[j]
-            wave = <span class="hljs-number">2.99792458e18</span> / <span class="hljs-built_in">min</span>(f, <span class="hljs-number">5.15e15</span>)
-            ww = wave**<span class="hljs-number">2</span>
-            sig = <span class="hljs-number">5.484e-14</span> / (ww * ww) * (<span class="hljs-number">1.0</span> + (<span class="hljs-number">2.44e5</span> + <span class="hljs-number">5.94e10</span> / <span class="hljs-built_in">max</span>(ww - <span class="hljs-number">2.90e5</span>, <span class="hljs-number">1e-10</span>)) / ww) ** <span class="hljs-number">2</span>
-            sighe[:, j] = sig * he1_12 / rho * bhe1[:, <span class="hljs-number">0</span>]
-
-    <span class="hljs-comment"># H2RAOP (H2 Rayleigh), gated by ifop[12]</span>
-    <span class="hljs-keyword">if</span> ifop[<span class="hljs-number">12</span>] == <span class="hljs-number">1</span>:
-        poly_T = (<span class="hljs-number">1.63660e-3</span> + (-<span class="hljs-number">4.93992e-7</span> + (<span class="hljs-number">1.11822e-10</span> + (-<span class="hljs-number">1.49567e-14</span> + (<span class="hljs-number">1.06206e-18</span> - <span class="hljs-number">3.08720e-23</span> * temp) * temp) * temp) * temp) * temp) * temp
-        exp_term = np.clip(<span class="hljs-number">4.478</span> / tkev - <span class="hljs-number">4.64584e1</span> + poly_T - <span class="hljs-number">1.5</span> * tlog, -<span class="hljs-number">100</span>, <span class="hljs-number">100</span>)
-        xnh2 = (xnfph1_ray * <span class="hljs-number">2.0</span> * bhyd1) ** <span class="hljs-number">2</span> * np.exp(exp_term) / rho
-        <span class="hljs-keyword">for</span> j <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nfreq):
-            f = freq[j]
-            wave = <span class="hljs-number">2.99792458e18</span> / <span class="hljs-built_in">min</span>(f, <span class="hljs-number">2.922e15</span>)
-            ww = wave**<span class="hljs-number">2</span>
-            sig = (<span class="hljs-number">8.14e-13</span> + <span class="hljs-number">1.28e-6</span> / ww + <span class="hljs-number">1.61</span> / (ww * ww)) / (ww * ww)
-            sigh2[:, j] = sig * xnh2
+    sigh, sighe, sigel, sigh2 = _scattering_terms(
+        freq, temp, rho, xne, xnf_h, he1_12, bhyd1, bhe1, ifop, tkev, tlog,
+    )
 
     <span class="hljs-comment"># ── HE1OP ──</span>
     <span class="hljs-comment"># bound: weighted by He I mode-11.  free-free: weighted by He II mode-11</span>
@@ -1925,7 +2009,7 @@ H_MAX_LEVEL = <span class="hljs-number">6</span></code></pre>
     </div></div><div class="prose"><p><code>compute_kapp</code> evaluates the continuum at a handful of frequencies. The production code evaluates it only at the <strong>continuum-edge triplets</strong> — three frequencies bracketing each bound-free edge — and then interpolates the log-opacity onto the dense wavelength grid with a 3-point Lagrange formula, because the continuum is smooth between edges. <code>continuum_on_grid</code> does exactly that: it builds the edge frequency set from the star&#39;s <code>frqedg</code>/<code>wledge</code> grids, runs <code>compute_kapp</code> on the edges the window touches, and 3-point-interpolates the log10 coefficients onto each wavelength. It returns the continuum absorption and scattering on the full window grid — computed from the populations, no opacity answer read.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[19]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[22]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def continuum_on_grid(d, ifop):
     &quot;&quot;&quot;COMPUTE the continuum opacity/scattering on the star&#39;s wavelength grid.
 
@@ -2081,7 +2165,7 @@ H_MAX_LEVEL = <span class="hljs-number">6</span></code></pre>
 <p>The helper cells separate the three physical lookups from the driver: CH and OH bound-free table interpolation first, H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mrow></mrow><mn>2</mn></msub></mrow><annotation encoding="application/x-tex">_2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4511em;vertical-align:-0.15em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>-CIA second, then the short loop that assembles the opacity grid.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[20]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[23]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _molc_band_xU(fscalar, T, CROSS, PART, n_off, idx_off, en_off, n_lo, n_hi, idx_hi):
     &quot;&quot;&quot;Interpolate a CH/OH bound-free band and partition factor over depth.
 
@@ -2141,7 +2225,7 @@ H_MAX_LEVEL = <span class="hljs-number">6</span></code></pre>
     </div></div><div class="prose"><p>H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mrow></mrow><mn>2</mn></msub></mrow><annotation encoding="application/x-tex">_2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4511em;vertical-align:-0.15em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>-CIA is a separate Borysow lookup: interpolate the H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mrow></mrow><mn>2</mn></msub></mrow><annotation encoding="application/x-tex">_2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4511em;vertical-align:-0.15em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>-H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mrow></mrow><mn>2</mn></msub></mrow><annotation encoding="application/x-tex">_2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4511em;vertical-align:-0.15em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> and H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mrow></mrow><mn>2</mn></msub></mrow><annotation encoding="application/x-tex">_2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4511em;vertical-align:-0.15em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>-He tables in wavenumber, interpolate in temperature at each depth, and scale by the collider densities and stimulated-emission factor.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[21]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[24]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _molc_h2cia(fscalar, stim_col, T, rho, XNH2, xnfhe1, H2H2, H2HE):
     &quot;&quot;&quot;Scalar H2 collision-induced absorption for one frequency, all depths.&quot;&quot;&quot;
     out = np.zeros(T.size)
@@ -2181,7 +2265,7 @@ H_MAX_LEVEL = <span class="hljs-number">6</span></code></pre>
     </div></div><div class="prose"><p>The driver now has only the atmosphere/population setup and the frequency loop. It calls the three helpers above and returns the total molecular-continuum absorption grid.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[22]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[25]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def molecular_continuum(d):
     &quot;&quot;&quot;CH (CHOP) + OH (OHOP) + H2 collision-induced absorption on the spectrum grid.
 
@@ -2265,7 +2349,7 @@ H_MAX_LEVEL = <span class="hljs-number">6</span></code></pre>
 <p>First the shared line helpers: <code>fast_ex_array</code> (the FASTEX table lookup for <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mi>e</mi><mrow><mo>−</mo><mi>x</mi></mrow></msup></mrow><annotation encoding="application/x-tex">e^{-x}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7713em;"></span><span class="mord"><span class="mord mathnormal">e</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7713em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mathnormal mtight">x</span></span></span></span></span></span></span></span></span></span></span></span>), <code>voigt_profile</code> and <code>voigt_h_at_zero</code> (the Harris-table Voigt <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>H</mi><mo stretchy="false">(</mo><mi>a</mi><mo separator="true">,</mo><mi>v</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">H(a,v)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.08125em;">H</span><span class="mopen">(</span><span class="mord mathnormal">a</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">v</span><span class="mclose">)</span></span></span></span> of Lecture 4), the log-grid index rounding <code>nearest_grid_indices</code>, and <code>process_wing_pair</code> (the one-line wing walk with the near-wing tabulated Voigt and the far-wing <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><mi mathvariant="normal">/</mi><msup><mi>n</mi><mn>2</mn></msup></mrow><annotation encoding="application/x-tex">1/n^2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1.0641em;vertical-align:-0.25em;"></span><span class="mord">1/</span><span class="mord"><span class="mord mathnormal">n</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span></span></span></span> tail). These are the kernels Lecture 4 and Lecture 5 walked through; here they are in compact form.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[23]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[26]</span>Python</span>
         <button class="copy-btn" type="button" data-code="CUTOFF = 1e-3
 KAPMIN_FLOOR = 1e-8
 MAX_PROFILE_STEPS = 1_000_000
@@ -2285,7 +2369,7 @@ _EXTABF = np.exp(-np.arange(<span class="hljs-number">1001</span>, dtype=np.floa
     </div></div><div class="prose"><p><code>fast_ex_array</code> is the tabulated <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mi>e</mi><mrow><mo>−</mo><mi>x</mi></mrow></msup></mrow><annotation encoding="application/x-tex">e^{-x}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7713em;"></span><span class="mord"><span class="mord mathnormal">e</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7713em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mathnormal mtight">x</span></span></span></span></span></span></span></span></span></span></span></span> (the production <code>FASTEX</code> lookup, vectorised) — the Boltzmann factor evaluated by table rather than by calling <code>exp</code> millions of times.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[24]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[27]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def fast_ex_array(x):
     &quot;&quot;&quot;Vectorized FASTEX approximation for positive Boltzmann exponents.
 
@@ -2349,7 +2433,7 @@ _EXTABF = np.exp(-np.arange(<span class="hljs-number">1001</span>, dtype=np.floa
     </div></div><div class="prose"><p><code>voigt_profile</code> is the Voigt/Hjerting function <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>H</mi><mo stretchy="false">(</mo><mi>a</mi><mo separator="true">,</mo><mi>v</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">H(a,v)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.08125em;">H</span><span class="mopen">(</span><span class="mord mathnormal">a</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">v</span><span class="mclose">)</span></span></span></span> from the Harris tables (Lecture 4), with all three branches (small-<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>a</mi></mrow><annotation encoding="application/x-tex">a</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal">a</span></span></span></span> core, far-wing Lorentzian, large-<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>a</mi></mrow><annotation encoding="application/x-tex">a</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal">a</span></span></span></span> Harris series). The conventional variable is a reduced frequency offset; on this logarithmic wavelength grid the code forms the equivalent local offset used by the ASYNTH deposit. Every selected metal line&#39;s shape in the window comes from this kernel.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[25]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[28]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# ── Voigt H(a,v): Kurucz Harris-table routine (voigt_jit.voigt_profile_jit) ─
 def voigt_profile(v, a, h0tab, h1tab, h2tab):
     &quot;&quot;&quot;Scalar Harris-table Voigt/Hjerting function for one reduced offset.
@@ -2431,7 +2515,7 @@ def voigt_profile(v, a, h0tab, h1tab, h2tab):
     </div></div><div class="prose"><p><code>voigt_h_at_zero</code> is the line-centre value <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>H</mi><mo stretchy="false">(</mo><mi>a</mi><mo separator="true">,</mo><mn>0</mn><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">H(a,0)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.08125em;">H</span><span class="mopen">(</span><span class="mord mathnormal">a</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord">0</span><span class="mclose">)</span></span></span></span> — used to normalise each line&#39;s peak before the wings are walked out.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[26]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[29]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def voigt_h_at_zero(adamp, h0tab, h1tab, h2tab):
     &quot;&quot;&quot;Vectorized line-center Voigt value H(a,0) for wing normalization.
 
@@ -2497,7 +2581,7 @@ def voigt_profile(v, a, h0tab, h1tab, h2tab):
     </div></div><div class="prose"><p><code>nearest_grid_indices</code> maps a set of line-centre wavelengths to the nearest pixels on the log-wavelength grid (the vectorised lookup the deposit needs).</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[27]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[30]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# ── log-grid index rounding (engine/opacity._nearest_grid_indices) ─────────
 def nearest_grid_indices(grid, values):
     &quot;&quot;&quot;Center index: IXWL = int(log(wl)/ratiolg + 0.5); idx = IXWL - IXWLBEG.&quot;&quot;&quot;
@@ -2525,7 +2609,7 @@ def nearest_grid_indices(grid, values):
     </div></div><div class="prose"><p><code>nearest_grid_indices_raw</code> is the same lookup against the raw integer log-wavelength index, the form the production deposit uses when it walks from a known origin pixel.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[28]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[31]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def nearest_grid_indices_raw(grid, values, origin_start):
     &quot;&quot;&quot;Wing index: rint(log(wl/wbegin)/ratiolg), wbegin from floor of grid origin.&quot;&quot;&quot;
     ratio = grid[1] / grid[0]
@@ -2553,7 +2637,7 @@ def nearest_grid_indices(grid, values):
     </div></div><div class="prose"><p><code>process_wing_pair</code> is the ASYNTH wing-accumulation kernel of Lecture 5: for one line it walks the red and blue wings outward, adding <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>κ</mi><mn>0</mn></msub><mtext> </mtext><mi>H</mi><mo stretchy="false">(</mo><mi>a</mi><mo separator="true">,</mo><mi>v</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">\kappa_0\,H(a,v)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal">κ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">0</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.08125em;">H</span><span class="mopen">(</span><span class="mord mathnormal">a</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">v</span><span class="mclose">)</span></span></span></span> to the opacity grid until the contribution falls below the cutoff. This is the heart of the metal-line forest.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[29]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[32]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# ── one (line, depth) wing accumulation (_process_asynth_wing_pair_nb) ─────
 def process_wing_pair(asynth_d, wavelength_grid, center_idx, kappa0, adamp,
                       doppler_width, line_wavelength, kapmin_ref, use_cutoff,
@@ -2783,7 +2867,7 @@ def process_wing_pair(asynth_d, wavelength_grid, center_idx, kappa0, adamp,
     </div></div><div class="prose"><p>Now the metal-line constants and the engine. <code>CGF_CONSTANT</code> is the ASYNTH opacity prefactor; <code>RYDH</code> and the hydrogen energy levels <code>_EHYD_CM</code> belong to the hydrogen engine of the next step but we define them here alongside the line constants. <code>compute_metal_opacity</code> walks every type-0 (<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>Z</mi><mo>≥</mo><mn>3</mn></mrow><annotation encoding="application/x-tex">Z\ge3</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8193em;vertical-align:-0.136em;"></span><span class="mord mathnormal" style="margin-right:0.07153em;">Z</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">≥</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">3</span></span></span></span>) line: it forms <code>KAPPA0 = CGF * XNFDOP * Boltzmann(Elow)</code> from the population and Doppler width, gates it against the local continuum cutoff, computes the damping <code>ADAMP</code>, lays the central opacity at the line centre, and walks the wings out until they drop below the cutoff. The stimulated-emission factor is applied to the whole array at the end.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[30]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[33]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# line-engine physical constants (ASYNTH prefactor + hydrogen energy levels)
 CGF_CONSTANT = 0.026538 / 1.77245
 RYDH = 3.2880515e15                  # Hz (hydrogen Rydberg frequency)
@@ -2808,7 +2892,7 @@ this setup separate makes the driver below read as the physical algorithm: gate 
 the center opacity, then walk the wings.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[31]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[34]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _metal_opacity_inputs(cat, atm, diag, L4):
     &quot;&quot;&quot;Return the prepared arrays consumed by `compute_metal_opacity`.
 
@@ -2958,7 +3042,7 @@ the center opacity, then walk the wings.</p>
     </div></div><div class="prose"><p><code>compute_metal_opacity</code> is the driver for the metal-line forest: it selects the visible lines for the star from the catalog, loops over depth, and accumulates each line with the ASYNTH wing kernel above. This is the dense neutral- and ionised-metal forest the Sun&#39;s window exercises.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[32]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[35]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def compute_metal_opacity(cat, atm, diag, L4):
     &quot;&quot;&quot;Accumulate all type-0 metal-line opacity on the diagnostic grid.
 
@@ -3130,7 +3214,7 @@ the center opacity, then walk the wings.</p>
 <p>We build the HPROF4 hydrogen-line engine of Lecture 6 one routine at a time. First <code>_build_e1_table</code> precomputes an auxiliary <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>exp</mi><mo>⁡</mo><mo stretchy="false">(</mo><mo>−</mo><mi>x</mi><mo stretchy="false">)</mo><mi mathvariant="normal">/</mi><mi>x</mi></mrow><annotation encoding="application/x-tex">\exp(-x)/x</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mop">exp</span><span class="mopen">(</span><span class="mord">−</span><span class="mord mathnormal">x</span><span class="mclose">)</span><span class="mord">/</span><span class="mord mathnormal">x</span></span></span></span> table used by the exponential-integral approximation in the Stark profile.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[33]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[36]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _build_e1_table():
     values = np.empty(2000, dtype=np.float64)
     for i in range(2000):
@@ -3150,7 +3234,7 @@ _E1_TABLE = _build_e1_table()</code></pre>
     </div></div><div class="prose"><p><code>_vcse1f</code> is the exponential-integral evaluation used by the Stark microfield convolution — the rational approximation that makes the profile cheap.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[34]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[37]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _vcse1f(x):
     if x &lt;= 0.0:
         return 0.0
@@ -3184,7 +3268,7 @@ _E1_TABLE = _build_e1_table()</code></pre>
     </div></div><div class="prose"><p><code>_fast_ex</code> is the scalar tabulated <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mi>e</mi><mrow><mo>−</mo><mi>x</mi></mrow></msup></mrow><annotation encoding="application/x-tex">e^{-x}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7713em;"></span><span class="mord"><span class="mord mathnormal">e</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7713em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mathnormal mtight">x</span></span></span></span></span></span></span></span></span></span></span></span> Boltzmann factor (the <code>FASTEX</code> lookup) used inside the hydrogen profile loop.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[35]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[38]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _fast_ex(x):
     if x &gt; 80.0:
         return 0.0
@@ -3198,7 +3282,7 @@ _E1_TABLE = _build_e1_table()</code></pre>
     </div></div><div class="prose"><p><code>_hf_nm</code> returns the oscillator-strength factor <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>f</mi><mrow><mi>n</mi><mi>m</mi></mrow></msub></mrow><annotation encoding="application/x-tex">f_{nm}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.10764em;">f</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.1076em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">nm</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> for the Balmer (and other) transition <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>n</mi><mtext> ⁣</mtext><mo>→</mo><mtext> ⁣</mtext><mi>m</mi></mrow><annotation encoding="application/x-tex">n\!\to\!m</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal">n</span><span class="mspace" style="margin-right:-0.1667em;"></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">→</span><span class="mspace" style="margin-right:-0.1667em;"></span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal">m</span></span></span></span> — the line strength of each hydrogen line.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[36]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[39]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _hf_nm(n, m):
     if m &lt;= n:
         return 0.0
@@ -3232,7 +3316,7 @@ _E1_TABLE = _build_e1_table()</code></pre>
     </div></div><div class="prose"><p><code>_interpolate_cutoff</code> reads the tabulated profile cutoff at a given wavenumber offset — the table-driven reach that stops each wing walk.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[37]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[40]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _interpolate_cutoff(delta_wn, table, start, step):
     &quot;&quot;&quot;Returns 1e300 sentinel when delta_wn &gt; max_delta (== None in source).&quot;&quot;&quot;
     max_delta = start + step * (table.shape[0] - 1)
@@ -3270,7 +3354,7 @@ _E1_TABLE = _build_e1_table()</code></pre>
     </div></div><div class="prose"><p><code>_sofbeta</code> evaluates the Stark profile <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>S</mi><mo stretchy="false">(</mo><mi>β</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">S(\beta)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.05764em;">S</span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.05278em;">β</span><span class="mclose">)</span></span></span></span> as a function of the reduced field strength <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>β</mi></mrow><annotation encoding="application/x-tex">\beta</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.05278em;">β</span></span></span></span> — the Holtsmark-microfield line shape that gives hydrogen its broad linear-Stark wings (Lecture 6).</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[38]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[41]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _sofbeta(beta, p, n, m, propbm, c_arr, d_arr, pp_arr, beta_arr):
     &quot;&quot;&quot;Evaluate the hydrogen Stark S(beta) helper for one reduced field value.
 
@@ -3416,7 +3500,7 @@ _E1_TABLE = _build_e1_table()</code></pre>
     </div></div><div class="prose"><p><code>_lyman_alpha_lorentz</code> adds the Lyman-<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>α</mi></mrow><annotation encoding="application/x-tex">\alpha</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal" style="margin-right:0.0037em;">α</span></span></span></span> resonance and van der Waals Lorentzian — the red-wing contribution that matters in cool-star ultraviolet.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[39]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[42]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _lyman_alpha_lorentz(freq, freqnm, del_freq, dop, hwres, hwvdw, hwrad,
                          cutoff_h2, cutoff_h2_plus, xnfph_0, xnfph_1):
     &quot;&quot;&quot;Lyman-alpha resonance, radiative, and van der Waals Lorentz contribution.
@@ -3506,7 +3590,7 @@ _E1_TABLE = _build_e1_table()</code></pre>
     </div></div><div class="prose"><p><code>_lyman_quasistatic_cutoff</code> applies the quasi-static field cutoff to the Lyman line — the production reach limit for the far wing.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[40]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[43]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _lyman_quasistatic_cutoff(freq, prqs, xnfph_0, xnfph_1, fo, dbeta, dop, n, m,
                               cutoff_h2_plus, propbm, c_arr, d_arr, pp_arr, beta_arr, pp_val):
     &quot;&quot;&quot;Apply the Lyman quasi-static far-wing cutoff used by the Stark profile.
@@ -3573,7 +3657,7 @@ and van der Waals coefficient. These depend on the quantum numbers and static HP
 on depth.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[41]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[44]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _hydrogen_transition_constants(n, m, tabs):
     &quot;&quot;&quot;Return line constants for one hydrogen transition.
 
@@ -3679,7 +3763,7 @@ on depth.</p>
     </div></div><div class="prose"><p><code>_hydrogen_line_profile</code> assembles the full per-line profile from the pieces above: the Stark <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>S</mi><mo stretchy="false">(</mo><mi>β</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">S(\beta)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.05764em;">S</span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.05278em;">β</span><span class="mclose">)</span></span></span></span> core, the resonance and van der Waals Lorentzians, and the Doppler convolution. It returns the profile a single hydrogen line deposits at one depth.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[42]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[45]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _hydrogen_line_profile(n, m, delta_lambda_nm, hyd, tabs, fine_offsets, fine_weights, n_fine):
     &quot;&quot;&quot;Port of _hydrogen_line_profile_jit. `hyd` is a dict of per-depth scalars;
     `tabs` is a dict of the HPROF4 Stark tables.&quot;&quot;&quot;
@@ -3919,7 +4003,7 @@ on depth.</p>
     </div></div><div class="prose"><p><code>_accumulate_hyd_line_depth</code> walks that profile out onto the wavelength grid at one depth — the hydrogen analogue of the metal-line wing accumulation, with its own (much wider) reach.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[43]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[46]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _accumulate_hyd_line_depth(buffer, continuum_row, stim_row, grid, center_index,
                                line_wavelength, kappa0, n_lower, n_upper, wcon, wtail,
                                wlminus1, wlminus2, wlplus1, wlplus2, redcut, bluecut, cutoff,
@@ -4141,7 +4225,7 @@ on depth.</p>
     </div></div><div class="prose"><p><code>_ehyd_cm</code> returns the hydrogen level energy <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>E</mi><mi>n</mi></msub></mrow><annotation encoding="application/x-tex">E_n</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05764em;">E</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.0576em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">n</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> in cm<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mrow><mo>−</mo><mn>1</mn></mrow></msup></mrow><annotation encoding="application/x-tex">^{-1}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">1</span></span></span></span></span></span></span></span></span></span></span></span> — used to set each line&#39;s lower-level population.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[44]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[47]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _ehyd_cm(n):
     if n &lt;= 0:
         return 0.0
@@ -4163,7 +4247,7 @@ builds the per-depth HPROF4 microfield, broadening, and Doppler scalars; <code>_
 computes the continuum-merge/tail wavelengths from the Inglis-Teller relation.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[45]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[48]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _hydrogen_depth_state(T, xne, xnf_he1, xnf_h2, xnfph, vturb_cms, di):
     &quot;&quot;&quot;Return the per-depth HPROF4 state dictionary for one atmospheric layer.
 
@@ -4295,7 +4379,7 @@ def _hydrogen_merge_limits(conth_val, emerge_h_di, wshift):
     </div></div><div class="prose"><p><code>compute_hydrogen_opacity</code> is the driver: it selects the visible hydrogen lines for the star, loops over depth, and deposits each line with the routines above, returning the hydrogen line opacity on the full grid. This is the Balmer-wing engine the hot dwarf&#39;s H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>β</mi></mrow><annotation encoding="application/x-tex">\beta</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.05278em;">β</span></span></span></span> exercises.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[46]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[49]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def compute_hydrogen_opacity(cat, atm, diag, L4):
     &quot;&quot;&quot;Hydrogen line opacity (HPROF4) — full from-scratch port of the JIT engine.&quot;&quot;&quot;
     grid = diag[&quot;wavelength&quot;]
@@ -4519,7 +4603,7 @@ def _hydrogen_merge_limits(conth_val, emerge_h_di, wshift):
     </div></div><div class="prose"><p><code>compute_hydrogen_opacity</code> drives that profile: it selects the H lines (type <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>−</mo><mn>1</mn><mi mathvariant="normal">/</mi><mo>−</mo><mn>2</mn></mrow><annotation encoding="application/x-tex">-1/-2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">−</span><span class="mord">1/</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">2</span></span></span></span>, ion 1), reads the HPROF4 Stark tables and fine-structure components from <code>KT</code>, computes the per-depth hydrogen state (the field strengths <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>F</mi><mn>0</mn></msub></mrow><annotation encoding="application/x-tex">F_0</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">F</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.1389em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">0</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>, the broadening parameters, the continuum-merge <code>wcon</code>/<code>wtail</code> from the Inglis–Teller relation), and walks each line&#39;s wings. The cutoff reference is the from-scratch continuum we built in Step 3.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[47]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[50]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Bundle the per-star catalog + the shared HPROF4/fine tables for the line engines.
 def _hyd_he_static(d):
     cat = {}
@@ -4551,7 +4635,7 @@ def _hyd_he_static(d):
 <p>The helium wings use a batched Voigt with an Inglis–Teller taper. <code>_voigt_hav</code> is the per-value Voigt <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>H</mi><mo stretchy="false">(</mo><mi>a</mi><mo separator="true">,</mo><mi>v</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">H(a,v)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.08125em;">H</span><span class="mopen">(</span><span class="mord mathnormal">a</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">v</span><span class="mclose">)</span></span></span></span> (the Harris-table form again), here written for the helium batch.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[48]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[51]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _voigt_hav(x_val, adamp, h0tab, h1tab, h2tab):
     &quot;&quot;&quot;Evaluate the helium-kernel Voigt H(a,v) for one absolute offset.
 
@@ -4629,7 +4713,7 @@ def _hyd_he_static(d):
     </div></div><div class="prose"><p><code>_accumulate_helium_line</code> walks one He line&#39;s wings onto the grid, with the taper that limits the reach where neighbouring lines merge (the Inglis–Teller dissolution).</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[49]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[52]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _accumulate_helium_line(wings_row, continuum_row, grid, center_index,
                             line_wavelength, kappa_eff, doppler, adamp, cutoff,
                             has_wcon, wcon_val, has_wtail, wtail_val, base_wave,
@@ -4727,7 +4811,7 @@ def _hyd_he_static(d):
     </div></div><div class="prose"><p><code>compute_helium_opacity</code> is the driver: it loops the selected He lines over depth and accumulates their opacity — the helium contribution to the blue continuum of the hot dwarf.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[50]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[53]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def compute_helium_opacity(cat, atm, diag, L4):
     &quot;&quot;&quot;Helium I/II wing opacity via the pre-STIM Voigt-batch walk; STIM applied last.
 
@@ -4919,7 +5003,7 @@ def _hyd_he_static(d):
     </div></div><div class="prose"><p>The taper limits are computed from scratch in <code>helium_taper_limits</code>: the Inglis–Teller merge level from the electron density, the <code>CONTX</code> continuum table, and the <code>fort.19</code> integers shipped with the star. No opacity answer is read.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[51]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[54]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def helium_taper_limits(d):
     &quot;&quot;&quot;Recompute he_wcon_2d / he_wtail_2d per (depth, helium line) from scratch.
 
@@ -5026,7 +5110,7 @@ def _hyd_he_static(d):
 <p>The coolest star, the M dwarf, has its window dominated not by a forest of atomic lines but by a <strong>molecular band</strong>: hundreds of thousands of TiO rotational lines blending into a depression toward the band head. The molecular ASYNTH of Lecture 12 handles them with the same recipe as the metals — <code>KAPPA0 = CGF * XNFDOP * Boltzmann(Elo)</code>, a Voigt centre, a near-wing, and a far-wing <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><mi mathvariant="normal">/</mi><msup><mi>n</mi><mn>2</mn></msup></mrow><annotation encoding="application/x-tex">1/n^2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1.0641em;vertical-align:-0.25em;"></span><span class="mord">1/</span><span class="mord"><span class="mord mathnormal">n</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span></span></span></span> tail — but vectorised over the enormous line list and with the molecular Doppler width from the per-species mass table. We inline it: the molecular Doppler <code>molecular_dopple</code>, a vectorised Voigt <code>voigt</code>, the per-depth accumulator <code>accumulate_depth</code>, and the driver <code>compute_mol_opacity</code>. The molecular populations come from the coupled equilibrium of Lecture 13 (the <code>population_per_ion</code> molecular slot), the verified state we consume.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[52]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[55]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# per-species molecular mass (amu), keyed by NELION (Lecture 12 / xnfpelsyn MOMASS)
 NELION_MASS = {240: 2.0, 246: 13.0, 258: 17.0, 264: 24.0, 270: 26.0,
                324: 43.0, 342: 41.0, 366: 64.0, 372: 67.0, 432: 52.0, 492: 24.0}
@@ -5046,7 +5130,7 @@ C_NM = <span class="hljs-number">2.99792458e17</span>       <span class="hljs-co
     </div></div><div class="prose"><p><code>molecular_dopple</code> is the molecular Doppler width <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi mathvariant="normal">Δ</mi><msub><mi>λ</mi><mi mathvariant="normal">D</mi></msub></mrow><annotation encoding="application/x-tex">\Delta\lambda_{\rm D}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8444em;vertical-align:-0.15em;"></span><span class="mord">Δ</span><span class="mord"><span class="mord mathnormal">λ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">D</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> — the thermal-plus-microturbulent width set by the molecule&#39;s mass (much narrower than a light atom&#39;s like hydrogen, though comparable to a heavy metal&#39;s: TiO at 64 amu sits close to iron&#39;s 56 amu).</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[53]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[56]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def molecular_dopple(T, vturb, mass):
     &quot;&quot;&quot;DOPPLE = sqrt( (2kT/m)/c^2 + (vturb/c)^2 )  (fractional velocity width).&quot;&quot;&quot;
     thermal = np.sqrt(2.0 * KB * T / (mass * AMU)) / C_CMS
@@ -5060,7 +5144,7 @@ C_NM = <span class="hljs-number">2.99792458e17</span>       <span class="hljs-co
     </div></div><div class="prose"><p><code>voigt</code> is the Voigt <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>H</mi><mo stretchy="false">(</mo><mi>a</mi><mo separator="true">,</mo><mi>v</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">H(a,v)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.08125em;">H</span><span class="mopen">(</span><span class="mord mathnormal">a</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">v</span><span class="mclose">)</span></span></span></span> for the molecular bands (the same Harris-table profile, kept local to this engine).</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[54]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[57]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# ── Voigt H(a,v) — book L4/L5 tabulated kernel (== pykurucz voigt_profile_jit) ─
 def voigt(v, a, h0, h1, h2):
     &quot;&quot;&quot;Tabulated Voigt H(a,|v|): a&lt;0.2 small-damping; far-wing; mid-regime blend.
@@ -5146,7 +5230,7 @@ def voigt(v, a, h0, h1, h2):
     </div></div><div class="prose"><p><code>accumulate_depth</code> deposits one molecular line&#39;s profile onto the grid at one depth — the band-head opacity is millions of these narrow lines packed together.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[55]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[58]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# ── (2) the molecular opacity kernel, vectorized per depth ───────────────────
 def accumulate_depth(buf, cont_row, wavelength, ci, mol_wl, xnfdop, dop_val,
                      cgf, elo, gr, gs, gw, xne, txnxn, hckt, h0, h1, h2):
@@ -5378,7 +5462,7 @@ def accumulate_depth(buf, cont_row, wavelength, ci, mol_wl, xnfdop, dop_val,
     </div></div><div class="prose"><p><code>compute_mol_opacity</code> is the driver: it loops the TiO (and other) band lines over depth and accumulates the molecular opacity — the band-head engine the M dwarf exercises.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[56]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[59]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def compute_mol_opacity(npz, dt, m, L4):
     &quot;&quot;&quot;Full molecular ASYNTH (with stim) over all depths and the 705-718 nm grid.&quot;&quot;&quot;
     wavelength = dt[&quot;wavelength&quot;].astype(np.float64)
@@ -5493,7 +5577,7 @@ def accumulate_depth(buf, cont_row, wavelength, ci, mol_wl, xnfdop, dop_val,
 <p>With every engine built, we assemble them. <code>NpzView</code> is a thin dict wrapper that lets the per-star reference <code>.npz</code> be addressed by attribute — a convenience for the assembler.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[57]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[60]</span>Python</span>
         <button class="copy-btn" type="button" data-code="class NpzView(dict):
     &quot;&quot;&quot;A dict that also answers .files, so the line engines read our arrays unchanged.&quot;&quot;&quot;
     @property
@@ -5509,7 +5593,7 @@ def accumulate_depth(buf, cont_row, wavelength, ci, mol_wl, xnfdop, dop_val,
     </div></div><div class="prose"><p><code>components</code> splits a model&#39;s shipped arrays into the continuum, line, and scattering pieces the transfer needs.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[58]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[61]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# which opacity sources a star&#39;s window contains (shipped has_* flags)
 def components(d):
     return {k[4:]: bool(d[k]) for k in d.files if k.startswith(&quot;has_&quot;)}
@@ -5527,7 +5611,7 @@ IFOP = [<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, 
     </div></div><div class="prose"><p><code>from_scratch_opacity</code> is the assembly point: it calls the continuum, atomic-line, hydrogen, helium, and molecular engines above and sums them into the total opacity — the synthesis half&#39;s opacity, entirely from scratch. (The <code>override_pop</code> hook is what the tamper check uses to perturb one input.)</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[59]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[62]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def from_scratch_opacity(d, override_pop=None):
     &quot;&quot;&quot;COMPUTE the entire (continuum + line + molecular) opacity from scratch.
 
@@ -5653,7 +5737,7 @@ IFOP = [<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, 
 <p><code>planck_source</code> builds the thermal source function <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>S</mi><mi>ν</mi></msub><mo>=</mo><msub><mi>B</mi><mi>ν</mi></msub></mrow><annotation encoding="application/x-tex">S_\nu=B_\nu</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05764em;">S</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.0576em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05017em;">B</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.0502em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> on the grid (with the scattering fraction the transfer needs) — the source the JOSH solver carries.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[60]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[63]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def planck_source(d):
     &quot;&quot;&quot;LTE Planck source B_nu(T) on the (depth, wavelength) grid (Note A: computed, not read).
 
@@ -5685,7 +5769,7 @@ IFOP = [<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, 
     </div></div><div class="prose"><p><code>synthesise</code> is the final chain: assemble the opacity from scratch, build the source, and solve the transfer at every wavelength to get the emergent spectrum. (The <code>override_pop</code> hook threads through to the tamper check.)</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[61]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[64]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def synthesise(d, override_pop=None):
     &quot;&quot;&quot;The full chain: from-scratch opacity + inline Planck source -&gt; JOSH -&gt; normalised spectrum.&quot;&quot;&quot;
     # atm_depth is the column-mass (RHOX) depth scale the transfer integrates over
@@ -5736,7 +5820,7 @@ IFOP = [<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, 
 <p>Before the spectrum, a check on the opacity <em>itself</em>. The reference also ships the production opacity (continuum + line) for each window — <em>as the comparison target only</em>. We compute the opacity from scratch and compare, to confirm the assembly reproduces the production code&#39;s own opacity arrays element by element, the same floors the individual lectures reported (continuum <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>∼</mo><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>15</mn></mrow></msup></mrow><annotation encoding="application/x-tex">\sim10^{-15}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">∼</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">15</span></span></span></span></span></span></span></span></span></span></span></span> in the photosphere, atomic lines <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>∼</mo><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>15</mn></mrow></msup></mrow><annotation encoding="application/x-tex">\sim10^{-15}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">∼</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">15</span></span></span></span></span></span></span></span></span></span></span></span>, molecular bands <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>∼</mo><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>11</mn></mrow></msup></mrow><annotation encoding="application/x-tex">\sim10^{-11}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">∼</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">11</span></span></span></span></span></span></span></span></span></span></span></span>).</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[62]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[65]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# COMPUTE the opacity from scratch for the Sun (computed, not read)
 d = data[&quot;sun&quot;]
 acont, sigmac, aline = from_scratch_opacity(d)
@@ -5781,7 +5865,7 @@ rl = np.<span class="hljs-built_in">abs</span>(aline[big] - line_ref[big]) / np.
 <p>Now we run the assembled synthesiser on all four stars — <strong>computing each star&#39;s opacity from scratch</strong> and carrying it to the surface — and compare each normalised spectrum to the production reference (<code>flux_total / flux_continuum</code> from the full pipeline), <em>on the same atmosphere the book built for that star</em>. The relative error is taken point-by-point across the window. This is the end-to-end test of the assembled pipeline: the same engines, the same solver, four very different stars, opacity built from scratch on every one.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[63]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[66]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def benchmark(slug):
     &quot;&quot;&quot;Synthesise one star (opacity from scratch) and return the spectrum + rel-error stats.&quot;&quot;&quot;
     d = data[slug]
@@ -5846,7 +5930,7 @@ M dwarf    705-718 nm  emulator       1.67e-13   2.27e-09   1.06e-08  711.723 nm
 <p>Now the four spectra side by side. Each panel overlays our from-scratch spectrum (thin coloured line) on the production reference (thick grey); at this scale the two are indistinguishable. Read across the gallery and you read across the HR diagram.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[64]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[67]</span>Python</span>
         <button class="copy-btn" type="button" data-code="fig, axes = plt.subplots(4, 1, figsize=(11, 13))   # one panel per star
 colours = [&quot;C3&quot;, &quot;C1&quot;, &quot;C2&quot;, &quot;C0&quot;]                  # hot, Sun, giant, M dwarf
 
@@ -5893,7 +5977,7 @@ fig.tight_layout(); plt.show()</code></pre>
 <p>To make the agreement quantitative, here are the four residual curves on one log axis. The Sun, giant, and M dwarf sit between <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>13</mn></mrow></msup></mrow><annotation encoding="application/x-tex">10^{-13}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">13</span></span></span></span></span></span></span></span></span></span></span></span> and <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>8</mn></mrow></msup></mrow><annotation encoding="application/x-tex">10^{-8}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">8</span></span></span></span></span></span></span></span></span></span></span></span> across their whole windows — the single-precision JOSH floor, with no systematic departure. The hot dwarf rides broadly just above, at <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>∼</mo><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>7</mn></mrow></msup></mrow><annotation encoding="application/x-tex">\sim10^{-7}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">∼</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">7</span></span></span></span></span></span></span></span></span></span></span></span> across its whole window — the documented continuum deep-hot-layer residual, which lives in the continuum and so elevates every pixel together rather than spiking at one. It reaches its maximum in the saturated H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>β</mi></mrow><annotation encoding="application/x-tex">\beta</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.05278em;">β</span></span></span></span> core, where the high-forming line flux no longer shares the deep-forming continuum residual, and its line opacity is bit-exact everywhere. There is no regime where the assembled pipeline drifts from the production code beyond the arithmetic floor and that one documented continuum term.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[65]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[68]</span>Python</span>
         <button class="copy-btn" type="button" data-code="fig, ax = plt.subplots(figsize=(9, 4.5))
 
 for (slug, label, *_), col in zip(STARS, colours):
@@ -5931,7 +6015,7 @@ ax.legend(loc=<span class="hljs-string">&quot;upper right&quot;</span>, fontsize
 <p>The atmosphere operator reruns one convergence step from the Sun&#39;s grey start, to show the synthesis half is fed by a from-scratch structure. It is the Lecture 11 engine again (here <code>tc_</code>-prefixed to keep it local); we lay it out one routine at a time. First the constants.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[66]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[69]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# ATLAS12&#39;s exact CGS constants for the temperature-correction operator (Lecture 10)
 TC_SIGMA  = 5.6697e-5            # Stefan-Boltzmann, erg cm^-2 s^-1 K^-4
 TC_PLANCK = 6.6256e-27          # erg s
@@ -5951,7 +6035,7 @@ TC_CH_MAT = <span class="hljs-literal">None</span>                <span class="h
     </div></div><div class="prose"><p><code>tc_parcoe</code> — the parabolic-coefficient fit (Lecture 8) the integrator and interpolator are built on.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[67]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[70]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def tc_parcoe(f, x):
     &quot;&quot;&quot;Parabolic coefficients a,b,c so f ~ a + b x + c x^2 (Fortran PARCOE).&quot;&quot;&quot;
     n = f.size
@@ -6025,7 +6109,7 @@ TC_CH_MAT = <span class="hljs-literal">None</span>                <span class="h
     </div></div><div class="prose"><p><code>tc_integ</code> — the running integral over the depth grid (optical depth, flux integrals).</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[68]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[71]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def tc_integ(x, f, start):
     &quot;&quot;&quot;Cumulative integral of f dx, left-point parabola per interval (Fortran INTEG).&quot;&quot;&quot;
     n = f.size
@@ -6057,7 +6141,7 @@ TC_CH_MAT = <span class="hljs-literal">None</span>                <span class="h
     </div></div><div class="prose"><p><code>tc_deriv</code> — the monotonic numerical derivative (Lecture 8) used by the transfer moments and the temperature correction.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[69]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[72]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def tc_deriv(x, f):
     &quot;&quot;&quot;Return the monotonic cubic-tangent numerical derivative df/dx.
 
@@ -6117,7 +6201,7 @@ TC_CH_MAT = <span class="hljs-literal">None</span>                <span class="h
     </div></div><div class="prose"><p><code>tc_map1</code> — the parabolic interpolator that re-maps a quantity between depth grids; <code>tc_map1_scalar</code> is the one-point version.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[70]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[73]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def tc_map1(xold, fold, xnew):
     &quot;&quot;&quot;Remap a profile onto a new depth grid with ATLAS MAP1 parabolas.
 
@@ -6232,7 +6316,7 @@ TC_CH_MAT = <span class="hljs-literal">None</span>                <span class="h
     <span class="hljs-keyword">return</span> fnew, <span class="hljs-built_in">max</span>(ll - <span class="hljs-number">1</span>, <span class="hljs-number">0</span>)</code></pre>
     </div></div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[71]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[74]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def tc_map1_scalar(xold, fold, xnew_val):
     out, _ = tc_map1(np.asarray(xold), np.asarray(fold), np.asarray([xnew_val]))
     return float(out[0])" aria-label="Copy code">
@@ -6244,7 +6328,7 @@ TC_CH_MAT = <span class="hljs-literal">None</span>                <span class="h
     </div></div><div class="prose"><p><code>tc_josh_profiles</code> — the JOSH full-depth flux solver (Lecture 8): at one frequency it forms the total extinction and the source, iterates the moment equations, and returns the intensity moments and the surface Eddington factor.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[72]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[75]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# ===========================================================================
 # 2. JOSH full depth-profile kernel (Lecture 8), float32 inner iteration.
 #    Returns the profiles TCORR / ROSS consume: taunu, hnu, jmins, abtot, alpha.
@@ -6486,7 +6570,7 @@ TC_CH_MAT = <span class="hljs-literal">None</span></code></pre>
     </div></div><div class="prose"><p><code>tc_ross_finalize</code> — turns the accumulated Rosseland integral into <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>κ</mi><mrow><mi mathvariant="normal">R</mi><mi mathvariant="normal">o</mi><mi mathvariant="normal">s</mi><mi mathvariant="normal">s</mi></mrow></msub></mrow><annotation encoding="application/x-tex">\kappa_{\rm Ross}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">κ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">Ross</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> and integrates it to <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>τ</mi><mrow><mi mathvariant="normal">R</mi><mi mathvariant="normal">o</mi><mi mathvariant="normal">s</mi><mi mathvariant="normal">s</mi></mrow></msub></mrow><annotation encoding="application/x-tex">\tau_{\rm Ross}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:-0.1132em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">Ross</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> (Lecture 10).</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[73]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[76]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# ===========================================================================
 # 3. ROSS: Rosseland mean + optical-depth scale (Fortran ROSS).
 # ===========================================================================
@@ -6508,7 +6592,7 @@ def tc_ross_finalize(acc, T, rhox):
     </div></div><div class="prose"><p><code>tc_expi3</code> — the third exponential integral <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>E</mi><mn>3</mn></msub></mrow><annotation encoding="application/x-tex">E_3</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05764em;">E</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.0576em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">3</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> for the surface boundary terms.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[74]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[77]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# ===========================================================================
 # 4. EXPI(3, x) = E3 exponential integral (Fortran FUNCTION EXPI), used by rdiagj.
 # ===========================================================================
@@ -6590,7 +6674,7 @@ def tc_expi3(x):
     </div></div><div class="prose"><p><code>TcRosstab</code> — the <code>ROSSTAB</code> opacity table (Lecture 9): ingest <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">(</mo><mi>T</mi><mo separator="true">,</mo><mi>P</mi><mo separator="true">,</mo><msub><mi>κ</mi><mrow><mi mathvariant="normal">R</mi><mi mathvariant="normal">o</mi><mi mathvariant="normal">s</mi><mi mathvariant="normal">s</mi></mrow></msub><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">(T,P,\kappa_{\rm Ross})</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">κ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">Ross</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mclose">)</span></span></span></span> and evaluate <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>κ</mi><mrow><mi mathvariant="normal">R</mi><mi mathvariant="normal">o</mi><mi mathvariant="normal">s</mi><mi mathvariant="normal">s</mi></mrow></msub><mo stretchy="false">(</mo><mi>T</mi><mo separator="true">,</mo><mi>P</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">\kappa_{\rm Ross}(T,P)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal">κ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">Ross</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="mclose">)</span></span></span></span> by four-quadrant interpolation inside the hydrostatic and convection solves.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[75]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[78]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# ===========================================================================
 # 4b. ROSSTAB: a small opacity table (log T&#39;, log P&#39;, log kappa) built from the
 #     just-finished iteration&#39;s (T, P, kappa_Ross) at every layer, then a
@@ -6788,7 +6872,7 @@ class TcRosstab:
     </div></div><div class="prose"><p><code>tc_ttaup</code> — the hydrostatic integration <code>TTAUP</code> (Lecture 9): march the pressure inward so <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>d</mi><mi>P</mi><mi mathvariant="normal">/</mi><mi>d</mi><mi>τ</mi><mo>=</mo><mi>g</mi><mi mathvariant="normal">/</mi><mi>κ</mi></mrow><annotation encoding="application/x-tex">dP/d\tau=g/\kappa</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal">d</span><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="mord">/</span><span class="mord mathnormal">d</span><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">g</span><span class="mord">/</span><span class="mord mathnormal">κ</span></span></span></span>.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[76]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[79]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# ===========================================================================
 # 5. TTAUP: hydrostatic re-integration (used by DRHOX in TCORR mode 3).
 #    The opacity comes from the ROSSTAB table built this iteration.
@@ -6894,7 +6978,7 @@ def tc_ttaup(t, tau, prad, pturb, grav, rosstab):
     </div></div><div class="prose"><p><code>tc_nz_signed</code> — the small guard that keeps a denominator non-zero without flipping its sign.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[77]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[80]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def tc_nz_signed(x, eps=1e-300):
     if abs(x) &gt;= eps:
         return x
@@ -6908,7 +6992,7 @@ def tc_ttaup(t, tau, prad, pturb, grav, rosstab):
     </div></div><div class="prose"><p><code>tc_tcorr_mode3</code> — the Avrett–Krook temperature correction (Lectures 10–11, run here with convection turned off for the initial grey-start step): compare the carried flux to the target, form the flux-error, Lambda, and surface corrections, and return the updated temperature and column mass. With this the operator is complete.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[78]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[81]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# ===========================================================================
 # 6. TCORR mode 3: assemble T1 = dtflux + dtlamb + dtsurf, DRHOX, monotonicity.
 #    Convection OFF, iteration 1 (oldt1 = 0, damping skipped).  Faithful port of
@@ -7116,7 +7200,7 @@ def tc_tcorr_mode3(T, rhox, tauros, abross, flxrad, rjmins, rdabh, rdiagj,
     </div></div><div class="prose"><p>Now the driver. It runs one operator step from the Sun&#39;s grey start, and — this is <strong>Note B</strong> — it computes the <strong>radiation-pressure profile</strong> <code>prad</code> that the hydrostatic re-integration needs <em>inline</em>, from the JOSH flux moments, rather than reading a precomputed array. Following the RADIAP integrator of ATLAS: in the frequency loop it accumulates <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mtext mathvariant="monospace">accrad</mtext><mo>=</mo><msub><mo>∑</mo><mi>ν</mi></msub><msub><mi>κ</mi><mi>ν</mi></msub><mtext> </mtext><msub><mi>H</mi><mi>ν</mi></msub><mtext> </mtext><mi>d</mi><mi>ν</mi></mrow><annotation encoding="application/x-tex">\texttt{accrad} = \sum_\nu \kappa_\nu\,H_\nu\,d\nu</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6111em;"></span><span class="mord text"><span class="mord texttt">accrad</span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1.0497em;vertical-align:-0.2997em;"></span><span class="mop"><span class="mop op-symbol small-op" style="position:relative;top:0em;">∑</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.0017em;"><span style="top:-2.4003em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2997em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">κ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.08125em;">H</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.0813em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.06366em;">ν</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal">d</span><span class="mord mathnormal" style="margin-right:0.06366em;">ν</span></span></span></span> (the total extinction times the Eddington flux moment, weighted by the frequency quadrature weight <code>rco</code>); after the loop it scales by <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>4</mn><mi>π</mi><mi mathvariant="normal">/</mi><mi>c</mi></mrow><annotation encoding="application/x-tex">4\pi/c</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">4</span><span class="mord mathnormal" style="margin-right:0.03588em;">π</span><span class="mord">/</span><span class="mord mathnormal">c</span></span></span></span>, caps any layer whose flux exceeds the target, and integrates over the column mass to get <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mtext mathvariant="monospace">prad</mtext><mo stretchy="false">(</mo><mi>ρ</mi><mi>x</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">\texttt{prad}(\rho x)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord texttt">prad</span></span><span class="mopen">(</span><span class="mord mathnormal">ρ</span><span class="mord mathnormal">x</span><span class="mclose">)</span></span></span></span>. Equivalently, this integrates the moment-equation gradient of <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>4</mn><mi>π</mi><mi>K</mi><mi mathvariant="normal">/</mi><mi>c</mi></mrow><annotation encoding="application/x-tex">4\pi K/c</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">4</span><span class="mord mathnormal" style="margin-right:0.03588em;">π</span><span class="mord mathnormal" style="margin-right:0.07153em;">K</span><span class="mord">/</span><span class="mord mathnormal">c</span></span></span></span> over column mass; it is the RADIAP hydrostatic radiation-pressure profile, not a new definition of radiation pressure. So the radiation pressure feeding the hydrostatic step is <em>computed from the from-scratch transfer</em>, not read.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[79]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[82]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def sun_atmosphere_operator(d):
     &quot;&quot;&quot;One TCORR step from the Sun&#39;s grey start (Lectures 10-11), prad COMPUTED inline (Note B).&quot;&quot;&quot;
     # the JOSH operators for the per-frequency transfer + the J-&gt;H moment matrix
@@ -7302,7 +7386,7 @@ def tc_tcorr_mode3(T, rhox, tauros, abross, flxrad, rjmins, rdabh, rdiagj,
     </div></div><div class="prose"><p>Run it. One step already pulls the deep layers toward radiative equilibrium and reproduces pykurucz&#39;s same single step to its documented floor: the corrected temperature to <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>∼</mo><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>9</mn></mrow></msup></mrow><annotation encoding="application/x-tex">\sim10^{-9}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">∼</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">9</span></span></span></span></span></span></span></span></span></span></span></span> (the Lecture-10 floor) and the corrected column mass to <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>∼</mo><mn>1.5</mn><mo>×</mo><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>5</mn></mrow></msup></mrow><annotation encoding="application/x-tex">\sim1.5\times10^{-5}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">∼</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em;"></span><span class="mord">1.5</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">5</span></span></span></span></span></span></span></span></span></span></span></span> (the float32 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>→</mo></mrow><annotation encoding="application/x-tex">\rightarrow</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">→</span></span></span></span> ROSSTAB-table floor, not machine precision). The radiation pressure that fed the hydrostatic re-integration was the one we just accumulated from the JOSH flux moments.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[80]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[83]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# run ONE temperature-correction step from the Sun&#39;s grey start, prad computed inline
 op_T_out, op_rhox_out, op_prad, T_rel, R_rel = sun_atmosphere_operator(data[&quot;sun&quot;])
 
@@ -7326,7 +7410,7 @@ op_T_out, op_rhox_out, op_prad, T_rel, R_rel = sun_atmosphere_operator(data[<spa
 </pre></div></div><div class="prose"><p>Now plot the operator step alongside the solar atmosphere used by the synthesis. The grey-start step demonstrates the local correction machinery; the final curve is the line-blanketed Part-VI solar structure that the capstone spectrum consumes.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[81]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[84]</span>Python</span>
         <button class="copy-btn" type="button" data-code="fig, ax = plt.subplots()
 
 d = data[&quot;sun&quot;]
@@ -7364,7 +7448,7 @@ ax.legend(loc=<span class="hljs-string">&quot;upper left&quot;</span>, fontsize=
 <p>One table collects every claim of this lecture with its measured floor, and marks honestly which stages were <strong>computed from scratch here</strong> and which were <strong>given</strong> (verified elsewhere). This is the lecture&#39;s benchmark, and the book&#39;s: the from-scratch chain, with its one named wall. The spectrum row reports the <strong>median, the 99th percentile, and the max / worst-pixel</strong> for each star — so the hot dwarf&#39;s window-wide <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>∼</mo><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>7</mn></mrow></msup></mrow><annotation encoding="application/x-tex">\sim10^{-7}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">∼</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">7</span></span></span></span></span></span></span></span></span></span></span></span> elevation (the continuum residual lifting every pixel and peaking at the H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>β</mi></mrow><annotation encoding="application/x-tex">\beta</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.05278em;">β</span></span></span></span> core where the line flux no longer cancels it) is visible as exactly that: a broad offset bounded by the worst pixel, with every point still agreeing with the production code to six figures.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[82]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[85]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# assemble the end-to-end precision summary
 print(&quot;=&quot; * 84)
 print(&quot;LEAN-KURUCZ END-TO-END PRECISION - Lecture 14&quot;)
@@ -7467,7 +7551,7 @@ STAGE PROVENANCE (this lecture)
 <p>A from-scratch claim deserves a negative control. If the opacity were secretly read from the reference, perturbing an <em>input</em> population would not move the spectrum. So we bump the Sun&#39;s Fe I population by 1% and re-synthesise: if the opacity is genuinely computed from that population, the spectrum must move far above the float floor — and it does, by a few parts in <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><msup><mn>0</mn><mn>3</mn></msup></mrow><annotation encoding="application/x-tex">10^3</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">3</span></span></span></span></span></span></span></span></span></span></span>, five orders of magnitude above the <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>8</mn></mrow></msup></mrow><annotation encoding="application/x-tex">10^{-8}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">8</span></span></span></span></span></span></span></span></span></span></span></span> floor.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[83]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[86]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# tamper check: perturb ONE from-scratch input (Fe I population) -&gt; the spectrum must move
 d = data[&quot;sun&quot;]
 base = synthesise(d)

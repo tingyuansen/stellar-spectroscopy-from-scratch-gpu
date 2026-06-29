@@ -595,72 +595,40 @@ def hydrogen_partition(temp):
         U += H_STAT_WEIGHT[i] * np.exp(-H_ENERGY_EV[i] / kt)
     return U''')
 
-md(r"""Now the engine itself. `compute_kapp` takes a frequency array and the population dictionary `pops`, and returns the continuum absorption `acont` and the scattering `sigmac`, each `(n_layers, nfreq)`. Read it block by block — each block is one continuum source from Lecture 3, evaluated from its population times its cross-section, summed at the end into `acont` (true absorption) and `sigmac` (scattering). The departure coefficients (`bhyd`, `bmin`, …) are all unity in LTE, exactly as the model assumes.
+md(r"""The continuum engine is easiest to audit source-by-source. The first helper computes the H I
+bound-free/free-free opacity and H$_2^+$ contribution. It is still NumPy in L14 because L14 is the
+same-atmosphere capstone; the later GPU closure will port each helper independently.""")
 
-This cell is intentionally still a single function definition. The continuum terms share the same local thermodynamic arrays (`stim`, `bnu`, `rho`, population slices, and departure coefficients), and splitting the body across cells would either duplicate those arrays or obscure the accumulation. The short cells above isolate the reusable lookup routines; this cell is the one long ledger where the absorbers are added.""")
+code(r'''HOP_LEVELS = [
+    (15, 487.456, 450.0, 109191.313), (14, 559.579, 392.0, 109119.188),
+    (13, 648.980, 338.0, 109029.789), (12, 761.649, 288.0, 108917.117),
+    (11, 906.426, 242.0, 108772.336), (10, 1096.776, 200.0, 108581.992),
+    (9, 1354.044, 162.0, 108324.719), (8, 1713.713, 128.0, 107965.051),
+    (7, 2238.320, 98.0, 107440.444),
+]
+HOP_LEVELS_B = [
+    (6, 3046.604, 72.0, 106632.160, 5), (5, 4387.113, 50.0, 105291.651, 4),
+    (4, 6854.871, 32.0, 102823.893, 3), (3, 12186.462, 18.0, 97492.302, 2),
+    (2, 27419.659, 8.0, 82259.105, 1),
+]
 
-code(r'''def compute_kapp(freq, pops, ifop):
-    """Reproduce kapp.compute_kapp_continuum for the given frequency array.
+def _hydrogen_bf_ff(freq, temp, rho, xne, xnfph, hckt, tlog, tkev, waveno, ehvkt,
+                    stim, bnu, bhyd):
+    """Return H I bound/free-free and H2+ opacity arrays.
 
-    pops: dict of per-layer atmosphere quantities (see __main__ assembly).
-    Returns acont, sigmac  (each (n_layers, nfreq)).
+    Inputs are the shared continuum grids and LTE departure coefficients. The
+    loops are over the small continuum-edge frequency set, not the dense synthesis
+    wavelength grid, and preserve the KAPP source ordering.
     """
-    temp = pops["temperature"]
-    rho = np.maximum(pops["mass_density"], 1e-30)
-    xne = pops["electron_density"]
-    n_layers = temp.size
-    nfreq = freq.size
+    n_layers, nfreq = temp.size, freq.size
+    ahyd = np.zeros((n_layers, nfreq))
+    ah2p = np.zeros((n_layers, nfreq))
+    xnfph1 = xnfph[:, 0]
+    xnfph2 = xnfph[:, 1]
 
-    # b-tables are all unity (LTE) in this model; KAPP reads atlas_tables.get(...,ones)
-    bhyd = np.ones((n_layers, 8)); bmin = np.ones(n_layers)
-    bhe1 = np.ones((n_layers, 29)); bhe2 = np.ones((n_layers, 6))
-
-    xnfph = pops["xnfph"]              # (n_layers,2) mode-11 H I ground, H II
-    xnf_h = pops["xnf_h"]             # mode-12 total neutral H
-    # HE populations from the POPS mode-11 grid
-    he1_11 = pops["he1_mode11"]; he2_11 = pops["he2_mode11"]; he3_11 = pops["he3_mode11"]
-    he1_12 = pops["he1_mode12"]; he2_12 = pops["he2_mode12"]
-
-    hkt = H_PLANCK / (K_BOLTZ * temp)
-    hckt = hkt * C_LIGHT_CM
-    tlog = np.log(np.maximum(temp, 1e-10))
-    tkev = temp * KBOLTZ_EV
-    waveno = freq / C_LIGHT_CM
-    ehvkt = np.exp(-H_PLANCK * freq[None, :] / (K_BOLTZ * temp[:, None]))
-    stim = 1.0 - ehvkt
-    bnu = np.zeros((n_layers, nfreq))
-    for j in range(nfreq):
-        bnu[:, j] = planck_nu(freq[j], temp)
-
-    ahyd = np.zeros((n_layers, nfreq)); ahmin = np.zeros((n_layers, nfreq))
-    ah2p = np.zeros((n_layers, nfreq)); ahemin = np.zeros((n_layers, nfreq))
-    ahe1 = np.zeros((n_layers, nfreq)); ahe2 = np.zeros((n_layers, nfreq))
-    ac1 = np.zeros((n_layers, nfreq)); amg1 = np.zeros((n_layers, nfreq))
-    aal1 = np.zeros((n_layers, nfreq)); asi1 = np.zeros((n_layers, nfreq))
-    afe1 = np.zeros((n_layers, nfreq)); aluke = np.zeros((n_layers, nfreq))
-    ahot = np.zeros((n_layers, nfreq))
-    sigh = np.zeros((n_layers, nfreq)); sighe = np.zeros((n_layers, nfreq))
-    sigel = np.zeros((n_layers, nfreq)); sigh2 = np.zeros((n_layers, nfreq))
-
-    # H I bf level thresholds (wavenumber, weight 2n^2, energy cm^-1)
-    HOP_LEVELS = [
-        (15, 487.456, 450.0, 109191.313), (14, 559.579, 392.0, 109119.188),
-        (13, 648.980, 338.0, 109029.789), (12, 761.649, 288.0, 108917.117),
-        (11, 906.426, 242.0, 108772.336), (10, 1096.776, 200.0, 108581.992),
-        (9, 1354.044, 162.0, 108324.719), (8, 1713.713, 128.0, 107965.051),
-        (7, 2238.320, 98.0, 107440.444),
-    ]
-    HOP_LEVELS_B = [  # n<=6 use departure coeff (b - ehvkt) instead of *stim
-        (6, 3046.604, 72.0, 106632.160, 5), (5, 4387.113, 50.0, 105291.651, 4),
-        (4, 6854.871, 32.0, 102823.893, 3), (3, 12186.462, 18.0, 97492.302, 2),
-        (2, 27419.659, 8.0, 82259.105, 1),
-    ]
-
-    xnfph1 = xnfph[:, 0]; xnfph2 = xnfph[:, 1]
     for j in range(nfreq):
         f = freq[j]; wno = waveno[j]; ehv = ehvkt[:, j]; st = stim[:, j]; bn = bnu[:, j]
         freq3 = 2.815e29 / (f * f * f)
-        # N=16 to infinity
         h = freq3 * 2.0 / 2.0 / (RYDBERG_CM * hckt) * (
             np.exp(-np.maximum(109250.336, 109678.764 - wno) * hckt)
             - np.exp(-109678.764 * hckt)) * st
@@ -674,32 +642,38 @@ code(r'''def compute_kapp(freq, pops, ifop):
                 bh = bhyd[:, bi]
                 a = xkarsas(f, 1.0, n, n) * wt * np.exp(-e * hckt) * (bh - ehv)
                 h = h + a; s = s + a * bn * st / np.maximum(bh - ehv, 1e-40)
-        if wno >= 109678.764:  # N=1
+        if wno >= 109678.764:
             bh = bhyd[:, 0]
-            a = xkarsas(f, 1.0, 1, 1) * 2.0 * 1.0 * (bh - ehv)
+            a = xkarsas(f, 1.0, 1, 1) * 2.0 * (bh - ehv)
             h = h + a; s = s + a * bn * st / np.maximum(bh - ehv, 1e-40)
         h = h * xnfph1 / rho; s = s * xnfph1 / rho
-        # free-free
         cff = coulff(1, f, np.log(f), temp, tlog)
         a_ff = 3.6919e8 / np.sqrt(temp) * cff / f * xne / f * xnfph2 / f * st / rho
-        h = h + a_ff; s = s + a_ff * bn
-        ahyd[:, j] = h
+        ahyd[:, j] = h + a_ff
 
-    # H2PLOP (H2+); only for f <= 3.28805e15 (always true at visible)
-    for j in range(nfreq):
-        f = freq[j]
-        if f > 3.28805e15:
-            continue
-        freqlg = np.log(f)
-        freq15 = f / 1.0e15
-        fr = -3.0233e3 + (3.7797e2 + (-1.82496e1 + (3.9207e-1 - 3.1672e-3 * freqlg) * freqlg) * freqlg) * freqlg
-        es = -7.342e-3 + (-2.409e0 + (1.028e0 + (-4.230e-1 + (1.224e-1 - 1.351e-2 * freq15) * freq15) * freq15) * freq15) * freq15
-        st = stim[:, j]
-        ah2p[:, j] = (np.exp(-es / tkev + fr + np.log(np.maximum(xnfph1, 1e-40)))
-                      * 2.0 * bhyd[:, 0] * xnfph2 / rho * st)
+        if f <= 3.28805e15:
+            freqlg = np.log(f)
+            freq15 = f / 1.0e15
+            fr = -3.0233e3 + (3.7797e2 + (-1.82496e1 + (3.9207e-1 - 3.1672e-3 * freqlg) * freqlg) * freqlg) * freqlg
+            es = -7.342e-3 + (-2.409e0 + (1.028e0 + (-4.230e-1 + (1.224e-1 - 1.351e-2 * freq15) * freq15) * freq15) * freq15) * freq15
+            ah2p[:, j] = (np.exp(-es / tkev + fr + np.log(np.maximum(xnfph1, 1e-40)))
+                          * 2.0 * bhyd[:, 0] * xnfph2 / rho * st)
+    return ahyd, ah2p''')
 
-    # HMINOP (H- bf + ff)
-    bhyd1 = bhyd[:, 0]
+md(r"""`_hminus_opacity` isolates H$^-$ bound-free and free-free opacity. The table interpolation is
+left scalar over the small H$^-$ grid because this capstone cell is a reference-preserving NumPy
+path; the GPU port can replace it with gathered torch interpolation later.""")
+
+code(r'''def _hminus_opacity(freq, temp, rho, xne, xnfph1, tkev, ehvkt, stim, bnu, bhyd1, bmin):
+    """Return H- bound-free plus free-free absorption on ``(layer, frequency)``.
+
+    The inputs are the local thermodynamic vectors and the precomputed stimulated
+    emission/Planck factors shared by the continuum ledger.  The small H- tables
+    are interpolated in the original order to preserve the pykurucz float floor;
+    the output is a true absorption opacity in cm^2/g.
+    """
+    n_layers, nfreq = temp.size, freq.size
+    ahmin = np.zeros((n_layers, nfreq))
     xhmin = (np.exp(0.754209 / tkev) / (2.0 * 2.4148e15 * temp * np.sqrt(temp))
              * bmin * bhyd1 * xnfph1 * xne)
     theta = 5040.0 / temp
@@ -714,7 +688,7 @@ code(r'''def compute_kapp(freq, pops, ifop):
             fflog[iw, it] = np.log(ff_full[it, iw] / HMINOP_THETAFF[it] * 5040.0 * K_BOLTZ)
     wfflog = np.log(91.134 / HMINOP_WAVEK)
     for j in range(nfreq):
-        f = freq[j]; ehv = ehvkt[:, j]; st = stim[:, j]; bn = bnu[:, j]
+        f = freq[j]; ehv = ehvkt[:, j]
         wave = 2.99792458e17 / f
         wavelog = np.log(wave)
         fftheta = np.zeros(n_layers)
@@ -727,21 +701,28 @@ code(r'''def compute_kapp(freq, pops, ifop):
         hminff = fftheta * xnfph1 * 2.0 * bhyd1 * xne / rho * 1e-26
         h_bf = hminbf * 1e-18 * (1.0 - ehv / np.maximum(bmin, 1e-40)) * xhmin / rho
         ahmin[:, j] = h_bf + hminff
+    return ahmin''')
 
-    # HEMIOP (He- ff), gated by ifop[6]
-    if ifop[6] == 1:
-        for j in range(nfreq):
-            f = freq[j]
-            ac = 3.397e-01 + (-5.216e14 + 7.039e30 / f) / f
-            bc = -4.116e03 + (1.067e19 + 8.135e34 / f) / f
-            cc = 5.081e08 + (-8.724e22 - 5.659e37 / f) / f
-            ahemin[:, j] = (ac * temp + bc + cc / temp) / 1.0e15 * xne / 1.0e15 * he1_12 / 1.0e15 / rho
+md(r"""The scattering helper collects the Thomson, H Rayleigh, He Rayleigh, and H$_2$ Rayleigh
+terms. These are scattering opacities, so they return `sigmac` components rather than true
+absorption.""")
 
-    # ELECOP (Thomson) - no stim
-    for j in range(nfreq):
-        sigel[:, j] = 0.6653e-24 * xne / rho
+code(r'''def _scattering_terms(freq, temp, rho, xne, xnf_h, he1_12, bhyd1, bhe1, ifop, tkev, tlog):
+    """Return the continuum scattering ledger on ``(layer, frequency)``.
 
-    # HRAYOP (H Rayleigh) - ground-state H from xnf_h / U(T)
+    This collects Thomson electron scattering, H Rayleigh, He Rayleigh, and H2
+    Rayleigh terms.  The H Rayleigh branches follow the original tabulated
+    frequency intervals exactly, so they stay scalar over the short edge list;
+    layer dependence remains vectorized.
+    """
+    n_layers, nfreq = temp.size, freq.size
+    sigh = np.zeros((n_layers, nfreq))
+    sighe = np.zeros((n_layers, nfreq))
+    sigel = np.zeros((n_layers, nfreq))
+    sigh2 = np.zeros((n_layers, nfreq))
+
+    sigel[:, :] = (0.6653e-24 * xne / rho)[:, None]
+
     xnfph1_ray = xnf_h / hydrogen_partition(temp)
     freq_lyman = 3.288051e15; freq_step = 3.288051e13
     for j in range(nfreq):
@@ -796,10 +777,8 @@ code(r'''def compute_kapp(freq, pops, ifop):
             g = HRAYOP_GAVRILALYMANCONT[0]
         else:
             g = map1(HRAYOP_FGAVRILALYMANCONT, HRAYOP_GAVRILALYMANCONT, np.array([f / freq_lyman]))[0]
-        xsect = 6.65e-25 * g**2
-        sigh[:, j] = xsect * xnfph1_ray * 2.0 * bhyd1 / rho
+        sigh[:, j] = 6.65e-25 * g**2 * xnfph1_ray * 2.0 * bhyd1 / rho
 
-    # HERAOP (He Rayleigh), gated by ifop[7]
     if ifop[7] == 1:
         for j in range(nfreq):
             f = freq[j]
@@ -808,7 +787,6 @@ code(r'''def compute_kapp(freq, pops, ifop):
             sig = 5.484e-14 / (ww * ww) * (1.0 + (2.44e5 + 5.94e10 / max(ww - 2.90e5, 1e-10)) / ww) ** 2
             sighe[:, j] = sig * he1_12 / rho * bhe1[:, 0]
 
-    # H2RAOP (H2 Rayleigh), gated by ifop[12]
     if ifop[12] == 1:
         poly_T = (1.63660e-3 + (-4.93992e-7 + (1.11822e-10 + (-1.49567e-14 + (1.06206e-18 - 3.08720e-23 * temp) * temp) * temp) * temp) * temp) * temp
         exp_term = np.clip(4.478 / tkev - 4.64584e1 + poly_T - 1.5 * tlog, -100, 100)
@@ -819,6 +797,73 @@ code(r'''def compute_kapp(freq, pops, ifop):
             ww = wave**2
             sig = (8.14e-13 + 1.28e-6 / ww + 1.61 / (ww * ww)) / (ww * ww)
             sigh2[:, j] = sig * xnh2
+    return sigh, sighe, sigel, sigh2''')
+
+md(r"""Now the engine itself. `compute_kapp` takes a frequency array and the population dictionary `pops`, and returns the continuum absorption `acont` and the scattering `sigmac`, each `(n_layers, nfreq)`. Read it block by block — each block is one continuum source from Lecture 3, evaluated from its population times its cross-section, summed at the end into `acont` (true absorption) and `sigmac` (scattering). The departure coefficients (`bhyd`, `bmin`, …) are all unity in LTE, exactly as the model assumes.
+
+This cell is intentionally still a single function definition. The continuum terms share the same local thermodynamic arrays (`stim`, `bnu`, `rho`, population slices, and departure coefficients), and splitting the body across cells would either duplicate those arrays or obscure the accumulation. The short cells above isolate the reusable lookup routines; this cell is the one long ledger where the absorbers are added.""")
+
+code(r'''def compute_kapp(freq, pops, ifop):
+    """Reproduce kapp.compute_kapp_continuum for the given frequency array.
+
+    pops: dict of per-layer atmosphere quantities (see __main__ assembly).
+    Returns acont, sigmac  (each (n_layers, nfreq)).
+    """
+    temp = pops["temperature"]
+    rho = np.maximum(pops["mass_density"], 1e-30)
+    xne = pops["electron_density"]
+    n_layers = temp.size
+    nfreq = freq.size
+
+    # b-tables are all unity (LTE) in this model; KAPP reads atlas_tables.get(...,ones)
+    bhyd = np.ones((n_layers, 8)); bmin = np.ones(n_layers)
+    bhe1 = np.ones((n_layers, 29)); bhe2 = np.ones((n_layers, 6))
+
+    xnfph = pops["xnfph"]              # (n_layers,2) mode-11 H I ground, H II
+    xnf_h = pops["xnf_h"]             # mode-12 total neutral H
+    # HE populations from the POPS mode-11 grid
+    he1_11 = pops["he1_mode11"]; he2_11 = pops["he2_mode11"]; he3_11 = pops["he3_mode11"]
+    he1_12 = pops["he1_mode12"]; he2_12 = pops["he2_mode12"]
+
+    hkt = H_PLANCK / (K_BOLTZ * temp)
+    hckt = hkt * C_LIGHT_CM
+    tlog = np.log(np.maximum(temp, 1e-10))
+    tkev = temp * KBOLTZ_EV
+    waveno = freq / C_LIGHT_CM
+    ehvkt = np.exp(-H_PLANCK * freq[None, :] / (K_BOLTZ * temp[:, None]))
+    stim = 1.0 - ehvkt
+    bnu = np.zeros((n_layers, nfreq))
+    for j in range(nfreq):
+        bnu[:, j] = planck_nu(freq[j], temp)
+
+    ahyd = np.zeros((n_layers, nfreq)); ahmin = np.zeros((n_layers, nfreq))
+    ah2p = np.zeros((n_layers, nfreq)); ahemin = np.zeros((n_layers, nfreq))
+    ahe1 = np.zeros((n_layers, nfreq)); ahe2 = np.zeros((n_layers, nfreq))
+    ac1 = np.zeros((n_layers, nfreq)); amg1 = np.zeros((n_layers, nfreq))
+    aal1 = np.zeros((n_layers, nfreq)); asi1 = np.zeros((n_layers, nfreq))
+    afe1 = np.zeros((n_layers, nfreq)); aluke = np.zeros((n_layers, nfreq))
+    ahot = np.zeros((n_layers, nfreq))
+    sigh = np.zeros((n_layers, nfreq)); sighe = np.zeros((n_layers, nfreq))
+    sigel = np.zeros((n_layers, nfreq)); sigh2 = np.zeros((n_layers, nfreq))
+
+    xnfph1 = xnfph[:, 0]; xnfph2 = xnfph[:, 1]
+    bhyd1 = bhyd[:, 0]
+    ahyd, ah2p = _hydrogen_bf_ff(freq, temp, rho, xne, xnfph, hckt, tlog, tkev,
+                                 waveno, ehvkt, stim, bnu, bhyd)
+    ahmin = _hminus_opacity(freq, temp, rho, xne, xnfph1, tkev, ehvkt, stim, bnu, bhyd1, bmin)
+
+    # HEMIOP (He- ff), gated by ifop[6]
+    if ifop[6] == 1:
+        for j in range(nfreq):
+            f = freq[j]
+            ac = 3.397e-01 + (-5.216e14 + 7.039e30 / f) / f
+            bc = -4.116e03 + (1.067e19 + 8.135e34 / f) / f
+            cc = 5.081e08 + (-8.724e22 - 5.659e37 / f) / f
+            ahemin[:, j] = (ac * temp + bc + cc / temp) / 1.0e15 * xne / 1.0e15 * he1_12 / 1.0e15 / rho
+
+    sigh, sighe, sigel, sigh2 = _scattering_terms(
+        freq, temp, rho, xne, xnf_h, he1_12, bhyd1, bhe1, ifop, tkev, tlog,
+    )
 
     # ── HE1OP ──
     # bound: weighted by He I mode-11.  free-free: weighted by He II mode-11

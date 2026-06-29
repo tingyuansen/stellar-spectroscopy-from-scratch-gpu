@@ -95,9 +95,9 @@ synthesis path.
 - Function-docstring audit: `lowdoc>=20 = 0` under the current rule (functions/classes at least
   20 lines must have useful docstrings).
 - Remaining long-cell audit: one cell at `>=120` lines remains: L14 `compute_kapp`, the continuum
-  opacity ledger. L15's exact LINOP1 deposit, L14's metal-line setup/driver, L14's hydrogen driver
-  state/merge helpers, and L14's HPROF4 transition constants have been split and reverified. Split
-  the remaining continuum cell only with matching parity reruns.
+  opacity ledger. L15's exact LINOP1 deposit, L14's metal-line setup/driver, HPROF4 transition
+  constants, hydrogen bound/free-free helper, H- helper, and scattering helper have been split and
+  reverified. Split the remaining continuum cell only with matching parity reruns.
 - `git diff --check`: clean.
 - `python _pipeline/verify_josh.py`: normalised spectrum max `8.94e-09`, median `1.13e-11`.
 - `python _pipeline/verify_lineblanket.py`: PASS, values listed above.
