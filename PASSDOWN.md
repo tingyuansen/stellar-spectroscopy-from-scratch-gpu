@@ -54,7 +54,7 @@ blocking miss remains. Unchecked means it is the next fix target, not a vague co
 | L13 | [x] | [x] | [x] | [x] | [x] split one-depth Newton solve from pressure-continuation driver | [x] | [x] `verify_nmolec.py`, `verify_mol_continuum.py` |
 | L14 | [x] | [ ] loads atmosphere/EOS/population/Doppler state; not yet stellar-parameters-to-spectrum | [x] after L16 -> L15 -> L14 public read-order repair | [x] partial | [x] split continuum, line, molecular, JOSH, and TCORR helpers below 100-line threshold | [ ] capstone is not yet torch/MPS throughout | [x] `verify_leankurucz.py` |
 | L15 | [x] | [ ] still consumes production-derived atmosphere/EOS/window/continuum/full-grid blanket fixtures | [x] | [x] | [x] | [x] teaching-window deposit is torch; exact scalar recurrence retained for parity | [x] `verify_lineblanket.py` |
-| L16 | [x] | [ ] must run the live solar atmosphere solve, locally reconstructing the algorithmic pieces of `kgpu.atlas_loop.converge_atmosphere` without importing `kgpu`; current notebook only computes per-iteration state and summarizes a fixture | [x] | [x] | [x] | [ ] live solve must be torch/device-first; NumPy clean-room code is verifier only | [x] `build.py 16`, L15/L14 downstream gates |
+| L16 | [x] | [ ] current notebook computes per-iteration state and should keep only a runnable `max_iter=1` live-smoke gate; full converged solar solve is parked until kgpu convergence is fast enough for pedagogy | [x] | [x] | [x] | [ ] live solve must be torch/device-first; NumPy clean-room code is verifier only | [x] `build.py 16`, L15/L14 downstream gates |
 
 ### Honest remaining blockers
 
@@ -66,12 +66,12 @@ blocking miss remains. Unchecked means it is the next fix target, not a vague co
   torch/MPS builder throughout.
 - L15 still consumes production-derived fixtures for the converged atmosphere, per-iteration
   EOS/window state, continuum opacity/scattering/source arrays, and full-grid line blanket.
-- L16 is not closed until the lecture runs the solar line-blanketed atmosphere solve itself. Use
-  `~/pykurucz_gpu/bench/converge_kgpu_port.py` and `kgpu.atlas_loop.converge_atmosphere` only as
-  the reference design to rewrite locally: per-iteration EOS, continuum, LINOP1+XLINOP blanket,
-  JOSH/ROSS/RADIAP/CONVEC/TCORR, and the tauros/RHOX remap must live in the textbook without
-  importing `kgpu`. Clean-room NumPy helpers may remain as parity gates, but they are not the
-  taught GPU implementation.
+- L16 is scientifically scoped but not final capstone closure. Keep the live atmosphere code, when
+  added to the notebook, as a **runnable one-iteration smoke gate** (`max_iter=1`) so readers can
+  execute it. The converged solar gate remains future work: target a 12.3-class / pyk exact-LINOP
+  `RHOX=12.1439331` solar base after the kgpu squeeze makes the loop fast enough for pedagogy. When
+  resumed, use `~/pykurucz_gpu/bench/converge_kgpu_port.py` and `kgpu.atlas_loop.converge_atmosphere`
+  only as the reference design to rewrite locally; the textbook must not import `kgpu`.
 - Naming is now an explicit quality track. `BIBLE.md` contains the shared glossary; keep raw
   fixture/table keys stable at boundaries and translate to readable names in taught code. Continue
   aggressive local-name cleanup in small gated slices before calling readability closed.
@@ -193,19 +193,18 @@ misses have either been fixed with a passing gate or explicitly marked as a real
 
 1. Run the final-mile closure audit for every lecture (L1-L16) against the checklist above; fix
    misses in gated slices and record the result lecture by lecture.
-2. Close L8's data boundary by feeding opacity from earlier torch lecture outputs and documenting or
-   deriving the JOSH operator tables.
-3. Promote L14 to a torch/MPS builder while keeping the current no-leakage/parity guardrails.
-4. Rewrite the kgpu-style L16 live solar atmosphere solve inside the textbook first, with no
-   runtime `kgpu` import; then wire L15/L16 into L14 so the solar atmosphere/EOS state is generated
-   rather than loaded.
-5. Replace L15's production-derived atmosphere/EOS/window/continuum/full-grid blanket fixtures with
+2. Promote L14 to a torch/MPS builder while keeping the current no-leakage/parity guardrails.
+3. Replace L15's production-derived atmosphere/EOS/window/continuum/full-grid blanket fixtures with
    computed lecture cells in small parity-gated steps.
-6. Move L16 helper-backed clean-room NumPy pieces into pedagogical torch cells where practical;
+4. Move L16 helper-backed clean-room NumPy pieces into pedagogical torch cells where practical;
    keep NumPy only as the parity oracle for the GPU-native lecture path.
-7. Break up the densest L14/L15 code cells with interleaved markdown and docstrings, rerunning
+5. Break up the densest L14/L15 code cells with interleaved markdown and docstrings, rerunning
    parity after each chunk.
-8. Continue the shared naming pass: use the `BIBLE.md` glossary, avoid destructive fixture/schema
+6. Continue the shared naming pass: use the `BIBLE.md` glossary, avoid destructive fixture/schema
    renames, and verify each pure readability slice with the touched lecture's builder/verifier.
-9. Use the exact-LINOP L15/L16 material to design the future `kgpu` squeeze from the 12.3-class
+7. For L16, add or keep only a local `max_iter=1` live-smoke atmosphere cell until the loop is fast;
+   after kgpu convergence is squeezed, extend it to the full converged solar solve with no runtime
+   `kgpu` import, targeting the 12.3-class / `RHOX=12.1439331` solar base before wiring L15/L16 into
+   L14.
+8. Use the exact-LINOP L15/L16 material to design the future `kgpu` squeeze from the 12.3-class
    coarse-deposit fixed point toward the pyk exact-LINOP `RHOX=12.1439331` target.

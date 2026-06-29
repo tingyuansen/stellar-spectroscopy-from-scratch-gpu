@@ -18,9 +18,11 @@ Current status:
 - L15 computes the exact LINOP1 teaching-window recurrence, but still loads atmosphere/EOS/window/
   continuum/full-grid blanket fixtures.
 - L16 recomputes EOS-derived state for a loaded solar atmosphere structure, and summarizes a checked
-  warm-start solar trajectory. It still needs the live kgpu-style solar atmosphere solve rewritten
-  locally inside the lecture before it can be called the atmosphere capstone. The reference design
-  is `~/pykurucz_gpu/bench/converge_kgpu_port.py` / `kgpu.atlas_loop.converge_atmosphere`, but the
+  warm-start solar trajectory. For now, any live atmosphere cell should be a runnable one-iteration
+  smoke gate (`max_iter=1`). The full converged solar solve is parked until the kgpu squeeze makes
+  it pedagogically practical; the future target is the 12.3-class / pyk exact-LINOP
+  `RHOX=12.1439331` solar base. The reference design is
+  `~/pykurucz_gpu/bench/converge_kgpu_port.py` / `kgpu.atlas_loop.converge_atmosphere`, but the
   textbook path must not import `kgpu`; NumPy clean-room code is a parity gate, not the taught path.
 
 ## Closure Roadmap
@@ -34,8 +36,9 @@ Current status:
    - do not erase this roadmap until every lecture either passes the closure checklist or has a
      precise, honest boundary that remains as future work.
    - status: `PASSDOWN.md` now carries the per-lecture checkbox matrix. The remaining concrete
-     lecture fixes are L16 live torch solar atmosphere solve rewritten locally with no `kgpu`
-     import, L15 fixture reduction, and L14 true capstone/torch promotion.
+     lecture fixes are L15 fixture reduction and L14 true capstone/torch promotion. L16's live
+     convergence closure is intentionally capped at a runnable `max_iter=1` smoke gate until kgpu
+     convergence is fast enough for the full pedagogical solve.
 
 1. Establish the shared naming/glossary pass:
    - define readable names in `BIBLE.md` and use them consistently across lectures and kgpu;
@@ -81,9 +84,10 @@ Current status:
    - keep the exact LINOP1 recurrence and float32 accumulation-order gate intact.
 
 6. Reduce L16 helper boundaries:
-   - first close the more important scientific boundary: run the kgpu-style solar atmosphere loop
-     live in the lecture from stellar parameters or a documented warm-start structure, rather than
-     only summarizing `converge_fromscratch_result.npz`;
+   - keep any live kgpu-style atmosphere loop in the lecture to `max_iter=1` for now, so the
+     notebook remains runnable;
+   - after the kgpu squeeze, extend that local loop to full convergence and target the 12.3-class /
+     `RHOX=12.1439331` solar base before claiming atmosphere capstone closure;
    - mirror the product decomposition locally, without importing `kgpu`: resident invariants,
      line invariants, opacity provider, convection recompute, and convergence loop;
    - port clean-room NumPy PFSAHA/NELECT/continuum/molecular helper paths into pedagogical torch
