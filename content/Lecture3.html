@@ -80,16 +80,16 @@ REF = np.load(pathlib.Path(<span class="hljs-string">&quot;..&quot;</span>) / <s
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[2]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="# the grids, reshaped so depth (column) broadcasts against wavelength (row)
-wl   = dev(REF[&quot;wl&quot;])               # (nw,) [nm]   -- wavelength grid (a row when [None,:])
-T    = dev(REF[&quot;T&quot;])[:, None]       # (nd,1) [K]
-n_e  = dev(REF[&quot;n_e&quot;])[:, None]     # (nd,1) [cm^-3]
-rho  = dev(REF[&quot;rho&quot;])[:, None]     # (nd,1) [g cm^-3]
-nHI  = dev(REF[&quot;nHI&quot;])[:, None]     # (nd,1) neutral H number density [cm^-3]
-nw   = wl.shape[0]
+        <button class="copy-btn" type="button" data-code="# The fixture keeps compact historical keys; translate once into taught names.
+wavelength_nm = dev(REF[&quot;wl&quot;])[:, None].T            # (1,nw) [nm]
+temperature = dev(REF[&quot;T&quot;])[:, None]                 # (nd,1) [K]
+electron_density = dev(REF[&quot;n_e&quot;])[:, None]          # (nd,1) [cm^-3]
+mass_density = dev(REF[&quot;rho&quot;])[:, None]              # (nd,1) [g cm^-3]
+neutral_hydrogen_density = dev(REF[&quot;nHI&quot;])[:, None]  # (nd,1) neutral H number density [cm^-3]
+n_wavelength = wavelength_nm.shape[1]
 
 # Rosseland optical depth and column mass (host NumPy — only used for plotting / formation depth)
-tau, rhox = REF[&quot;tau&quot;], REF[&quot;rhox&quot;]
+rosseland_optical_depth, column_mass_host = REF[&quot;tau&quot;], REF[&quot;rhox&quot;]
 
 # physical constants, CGS: Planck, c, Boltzmann
 H, C, K = 6.62607015e-27, 2.99792458e10, 1.380649e-16
@@ -97,22 +97,23 @@ H, C, K = 6.62607015e-27, 2.99792458e10, 1.380649e-16
 KEV, SAHA = 1.0/11604.5, 2.4148e15
 
 # frequency [Hz] at each wavelength (a row, broadcasts over depth)
-nu = C / (wl[None, :] * 1e-7)
+frequency_hz = C / (wavelength_nm * 1e-7)
 
-print(f&quot;continuum grid: {REF[&#39;absorption&#39;].shape[0]} layers x {nw} wavelengths, &quot;
-      f&quot;{float(wl[0]):.0f}-{float(wl[-1]):.0f} nm  (all opacities are (nd, nw) tensors on {DEVICE.type})&quot;)" aria-label="Copy code">
+print(f&quot;continuum grid: {REF[&#39;absorption&#39;].shape[0]} layers x {n_wavelength} wavelengths, &quot;
+      f&quot;{float(wavelength_nm[0, 0]):.0f}-{float(wavelength_nm[0, -1]):.0f} nm  &quot;
+      f&quot;(all opacities are (nd, nw) tensors on {DEVICE.type})&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># the grids, reshaped so depth (column) broadcasts against wavelength (row)</span>
-wl   = dev(REF[<span class="hljs-string">&quot;wl&quot;</span>])               <span class="hljs-comment"># (nw,) [nm]   -- wavelength grid (a row when [None,:])</span>
-T    = dev(REF[<span class="hljs-string">&quot;T&quot;</span>])[:, <span class="hljs-literal">None</span>]       <span class="hljs-comment"># (nd,1) [K]</span>
-n_e  = dev(REF[<span class="hljs-string">&quot;n_e&quot;</span>])[:, <span class="hljs-literal">None</span>]     <span class="hljs-comment"># (nd,1) [cm^-3]</span>
-rho  = dev(REF[<span class="hljs-string">&quot;rho&quot;</span>])[:, <span class="hljs-literal">None</span>]     <span class="hljs-comment"># (nd,1) [g cm^-3]</span>
-nHI  = dev(REF[<span class="hljs-string">&quot;nHI&quot;</span>])[:, <span class="hljs-literal">None</span>]     <span class="hljs-comment"># (nd,1) neutral H number density [cm^-3]</span>
-nw   = wl.shape[<span class="hljs-number">0</span>]
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># The fixture keeps compact historical keys; translate once into taught names.</span>
+wavelength_nm = dev(REF[<span class="hljs-string">&quot;wl&quot;</span>])[:, <span class="hljs-literal">None</span>].T            <span class="hljs-comment"># (1,nw) [nm]</span>
+temperature = dev(REF[<span class="hljs-string">&quot;T&quot;</span>])[:, <span class="hljs-literal">None</span>]                 <span class="hljs-comment"># (nd,1) [K]</span>
+electron_density = dev(REF[<span class="hljs-string">&quot;n_e&quot;</span>])[:, <span class="hljs-literal">None</span>]          <span class="hljs-comment"># (nd,1) [cm^-3]</span>
+mass_density = dev(REF[<span class="hljs-string">&quot;rho&quot;</span>])[:, <span class="hljs-literal">None</span>]              <span class="hljs-comment"># (nd,1) [g cm^-3]</span>
+neutral_hydrogen_density = dev(REF[<span class="hljs-string">&quot;nHI&quot;</span>])[:, <span class="hljs-literal">None</span>]  <span class="hljs-comment"># (nd,1) neutral H number density [cm^-3]</span>
+n_wavelength = wavelength_nm.shape[<span class="hljs-number">1</span>]
 
 <span class="hljs-comment"># Rosseland optical depth and column mass (host NumPy — only used for plotting / formation depth)</span>
-tau, rhox = REF[<span class="hljs-string">&quot;tau&quot;</span>], REF[<span class="hljs-string">&quot;rhox&quot;</span>]
+rosseland_optical_depth, column_mass_host = REF[<span class="hljs-string">&quot;tau&quot;</span>], REF[<span class="hljs-string">&quot;rhox&quot;</span>]
 
 <span class="hljs-comment"># physical constants, CGS: Planck, c, Boltzmann</span>
 H, C, K = <span class="hljs-number">6.62607015e-27</span>, <span class="hljs-number">2.99792458e10</span>, <span class="hljs-number">1.380649e-16</span>
@@ -120,10 +121,11 @@ H, C, K = <span class="hljs-number">6.62607015e-27</span>, <span class="hljs-num
 KEV, SAHA = <span class="hljs-number">1.0</span>/<span class="hljs-number">11604.5</span>, <span class="hljs-number">2.4148e15</span>
 
 <span class="hljs-comment"># frequency [Hz] at each wavelength (a row, broadcasts over depth)</span>
-nu = C / (wl[<span class="hljs-literal">None</span>, :] * <span class="hljs-number">1e-7</span>)
+frequency_hz = C / (wavelength_nm * <span class="hljs-number">1e-7</span>)
 
-<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;continuum grid: <span class="hljs-subst">{REF[<span class="hljs-string">&#x27;absorption&#x27;</span>].shape[<span class="hljs-number">0</span>]}</span> layers x <span class="hljs-subst">{nw}</span> wavelengths, &quot;</span>
-      <span class="hljs-string">f&quot;<span class="hljs-subst">{<span class="hljs-built_in">float</span>(wl[<span class="hljs-number">0</span>]):<span class="hljs-number">.0</span>f}</span>-<span class="hljs-subst">{<span class="hljs-built_in">float</span>(wl[-<span class="hljs-number">1</span>]):<span class="hljs-number">.0</span>f}</span> nm  (all opacities are (nd, nw) tensors on <span class="hljs-subst">{DEVICE.<span class="hljs-built_in">type</span>}</span>)&quot;</span>)</code></pre>
+<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;continuum grid: <span class="hljs-subst">{REF[<span class="hljs-string">&#x27;absorption&#x27;</span>].shape[<span class="hljs-number">0</span>]}</span> layers x <span class="hljs-subst">{n_wavelength}</span> wavelengths, &quot;</span>
+      <span class="hljs-string">f&quot;<span class="hljs-subst">{<span class="hljs-built_in">float</span>(wavelength_nm[<span class="hljs-number">0</span>, <span class="hljs-number">0</span>]):<span class="hljs-number">.0</span>f}</span>-<span class="hljs-subst">{<span class="hljs-built_in">float</span>(wavelength_nm[<span class="hljs-number">0</span>, -<span class="hljs-number">1</span>]):<span class="hljs-number">.0</span>f}</span> nm  &quot;</span>
+      <span class="hljs-string">f&quot;(all opacities are (nd, nw) tensors on <span class="hljs-subst">{DEVICE.<span class="hljs-built_in">type</span>}</span>)&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">continuum grid: 80 layers x 200 wavelengths, 500-510 nm  (all opacities are (nd, nw) tensors on mps)
 </pre></div></div><div class="prose"><h2>The stimulated-emission factor</h2>
 <p>Every true-absorption coefficient carries a correction we met in Lecture 1: the radiation field stimulates the inverse, emitting transition alongside the absorbing one, so the net absorption is multiplied by</p>
@@ -132,16 +134,18 @@ nu = C / (wl[<span class="hljs-literal">None</span>, :] * <span class="hljs-numb
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[3]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="# stimulated-emission correction, (nd, nw) — depth column T broadcast against wavelength row nu
-stim = 1.0 - torch.exp(-H * nu / (K * T))
+        <button class="copy-btn" type="button" data-code="# stimulated-emission correction, (nd, nw): depth column temperature x wavelength row frequency.
+stimulated_emission_factor = 1.0 - torch.exp(-H * frequency_hz / (K * temperature))
 print(f&quot;stimulated-emission factor at 505 nm: &quot;
-      f&quot;{float(stim[:,100].min()):.3f} (hot, deep) .. {float(stim[:,100].max()):.3f} (cool)&quot;)" aria-label="Copy code">
+      f&quot;{float(stimulated_emission_factor[:,100].min()):.3f} (hot, deep) .. &quot;
+      f&quot;{float(stimulated_emission_factor[:,100].max()):.3f} (cool)&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># stimulated-emission correction, (nd, nw) — depth column T broadcast against wavelength row nu</span>
-stim = <span class="hljs-number">1.0</span> - torch.exp(-H * nu / (K * T))
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># stimulated-emission correction, (nd, nw): depth column temperature x wavelength row frequency.</span>
+stimulated_emission_factor = <span class="hljs-number">1.0</span> - torch.exp(-H * frequency_hz / (K * temperature))
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;stimulated-emission factor at 505 nm: &quot;</span>
-      <span class="hljs-string">f&quot;<span class="hljs-subst">{<span class="hljs-built_in">float</span>(stim[:,<span class="hljs-number">100</span>].<span class="hljs-built_in">min</span>()):<span class="hljs-number">.3</span>f}</span> (hot, deep) .. <span class="hljs-subst">{<span class="hljs-built_in">float</span>(stim[:,<span class="hljs-number">100</span>].<span class="hljs-built_in">max</span>()):<span class="hljs-number">.3</span>f}</span> (cool)&quot;</span>)</code></pre>
+      <span class="hljs-string">f&quot;<span class="hljs-subst">{<span class="hljs-built_in">float</span>(stimulated_emission_factor[:,<span class="hljs-number">100</span>].<span class="hljs-built_in">min</span>()):<span class="hljs-number">.3</span>f}</span> (hot, deep) .. &quot;</span>
+      <span class="hljs-string">f&quot;<span class="hljs-subst">{<span class="hljs-built_in">float</span>(stimulated_emission_factor[:,<span class="hljs-number">100</span>].<span class="hljs-built_in">max</span>()):<span class="hljs-number">.3</span>f}</span> (cool)&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">stimulated-emission factor at 505 nm: 0.611 (hot, deep) .. 0.998 (cool)
 </pre></div></div><div class="prose"><h2>How much H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mo>−</mo></msup></mrow><annotation encoding="application/x-tex">^-</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7713em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7713em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mbin mtight">−</span></span></span></span></span></span></span></span></span></span></span> is there? The Saha balance</h2>
 <p>In a cool star the dominant continuous absorber is the <strong>negative hydrogen ion, H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mo>−</mo></msup></mrow><annotation encoding="application/x-tex">^-</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7713em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7713em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mbin mtight">−</span></span></span></span></span></span></span></span></span></span></span></strong> — a neutral hydrogen atom holding a second, weakly bound electron (binding energy <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>χ</mi><mo>=</mo><mn>0.754</mn><mtext> </mtext><mrow><mi mathvariant="normal">e</mi><mi mathvariant="normal">V</mi></mrow></mrow><annotation encoding="application/x-tex">\chi = 0.754\ \mathrm{eV}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord mathnormal">χ</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord">0.754</span><span class="mspace"> </span><span class="mord"><span class="mord mathrm" style="margin-right:0.01389em;">eV</span></span></span></span></span>). It is fragile and rare, but neutral hydrogen is so abundant and the metal-supplied free electrons (Lecture 2) so available that in solar-type photospheres H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mo>−</mo></msup></mrow><annotation encoding="application/x-tex">^-</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7713em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7713em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mbin mtight">−</span></span></span></span></span></span></span></span></span></span></span> swamps every other optical continuous opacity. Its abundance follows a Saha balance exactly like Lecture 2&#39;s, with the tiny detachment energy in place of an ionization potential:</p>
@@ -154,20 +158,28 @@ stim = <span class="hljs-number">1.0</span> - torch.exp(-H * nu / (K * T))
         <button class="copy-btn" type="button" data-code="chi_Hminus = 0.754   # H- electron binding energy [eV]
 
 # the Saha balance, solved for the H- density [cm^-3] — a (nd,1) depth column
-n_Hminus = nHI * n_e * torch.exp(chi_Hminus / (KEV * T)) / (4.0 * SAHA * T**1.5)
+n_Hminus = (
+    neutral_hydrogen_density * electron_density
+    * torch.exp(chi_Hminus / (KEV * temperature))
+    / (4.0 * SAHA * temperature**1.5)
+)
 
-jp = int(torch.argmin(torch.abs(torch.as_tensor(tau, dtype=DTYPE, device=DEVICE) - 2/3)))
-print(f&quot;n(H-)/n(H I) at the photosphere: {float((n_Hminus/nHI)[jp,0]):.2e}  &quot;
+jp = int(torch.argmin(torch.abs(torch.as_tensor(rosseland_optical_depth, dtype=DTYPE, device=DEVICE) - 2/3)))
+print(f&quot;n(H-)/n(H I) at the photosphere: {float((n_Hminus/neutral_hydrogen_density)[jp,0]):.2e}  &quot;
       f&quot;(about two H- per billion H atoms)&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python">chi_Hminus = <span class="hljs-number">0.754</span>   <span class="hljs-comment"># H- electron binding energy [eV]</span>
 
 <span class="hljs-comment"># the Saha balance, solved for the H- density [cm^-3] — a (nd,1) depth column</span>
-n_Hminus = nHI * n_e * torch.exp(chi_Hminus / (KEV * T)) / (<span class="hljs-number">4.0</span> * SAHA * T**<span class="hljs-number">1.5</span>)
+n_Hminus = (
+    neutral_hydrogen_density * electron_density
+    * torch.exp(chi_Hminus / (KEV * temperature))
+    / (<span class="hljs-number">4.0</span> * SAHA * temperature**<span class="hljs-number">1.5</span>)
+)
 
-jp = <span class="hljs-built_in">int</span>(torch.argmin(torch.<span class="hljs-built_in">abs</span>(torch.as_tensor(tau, dtype=DTYPE, device=DEVICE) - <span class="hljs-number">2</span>/<span class="hljs-number">3</span>)))
-<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;n(H-)/n(H I) at the photosphere: <span class="hljs-subst">{<span class="hljs-built_in">float</span>((n_Hminus/nHI)[jp,<span class="hljs-number">0</span>]):<span class="hljs-number">.2</span>e}</span>  &quot;</span>
+jp = <span class="hljs-built_in">int</span>(torch.argmin(torch.<span class="hljs-built_in">abs</span>(torch.as_tensor(rosseland_optical_depth, dtype=DTYPE, device=DEVICE) - <span class="hljs-number">2</span>/<span class="hljs-number">3</span>)))
+<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;n(H-)/n(H I) at the photosphere: <span class="hljs-subst">{<span class="hljs-built_in">float</span>((n_Hminus/neutral_hydrogen_density)[jp,<span class="hljs-number">0</span>]):<span class="hljs-number">.2</span>e}</span>  &quot;</span>
       <span class="hljs-string">f&quot;(about two H- per billion H atoms)&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">n(H-)/n(H I) at the photosphere: 9.32e-09  (about two H- per billion H atoms)
 </pre></div></div><div class="prose"><h2>H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mo>−</mo></msup></mrow><annotation encoding="application/x-tex">^-</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7713em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7713em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mbin mtight">−</span></span></span></span></span></span></span></span></span></span></span> bound-free and free-free (John 1988), and the branchless threshold</h2>
@@ -187,7 +199,7 @@ M1001 80h400000v40h-400000z"/></svg></span></span></span><span class="vlist-s">�
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[5]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# H- bound-free (John 1988) — clamp-then-Horner evaluation (branchless, NaN-free).
-lam_um = wl[None, :] * 1e-3          # (1, nw) [um]
+lam_um = wavelength_nm * 1e-3        # (1, nw) [um]
 lam0 = 1.6419                        # threshold [um] (0.754 eV)
 
 # stable form of f = 1/lam - 1/lam0 (avoids fp32 cancellation near the edge), then clamp &gt;= 0
@@ -202,11 +214,11 @@ for c in reversed(C_bf[:5]):         # JUSTIFIED-LOOP: six fixed polynomial coef
 sigma_bf = 1e-18 * lam_um**3 * x**3 * poly       # (1, nw) [cm^2]; zero past threshold by construction
 
 # opacity per gram, with the stimulated-emission factor [cm^2/g] — broadcasts to (nd, nw)
-kappa_bf = n_Hminus * sigma_bf * stim / rho" aria-label="Copy code">
+kappa_bf = n_Hminus * sigma_bf * stimulated_emission_factor / mass_density" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># H- bound-free (John 1988) — clamp-then-Horner evaluation (branchless, NaN-free).</span>
-lam_um = wl[<span class="hljs-literal">None</span>, :] * <span class="hljs-number">1e-3</span>          <span class="hljs-comment"># (1, nw) [um]</span>
+lam_um = wavelength_nm * <span class="hljs-number">1e-3</span>        <span class="hljs-comment"># (1, nw) [um]</span>
 lam0 = <span class="hljs-number">1.6419</span>                        <span class="hljs-comment"># threshold [um] (0.754 eV)</span>
 
 <span class="hljs-comment"># stable form of f = 1/lam - 1/lam0 (avoids fp32 cancellation near the edge), then clamp &gt;= 0</span>
@@ -221,7 +233,7 @@ poly = C_bf[<span class="hljs-number">5</span>]
 sigma_bf = <span class="hljs-number">1e-18</span> * lam_um**<span class="hljs-number">3</span> * x**<span class="hljs-number">3</span> * poly       <span class="hljs-comment"># (1, nw) [cm^2]; zero past threshold by construction</span>
 
 <span class="hljs-comment"># opacity per gram, with the stimulated-emission factor [cm^2/g] — broadcasts to (nd, nw)</span>
-kappa_bf = n_Hminus * sigma_bf * stim / rho</code></pre>
+kappa_bf = n_Hminus * sigma_bf * stimulated_emission_factor / mass_density</code></pre>
     </div></div><div class="prose"><p>The free-free coefficient is John&#39;s second polynomial: a double power series in <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>θ</mi><mo>=</mo><mn>5040</mn><mi mathvariant="normal">/</mi><mi>T</mi></mrow><annotation encoding="application/x-tex">\theta = 5040/T</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal" style="margin-right:0.02778em;">θ</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">5040/</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span></span></span></span> and in inverse wavelength, returning absorption per neutral H atom per unit electron pressure <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>P</mi><mi>e</mi></msub><mo>=</mo><msub><mi>n</mi><mi>e</mi></msub><mi>k</mi><mi>T</mi></mrow><annotation encoding="application/x-tex">P_e = n_e kT</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.1389em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">e</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8444em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">n</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">e</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mord mathnormal" style="margin-right:0.03148em;">k</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span></span></span></span> (the stimulated-emission factor is already folded into the fit). We evaluate the inverse-wavelength terms with explicit reciprocal powers and sum the five <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>θ</mi></mrow><annotation encoding="application/x-tex">\theta</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal" style="margin-right:0.02778em;">θ</span></span></span></span>-orders — the whole thing a <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">(</mo><mtext>nd</mtext><mo separator="true">,</mo><mtext>nw</mtext><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">(\text{nd}, \text{nw})</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord text"><span class="mord">nd</span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord text"><span class="mord">nw</span></span><span class="mclose">)</span></span></span></span> tensor: <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>θ</mi></mrow><annotation encoding="application/x-tex">\theta</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal" style="margin-right:0.02778em;">θ</span></span></span></span> is a depth column, the wavelength terms a row.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
@@ -231,15 +243,15 @@ A=[0,2483.346,-3449.889,2200.040,-696.271,88.283]; B=[0,285.827,-1158.382,2427.7
 Cc=[0,-2054.291,8746.523,-13651.105,8624.970,-1863.864]; D=[0,2827.776,-11485.632,16755.524,-10051.530,2095.288]
 E=[0,-1341.537,5303.609,-7510.494,4400.067,-901.788]; F=[0,208.952,-812.939,1132.738,-655.020,132.985]
 
-theta = 5040.0 / T                   # (nd,1) John temperature variable (depth column)
+theta = 5040.0 / temperature         # (nd,1) John temperature variable (depth column)
 inv = 1.0 / lam_um                   # (1,nw) inverse wavelength (row)
-kff = torch.zeros_like(stim)         # (nd, nw)
+kff = torch.zeros_like(stimulated_emission_factor)  # (nd, nw)
 for n in range(1, 6):                # JUSTIFIED-LOOP: five fixed polynomial orders, not depth or wavelength.
     term = A[n]*lam_um**2 + B[n] + Cc[n]*inv + D[n]*inv**2 + E[n]*inv**3 + F[n]*inv**4
     kff = kff + theta**((n+1)/2.0) * term
 
-P_e = n_e * K * T                    # electron pressure [dyn cm^-2] (depth column)
-kappa_ff = 1e-29 * kff * P_e * nHI / rho         # [cm^2/g]
+P_e = electron_density * K * temperature          # electron pressure [dyn cm^-2] (depth column)
+kappa_ff = 1e-29 * kff * P_e * neutral_hydrogen_density / mass_density  # [cm^2/g]
 kappa_Hminus = kappa_bf + kappa_ff               # total analytic H- absorption (nd, nw)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
@@ -248,15 +260,15 @@ A=[<span class="hljs-number">0</span>,<span class="hljs-number">2483.346</span>,
 Cc=[<span class="hljs-number">0</span>,-<span class="hljs-number">2054.291</span>,<span class="hljs-number">8746.523</span>,-<span class="hljs-number">13651.105</span>,<span class="hljs-number">8624.970</span>,-<span class="hljs-number">1863.864</span>]; D=[<span class="hljs-number">0</span>,<span class="hljs-number">2827.776</span>,-<span class="hljs-number">11485.632</span>,<span class="hljs-number">16755.524</span>,-<span class="hljs-number">10051.530</span>,<span class="hljs-number">2095.288</span>]
 E=[<span class="hljs-number">0</span>,-<span class="hljs-number">1341.537</span>,<span class="hljs-number">5303.609</span>,-<span class="hljs-number">7510.494</span>,<span class="hljs-number">4400.067</span>,-<span class="hljs-number">901.788</span>]; F=[<span class="hljs-number">0</span>,<span class="hljs-number">208.952</span>,-<span class="hljs-number">812.939</span>,<span class="hljs-number">1132.738</span>,-<span class="hljs-number">655.020</span>,<span class="hljs-number">132.985</span>]
 
-theta = <span class="hljs-number">5040.0</span> / T                   <span class="hljs-comment"># (nd,1) John temperature variable (depth column)</span>
+theta = <span class="hljs-number">5040.0</span> / temperature         <span class="hljs-comment"># (nd,1) John temperature variable (depth column)</span>
 inv = <span class="hljs-number">1.0</span> / lam_um                   <span class="hljs-comment"># (1,nw) inverse wavelength (row)</span>
-kff = torch.zeros_like(stim)         <span class="hljs-comment"># (nd, nw)</span>
+kff = torch.zeros_like(stimulated_emission_factor)  <span class="hljs-comment"># (nd, nw)</span>
 <span class="hljs-keyword">for</span> n <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, <span class="hljs-number">6</span>):                <span class="hljs-comment"># JUSTIFIED-LOOP: five fixed polynomial orders, not depth or wavelength.</span>
     term = A[n]*lam_um**<span class="hljs-number">2</span> + B[n] + Cc[n]*inv + D[n]*inv**<span class="hljs-number">2</span> + E[n]*inv**<span class="hljs-number">3</span> + F[n]*inv**<span class="hljs-number">4</span>
     kff = kff + theta**((n+<span class="hljs-number">1</span>)/<span class="hljs-number">2.0</span>) * term
 
-P_e = n_e * K * T                    <span class="hljs-comment"># electron pressure [dyn cm^-2] (depth column)</span>
-kappa_ff = <span class="hljs-number">1e-29</span> * kff * P_e * nHI / rho         <span class="hljs-comment"># [cm^2/g]</span>
+P_e = electron_density * K * temperature          <span class="hljs-comment"># electron pressure [dyn cm^-2] (depth column)</span>
+kappa_ff = <span class="hljs-number">1e-29</span> * kff * P_e * neutral_hydrogen_density / mass_density  <span class="hljs-comment"># [cm^2/g]</span>
 kappa_Hminus = kappa_bf + kappa_ff               <span class="hljs-comment"># total analytic H- absorption (nd, nw)</span></code></pre>
     </div></div><div class="prose"><p><strong>Benchmark against the production reference</strong> — over the layers where the optical spectrum forms. H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mo>−</mo></msup></mrow><annotation encoding="application/x-tex">^-</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7713em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7713em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mbin mtight">−</span></span></span></span></span></span></span></span></span></span></span> dominates there; far deeper, hydrogen and metal bound-free edges take over from it, and this analytic model does not carry them (the exact engine does). This is the <em>physics-fidelity</em> check: the analytic model vs the production continuum.</p>
 </div><div class="nb-cell"><div class="code-card">
@@ -267,7 +279,7 @@ kappa_Hminus = kappa_bf + kappa_ff               <span class="hljs-comment"># to
     return t.detach().cpu().to(torch.float64).numpy() if torch.is_tensor(t) else np.asarray(t, float)
 
 # H- dominates only where the optical spectrum forms; benchmark over the forming layers.
-form = (tau &gt; 1e-3) &amp; (tau &lt; 3.0)
+form = (rosseland_optical_depth &gt; 1e-3) &amp; (rosseland_optical_depth &lt; 3.0)
 absn = to_np(kappa_Hminus)
 rel = np.abs(absn[form] - REF[&quot;absorption&quot;][form]) / REF[&quot;absorption&quot;][form]
 print(f&quot;continuum absorption (H-), spectrum-forming layers (vs PRODUCTION reference):&quot;)
@@ -280,7 +292,7 @@ print(f&quot;   median|rel diff| = {np.median(rel):.2e}   max = {np.max(rel):.2e
     <span class="hljs-keyword">return</span> t.detach().cpu().to(torch.float64).numpy() <span class="hljs-keyword">if</span> torch.is_tensor(t) <span class="hljs-keyword">else</span> np.asarray(t, <span class="hljs-built_in">float</span>)
 
 <span class="hljs-comment"># H- dominates only where the optical spectrum forms; benchmark over the forming layers.</span>
-form = (tau &gt; <span class="hljs-number">1e-3</span>) &amp; (tau &lt; <span class="hljs-number">3.0</span>)
+form = (rosseland_optical_depth &gt; <span class="hljs-number">1e-3</span>) &amp; (rosseland_optical_depth &lt; <span class="hljs-number">3.0</span>)
 absn = to_np(kappa_Hminus)
 rel = np.<span class="hljs-built_in">abs</span>(absn[form] - REF[<span class="hljs-string">&quot;absorption&quot;</span>][form]) / REF[<span class="hljs-string">&quot;absorption&quot;</span>][form]
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;continuum absorption (H-), spectrum-forming layers (vs PRODUCTION reference):&quot;</span>)
@@ -294,14 +306,14 @@ rel = np.<span class="hljs-built_in">abs</span>(absn[form] - REF[<span class="hl
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[8]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="lamA = wl[None, :] * 10.0            # (1, nw) [angstrom]
+        <button class="copy-btn" type="button" data-code="lamA = wavelength_nm * 10.0          # (1, nw) [angstrom]
 invA = 1.0 / lamA
 inv2 = invA*invA; inv4 = inv2*inv2; inv6 = inv4*inv2; inv8 = inv4*inv4
 
 # Rayleigh off neutral H (Dalgarno) + grey Thomson off electrons — broadcast to (nd, nw)
 sigma_Ray = 5.799e-13*inv4 + 1.422e-6*inv6 + 2.784*inv8         # [cm^2] per H I atom
-kappa_Ray = sigma_Ray * nHI / rho
-kappa_Thomson = 0.6653e-24 * n_e / rho * torch.ones_like(nu)
+kappa_Ray = sigma_Ray * neutral_hydrogen_density / mass_density
+kappa_Thomson = 0.6653e-24 * electron_density / mass_density * torch.ones_like(frequency_hz)
 kappa_scat = kappa_Ray + kappa_Thomson
 kappa_total = kappa_Hminus + kappa_scat
 
@@ -312,14 +324,14 @@ print(f&quot;at the photosphere, Rayleigh is {float(kappa_Ray[jp,100]/kappa_Thom
       f&quot;scattering is {float(100*kappa_scat[jp,100]/kappa_Hminus[jp,100]):.1f}% of the H$^-$ absorption&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">lamA = wl[<span class="hljs-literal">None</span>, :] * <span class="hljs-number">10.0</span>            <span class="hljs-comment"># (1, nw) [angstrom]</span>
+      <pre class="code-body"><code class="hljs language-python">lamA = wavelength_nm * <span class="hljs-number">10.0</span>          <span class="hljs-comment"># (1, nw) [angstrom]</span>
 invA = <span class="hljs-number">1.0</span> / lamA
 inv2 = invA*invA; inv4 = inv2*inv2; inv6 = inv4*inv2; inv8 = inv4*inv4
 
 <span class="hljs-comment"># Rayleigh off neutral H (Dalgarno) + grey Thomson off electrons — broadcast to (nd, nw)</span>
 sigma_Ray = <span class="hljs-number">5.799e-13</span>*inv4 + <span class="hljs-number">1.422e-6</span>*inv6 + <span class="hljs-number">2.784</span>*inv8         <span class="hljs-comment"># [cm^2] per H I atom</span>
-kappa_Ray = sigma_Ray * nHI / rho
-kappa_Thomson = <span class="hljs-number">0.6653e-24</span> * n_e / rho * torch.ones_like(nu)
+kappa_Ray = sigma_Ray * neutral_hydrogen_density / mass_density
+kappa_Thomson = <span class="hljs-number">0.6653e-24</span> * electron_density / mass_density * torch.ones_like(frequency_hz)
 kappa_scat = kappa_Ray + kappa_Thomson
 kappa_total = kappa_Hminus + kappa_scat
 
@@ -332,7 +344,7 @@ rel = np.<span class="hljs-built_in">abs</span>(scatn - REF[<span class="hljs-st
 at the photosphere, Rayleigh is 4x Thomson; scattering is 0.4% of the H$^-$ absorption
 </pre></div></div><div class="prose"><p>Rayleigh outweighs Thomson several-fold at the <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>τ</mi><mo>=</mo><mn>2</mn><mi mathvariant="normal">/</mi><mn>3</mn></mrow><annotation encoding="application/x-tex">\tau=2/3</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">2/3</span></span></span></span> layer (the ratio climbs higher in the cooler layers above, where free electrons grow even scarcer), and scattering as a whole is only about a percent of the H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mrow></mrow><mo>−</mo></msup></mrow><annotation encoding="application/x-tex">^-</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7713em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7713em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mbin mtight">−</span></span></span></span></span></span></span></span></span></span></span> absorption — the solar optical continuum is an <em>absorption</em> continuum, which is why its source function stays close to the Planck function. In the ultraviolet, where <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mi>λ</mi><mrow><mo>−</mo><mn>4</mn></mrow></msup></mrow><annotation encoding="application/x-tex">\lambda^{-4}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord"><span class="mord mathnormal">λ</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">4</span></span></span></span></span></span></span></span></span></span></span></span> Rayleigh climbs and metal photoionization switches on, the balance shifts; in hot stars, where hydrogen is ionized, Thomson takes over.</p>
 <h2>The total continuum and where it forms</h2>
-<p>Add absorption and scattering for the total continuous extinction, and convert it to optical depth. Here <code>rhox</code> is the inward column mass <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>m</mi><mo>=</mo><mo>∫</mo><mi>ρ</mi><mtext> </mtext><mi>d</mi><mi>z</mi></mrow><annotation encoding="application/x-tex">m = \int\rho\,dz</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal">m</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1.1111em;vertical-align:-0.3061em;"></span><span class="mop op-symbol small-op" style="margin-right:0.19445em;position:relative;top:-0.0006em;">∫</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal">ρ</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal">d</span><span class="mord mathnormal" style="margin-right:0.04398em;">z</span></span></span></span>, so <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>d</mi><msub><mi>τ</mi><mi>λ</mi></msub><mo>=</mo><msub><mi>κ</mi><mi>λ</mi></msub><mtext> </mtext><mi>d</mi><mi>m</mi></mrow><annotation encoding="application/x-tex">d\tau_\lambda = \kappa_\lambda\,dm</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8444em;vertical-align:-0.15em;"></span><span class="mord mathnormal">d</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3361em;"><span style="top:-2.55em;margin-left:-0.1132em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">λ</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8444em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">κ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3361em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">λ</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal">d</span><span class="mord mathnormal">m</span></span></span></span>; integrating the continuum opacity over the column mass tells us the depth from which the continuum escapes.</p>
+<p>Add absorption and scattering for the total continuous extinction, and convert it to optical depth. Here <code>column_mass_host</code> is the inward column mass <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>m</mi><mo>=</mo><mo>∫</mo><mi>ρ</mi><mtext> </mtext><mi>d</mi><mi>z</mi></mrow><annotation encoding="application/x-tex">m = \int\rho\,dz</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal">m</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1.1111em;vertical-align:-0.3061em;"></span><span class="mop op-symbol small-op" style="margin-right:0.19445em;position:relative;top:-0.0006em;">∫</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal">ρ</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal">d</span><span class="mord mathnormal" style="margin-right:0.04398em;">z</span></span></span></span>, so <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>d</mi><msub><mi>τ</mi><mi>λ</mi></msub><mo>=</mo><msub><mi>κ</mi><mi>λ</mi></msub><mtext> </mtext><mi>d</mi><mi>m</mi></mrow><annotation encoding="application/x-tex">d\tau_\lambda = \kappa_\lambda\,dm</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8444em;vertical-align:-0.15em;"></span><span class="mord mathnormal">d</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3361em;"><span style="top:-2.55em;margin-left:-0.1132em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">λ</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8444em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">κ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3361em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">λ</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal">d</span><span class="mord mathnormal">m</span></span></span></span>; integrating the continuum opacity over the column mass tells us the depth from which the continuum escapes.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[9]</span>Python</span>
@@ -343,11 +355,11 @@ print(f&quot;total continuum, spectrum-forming layers (vs reference):  &quot;
 
 # continuum optical depth at 505 nm, integrated over column mass (trapezoid), on host NumPy
 k505 = totn[:, 100]
-tau_cont = np.zeros_like(rhox)
-tau_cont[1:] = np.cumsum(0.5*(k505[1:]+k505[:-1]) * np.diff(rhox))
+tau_cont = np.zeros_like(column_mass_host)
+tau_cont[1:] = np.cumsum(0.5*(k505[1:]+k505[:-1]) * np.diff(column_mass_host))
 j23 = int(np.argmin(np.abs(tau_cont - 2/3)))
 print(f&quot;the 505 nm continuum reaches tau=2/3 at T = {REF[&#39;T&#39;][j23]:.0f} K  &quot;
-      f&quot;(log tau_Ross = {np.log10(tau[j23]):.2f})&quot;)" aria-label="Copy code">
+      f&quot;(log tau_Ross = {np.log10(rosseland_optical_depth[j23]):.2f})&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python">totn = to_np(kappa_total); ref_total = REF[<span class="hljs-string">&quot;absorption&quot;</span>] + REF[<span class="hljs-string">&quot;scattering&quot;</span>]
@@ -357,18 +369,18 @@ rel = np.<span class="hljs-built_in">abs</span>(totn[form] - ref_total[form]) / 
 
 <span class="hljs-comment"># continuum optical depth at 505 nm, integrated over column mass (trapezoid), on host NumPy</span>
 k505 = totn[:, <span class="hljs-number">100</span>]
-tau_cont = np.zeros_like(rhox)
-tau_cont[<span class="hljs-number">1</span>:] = np.cumsum(<span class="hljs-number">0.5</span>*(k505[<span class="hljs-number">1</span>:]+k505[:-<span class="hljs-number">1</span>]) * np.diff(rhox))
+tau_cont = np.zeros_like(column_mass_host)
+tau_cont[<span class="hljs-number">1</span>:] = np.cumsum(<span class="hljs-number">0.5</span>*(k505[<span class="hljs-number">1</span>:]+k505[:-<span class="hljs-number">1</span>]) * np.diff(column_mass_host))
 j23 = <span class="hljs-built_in">int</span>(np.argmin(np.<span class="hljs-built_in">abs</span>(tau_cont - <span class="hljs-number">2</span>/<span class="hljs-number">3</span>)))
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;the 505 nm continuum reaches tau=2/3 at T = <span class="hljs-subst">{REF[<span class="hljs-string">&#x27;T&#x27;</span>][j23]:<span class="hljs-number">.0</span>f}</span> K  &quot;</span>
-      <span class="hljs-string">f&quot;(log tau_Ross = <span class="hljs-subst">{np.log10(tau[j23]):<span class="hljs-number">.2</span>f}</span>)&quot;</span>)</code></pre>
+      <span class="hljs-string">f&quot;(log tau_Ross = <span class="hljs-subst">{np.log10(rosseland_optical_depth[j23]):<span class="hljs-number">.2</span>f}</span>)&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">total continuum, spectrum-forming layers (vs reference):  median|rel diff| = 2.41e-02   max = 1.06e-01
 the 505 nm continuum reaches tau=2/3 at T = 6744 K  (log tau_Ross = 0.25)
 </pre></div></div><div class="prose"><p>Plot the GPU opacity against depth (absorption vs scattering) and the integrated continuum optical depth that locates the <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>τ</mi><mo>=</mo><mn>2</mn><mi mathvariant="normal">/</mi><mn>3</mn></mrow><annotation encoding="application/x-tex">\tau = 2/3</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">2/3</span></span></span></span> surface.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[10]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="logtau = np.log10(tau)
+        <button class="copy-btn" type="button" data-code="logtau = np.log10(rosseland_optical_depth)
 fig, ax = plt.subplots(1, 2, figsize=(10.5, 4.1))
 ax[0].plot(logtau, np.log10(totn[:,100]), color=&quot;C0&quot;, label=&quot;total&quot;)
 ax[0].plot(logtau, np.log10(to_np(kappa_Hminus)[:,100]), &quot;--&quot;, color=&quot;C3&quot;, label=&quot;H$^-$ absorption&quot;)
@@ -384,7 +396,7 @@ ax[1].legend()
 fig.tight_layout(); plt.show()" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">logtau = np.log10(tau)
+      <pre class="code-body"><code class="hljs language-python">logtau = np.log10(rosseland_optical_depth)
 fig, ax = plt.subplots(<span class="hljs-number">1</span>, <span class="hljs-number">2</span>, figsize=(<span class="hljs-number">10.5</span>, <span class="hljs-number">4.1</span>))
 ax[<span class="hljs-number">0</span>].plot(logtau, np.log10(totn[:,<span class="hljs-number">100</span>]), color=<span class="hljs-string">&quot;C0&quot;</span>, label=<span class="hljs-string">&quot;total&quot;</span>)
 ax[<span class="hljs-number">0</span>].plot(logtau, np.log10(to_np(kappa_Hminus)[:,<span class="hljs-number">100</span>]), <span class="hljs-string">&quot;--&quot;</span>, color=<span class="hljs-string">&quot;C3&quot;</span>, label=<span class="hljs-string">&quot;H$^-$ absorption&quot;</span>)
@@ -412,20 +424,45 @@ fig.tight_layout(); plt.show()</code></pre>
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[11]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def numpy_twin():
     &quot;&quot;&quot;Recompute the EXACT same continuum formulas in fp64 NumPy — the GPU&#39;s own twin.&quot;&quot;&quot;
-    wl_=REF[&quot;wl&quot;]; T_=REF[&quot;T&quot;][:,None]; n_e_=REF[&quot;n_e&quot;][:,None]; rho_=REF[&quot;rho&quot;][:,None]; nHI_=REF[&quot;nHI&quot;][:,None]
-    nu_=C/(wl_[None,:]*1e-7); stim_=1-np.exp(-H*nu_/(K*T_))
-    nHm=nHI_*n_e_*np.exp(chi_Hminus/(KEV*T_))/(4.0*SAHA*T_**1.5)
-    lu=wl_[None,:]*1e-3; fr=np.clip((lam0-lu)/(lam0*lu),0,None); xx=np.sqrt(fr)
-    pp=C_bf[5]
-    for c in reversed(C_bf[:5]): pp=pp*xx+c  # numpy-ref
-    sbf=1e-18*lu**3*xx**3*pp; kbf=nHm*sbf*stim_/rho_
-    th=5040.0/T_; iv=1.0/lu; kf=np.zeros_like(stim_)
+    wavelength_nm_np = REF[&quot;wl&quot;][None, :]
+    temperature_np = REF[&quot;T&quot;][:, None]
+    electron_density_np = REF[&quot;n_e&quot;][:, None]
+    mass_density_np = REF[&quot;rho&quot;][:, None]
+    neutral_hydrogen_density_np = REF[&quot;nHI&quot;][:, None]
+    frequency_hz_np = C / (wavelength_nm_np * 1e-7)
+    stimulated_emission_np = 1 - np.exp(-H * frequency_hz_np / (K * temperature_np))
+    hminus_density_np = (
+        neutral_hydrogen_density_np * electron_density_np
+        * np.exp(chi_Hminus / (KEV * temperature_np))
+        / (4.0 * SAHA * temperature_np**1.5)
+    )
+    wavelength_um_np = wavelength_nm_np * 1e-3
+    threshold_distance = np.clip((lam0 - wavelength_um_np) / (lam0 * wavelength_um_np), 0, None)
+    sqrt_threshold_distance = np.sqrt(threshold_distance)
+    polynomial = C_bf[5]
+    for c in reversed(C_bf[:5]): polynomial = polynomial*sqrt_threshold_distance+c  # numpy-ref
+    sigma_boundfree = 1e-18 * wavelength_um_np**3 * sqrt_threshold_distance**3 * polynomial
+    kappa_boundfree = hminus_density_np * sigma_boundfree * stimulated_emission_np / mass_density_np
+    theta_np = 5040.0 / temperature_np
+    inv_wavelength_um = 1.0 / wavelength_um_np
+    kff = np.zeros_like(stimulated_emission_np)
     for n in range(1,6):  # numpy-ref
-        kf=kf+th**((n+1)/2.0)*(A[n]*lu**2+B[n]+Cc[n]*iv+D[n]*iv**2+E[n]*iv**3+F[n]*iv**4)
-    Pe=n_e_*K*T_; kff_=1e-29*kf*Pe*nHI_/rho_
-    la=wl_[None,:]*10.0; ia=1.0/la; i2=ia*ia;i4=i2*i2;i6=i4*i2;i8=i4*i4
-    kray=(5.799e-13*i4+1.422e-6*i6+2.784*i8)*nHI_/rho_; kth=0.6653e-24*n_e_/rho_*np.ones_like(nu_)
-    return kbf+kff_, kray+kth
+        kff = kff + theta_np**((n+1)/2.0) * (
+            A[n]*wavelength_um_np**2 + B[n] + Cc[n]*inv_wavelength_um
+            + D[n]*inv_wavelength_um**2 + E[n]*inv_wavelength_um**3
+            + F[n]*inv_wavelength_um**4
+        )
+    electron_pressure_np = electron_density_np * K * temperature_np
+    kappa_freefree = 1e-29 * kff * electron_pressure_np * neutral_hydrogen_density_np / mass_density_np
+    wavelength_angstrom_np = wavelength_nm_np * 10.0
+    inv_angstrom = 1.0 / wavelength_angstrom_np
+    inv2 = inv_angstrom*inv_angstrom; inv4 = inv2*inv2; inv6 = inv4*inv2; inv8 = inv4*inv4
+    kappa_rayleigh = (
+        (5.799e-13*inv4 + 1.422e-6*inv6 + 2.784*inv8)
+        * neutral_hydrogen_density_np / mass_density_np
+    )
+    kappa_thomson = 0.6653e-24 * electron_density_np / mass_density_np * np.ones_like(frequency_hz_np)
+    return kappa_boundfree + kappa_freefree, kappa_rayleigh + kappa_thomson
 
 def floor_rel(name, got, ref, floor):
     &quot;&quot;&quot;Max relative deviation against max(|ref|, floor) — the absolute floor protects zero-crossings.&quot;&quot;&quot;
@@ -462,20 +499,45 @@ print(&quot;\nThe GPU continuum matches its fp64 twin to the float floor — the
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">numpy_twin</span>():
     <span class="hljs-string">&quot;&quot;&quot;Recompute the EXACT same continuum formulas in fp64 NumPy — the GPU&#x27;s own twin.&quot;&quot;&quot;</span>
-    wl_=REF[<span class="hljs-string">&quot;wl&quot;</span>]; T_=REF[<span class="hljs-string">&quot;T&quot;</span>][:,<span class="hljs-literal">None</span>]; n_e_=REF[<span class="hljs-string">&quot;n_e&quot;</span>][:,<span class="hljs-literal">None</span>]; rho_=REF[<span class="hljs-string">&quot;rho&quot;</span>][:,<span class="hljs-literal">None</span>]; nHI_=REF[<span class="hljs-string">&quot;nHI&quot;</span>][:,<span class="hljs-literal">None</span>]
-    nu_=C/(wl_[<span class="hljs-literal">None</span>,:]*<span class="hljs-number">1e-7</span>); stim_=<span class="hljs-number">1</span>-np.exp(-H*nu_/(K*T_))
-    nHm=nHI_*n_e_*np.exp(chi_Hminus/(KEV*T_))/(<span class="hljs-number">4.0</span>*SAHA*T_**<span class="hljs-number">1.5</span>)
-    lu=wl_[<span class="hljs-literal">None</span>,:]*<span class="hljs-number">1e-3</span>; fr=np.clip((lam0-lu)/(lam0*lu),<span class="hljs-number">0</span>,<span class="hljs-literal">None</span>); xx=np.sqrt(fr)
-    pp=C_bf[<span class="hljs-number">5</span>]
-    <span class="hljs-keyword">for</span> c <span class="hljs-keyword">in</span> <span class="hljs-built_in">reversed</span>(C_bf[:<span class="hljs-number">5</span>]): pp=pp*xx+c  <span class="hljs-comment"># numpy-ref</span>
-    sbf=<span class="hljs-number">1e-18</span>*lu**<span class="hljs-number">3</span>*xx**<span class="hljs-number">3</span>*pp; kbf=nHm*sbf*stim_/rho_
-    th=<span class="hljs-number">5040.0</span>/T_; iv=<span class="hljs-number">1.0</span>/lu; kf=np.zeros_like(stim_)
+    wavelength_nm_np = REF[<span class="hljs-string">&quot;wl&quot;</span>][<span class="hljs-literal">None</span>, :]
+    temperature_np = REF[<span class="hljs-string">&quot;T&quot;</span>][:, <span class="hljs-literal">None</span>]
+    electron_density_np = REF[<span class="hljs-string">&quot;n_e&quot;</span>][:, <span class="hljs-literal">None</span>]
+    mass_density_np = REF[<span class="hljs-string">&quot;rho&quot;</span>][:, <span class="hljs-literal">None</span>]
+    neutral_hydrogen_density_np = REF[<span class="hljs-string">&quot;nHI&quot;</span>][:, <span class="hljs-literal">None</span>]
+    frequency_hz_np = C / (wavelength_nm_np * <span class="hljs-number">1e-7</span>)
+    stimulated_emission_np = <span class="hljs-number">1</span> - np.exp(-H * frequency_hz_np / (K * temperature_np))
+    hminus_density_np = (
+        neutral_hydrogen_density_np * electron_density_np
+        * np.exp(chi_Hminus / (KEV * temperature_np))
+        / (<span class="hljs-number">4.0</span> * SAHA * temperature_np**<span class="hljs-number">1.5</span>)
+    )
+    wavelength_um_np = wavelength_nm_np * <span class="hljs-number">1e-3</span>
+    threshold_distance = np.clip((lam0 - wavelength_um_np) / (lam0 * wavelength_um_np), <span class="hljs-number">0</span>, <span class="hljs-literal">None</span>)
+    sqrt_threshold_distance = np.sqrt(threshold_distance)
+    polynomial = C_bf[<span class="hljs-number">5</span>]
+    <span class="hljs-keyword">for</span> c <span class="hljs-keyword">in</span> <span class="hljs-built_in">reversed</span>(C_bf[:<span class="hljs-number">5</span>]): polynomial = polynomial*sqrt_threshold_distance+c  <span class="hljs-comment"># numpy-ref</span>
+    sigma_boundfree = <span class="hljs-number">1e-18</span> * wavelength_um_np**<span class="hljs-number">3</span> * sqrt_threshold_distance**<span class="hljs-number">3</span> * polynomial
+    kappa_boundfree = hminus_density_np * sigma_boundfree * stimulated_emission_np / mass_density_np
+    theta_np = <span class="hljs-number">5040.0</span> / temperature_np
+    inv_wavelength_um = <span class="hljs-number">1.0</span> / wavelength_um_np
+    kff = np.zeros_like(stimulated_emission_np)
     <span class="hljs-keyword">for</span> n <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>,<span class="hljs-number">6</span>):  <span class="hljs-comment"># numpy-ref</span>
-        kf=kf+th**((n+<span class="hljs-number">1</span>)/<span class="hljs-number">2.0</span>)*(A[n]*lu**<span class="hljs-number">2</span>+B[n]+Cc[n]*iv+D[n]*iv**<span class="hljs-number">2</span>+E[n]*iv**<span class="hljs-number">3</span>+F[n]*iv**<span class="hljs-number">4</span>)
-    Pe=n_e_*K*T_; kff_=<span class="hljs-number">1e-29</span>*kf*Pe*nHI_/rho_
-    la=wl_[<span class="hljs-literal">None</span>,:]*<span class="hljs-number">10.0</span>; ia=<span class="hljs-number">1.0</span>/la; i2=ia*ia;i4=i2*i2;i6=i4*i2;i8=i4*i4
-    kray=(<span class="hljs-number">5.799e-13</span>*i4+<span class="hljs-number">1.422e-6</span>*i6+<span class="hljs-number">2.784</span>*i8)*nHI_/rho_; kth=<span class="hljs-number">0.6653e-24</span>*n_e_/rho_*np.ones_like(nu_)
-    <span class="hljs-keyword">return</span> kbf+kff_, kray+kth
+        kff = kff + theta_np**((n+<span class="hljs-number">1</span>)/<span class="hljs-number">2.0</span>) * (
+            A[n]*wavelength_um_np**<span class="hljs-number">2</span> + B[n] + Cc[n]*inv_wavelength_um
+            + D[n]*inv_wavelength_um**<span class="hljs-number">2</span> + E[n]*inv_wavelength_um**<span class="hljs-number">3</span>
+            + F[n]*inv_wavelength_um**<span class="hljs-number">4</span>
+        )
+    electron_pressure_np = electron_density_np * K * temperature_np
+    kappa_freefree = <span class="hljs-number">1e-29</span> * kff * electron_pressure_np * neutral_hydrogen_density_np / mass_density_np
+    wavelength_angstrom_np = wavelength_nm_np * <span class="hljs-number">10.0</span>
+    inv_angstrom = <span class="hljs-number">1.0</span> / wavelength_angstrom_np
+    inv2 = inv_angstrom*inv_angstrom; inv4 = inv2*inv2; inv6 = inv4*inv2; inv8 = inv4*inv4
+    kappa_rayleigh = (
+        (<span class="hljs-number">5.799e-13</span>*inv4 + <span class="hljs-number">1.422e-6</span>*inv6 + <span class="hljs-number">2.784</span>*inv8)
+        * neutral_hydrogen_density_np / mass_density_np
+    )
+    kappa_thomson = <span class="hljs-number">0.6653e-24</span> * electron_density_np / mass_density_np * np.ones_like(frequency_hz_np)
+    <span class="hljs-keyword">return</span> kappa_boundfree + kappa_freefree, kappa_rayleigh + kappa_thomson
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">floor_rel</span>(<span class="hljs-params">name, got, ref, floor</span>):
     <span class="hljs-string">&quot;&quot;&quot;Max relative deviation against max(|ref|, floor) — the absolute floor protects zero-crossings.&quot;&quot;&quot;</span>

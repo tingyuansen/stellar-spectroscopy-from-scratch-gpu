@@ -86,16 +86,16 @@ REF = np.load(pathlib.Path("..") / "reference" / "L3.npz")''')
 
 md(r"""Unpack the grids and populations, reshaping the depth-dependent quantities to a column so they broadcast over the wavelength axis. The wavelength grid is a row. Every opacity below is then a $(\text{nd}, \text{nw})$ tensor formed by broadcasting a depth column against a wavelength row — the GPU evaluates all 16 000 grid points in one shot, no loop on either axis.""")
 
-code(r'''# the grids, reshaped so depth (column) broadcasts against wavelength (row)
-wl   = dev(REF["wl"])               # (nw,) [nm]   -- wavelength grid (a row when [None,:])
-T    = dev(REF["T"])[:, None]       # (nd,1) [K]
-n_e  = dev(REF["n_e"])[:, None]     # (nd,1) [cm^-3]
-rho  = dev(REF["rho"])[:, None]     # (nd,1) [g cm^-3]
-nHI  = dev(REF["nHI"])[:, None]     # (nd,1) neutral H number density [cm^-3]
-nw   = wl.shape[0]
+code(r'''# The fixture keeps compact historical keys; translate once into taught names.
+wavelength_nm = dev(REF["wl"])[:, None].T            # (1,nw) [nm]
+temperature = dev(REF["T"])[:, None]                 # (nd,1) [K]
+electron_density = dev(REF["n_e"])[:, None]          # (nd,1) [cm^-3]
+mass_density = dev(REF["rho"])[:, None]              # (nd,1) [g cm^-3]
+neutral_hydrogen_density = dev(REF["nHI"])[:, None]  # (nd,1) neutral H number density [cm^-3]
+n_wavelength = wavelength_nm.shape[1]
 
 # Rosseland optical depth and column mass (host NumPy — only used for plotting / formation depth)
-tau, rhox = REF["tau"], REF["rhox"]
+rosseland_optical_depth, column_mass_host = REF["tau"], REF["rhox"]
 
 # physical constants, CGS: Planck, c, Boltzmann
 H, C, K = 6.62607015e-27, 2.99792458e10, 1.380649e-16
@@ -103,10 +103,11 @@ H, C, K = 6.62607015e-27, 2.99792458e10, 1.380649e-16
 KEV, SAHA = 1.0/11604.5, 2.4148e15
 
 # frequency [Hz] at each wavelength (a row, broadcasts over depth)
-nu = C / (wl[None, :] * 1e-7)
+frequency_hz = C / (wavelength_nm * 1e-7)
 
-print(f"continuum grid: {REF['absorption'].shape[0]} layers x {nw} wavelengths, "
-      f"{float(wl[0]):.0f}-{float(wl[-1]):.0f} nm  (all opacities are (nd, nw) tensors on {DEVICE.type})")''')
+print(f"continuum grid: {REF['absorption'].shape[0]} layers x {n_wavelength} wavelengths, "
+      f"{float(wavelength_nm[0, 0]):.0f}-{float(wavelength_nm[0, -1]):.0f} nm  "
+      f"(all opacities are (nd, nw) tensors on {DEVICE.type})")''')
 
 md(r"""## The stimulated-emission factor
 
@@ -118,10 +119,11 @@ $$
 
 near $1$ in the blue, dropping toward the infrared where $h\nu \lesssim kT$. Scattering, which exchanges no energy with the gas, carries no such factor. On the GPU this is one broadcast expression: the depth column $T$ against the wavelength row $\nu$ gives the full $(\text{nd}, \text{nw})$ factor at once.""")
 
-code(r'''# stimulated-emission correction, (nd, nw) — depth column T broadcast against wavelength row nu
-stim = 1.0 - torch.exp(-H * nu / (K * T))
+code(r'''# stimulated-emission correction, (nd, nw): depth column temperature x wavelength row frequency.
+stimulated_emission_factor = 1.0 - torch.exp(-H * frequency_hz / (K * temperature))
 print(f"stimulated-emission factor at 505 nm: "
-      f"{float(stim[:,100].min()):.3f} (hot, deep) .. {float(stim[:,100].max()):.3f} (cool)")''')
+      f"{float(stimulated_emission_factor[:,100].min()):.3f} (hot, deep) .. "
+      f"{float(stimulated_emission_factor[:,100].max()):.3f} (cool)")''')
 
 md(r"""## How much H$^-$ is there? The Saha balance
 
@@ -138,10 +140,14 @@ The positive exponent says H$^-$ is *favoured* at low temperature, and the expli
 code(r'''chi_Hminus = 0.754   # H- electron binding energy [eV]
 
 # the Saha balance, solved for the H- density [cm^-3] — a (nd,1) depth column
-n_Hminus = nHI * n_e * torch.exp(chi_Hminus / (KEV * T)) / (4.0 * SAHA * T**1.5)
+n_Hminus = (
+    neutral_hydrogen_density * electron_density
+    * torch.exp(chi_Hminus / (KEV * temperature))
+    / (4.0 * SAHA * temperature**1.5)
+)
 
-jp = int(torch.argmin(torch.abs(torch.as_tensor(tau, dtype=DTYPE, device=DEVICE) - 2/3)))
-print(f"n(H-)/n(H I) at the photosphere: {float((n_Hminus/nHI)[jp,0]):.2e}  "
+jp = int(torch.argmin(torch.abs(torch.as_tensor(rosseland_optical_depth, dtype=DTYPE, device=DEVICE) - 2/3)))
+print(f"n(H-)/n(H I) at the photosphere: {float((n_Hminus/neutral_hydrogen_density)[jp,0]):.2e}  "
       f"(about two H- per billion H atoms)")''')
 
 md(r"""## H$^-$ bound-free and free-free (John 1988), and the branchless threshold
@@ -151,7 +157,7 @@ H$^-$ absorbs by two channels. **Bound-free** (photodetachment) ejects the bound
 The bound-free cross-section, with $\lambda$ in microns and $f \equiv 1/\lambda - 1/\lambda_0$, is $\sigma_{\rm bf} = 10^{-18}\,\lambda^3\,f^{3/2}\sum_{n=0}^{5} C_n\, f^{n/2}$, *zero past the threshold* ($\lambda \geq \lambda_0$, where $f \leq 0$). This threshold is the one genuinely GPU-specific subtlety in the lecture: $f$ goes **negative** past threshold, and a fractional power of a negative number is `NaN` — and `torch.where(mask, f**1.5*..., 0)` does **not** help, because `torch` evaluates *both* branches, so the invalid operation is still performed before the mask is applied. In fused kernels, diagnostics, or gradient-bearing variants, those invalid intermediates can surface even though the inactive branch is later discarded. The fix is to **clamp the base to $\geq 0$ before the power**: with $x = \sqrt{\max(0,\,f)}$, the cross-section becomes $\sigma_{\rm bf} = 10^{-18}\,\lambda^3\,x^3\sum_n C_n\,x^n$, a clean **Horner** polynomial in $x$ that is *exactly* zero past threshold (because $x = 0$ there) with no `NaN` and no `where` at all. This is both branchless and faster — fewer kernel launches — and we use the algebraically stable form $f = (\lambda_0 - \lambda)/(\lambda_0\lambda)$ to avoid catastrophic cancellation near the edge.""")
 
 code(r'''# H- bound-free (John 1988) — clamp-then-Horner evaluation (branchless, NaN-free).
-lam_um = wl[None, :] * 1e-3          # (1, nw) [um]
+lam_um = wavelength_nm * 1e-3        # (1, nw) [um]
 lam0 = 1.6419                        # threshold [um] (0.754 eV)
 
 # stable form of f = 1/lam - 1/lam0 (avoids fp32 cancellation near the edge), then clamp >= 0
@@ -166,7 +172,7 @@ for c in reversed(C_bf[:5]):         # JUSTIFIED-LOOP: six fixed polynomial coef
 sigma_bf = 1e-18 * lam_um**3 * x**3 * poly       # (1, nw) [cm^2]; zero past threshold by construction
 
 # opacity per gram, with the stimulated-emission factor [cm^2/g] — broadcasts to (nd, nw)
-kappa_bf = n_Hminus * sigma_bf * stim / rho''')
+kappa_bf = n_Hminus * sigma_bf * stimulated_emission_factor / mass_density''')
 
 md(r"""The free-free coefficient is John's second polynomial: a double power series in $\theta = 5040/T$ and in inverse wavelength, returning absorption per neutral H atom per unit electron pressure $P_e = n_e kT$ (the stimulated-emission factor is already folded into the fit). We evaluate the inverse-wavelength terms with explicit reciprocal powers and sum the five $\theta$-orders — the whole thing a $(\text{nd}, \text{nw})$ tensor: $\theta$ is a depth column, the wavelength terms a row.""")
 
@@ -175,15 +181,15 @@ A=[0,2483.346,-3449.889,2200.040,-696.271,88.283]; B=[0,285.827,-1158.382,2427.7
 Cc=[0,-2054.291,8746.523,-13651.105,8624.970,-1863.864]; D=[0,2827.776,-11485.632,16755.524,-10051.530,2095.288]
 E=[0,-1341.537,5303.609,-7510.494,4400.067,-901.788]; F=[0,208.952,-812.939,1132.738,-655.020,132.985]
 
-theta = 5040.0 / T                   # (nd,1) John temperature variable (depth column)
+theta = 5040.0 / temperature         # (nd,1) John temperature variable (depth column)
 inv = 1.0 / lam_um                   # (1,nw) inverse wavelength (row)
-kff = torch.zeros_like(stim)         # (nd, nw)
+kff = torch.zeros_like(stimulated_emission_factor)  # (nd, nw)
 for n in range(1, 6):                # JUSTIFIED-LOOP: five fixed polynomial orders, not depth or wavelength.
     term = A[n]*lam_um**2 + B[n] + Cc[n]*inv + D[n]*inv**2 + E[n]*inv**3 + F[n]*inv**4
     kff = kff + theta**((n+1)/2.0) * term
 
-P_e = n_e * K * T                    # electron pressure [dyn cm^-2] (depth column)
-kappa_ff = 1e-29 * kff * P_e * nHI / rho         # [cm^2/g]
+P_e = electron_density * K * temperature          # electron pressure [dyn cm^-2] (depth column)
+kappa_ff = 1e-29 * kff * P_e * neutral_hydrogen_density / mass_density  # [cm^2/g]
 kappa_Hminus = kappa_bf + kappa_ff               # total analytic H- absorption (nd, nw)''')
 
 md(r"""**Benchmark against the production reference** — over the layers where the optical spectrum forms. H$^-$ dominates there; far deeper, hydrogen and metal bound-free edges take over from it, and this analytic model does not carry them (the exact engine does). This is the *physics-fidelity* check: the analytic model vs the production continuum.""")
@@ -193,7 +199,7 @@ code(r'''def to_np(t):
     return t.detach().cpu().to(torch.float64).numpy() if torch.is_tensor(t) else np.asarray(t, float)
 
 # H- dominates only where the optical spectrum forms; benchmark over the forming layers.
-form = (tau > 1e-3) & (tau < 3.0)
+form = (rosseland_optical_depth > 1e-3) & (rosseland_optical_depth < 3.0)
 absn = to_np(kappa_Hminus)
 rel = np.abs(absn[form] - REF["absorption"][form]) / REF["absorption"][form]
 print(f"continuum absorption (H-), spectrum-forming layers (vs PRODUCTION reference):")
@@ -206,14 +212,14 @@ md(r"""## Scattering: Rayleigh beats Thomson
 
 The textbook reflex is **Thomson** scattering off free electrons ($\sigma_T = 0.6653\times10^{-24}\ \mathrm{cm^2}$). But in a cool photosphere the free electrons are scarce while neutral hydrogen is everywhere, so **Rayleigh** scattering off the bound electrons of neutral H — the same $\lambda^{-4}$ scattering that makes the sky blue — dominates. We use the Dalgarno polarizability fit, with $\lambda$ in ångström, and add Thomson. Both are pure wavelength rows scaled by depth populations; we evaluate the inverse powers with explicit reciprocals.""")
 
-code(r'''lamA = wl[None, :] * 10.0            # (1, nw) [angstrom]
+code(r'''lamA = wavelength_nm * 10.0          # (1, nw) [angstrom]
 invA = 1.0 / lamA
 inv2 = invA*invA; inv4 = inv2*inv2; inv6 = inv4*inv2; inv8 = inv4*inv4
 
 # Rayleigh off neutral H (Dalgarno) + grey Thomson off electrons — broadcast to (nd, nw)
 sigma_Ray = 5.799e-13*inv4 + 1.422e-6*inv6 + 2.784*inv8         # [cm^2] per H I atom
-kappa_Ray = sigma_Ray * nHI / rho
-kappa_Thomson = 0.6653e-24 * n_e / rho * torch.ones_like(nu)
+kappa_Ray = sigma_Ray * neutral_hydrogen_density / mass_density
+kappa_Thomson = 0.6653e-24 * electron_density / mass_density * torch.ones_like(frequency_hz)
 kappa_scat = kappa_Ray + kappa_Thomson
 kappa_total = kappa_Hminus + kappa_scat
 
@@ -227,7 +233,7 @@ md(r"""Rayleigh outweighs Thomson several-fold at the $\tau=2/3$ layer (the rati
 
 md(r"""## The total continuum and where it forms
 
-Add absorption and scattering for the total continuous extinction, and convert it to optical depth. Here `rhox` is the inward column mass $m = \int\rho\,dz$, so $d\tau_\lambda = \kappa_\lambda\,dm$; integrating the continuum opacity over the column mass tells us the depth from which the continuum escapes.""")
+Add absorption and scattering for the total continuous extinction, and convert it to optical depth. Here `column_mass_host` is the inward column mass $m = \int\rho\,dz$, so $d\tau_\lambda = \kappa_\lambda\,dm$; integrating the continuum opacity over the column mass tells us the depth from which the continuum escapes.""")
 
 code(r'''totn = to_np(kappa_total); ref_total = REF["absorption"] + REF["scattering"]
 rel = np.abs(totn[form] - ref_total[form]) / ref_total[form]
@@ -236,15 +242,15 @@ print(f"total continuum, spectrum-forming layers (vs reference):  "
 
 # continuum optical depth at 505 nm, integrated over column mass (trapezoid), on host NumPy
 k505 = totn[:, 100]
-tau_cont = np.zeros_like(rhox)
-tau_cont[1:] = np.cumsum(0.5*(k505[1:]+k505[:-1]) * np.diff(rhox))
+tau_cont = np.zeros_like(column_mass_host)
+tau_cont[1:] = np.cumsum(0.5*(k505[1:]+k505[:-1]) * np.diff(column_mass_host))
 j23 = int(np.argmin(np.abs(tau_cont - 2/3)))
 print(f"the 505 nm continuum reaches tau=2/3 at T = {REF['T'][j23]:.0f} K  "
-      f"(log tau_Ross = {np.log10(tau[j23]):.2f})")''')
+      f"(log tau_Ross = {np.log10(rosseland_optical_depth[j23]):.2f})")''')
 
 md(r"""Plot the GPU opacity against depth (absorption vs scattering) and the integrated continuum optical depth that locates the $\tau = 2/3$ surface.""")
 
-code(r'''logtau = np.log10(tau)
+code(r'''logtau = np.log10(rosseland_optical_depth)
 fig, ax = plt.subplots(1, 2, figsize=(10.5, 4.1))
 ax[0].plot(logtau, np.log10(totn[:,100]), color="C0", label="total")
 ax[0].plot(logtau, np.log10(to_np(kappa_Hminus)[:,100]), "--", color="C3", label="H$^-$ absorption")
@@ -272,20 +278,45 @@ This is the per-part check used throughout the book, and the continuum needs **t
 
 code(r'''def numpy_twin():
     """Recompute the EXACT same continuum formulas in fp64 NumPy — the GPU's own twin."""
-    wl_=REF["wl"]; T_=REF["T"][:,None]; n_e_=REF["n_e"][:,None]; rho_=REF["rho"][:,None]; nHI_=REF["nHI"][:,None]
-    nu_=C/(wl_[None,:]*1e-7); stim_=1-np.exp(-H*nu_/(K*T_))
-    nHm=nHI_*n_e_*np.exp(chi_Hminus/(KEV*T_))/(4.0*SAHA*T_**1.5)
-    lu=wl_[None,:]*1e-3; fr=np.clip((lam0-lu)/(lam0*lu),0,None); xx=np.sqrt(fr)
-    pp=C_bf[5]
-    for c in reversed(C_bf[:5]): pp=pp*xx+c  # numpy-ref
-    sbf=1e-18*lu**3*xx**3*pp; kbf=nHm*sbf*stim_/rho_
-    th=5040.0/T_; iv=1.0/lu; kf=np.zeros_like(stim_)
+    wavelength_nm_np = REF["wl"][None, :]
+    temperature_np = REF["T"][:, None]
+    electron_density_np = REF["n_e"][:, None]
+    mass_density_np = REF["rho"][:, None]
+    neutral_hydrogen_density_np = REF["nHI"][:, None]
+    frequency_hz_np = C / (wavelength_nm_np * 1e-7)
+    stimulated_emission_np = 1 - np.exp(-H * frequency_hz_np / (K * temperature_np))
+    hminus_density_np = (
+        neutral_hydrogen_density_np * electron_density_np
+        * np.exp(chi_Hminus / (KEV * temperature_np))
+        / (4.0 * SAHA * temperature_np**1.5)
+    )
+    wavelength_um_np = wavelength_nm_np * 1e-3
+    threshold_distance = np.clip((lam0 - wavelength_um_np) / (lam0 * wavelength_um_np), 0, None)
+    sqrt_threshold_distance = np.sqrt(threshold_distance)
+    polynomial = C_bf[5]
+    for c in reversed(C_bf[:5]): polynomial = polynomial*sqrt_threshold_distance+c  # numpy-ref
+    sigma_boundfree = 1e-18 * wavelength_um_np**3 * sqrt_threshold_distance**3 * polynomial
+    kappa_boundfree = hminus_density_np * sigma_boundfree * stimulated_emission_np / mass_density_np
+    theta_np = 5040.0 / temperature_np
+    inv_wavelength_um = 1.0 / wavelength_um_np
+    kff = np.zeros_like(stimulated_emission_np)
     for n in range(1,6):  # numpy-ref
-        kf=kf+th**((n+1)/2.0)*(A[n]*lu**2+B[n]+Cc[n]*iv+D[n]*iv**2+E[n]*iv**3+F[n]*iv**4)
-    Pe=n_e_*K*T_; kff_=1e-29*kf*Pe*nHI_/rho_
-    la=wl_[None,:]*10.0; ia=1.0/la; i2=ia*ia;i4=i2*i2;i6=i4*i2;i8=i4*i4
-    kray=(5.799e-13*i4+1.422e-6*i6+2.784*i8)*nHI_/rho_; kth=0.6653e-24*n_e_/rho_*np.ones_like(nu_)
-    return kbf+kff_, kray+kth
+        kff = kff + theta_np**((n+1)/2.0) * (
+            A[n]*wavelength_um_np**2 + B[n] + Cc[n]*inv_wavelength_um
+            + D[n]*inv_wavelength_um**2 + E[n]*inv_wavelength_um**3
+            + F[n]*inv_wavelength_um**4
+        )
+    electron_pressure_np = electron_density_np * K * temperature_np
+    kappa_freefree = 1e-29 * kff * electron_pressure_np * neutral_hydrogen_density_np / mass_density_np
+    wavelength_angstrom_np = wavelength_nm_np * 10.0
+    inv_angstrom = 1.0 / wavelength_angstrom_np
+    inv2 = inv_angstrom*inv_angstrom; inv4 = inv2*inv2; inv6 = inv4*inv2; inv8 = inv4*inv4
+    kappa_rayleigh = (
+        (5.799e-13*inv4 + 1.422e-6*inv6 + 2.784*inv8)
+        * neutral_hydrogen_density_np / mass_density_np
+    )
+    kappa_thomson = 0.6653e-24 * electron_density_np / mass_density_np * np.ones_like(frequency_hz_np)
+    return kappa_boundfree + kappa_freefree, kappa_rayleigh + kappa_thomson
 
 def floor_rel(name, got, ref, floor):
     """Max relative deviation against max(|ref|, floor) — the absolute floor protects zero-crossings."""
