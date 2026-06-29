@@ -30,8 +30,6 @@ md(r"""# Lecture 15 — Line Blanketing: LINOP1 and the Atmosphere Correction
 
 *Yuan-Sen Ting*
 
-*Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
-
 *This lecture rebuilds and audits the line-blanketing kernels with explicit parity gates. The exact `LINOP1` teaching-window deposit uses an in-notebook clean-room scalar recurrence, because the 8-stride depth probe/fill-in and float32 wing-add order are part of the algorithm. The tensor sections then run on the selected torch device where appropriate. The raw fp32 pressure secant is retained only as a labelled diagnostic; the accepted convergence-core policy promotes that tiny cancellation-prone reduction to fp64. The notebook imports neither `kgpu` nor pykurucz, but under the strict self-contained rule this boundary is **not closed**: it still consumes production-derived atmosphere, EOS/window-state, continuum-opacity, and full-grid line-blanket fixtures.*
 
 ---
@@ -42,6 +40,26 @@ md(r"""# Lecture 15 — Line Blanketing: LINOP1 and the Atmosphere Correction
 - Fold the line blanket into the **Rosseland mean** opacity (the harmonic, $\partial B/\partial T$-weighted average of the total extinction) and integrate it to the **Rosseland optical depth** $\tau_{\rm Ross}$.
 - Run **one audited iteration** of the line-blanketed convergence engine — the frequency sweep, the temperature correction, the column-mass update — and see the back-warming signature in the loaded solar atmosphere fixture.
 - **Run the precision diagnostic cell by cell** and read off why the convergence-core **secant** $(\,p_2-p_1)/p_1$ must be fp64-promoted, while the accepted path itself passes the full-support gates.""")
+
+md(r"""## Introduction: the debt Lecture 11 left open
+
+Lecture 11 converged a solar atmosphere, but it deliberately kept the opacity continuum-only. That
+made the convergence loop compact enough to teach cleanly, while leaving out the effect that makes a
+solar atmosphere recognizably line blanketed: millions of atomic and molecular lines, especially in
+the blue and ultraviolet, intercept flux and reshape the temperature structure.
+
+This lecture pays that debt in the narrowest honest way. It teaches the line-deposit kernel, folds a
+line blanket into the Rosseland mean, and audits the convergence-core precision problem. The
+remaining boundary is explicit: the full atmosphere structure, EOS/window state, continuum arrays,
+and full-grid line blanket are loaded fixtures until later lectures replace them with generated
+state. The purpose here is therefore kernel fidelity and precision localization, not a hidden claim
+that the full line-blanketed atmosphere loop has already been regenerated from stellar parameters.
+
+Physically, the signature is **back-warming**. Lines raise the opacity in the wavelengths where the
+deep layers try to send flux outward; radiative equilibrium redistributes that energy, warming the
+deeper layers while the optically thin surface cools. The plot below shows that structure once the
+fixture bundle is loaded, then the cells that follow explain the deposit, Rosseland fold, and
+precision boundary that make the effect possible.""")
 
 md(r"""## Why the raw fp32 convergence core fails — and how the accepted path fixes it
 
@@ -812,13 +830,13 @@ The fix follows from the localization and is **surgical**: promote *just* the se
 
 **Surprises worth flagging.** Two. First, the line **deposit** only passes when the exact `LINOP1` recurrence is preserved; a cleaner-looking batched walk is an algorithm change. Second, the fragile cell is *not* the expensive opacity computation — it is the small pressure **finite-difference** in the temperature correction. That inversion — *the cheap line is the fragile one* — is the precision lesson.""")
 
-md(r"""## Where this goes — Lecture 16
+md(r"""## Boundary after this audit
 
 This lecture ported the line deposit recurrence and the convergence-core reductions, and localized the fp32 divergence to the temperature-correction secant. It ran on per-iteration **state** — the atmosphere structure, species populations, Doppler widths, continuum-cutoff table, opacity grids, and heat-capacity samples — loaded as fixtures. Lecture 16 recomputes part of that EOS state conditional on a loaded atmosphere fixture, but the combined L15/L16 boundary is not yet a strict from-physical-inputs atmosphere generator. The remaining work is to replace those fixtures with self-contained generators while keeping the one fp32-fragile reduction named and located.""")
 
 
 # ── CATCH-AND-FILL: appended sections (port_worker fill) ──
-md(r"""## Introduction: the debt Lecture 11 left open
+md(r"""## Physical context: the debt Lecture 11 left open
 
 Lecture 11 converged a model atmosphere of the Sun and benchmarked it to the production code's precision floor. But it converged a **continuum-only** model: in the frequency sweep, the only opacity was the continuum of Lecture 3 — bound-free and free-free absorption, plus scattering — and the millions of spectral lines of Lectures 4–6 were switched off. That was a deliberate simplification, and an honest one: it needs no multi-gigabyte line list, so the whole loop stays reproducible in a lecture notebook. But it is not the real Sun.
 

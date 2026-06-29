@@ -22,9 +22,7 @@ md(r"""# Lecture 16 — EOS State for Line-Blanketed Convergence
 
 *Yuan-Sen Ting*
 
-*Written in collaboration with **Claude Opus 4.8**, under the author's supervision.*
-
-*Every result in this book is checked against reference values computed with [**pykurucz**](https://arxiv.org/abs/2603.11693) — a pure-Python implementation of Kurucz's ATLAS12 and SYNTHE — shipped beside the lectures as small data files, so the notebooks need only NumPy to run.*
+*Every result in this book is checked against local reference fixtures shipped with the lectures. The notebooks build the taught physics from scratch and need only the scientific Python stack to run.*
 
 ---
 
