@@ -171,18 +171,39 @@ plus HR comparison.
 - After any readability/vectorization change, rerun the smallest matching parity gate; after
   builder/reference changes, rerun the full notebook ledger.
 
+## Final-mile closure criteria
+
+Do not delete the plan/passdown until each lecture has been audited against this checklist and any
+misses have either been fixed with a passing gate or explicitly marked as a real boundary:
+
+1. **Self-contained taught path:** the lecture imports no `kgpu`, `pykurucz`, or NumPy-textbook code;
+   static inputs, fixtures, and comparison targets are named honestly.
+2. **Logical flow:** the lecture connects from the previous lecture and toward the next one without
+   stale numbering, outside-code framing, or unsupported closure claims.
+3. **Readable code:** functions and local variables use physical names where possible; canonical
+   Kurucz names remain only at fixture/table/reference boundaries.
+4. **Pedagogical code cells:** dense code cells are split or interleaved with comments/docstrings
+   enough for a reader to follow the physics, tensor shape, precision boundary, and loop reason.
+5. **GPU-native/vectorized where feasible:** taught compute uses torch/device tensors and batched
+   operations where the algorithm allows; scalar loops are justified as recurrences, exact-order
+   parity paths, small heterogeneous tables, or host setup.
+6. **Parity gate:** the lecture's build/render plus its narrow verifier still pass after edits; the
+   comparison is self-contained inside this repo.
+
 ## Next useful work
 
-1. Close L8's data boundary by feeding opacity from earlier torch lecture outputs and documenting or
+1. Run the final-mile closure audit for every lecture (L1-L16) against the checklist above; fix
+   misses in gated slices and record the result lecture by lecture.
+2. Close L8's data boundary by feeding opacity from earlier torch lecture outputs and documenting or
    deriving the JOSH operator tables.
-2. Promote L14 to a torch/MPS builder while keeping the current no-leakage/parity guardrails.
-3. Wire L15/L16 into L14 so the solar atmosphere/EOS state is generated rather than loaded.
-4. Replace L15's production-derived atmosphere/EOS/window/continuum/full-grid blanket fixtures with
+3. Promote L14 to a torch/MPS builder while keeping the current no-leakage/parity guardrails.
+4. Wire L15/L16 into L14 so the solar atmosphere/EOS state is generated rather than loaded.
+5. Replace L15's production-derived atmosphere/EOS/window/continuum/full-grid blanket fixtures with
    computed lecture cells in small parity-gated steps.
-5. Move L16 helper-backed clean-room NumPy pieces into pedagogical torch cells where practical.
-6. Break up the densest L14/L15 code cells with interleaved markdown and docstrings, rerunning
+6. Move L16 helper-backed clean-room NumPy pieces into pedagogical torch cells where practical.
+7. Break up the densest L14/L15 code cells with interleaved markdown and docstrings, rerunning
    parity after each chunk.
-7. Continue the shared naming pass: use the `BIBLE.md` glossary, avoid destructive fixture/schema
+8. Continue the shared naming pass: use the `BIBLE.md` glossary, avoid destructive fixture/schema
    renames, and verify each pure readability slice with the touched lecture's builder/verifier.
-8. Use the exact-LINOP L15/L16 material to design the future `kgpu` squeeze from the 12.3-class
+9. Use the exact-LINOP L15/L16 material to design the future `kgpu` squeeze from the 12.3-class
    coarse-deposit fixed point toward the pyk exact-LINOP `RHOX=12.1439331` target.

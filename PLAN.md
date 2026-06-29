@@ -21,6 +21,15 @@ Current status:
 
 ## Closure Roadmap
 
+0. Complete the final-mile lecture closure audit:
+   - audit every lecture L1-L16, not only high-value hotspots;
+   - each lecture must be self-contained, logically connected to neighbors, honest about fixtures,
+     readable in functions and local variables, pedagogically commented inside dense code, and
+     GPU-native/vectorized where the algorithm allows;
+   - after each fix, rerun the lecture's build/render and narrow parity verifier;
+   - do not erase this roadmap until every lecture either passes the closure checklist or has a
+     precise, honest boundary that remains as future work.
+
 1. Establish the shared naming/glossary pass:
    - define readable names in `BIBLE.md` and use them consistently across lectures and kgpu;
    - translate legacy bundle/table fields at input boundaries, not throughout taught code;
