@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-"""Assemble content/Lecture10.ipynb (unexecuted) — the GPU EDITION. Execute + render via build.py.
+"""Assemble content/Lecture10.ipynb (unexecuted). Execute + render via build.py.
 
-Lecture 10 (GPU) — Radiative Equilibrium & the Temperature Correction, ported to clean torch/MPS.
+Lecture 10 — Radiative Equilibrium & the Temperature Correction, written in clean torch/MPS.
 The other half of the model atmosphere: take the hydrostatic grey start of Lecture 9 and correct
 its temperature so the radiative flux H(tau) equals the Eddington target sigma*Teff^4/(4 pi) at
 every depth. The lecture rebuilds, depth-batched in torch: the per-frequency JOSH radiative-transfer
@@ -17,14 +17,13 @@ wide-dynamic-range sum over 30000 frequencies) and the temperature-correction SE
 cancellation). Both are kept tiny (per-depth vectors); the bulk stays MPS-resident. This mirrors
 kgpu's reduce_fp64 gates exactly (atlas_rt / atlas_rosseland / atlas_tcorr, read-only).
 
-NOTE ON RHOX (honest): the converged from-scratch atmosphere reaches base RHOX ~12.32 (the
+NOTE ON RHOX (honest): the converged atmosphere reaches base RHOX ~12.32 (the
 documented coarse-OS deposit value), which is optically invisible vs pyk's 12.14; the lecture
 presents the value it actually computes and does NOT claim pyk's 12.14.
 
 The clean torch is a pedagogical reduction (no kgpu import); the notebook imports neither kgpu nor
 pykurucz. The body + comparison cells + closers are generated and completeness/parity-gated by the
-external-API port worker (_pipeline/port_worker.py, fill job 'lecture10') against the numpy twin
-(~/Stellar_Spectroscopy_From_Scratch/_pipeline/build_lecture10.py) and reference/tcorr_ref.npz.
+external-API worker (_pipeline/port_worker.py, fill job 'lecture10') against reference/tcorr_ref.npz.
 """
 from pathlib import Path
 import nbformat
@@ -38,15 +37,15 @@ def md(src): cells.append(new_markdown_cell(src))
 def code(src): cells.append(new_code_cell(src))
 
 # ── Title + front matter + objectives (one cell, so the callout lifts) ───
-md(r"""# Lecture 10 — Radiative Equilibrium & the Temperature Correction *(GPU Edition)*
+md(r"""# Lecture 10 — Radiative Equilibrium & the Temperature Correction
 
-*Stellar Spectroscopy from Scratch — GPU Edition: the torch/MPS vectorized companion, each part validated against the NumPy edition*
+*Stellar Spectroscopy from Scratch — a torch/MPS implementation, with each part validated against reference calculations*
 
 *Yuan-Sen Ting*
 
 *Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
 
-*This is the **GPU edition** of Lecture 10. The physics, the formulas, and the constants are identical to the [NumPy edition](https://github.com/tingyuansen/stellar-spectroscopy-from-scratch); the **radiative-equilibrium** half of the model atmosphere — the JOSH flux sweep, the Rosseland mean opacity, and the ATLAS temperature correction that drives the depth-dependent flux $H(\tau)$ to the Eddington target $\sigma T_{\rm eff}^4/4\pi$ — is rebuilt in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). This is the lecture where the GPU edition's **precision budget** earns its keep. The whole per-evaluation pipeline — the radiative-transfer sweep, the Rosseland fold, the $E_3$ Lambda-diagonal walk, every hydrostatic march — holds **fp32 parity** to the float floor; but two reductions would peel away in pure fp32 and so are **surgically fp64-promoted** on a tiny CPU offload: the Rosseland **harmonic fold** (a wide-dynamic-range sum over 30 000 frequencies) and the temperature-correction **secant** $(\Delta P_{\rm tot})/P_{\rm tot}$, a difference of two nearly-equal pressures (catastrophic fp32 cancellation). Both stay per-depth-vector small; the bulk stays GPU-resident. This mirrors `kgpu`'s `reduce_fp64` gates exactly. It ends with **comparison cells** validating each piece against `reference/tcorr_ref.npz` to the documented floor. The clean torch is a pedagogical reduction of `kgpu/atlas_rt.py` + `atlas_rosseland.py` + `atlas_tcorr.py`; the notebook imports neither `kgpu` nor pykurucz.*
+*The **radiative-equilibrium** half of the model atmosphere — the JOSH flux sweep, the Rosseland mean opacity, and the ATLAS temperature correction that drives the depth-dependent flux $H(\tau)$ to the Eddington target $\sigma T_{\rm eff}^4/4\pi$ — is rebuilt in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). This is the lecture where the **precision budget** earns its keep. The whole per-evaluation pipeline — the radiative-transfer sweep, the Rosseland fold, the $E_3$ Lambda-diagonal walk, every hydrostatic march — holds **fp32 parity** to the float floor; but two reductions would peel away in pure fp32 and so are **surgically fp64-promoted** on a tiny CPU offload: the Rosseland **harmonic fold** (a wide-dynamic-range sum over 30 000 frequencies) and the temperature-correction **secant** $(\Delta P_{\rm tot})/P_{\rm tot}$, a difference of two nearly-equal pressures (catastrophic fp32 cancellation). Both stay per-depth-vector small; the bulk stays GPU-resident. This mirrors `kgpu`'s `reduce_fp64` gates exactly. It ends with **comparison cells** validating each piece against `reference/tcorr_ref.npz` to the documented floor. The clean torch implementation is a pedagogical reduction of `kgpu/atlas_rt.py` + `atlas_rosseland.py` + `atlas_tcorr.py`; the notebook imports neither `kgpu` nor pykurucz.*
 
 ---
 
@@ -56,12 +55,12 @@ md(r"""# Lecture 10 — Radiative Equilibrium & the Temperature Correction *(GPU
 - Run the **JOSH** radiative-transfer sweep over the continuum frequency grid, batched over frequency in `torch`, and fold its moments into the four correction integrals.
 - Form the **Rosseland mean** opacity as a *harmonic* (weighted-$1/\kappa$) fold over frequency and the $\tau_{\rm Ross}$ integral — and recognise these as the reductions that need **fp64-promotion** on the GPU (the wide dynamic range across 30 000 frequencies drifts in fp32).
 - Assemble the **temperature correction** as three terms — the Avrett–Krook flux term, the local-$\Lambda$ term, and the surface-boundary term — apply it with a monotonicity guard, and re-integrate hydrostatic equilibrium for the **density correction**, whose **secant** $(P_{\rm tot}'-P_{\rm tot})/P_{\rm tot}$ is the lecture's headline fp32-cancellation trap (fp64-promoted).
-- **Validate** every stage against the reference to the float floor, and read **honestly** the converged structure: the from-scratch atmosphere reaches a base column mass $\mathrm{RHOX}\approx12.32$ — the documented coarse-opacity-sampling deposit value, optically invisible against the production $12.14$ — and the lecture quotes the number it computes, not the production one.""")
+- **Validate** every stage against the reference to the float floor, and read **honestly** the converged structure: the atmosphere reaches a base column mass $\mathrm{RHOX}\approx12.32$ — the documented coarse-opacity-sampling deposit value, optically invisible against the production $12.14$ — and the lecture quotes the number it computes, not the production one.""")
 
-# ── Device + precision preamble (the GPU edition's opening cell) ──────────
+# ── Device + precision preamble ───────────────────────────────────────────
 md(r"""## Setup and the reference
 
-We open as every GPU-edition lecture does: pick the **compute device** once and a working **dtype** (MPS / CUDA $\to$ fp32, CPU $\to$ fp64), and load the **reference** — `reference/tcorr_ref.npz`, the grey starting model plus the continuum opacity grid ($30\,000$ frequencies $\times$ $80$ layers) and every intermediate the production TCORR step produces, so we can validate stage by stage. `josh_tables.npz` carries the Lecture 8 JOSH operator matrices. We also define the one number that drives the whole correction: the **Eddington flux target** $H = \sigma T_{\rm eff}^4/(4\pi)$. Because this lecture leans on two fp64-promoted reductions, we add a small `fp64_reduce` helper that offloads a reduction to the CPU in float64 and returns the result to the device — the surgical-promotion pattern, kept tiny.""")
+We begin by picking the **compute device** once and a working **dtype** (MPS / CUDA $\to$ fp32, CPU $\to$ fp64), and load the **reference** — `reference/tcorr_ref.npz`, the grey starting model plus the continuum opacity grid ($30\,000$ frequencies $\times$ $80$ layers) and every intermediate the production TCORR step produces, so we can validate stage by stage. `josh_tables.npz` carries the Lecture 8 JOSH operator matrices. We also define the one number that drives the whole correction: the **Eddington flux target** $H = \sigma T_{\rm eff}^4/(4\pi)$. Because this lecture leans on two fp64-promoted reductions, we add a small `fp64_reduce` helper that offloads a reduction to the CPU in float64 and returns the result to the device — the surgical-promotion pattern, kept tiny.""")
 
 code(r'''import pathlib
 import numpy as np
@@ -168,7 +167,7 @@ Keep this handy; the meaning of each is spelled out again where it is first buil
 
 md(r"""## The numerical toolbox (Lecture 8)
 
-Everything below — the optical-depth integrals, the moment derivatives, the remap onto JOSH's fixed grid — is built from the same Fortran kernels Lecture 8 introduced, but ported here to fully branchless, batched `torch` operations. They operate natively over the `(frequency, depth)` axes, so there are no Python loops over the massive spectral dimension.
+Everything below — the optical-depth integrals, the moment derivatives, the remap onto JOSH's fixed grid — is built from the same Fortran kernels Lecture 8 introduced, but written here as branchless, batched `torch` operations. They operate natively over the `(frequency, depth)` axes, so there are no Python loops over the massive spectral dimension.
 
 - `integ(x, f, start)` — **cumulative integral** $\int f\,dx$ using smoothly-blended parabolic coefficients. The logic operates across the trailing depth dimension, seamlessly batching over frequencies.
 - `deriv(x, f)` — ATLAS's **cubic-tangent derivative** $df/dx$.
@@ -222,8 +221,11 @@ code(r'''def parcoe(f, x):
         c[..., j] = torch.where(active, c[..., j1]+wt*(c[..., j]-c[..., j1]), c[..., j])
 
     a[..., -2] = a[..., -1]; b[..., -2] = b[..., -1]; c[..., -2] = c[..., -1]
-    return (a[0], b[0], c[0]) if sq else (a, b, c)
+    return (a[0], b[0], c[0]) if sq else (a, b, c)''')
 
+md(r"""`PARCOE` supplies the parabolic coefficients. `INTEG` below consumes those coefficients in the exact running-sum order ATLAS uses, which is why this 80-layer recurrence is intentionally left sequential even though all leading axes remain batched.""")
+
+code(r'''
 def integ(x, f, start):
     """Exact sequential INTEG; never replace its running sum with torch.cumsum."""
     sq = f.dim() == 1
@@ -242,6 +244,8 @@ def integ(x, f, start):
                 +(c[..., i]/3.0)*((x[i+1]+x[i])*x[i+1]+x[i]*x[i]))
         out[..., i+1] = out[..., i]+term*dx
     return out[0] if sq else out''')
+
+md(r"""`PARCOE` and `INTEG` are the stateful part of the interpolation machinery: their short depth loops preserve the historical operation order, while every frequency remains batched. The next two helpers are the vector pieces around that recurrence: a cubic-tangent derivative and a branchless remap.""")
 
 code(r'''def deriv(x, f):
     """Cubic-tangent derivative df/dx, batched over the leading axis."""
@@ -263,6 +267,8 @@ code(r'''def deriv(x, f):
     t1 = d1/(s*torch.sqrt(1.0+d1*d1)+1.0); t0 = dm/(s*torch.sqrt(1.0+dm*dm)+1.0)
     d[...,1:-1] = (t1+t0)/(1.0-t1*t0)*sc
     return d[0] if sq else d''')
+
+md(r"""`deriv` is local in depth, so it vectorizes cleanly. `map1` is the more important GPU lesson: it evaluates the possible interpolation regimes in parallel, then chooses the correct branch with masks rather than host control flow.""")
 
 code(r'''def map1(xold, fold, xnew):
     """Piecewise-quadratic remap, branchless and batched."""
@@ -351,6 +357,8 @@ code(r'''def josh_grid_setup(snubar, alpha, taunu):
     maxj = in_grid.to(torch.int64).sum(dim=1)
     return xsbar, xalpha, maxj''')
 
+md(r"""With the physical-grid source and scattering mapped to `XTAU`, the remaining solve is a fixed-size Gauss-Seidel iteration. The depth dependency is real, so the loop stays; the expensive frequency axis is still a batch axis.""")
+
 code(r'''def josh_lambda_iteration(xsbar8, xalpha8):
     xs = xsbar8.clone()
     diag = 1.0 - xalpha8 * COEFJ_DIAG
@@ -369,7 +377,7 @@ code(r'''def josh_lambda_iteration(xsbar8, xalpha8):
 
 md(r"""### (c) The optically-thin outer layers
 
-The NumPy twin iterates the shallow layers directly on the physical grid and deep layers via a diffusion recurrence, branching per frequency. On the GPU, we embrace the `kgpu` strategy for branching: compute the deep-diffusion recurrence for *all* layers iteratively, compute the shallow layer projections for *all* layers, and select at the end using `shallow_mask = j < maxj`. This replaces divergent control flow with a uniform boolean multiplex.""")
+The scalar reference iterates the shallow layers directly on the physical grid and deep layers via a diffusion recurrence, branching per frequency. On the GPU, we embrace the `kgpu` strategy for branching: compute the deep-diffusion recurrence for *all* layers iteratively, compute the shallow layer projections for *all* layers, and select at the end using `shallow_mask = j < maxj`. This replaces divergent control flow with a uniform boolean multiplex.""")
 
 code(r'''ITER_TOL = 1.0e-3
 
@@ -559,6 +567,8 @@ tauros64 = integ(rhox64, abross64, abross64[0] * rhox64[0])
 abross = abross64.to(device=DEVICE, dtype=DTYPE)
 tauros = tauros64.to(device=DEVICE, dtype=DTYPE)''')
 
+md(r"""Those tensors now contain the monochromatic transfer profiles and the Rosseland depth scale. The next cell performs the frequency folds that feed the temperature correction; the wide reductions are intentionally done in fp64 on the CPU because they are small per-depth vectors and numerically fragile.""")
+
 code(r'''# The JOSH profiles stay MPS/fp32; NumPy's wide frequency accumulators are float64.
 dabtot = deriv(rhox, abtot)
 rdabh64 = (dabtot / torch.clamp(abtot, min=1e-30) * hnu * w).detach().cpu().to(torch.float64).sum(dim=0)
@@ -613,7 +623,7 @@ print(f"radiation pressure: surface P_rad = {float(prad[0].cpu()):.3e}   deep P_
 
 md(r"""## The grey atmosphere is not in radiative equilibrium
 
-Just like the NumPy edition, the grey atmosphere diverges from radiative equilibrium heavily in the thin layers. The temperature correction remedies this.
+The grey atmosphere diverges from radiative equilibrium heavily in the thin layers. The temperature correction remedies this.
 
 We assemble the **three distinct temperature correction terms** entirely natively in PyTorch:
 1. **Avrett-Krook**: Flux-constancy enforcement.
@@ -640,6 +650,8 @@ dtau64 = torch.clamp(dtau64, min=-tauros64/3.0, max=tauros64/3.0)
 dtflux64 = torch.nan_to_num(-dtau64 * dtdrhx64 / torch.clamp(abross64, min=1e-300))
 dtflux = dtflux64.to(device=DEVICE, dtype=DTYPE)''')
 
+md(r"""The Avrett-Krook term fixes the flux drift through an integrated depth correction. The second term is local in the Lambda operator and damps the optically thin surface layers, so it keeps the small sequential ATLAS smoother.""")
+
 code(r'''# --- (2) local-Lambda surface term, preserving the sequential five-layer damping -
 teff25 = TEFF / 25.0
 flxdrv64 = rjmins64 / torch.clamp(abross64, min=1e-300) / flux * 100.0
@@ -656,6 +668,8 @@ for j in range(n):
     dtlamb64[j] = torch.clamp(dtlamb64[j], min=-teff25, max=teff25)
 dtlamb64 = torch.nan_to_num(dtlamb64)
 dtlamb = dtlamb64.to(device=DEVICE, dtype=DTYPE)''')
+
+md(r"""The third term is a surface-boundary adjustment. It offsets the correction so the emerging surface flux lands on the Eddington target without undoing the interior flux correction.""")
 
 code(r'''# --- (3) surface-boundary term --------------------------------------------------
 dtsur64 = torch.clamp((flux - flxrad64[0])/flux * 0.25 * T64[0], min=-teff25, max=teff25)
@@ -732,6 +746,8 @@ code(r'''def rosstab_eval(t_norm, p_norm, self_t, self_p, self_k, self_nn):
         r = (self_k[idx_safe] * w).sum() / torch.clamp(w.sum(), min=1e-300)
         return 10.0**r''')
 
+md(r"""`rosstab_eval` is only the local table interpolation. `Rosstab` packages the normalized coordinates and leaves the predictor/corrector formulas as small named functions before the depth march.""")
+
 code(r'''class Rosstab:
     def __init__(self, T_arr, P_arr, kappa):
         self.zerot = torch.log10(torch.clamp(T_arr[0], min=1e-300))
@@ -759,6 +775,8 @@ def ttaup_correct(j, abstd_j, tau_j, grav, plog, dplog, p1, p3, p4, q1, q2, q3):
     if j == 0:   return torch.log(torch.clamp(grav/torch.clamp(abstd_j, min=1e-300)*tau_j, min=1e-300))
     elif j <= 3: return (plog + 2.0*p1 + dplog + q1)/3.0
     else:        return (126.0*p1 - 14.0*p3 + 9.0*p4 + 42.0*dplog + 108.0*q1 - 54.0*q2 + 24.0*q3)/121.0''')
+
+md(r"""`Rosstab` wraps the opacity table and the two predictor/corrector formulas above. The actual hydrostatic march comes next; it is sequential in depth because each layer depends on the pressure history above it.""")
 
 code(r'''def ttaup(t_arr, tau, prad, grav, rosstab):
     nn = t_arr.shape[0]
@@ -802,6 +820,8 @@ code(r'''def ttaup(t_arr, tau, prad, grav, rosstab):
         q3 = q2; q2 = q1; q1 = dplog
         
     return ptotal''')
+
+md(r"""Now we run that march twice, once at the old temperature and once at the corrected temperature. Their fractional pressure difference is the column-mass correction, evaluated in fp64 to avoid subtracting nearly equal pressure profiles in fp32.""")
 
 code(r'''p64 = p_in.detach().cpu().to(torch.float64)
 rt = Rosstab(T64, p64, abross64)

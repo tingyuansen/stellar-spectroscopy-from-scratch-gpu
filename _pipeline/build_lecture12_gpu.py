@@ -1,23 +1,23 @@
 #!/usr/bin/env python
-"""Assemble content/Lecture12.ipynb (unexecuted) — the GPU EDITION. Execute + render via build.py.
+"""Assemble content/Lecture12.ipynb (unexecuted). Execute + render via build.py.
 
-Lecture 12 (GPU) — Molecular Equilibrium & Molecular Bands (TiO), ported to clean torch/MPS. The
+Lecture 12 — Molecular Equilibrium & Molecular Bands (TiO), written in clean torch. The
 centerpiece is the TiO band-opacity accumulation over a [80 depth, 9136 wavelength] grid built from
-~1.17M molecular lines — a SCATTER-ADD hot path. The NumPy edition's per-depth Python loop, with a
+~1.17M molecular lines — a SCATTER-ADD hot path. A scalar per-depth Python loop, with a
 per-line near/far-wing scalar march that `np.add.at`-es into the opacity row, becomes batched
 [D, L] / [pairs, step-block] tensor ops with `index_put_(accumulate=True)` as the scatter. The
-lecture's added pedagogy (vs the NumPy edition) is that VECTORIZATION: how the loop became a tensor
-op, and why a CPU-fp64 reference path gives bit-exact parity for the sum of ~1e6 positive wings.
+lecture's added pedagogy is that VECTORIZATION: how the loop became blockwise tensor algebra, and
+why this validated build uses a CPU-fp64 reference path for the sum of ~1e6 positive wings.
 
-The torch port below is transcribed VERBATIM from the validated accepted module
+The torch implementation below is transcribed VERBATIM from the validated accepted module
 (_pipeline/_ports/_accepted/lecture12_port.py): molecular_dopple, _voigt, _scatter_add_flat,
 _near_wing_pval, _near_wing, _far_wing, _accumulate_chunk, mol_band_opacity. It was parity-gated to
-max|rel| = 6.74e-15 vs the NumPy twin (verify_molecules.py). NOTE: the public molecular_dopple stays
+max|rel| = 6.74e-15 by verify_molecules.py. NOTE: the public molecular_dopple stays
 on DEVICE/DTYPE (GPU-resident, fp32 on MPS), while the heavy accumulation runs on a CPU-fp64
-reference path (_COMPUTE_DEVICE / _COMPUTE_DTYPE) — the scatter-add of ~1e6 positive wings is exact
-in fp64, so that is the precision choice for bit-exact parity. The notebook imports neither kgpu nor
-pykurucz. The comparison cell validates mol_band_opacity against the production molecular reference
-diag_tio["line_opacity"] - diag_atomic["line_opacity"] (which the NumPy twin also reproduces).
+reference path on MPS (_COMPUTE_DEVICE / _COMPUTE_DTYPE; CUDA/CPU follow the selected device/dtype)
+because the scatter-add of ~1e6 positive wings is a precision-sensitive reduction. The notebook imports neither kgpu nor
+pykurucz. The comparison cell validates mol_band_opacity against the molecular reference
+diag_tio["line_opacity"] - diag_atomic["line_opacity"].
 """
 from pathlib import Path
 import nbformat
@@ -33,15 +33,15 @@ def code(s): cells.append(new_code_cell(s))
 # ════════════════════════════════════════════════════════════════════════════
 #  TITLE
 # ════════════════════════════════════════════════════════════════════════════
-md(r"""# Lecture 12 — Molecular Equilibrium & Molecular Bands *(GPU Edition)*
+md(r"""# Lecture 12 — Molecular Equilibrium & Molecular Bands
 
-*Stellar Spectroscopy from Scratch — GPU Edition: the torch/MPS vectorized companion, each part validated against the NumPy edition*
+*Stellar Spectroscopy from Scratch — a torch/MPS implementation, with each part validated against reference calculations*
 
 *Yuan-Sen Ting*
 
 *Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
 
-*This is the **GPU edition** of Lecture 12. The physics, the formulas, and the constants are identical to the [NumPy edition](https://github.com/tingyuansen/stellar-spectroscopy-from-scratch); what changes is the **machine**, and the lesson — once more — is the **vectorization of a scatter**. The NumPy edition built the TiO **band opacity** with a Python `for` over the 80 atmospheric depths, and inside each depth a per-line outward wing-march that `np.add.at`-ed every step into the depth's opacity row. That depth loop and that scalar march are exactly the shape the GPU hates. Here the depth axis becomes a **tensor batch axis**, the per-line reach geometry of every surviving $(\text{depth},\text{line})$ pair is computed in batched $[D,L]$ / $[\text{pairs},\text{step-block}]$ ops, and the deposit collapses into **one `index_put_(accumulate=True)`** scatter per wing-block — over $\sim$1.17 million molecular lines. The same Voigt engine, the same `KAPMIN` cutoff, the same near/far-wing physics; only the control flow is flattened. We validate the GPU `mol_band_opacity` against the production molecular reference (which the NumPy twin reproduces), and reach machine precision. The clean torch port is a pedagogical reduction of the production `kgpu` molecular engine — the notebook imports neither `kgpu` nor pykurucz.*
+*The physics, formulas, and constants are rebuilt in clean **`torch`**. The lesson — once more — is the **vectorization of a scatter**. A scalar implementation builds the TiO **band opacity** with a Python `for` over the 80 atmospheric depths, and inside each depth a per-line outward wing-march that `np.add.at`-s every step into the depth's opacity row. That depth loop and that scalar march are exactly the shape the GPU hates. Here the depth axis becomes a **tensor batch axis**, the per-line reach geometry of every surviving $(\text{depth},\text{line})$ pair is computed in batched $[D,L]$ / $[\text{pairs},\text{step-block}]$ ops, and the deposit collapses into **one `index_put_(accumulate=True)`** scatter per wing-block — over $\sim$1.17 million molecular lines. The same Voigt engine, the same `KAPMIN` cutoff, the same near/far-wing physics; only the control flow is flattened. For parity, the precision-sensitive heavy accumulation is run on the selected compute path, which is CPU/fp64 on MPS; the public Doppler helper remains GPU-resident. We validate `mol_band_opacity` against the molecular reference to the documented floor. The clean torch implementation is a pedagogical reduction of the production `kgpu` molecular engine — the notebook imports neither `kgpu` nor pykurucz.*
 
 ---
 
@@ -50,9 +50,9 @@ md(r"""# Lecture 12 — Molecular Equilibrium & Molecular Bands *(GPU Edition)*
 - Say **why cool stars form molecules** and warm ones do not, and write the chemical equilibrium of a diatomic molecule as a **Saha-like law** — the dissociation energy $D_0$ plus a temperature polynomial for the formation constant $\ln K_f(T)$ in the Kurucz/NMOLEC convention — taking the converged populations as given from the cool M-dwarf model.
 - Turn a molecular number density into the line-opacity driver **XNFDOP** $= n_{\rm mol}/(\rho\,\Delta\lambda_D/\lambda)$, recomputing the molecular **Doppler width** from the species mass on the device with a single torch op (`molecular_dopple`).
 - Feed those populations into the **same Voigt kernel** as the atomic lines (Lectures 4–6), now `_voigt` written branchlessly over a whole tensor of reduced frequencies.
-- See how the NumPy edition's **per-depth loop + per-line scalar wing-march** becomes a **batched scatter-add**: `_accumulate_chunk` keeps the line list in tensor blocks, `_near_wing` / `_far_wing` sweep fixed offset-blocks over every surviving pair at once, and **one `_scatter_add_flat` = `index_put_(accumulate=True)`** per block deposits the whole `[pairs, step]` opacity into the flattened `[D·n_w]` buffer.
-- Recognise the **precision choice honestly**: the heavy accumulation of $\sim$1.17M positive line wings is run on a **CPU-fp64 reference path** so the sum is bit-exact, while the public API (`molecular_dopple`) stays GPU-resident on MPS/CUDA — the documented float floor for the band opacity here reaches $\sim10^{-15}$, far below the fp32 gate.
-- **Validate** the GPU band opacity against the production molecular reference, then read off **why an M dwarf's spectrum looks nothing like the Sun's**.""")
+- See how a **per-depth loop + per-line scalar wing-march** becomes a **batched scatter-add**: `_accumulate_chunk` keeps the line list in tensor blocks, `_near_wing` / `_far_wing` sweep fixed offset-blocks over every surviving pair at once, and **one `_scatter_add_flat` = `index_put_(accumulate=True)`** per block deposits the whole `[pairs, step]` opacity into the flattened `[D·n_w]` buffer.
+- Recognise the **precision choice honestly**: on MPS the heavy accumulation of $\sim$1.17M positive line wings is run on a **CPU-fp64 reference path** for parity, while the public API (`molecular_dopple`) stays GPU-resident on MPS/CUDA — the documented float floor for the band opacity here reaches $\sim10^{-15}$ on that reference path, far below the fp32 gate.
+- **Validate** the band opacity against the production molecular reference, then read off **why an M dwarf's spectrum looks nothing like the Sun's**.""")
 
 # ════════════════════════════════════════════════════════════════════════════
 #  INTRODUCTION
@@ -63,14 +63,14 @@ Everything so far has been built for a warm star. The Sun's photosphere sits nea
 
 To synthesise such a spectrum we need two pieces, and we already own the rest. The first is the **molecular abundance**: how much TiO is there at each depth? That is a chemical-equilibrium problem — the balance Ti + O $\rightleftharpoons$ TiO — governed by a law with exactly the structure of the **Saha equation** of Lecture 2, the ionisation energy replaced by the molecule's **dissociation energy** $D_0$. We take the converged populations as given from the cool M-dwarf model and focus on what they *do* to the spectrum. The second is the **band opacity**: each molecular line is broadened and accumulated onto the wavelength grid by the very **same Voigt engine** we built for atomic lines in Lectures 4–6. The molecular physics that differs from an atom — electronic and vibrational level structure, Hönl–London rotational factors, isotopologues — is already baked into each line's tabulated strength; given those line parameters and the populations, the **profile broadening and grid accumulation are identical** to the atomic case.
 
-That accumulation is the GPU lecture's quarry, and it is a **scatter at scale**. The catalogue here holds $\sim$**1.17 million** TiO (and CN, OH, MgH, …) lines in a 13 nm window, and for *each* of the 80 atmospheric depths the NumPy edition walked every surviving line outward — red and blue, one grid step at a time, `np.add.at`-ing the Voigt value into the depth's opacity row and stopping at the cutoff. A Python `for` over depths, wrapping a per-line scalar march, is a **dispatch storm** the moment you put it on a GPU. The recasting flips the axes: the line list lives in **tensor blocks**, the reach of every surviving $(\text{depth},\text{line})$ pair is computed in one batched pass, and a fixed offset-block is swept and deposited with **one `index_put_(accumulate=True)`** — the batched atomic scatter — per red/blue sweep. The cost scales with the widest reach, not the number of lines. We build that kernel, validate it against the production molecular reference to the float floor, and end by reading the physics straight off the matched spectrum.
+That accumulation is this lecture's quarry, and it is a **scatter at scale**. The catalogue here holds $\sim$**1.17 million** TiO (and CN, OH, MgH, …) lines in a 13 nm window, and for *each* of the 80 atmospheric depths the scalar algorithm walks every surviving line outward — red and blue, one grid step at a time, `np.add.at`-ing the Voigt value into the depth's opacity row and stopping at the cutoff. A Python `for` over depths, wrapping a per-line scalar march, is a **dispatch storm** the moment you put it on a GPU. The recasting flips the axes: the line list lives in **tensor blocks**, the reach of every surviving $(\text{depth},\text{line})$ pair is computed in one batched pass, and a fixed offset-block is swept and deposited with **one `index_put_(accumulate=True)`** — the batched scatter primitive — per red/blue sweep. The remaining line-chunk and offset-block loops are working-set tilers. We build that kernel, validate it against the production molecular reference to the float floor, and end by reading the physics straight off the matched spectrum.
 
 ![In hot gas the atoms (Ti, O) stay free; as the gas cools the formation balance Ti + O ⇌ TiO tips toward the bound molecule, governed by a chemical (mass-action) equilibrium analogous to Saha, set by temperature and the dissociation energy D0. The spectral consequence is on the right: a few isolated atomic lines, versus the millions of molecular rovibronic lines that blend into a band with a sharp bandhead. On the GPU that per-depth, per-line accumulation becomes one batched [pairs, offset] scatter-add.](resources/figures/s11_molecules.png)""")
 
 # ════════════════════════════════════════════════════════════════════════════
 #  SETUP — device + precision budget
 # ════════════════════════════════════════════════════════════════════════════
-md(r"""**Setup — the device and the precision budget.** We pick the compute device once: **MPS** on Apple Silicon, **CUDA** on an NVIDIA box, otherwise **CPU**. MPS and CUDA have no float64, so the public, GPU-resident path (the molecular Doppler width `molecular_dopple`) works in **fp32** there. The heavy band-opacity accumulation, however, sums roughly a *million* positive line wings into each wavelength bin — a wide-dynamic-range reduction where fp32 round-off drifts the last bits. Following the bible's precision rule (§4 — fp64-promote a reduction that suffers accumulation drift), the accumulation runs on a **CPU-fp64 reference path** (`_COMPUTE_DEVICE` / `_COMPUTE_DTYPE`), so the scatter-add is **bit-exact** and we recover machine precision against the production kernel. We carry NumPy and Matplotlib alongside `torch` — NumPy holds the production reference and the comparison at the end is done in NumPy.""")
+md(r"""**Setup — the device and the precision budget.** We pick the public compute device once: **MPS** on Apple Silicon, **CUDA** on an NVIDIA box, otherwise **CPU**. The public, GPU-resident path (the molecular Doppler width `molecular_dopple`) works in **fp32** on MPS/CUDA. The heavy band-opacity accumulation, however, sums roughly a *million* positive line wings into each wavelength bin — a wide-dynamic-range reduction where fp32 round-off drifts the last bits. Following the precision rule of this book — fp64-promote a reduction that suffers accumulation drift — this build runs the accumulation on a **CPU-fp64 reference path on MPS** (`_COMPUTE_DEVICE` / `_COMPUTE_DTYPE`; CUDA/CPU follow the selected path), so the comparison measures the algorithm rather than fp32 reduction noise. We carry NumPy and Matplotlib alongside `torch` — NumPy holds the production reference and the comparison at the end is done in NumPy.""")
 
 code(r'''import pathlib, math
 import numpy as np
@@ -87,8 +87,9 @@ else:
     DEVICE, DTYPE = torch.device("cpu"), torch.float64
 
 # THE PRECISION CHOICE: the band-opacity accumulation sums ~1e6 positive wings per bin -- a
-# wide-dynamic-range reduction. We run that HEAVY reduction on a CPU-fp64 reference path so the
-# scatter-add is bit-exact (the public molecular_dopple stays GPU-resident on DEVICE/DTYPE).
+# wide-dynamic-range reduction. On MPS we run that HEAVY reduction on a CPU-fp64 reference path
+# so the comparison measures the algorithm rather than fp32 reduction noise (the public
+# molecular_dopple stays GPU-resident on DEVICE/DTYPE).
 _COMPUTE_DEVICE = torch.device("cpu") if DEVICE.type == "mps" else DEVICE
 _COMPUTE_DTYPE  = torch.float64 if DEVICE.type == "mps" else DTYPE
 
@@ -128,18 +129,18 @@ md(r"""## The cool M-dwarf model and the molecular data
 
 We load the reference cool M-dwarf model atmosphere `m3500g50.npz` — the analogue of the solar atmosphere used in the warm-star lectures, but computed for Teff = 3500 K, $\log g$ = 5.0, solar metallicity. Crucially its conversion ran the full molecular-equilibrium solver, so it already carries the molecular number densities we need: they live in `population_per_ion` at the molecular slot (ion index 5), keyed by element. We also load the synthesis diagnostics `diag_tio.npz` (the wavelength grid and continuum), the windowed molecular line list `mol_lines_tio.npz`, and the Lecture 4 Voigt tables `L4.npz`. We bundle them under the names the port functions read.
 
-We define one helper, `compare`, that moves a GPU tensor back to NumPy and reports the maximum relative deviation from the reference — the per-part check, used here exactly as the NumPy edition used it.""")
+We define one helper, `compare`, that moves a torch tensor back to NumPy and reports the maximum relative deviation from the reference — the per-part check used throughout the book.""")
 
 code(r'''REF = pathlib.Path("..") / "reference"
 
-# the four reference bundles the molecular engine consumes (copied unchanged from the NumPy edition)
+# the four reference bundles the molecular engine consumes
 NPZ = np.load(REF / "m3500g50.npz")          # cool M-dwarf model (carries the converged molecular pops)
 DT  = np.load(REF / "diag_tio.npz")          # synthesis diagnostics: wavelength grid + continuum
 M   = np.load(REF / "mol_lines_tio.npz")     # the windowed molecular line list (~1.17M lines)
 L4  = np.load(REF / "L4.npz")                 # the Lecture 4 Voigt tables (h0tab/h1tab/h2tab)
 
 def compare(name, ours, ref, tol=1e-6):
-    """Report how closely a GPU result matches the NumPy reference (the per-part check)."""
+    """Report how closely a torch result matches the NumPy reference (the per-part check)."""
     # bring the tensor back to NumPy/fp64 (move to CPU FIRST, then cast: MPS has no float64)
     if torch.is_tensor(ours):
         ours = ours.detach().cpu().to(torch.float64).numpy()
@@ -302,7 +303,7 @@ print(f"line wavelengths span {mol_wl.min():.3f} .. {mol_wl.max():.3f} nm")''')
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## The same Voigt engine as the atomic lines, branchless
 
-Here is the central point, unchanged from the NumPy edition: **the line physics does not change**. A molecular line is broadened by the identical three-branch Harris Voigt $H(a,v)$ we built in Lecture 4 — Doppler core, Lorentz far wing, intermediate blend, off the tabulated `h0tab`/`h1tab`/`h2tab`. The GPU port `_voigt` is that same kernel written **branchlessly over a whole tensor** of reduced frequencies: all three regimes computed for every element of `(v, a)` and the right one selected by `torch.where`; the table lookup is a clamped integer index. It runs on the compute path (`_COMPUTE_DTYPE`), where the accumulation needs it. Transcribed verbatim from the accepted port.""")
+Here is the central point: **the line physics does not change**. A molecular line is broadened by the identical three-branch Harris Voigt $H(a,v)$ we built in Lecture 4 — Doppler core, Lorentz far wing, intermediate blend, off the tabulated `h0tab`/`h1tab`/`h2tab`. The torch `_voigt` is that same kernel written **branchlessly over a whole tensor** of reduced frequencies: all three regimes computed for every element of `(v, a)` and the right one selected by `torch.where`; the table lookup is a clamped integer index. It runs on the compute path (`_COMPUTE_DTYPE`), where the accumulation needs it. Transcribed verbatim from the accepted port.""")
 
 code(r'''def _voigt(v: torch.Tensor, a: torch.Tensor, h0: torch.Tensor, h1: torch.Tensor,
            h2: torch.Tensor) -> torch.Tensor:
@@ -342,12 +343,12 @@ print("branchless _voigt ready (the L4/L5 Harris kernel, on the compute path)")'
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## The scatter primitive: `index_put_(accumulate=True)`
 
-This is the hot path's atom. The NumPy edition's wing march `np.add.at`-es one Voigt value at a time into the opacity row; the GPU recasting deposits a whole `[pairs, step]` block in **one** call. `_scatter_add_flat` flattens the per-pair `(depth, column)` indices into the `[D·n_w]` opacity buffer — `flat = row*n_w + col` — and calls `index_put_((flat,), vals, accumulate=True)`. The `accumulate=True` flag is exactly what makes overlapping deposits (two line wings landing on the same pixel) **add** rather than overwrite — the GPU equivalent of `np.add.at`. Transcribed verbatim from the accepted port.""")
+This is the hot path's atom. A scalar wing march `np.add.at`-s one Voigt value at a time into the opacity row; the tensor recasting deposits a whole `[pairs, step]` block in **one** call. `_scatter_add_flat` flattens the per-pair `(depth, column)` indices into the `[D·n_w]` opacity buffer — `flat = row*n_w + col` — and calls `index_put_((flat,), vals, accumulate=True)`. The `accumulate=True` flag is exactly what makes overlapping deposits (two line wings landing on the same pixel) **add** rather than overwrite — the torch scatter equivalent of `np.add.at`. Transcribed verbatim from the accepted port.""")
 
 code(r'''def _scatter_add_flat(buf: torch.Tensor, rows: torch.Tensor, cols: torch.Tensor,
                       vals: torch.Tensor, n_w: int) -> None:
     """THE SCATTER: deposit vals at (rows, cols) into the [D, n_w] buffer, OVERLAPS ADD.
-    flat = row*n_w + col, then index_put_(accumulate=True) (the GPU equivalent of np.add.at)."""
+    flat = row*n_w + col, then index_put_(accumulate=True) (the torch equivalent of np.add.at)."""
     if rows.numel() == 0:
         return
     flat_idx = rows.to(torch.int64) * n_w + cols.to(torch.int64)
@@ -382,6 +383,8 @@ def _near_wing_pval(steps, k0, adamp, is_small, tabstep, dvoigt, h0, h1, h2) -> 
     return pval
 
 print("_near_wing_pval ready (batched [pairs, step] profile)")''')
+
+md(r"""The profile evaluator above does no deposition; it only returns the Voigt values for a rectangular `[pairs, step]` block. `_near_wing` is the deposition controller: it decides which offsets are still above the cutoff, mirrors them to red and blue columns, and sends those flat indices to the scatter primitive.""")
 
 code(r'''def _near_wing(buf, pair, n_w, max_n10, h0, h1, h2):
     """Center+near-wing deposit for the WHOLE batch of surviving pairs (port _near_wing): sweep
@@ -434,7 +437,7 @@ print("_near_wing ready (batched center + near-wing scatter)")''')
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## Band opacity: the Lorentz far wing, batched
 
-Beyond ten Doppler widths the Voigt profile is in its Lorentz asymptote, falling as $1/n^2$, so the production kernel treats the **far wing** with that analytic tail: it extends the last near-wing value by $\kappa = x_{\rm far}/n^2$ (with $x_{\rm far} = \texttt{prof\_n10}\cdot n_{10}^2$), stepping outward until it drops below `KAPMIN`. The crucial subtlety — the bug that cost a 1% error before the NumPy edition matched production — is the **stopping rule**: a line's far wing breaks the first time *neither* the red nor the blue bin is on the grid. For a line whose center lies off the window, every far-wing step has both ends off-grid, so it stops immediately and never "re-enters."
+Beyond ten Doppler widths the Voigt profile is in its Lorentz asymptote, falling as $1/n^2$, so the production kernel treats the **far wing** with that analytic tail: it extends the last near-wing value by $\kappa = x_{\rm far}/n^2$ (with $x_{\rm far} = \texttt{prof\_n10}\cdot n_{10}^2$), stepping outward until it drops below `KAPMIN`. The crucial subtlety — the bug that cost a 1% error before the reference path matched production — is the **stopping rule**: a line's far wing breaks the first time *neither* the red nor the blue bin is on the grid. For a line whose center lies off the window, every far-wing step has both ends off-grid, so it stops immediately and never "re-enters."
 
 `_far_wing` selects only the pairs that do reach the far wing (`do_far`), computes each pair's analytic `maxstep`, sweeps fixed step-blocks past `n10dop`, and deposits red/blue with one `_scatter_add_flat` each. The hard, irreversible break is reproduced exactly: `first_kill` is the first step in the block where neither end is on-grid (a vectorized `argmax`), and once a pair records such a step it is killed from `alive` for good. Transcribed verbatim.""")
 
@@ -495,16 +498,19 @@ print("_far_wing ready (batched Lorentz far-wing scatter, irreversible off-grid 
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## Putting one line-chunk together: `_accumulate_chunk`
 
-The driver ties the pieces together for a **chunk of lines across all depths at once** — the GPU recasting of the NumPy edition's per-depth `accumulate_depth`, but with the depth axis as a batch and the line list sliced into `CHUNK_LINES`-sized tensor blocks (so the $[D, L_{\rm chunk}]$ intermediates fit comfortably in memory). For the chunk it: gathers each line's population and Doppler width across all depths (the molecular slot-5 arrays, keyed by element); forms $\kappa_0 = \texttt{cgf}\cdot\texttt{XNFDOP}\cdot e^{-E_{\rm lo}hc/kT}$ and the damping $a = (\gamma_{\rm rad} + \gamma_{\rm Stark}n_e + \gamma_{\rm vdW}\texttt{TXNXN})/\Delta\lambda_D$; applies the production opacity **gate** `KAPPA0 >= KAPMIN = CUTOFF·continuum` (pre- and post-Boltzmann); builds each surviving pair's reach geometry (`n10dop`, `tabstep`, `dvoigt`); deposits the center; and calls `_near_wing` then `_far_wing`. **No Python loop over depths or lines** — only the bounded step-block loops inside the wing kernels and a pair-chunk loop (`PAIR_CHUNK`) that caps the working-set size. Transcribed verbatim from the accepted port.""")
+The driver ties the pieces together for a **chunk of lines across all depths at once**: the depth axis is a batch and the line list is sliced into `CHUNK_LINES`-sized tensor blocks so the $[D, L_{\rm chunk}]$ intermediates fit comfortably in memory. For the chunk it: gathers each line's population and Doppler width across all depths (the molecular slot-5 arrays, keyed by element); forms $\kappa_0 = \texttt{cgf}\cdot\texttt{XNFDOP}\cdot e^{-E_{\rm lo}hc/kT}$ and the damping $a = (\gamma_{\rm rad} + \gamma_{\rm Stark}n_e + \gamma_{\rm vdW}\texttt{TXNXN})/\Delta\lambda_D$; applies the production opacity **gate** `KAPPA0 >= KAPMIN = CUTOFF·continuum` (pre- and post-Boltzmann); builds each surviving pair's reach geometry (`n10dop`, `tabstep`, `dvoigt`); deposits the center; and calls `_near_wing` then `_far_wing`. **No Python loop over depths or lines** — only the bounded step-block loops inside the wing kernels and a pair-chunk loop (`PAIR_CHUNK`) that caps the working-set size. Transcribed verbatim from the accepted port.""")
 
-md(r"""The **gate** `keep` is the one piece worth reading closely: it is a single boolean tensor over the whole `[D, L_{\rm chunk}]` block, ANDing every condition the production code checks before a line is allowed to deposit — a positive population and Doppler width, a real wavelength, a non-negative damping, and the two-stage `KAPMIN` test (the central strength must clear `CUTOFF·continuum` both *before* and *after* the Boltzmann factor). `torch.nonzero(keep)` then turns the surviving entries into an explicit list of $(\text{depth},\text{line})$ **pairs** — the batch the wing kernels sweep. This is the GPU recasting of the NumPy edition's `if not np.any(keep): return` plus `idx = np.nonzero(keep)[0]`, lifted from per-depth to all-depths-at-once.""")
+md(r"""The **gate** `keep` is the one piece worth reading closely: it is a single boolean tensor over the whole `[D, L_{\rm chunk}]` block, ANDing every condition the production code checks before a line is allowed to deposit — a positive population and Doppler width, a real wavelength, a non-negative damping, and the two-stage `KAPMIN` test (the central strength must clear `CUTOFF·continuum` both *before* and *after* the Boltzmann factor). `torch.nonzero(keep)` then turns the surviving entries into an explicit list of $(\text{depth},\text{line})$ **pairs** — the batch the wing kernels sweep. This replaces a per-depth `if not np.any(keep): return` plus `idx = np.nonzero(keep)[0]` with one all-depths tensor gate.""")
 
 code(r'''CUTOFF = 1.0e-3            # KAPMIN = CUTOFF * continuum (SYNTHE floor)
 PAIR_CHUNK = 65_536        # cap on the number of surviving (depth, line) pairs worked at once
 
 def _scalar_int(x: torch.Tensor) -> int:
-    return int(x.detach().cpu().reshape(()))
+    return int(x.detach().cpu().reshape(()))''')
 
+md(r"""`_accumulate_chunk` is the dense part of the molecular engine. Read it in three passes: first it gathers all line/depth tensors and forms the `keep` gate; then it turns surviving entries into explicit `(depth, line)` pairs; finally it processes those pairs in bounded chunks through center, near-wing, and far-wing deposits.""")
+
+code(r'''
 def _accumulate_chunk(out, lo, hi, *, cgf_all, elo_all, gr_all, gs_all, gw_all, eidx_all,
                       center_all, mol_wl_all, pop_slot5, dop_slot5, rho, xne, hckt, txnxn,
                       cont, resolu_grid, h0, h1, h2) -> None:
@@ -602,6 +608,8 @@ def _grid_resolu(wavelength_np):
     return resolu
 print("compute-path helpers ready")''')
 
+md(r"""Those helpers are deliberately small: a Doppler-width formula for the compute path and a grid-spacing conversion. The full driver below is long because it is the orchestration cell: gather atmosphere state, rebuild the molecular Doppler slots, transform the line-list columns once, tile the million-line catalogue, and apply stimulated emission after all wing deposits are complete.""")
+
 code(r'''def mol_band_opacity(npz, dt, m, L4) -> torch.Tensor:
     """Full molecular band opacity [D, n_w] over all depths (port mol_band_opacity). Walks ~1.17M
     lines in CHUNK_LINES blocks through _accumulate_chunk; applies stimulated emission at the end.
@@ -665,15 +673,15 @@ print("mol_band_opacity ready (the whole batched-scatter pipeline)")''')
 # ════════════════════════════════════════════════════════════════════════════
 #  THE COMPARISON CELL
 # ════════════════════════════════════════════════════════════════════════════
-md(r"""## Band opacity to machine precision
+md(r"""## Band opacity to the float floor
 
-This is the per-part check that defines the GPU edition. The reference isolates the molecular component as the difference of two production runs — one with molecules (`diag_tio`), one without (`diag_atomic`) — so it carries exactly the molecular line opacity (stimulated emission included) and nothing else. In this window TiO dominates, but the difference also includes the other molecules in the list (CN, OH, MgH, …), so it is the full molecular component. We run the GPU `mol_band_opacity` over all 1.17 million lines and compare to that reference on the genuinely non-zero points. The NumPy twin (`verify_molecules.py`) reproduces the same reference to $\sim4\times10^{-11}$; our torch port, running the scatter-add in fp64, matches it to a tighter floor.""")
+This is the per-part check. The reference isolates the molecular component as the difference of two production runs — one with molecules (`diag_tio`), one without (`diag_atomic`) — so it carries exactly the molecular line opacity (stimulated emission included) and nothing else. In this window TiO dominates, but the difference also includes the other molecules in the list (CN, OH, MgH, …), so it is the full molecular component. We run `mol_band_opacity` over all 1.17 million lines and compare to that reference on the genuinely non-zero points. `verify_molecules.py` checks the same molecular component from the command line; the torch implementation here, running the scatter-add in fp64 on the reference path, matches it to the documented floor.""")
 
 code(r'''import time
 DA = np.load(REF / "diag_atomic.npz")                                    # molecules-OFF run
 mol_ref = (DT["line_opacity"] - DA["line_opacity"]).astype(float)        # pure molecular component
 
-print(f"Validating the GPU mol_band_opacity against the production molecular reference")
+print(f"Validating mol_band_opacity against the production molecular reference")
 print(f"  accumulation path = {_COMPUTE_DEVICE.type}/{str(_COMPUTE_DTYPE).split('.')[-1]}; "
       f"{M['nbuff'].size:,} lines x {T.size} depths\n")
 
@@ -693,11 +701,11 @@ max_dev = float(rel.max())
 status = "PASS" if max_dev < floor else "CHECK"
 print(f"\ndocumented float floor = {floor:.1e}   ->   [{status}]")
 assert max_dev < floor, f"band opacity deviates by {max_dev:.2e}"
-print("The GPU TiO band opacity matches the production molecular reference to the float floor.")''')
+print("The TiO band opacity matches the production molecular reference to the float floor.")''')
 
-md(r"""**What the number means.** The GPU `mol_band_opacity` reproduces the production kernel to a **median of a few parts in $10^{16}$** — bit-exact at most points — with the worst point near $10^{-11}$ on opacities of order ten. That residual is a pure float64 **accumulation-order** effect: roughly a million overlapping line wings are summed into each bin, and `index_put_(accumulate=True)` adds them in a different order than the production code's chunked kernel, so the last bit drifts. There is no physics error: the formulas, the Voigt tables, the constants, the `KAPMIN` cutoff, and the near/far-wing thresholds are identical to the NumPy edition.
+md(r"""**What the number means.** `mol_band_opacity` reproduces the production kernel to a **median of a few parts in $10^{16}$** — bit-exact at most points — with the worst point near $10^{-11}$ on opacities of order ten. That residual is a pure float64 **accumulation-order** effect: roughly a million overlapping line wings are summed into each bin, and `index_put_(accumulate=True)` adds them in a different order than the production code's chunked kernel, so the last bit drifts. There is no physics error: the formulas, the Voigt tables, the constants, the `KAPMIN` cutoff, and the near/far-wing thresholds are identical to the production reference.
 
-**The vectorization lesson.** The NumPy edition's band opacity was a Python `for` over 80 depths wrapping a per-line scalar wing-march that `np.add.at`-ed one value at a time. We flattened it three ways: *depth loop $\to$ batch axis* (every depth's lines gathered and gated together in `[D, L_{\rm chunk}]` tensors); *per-line march $\to$ fixed step-block sweep* (`_near_wing` / `_far_wing` evaluate the profile for a whole `[pairs, step]` block, masking each pair against its reach with `argmax` instead of a per-line `break`); and *scalar `np.add.at` $\to$ one `index_put_(accumulate=True)`* per red/blue block — the batched atomic scatter. The remaining loops (line-chunks, pair-chunks, step-blocks) are bounded, justified working-set tilers, not per-line dispatch. And we made the deliberate **precision choice** to run this heavy reduction on the CPU-fp64 path: summing $\sim10^6$ positive wings per bin is exactly the wide-dynamic-range accumulation the bible flags for fp64-promotion, and it buys bit-exact parity — while the public `molecular_dopple` stays GPU-resident on MPS/CUDA.""")
+**The vectorization lesson.** The scalar band-opacity path is a Python `for` over 80 depths wrapping a per-line wing march that `np.add.at`-s one value at a time. We flattened it three ways: *depth loop $\to$ batch axis* (every depth's lines gathered and gated together in `[D, L_{\rm chunk}]` tensors); *per-line march $\to$ fixed step-block sweep* (`_near_wing` / `_far_wing` evaluate the profile for a whole `[pairs, step]` block, masking each pair against its reach with `argmax` instead of a per-line `break`); and *scalar `np.add.at` $\to$ one `index_put_(accumulate=True)`* per red/blue block — the batched scatter. The remaining loops (line-chunks, pair-chunks, step-blocks) are bounded, justified working-set tilers, not per-line dispatch. And we made the deliberate **precision choice** to run this heavy reduction on the CPU-fp64 path on MPS: summing $\sim10^6$ positive wings per bin is exactly the wide-dynamic-range accumulation this book flags for fp64-promotion, and it buys a parity check of the algorithm rather than a test of fp32 accumulation order — while the public `molecular_dopple` stays GPU-resident on MPS/CUDA.""")
 
 # ════════════════════════════════════════════════════════════════════════════
 #  LOOKING AT THE BAND
@@ -710,7 +718,7 @@ code(r'''wavelength = DT["wavelength"].astype(float)
 di_show = int(np.argmin(np.abs(T - 3500.0)))                            # a near-photosphere layer
 fig, ax = plt.subplots()
 ax.plot(wavelength, mol_ref[di_show], color="0.6", lw=1.4, label="reference (production)")
-ax.plot(wavelength, mol_np[di_show], color="C3", lw=0.6, label="from scratch (GPU)")
+ax.plot(wavelength, mol_np[di_show], color="C3", lw=0.6, label="computed here")
 ax.set_yscale("log"); ax.set_xlabel("wavelength  [nm]")
 ax.set_ylabel(r"molecular line opacity  [cm$^2$/g]")
 ax.set_title(f"TiO band opacity at T = {T[di_show]:.0f} K (one batched-scatter GPU call)")
@@ -730,7 +738,7 @@ print(f"GPU vs reference at this depth: median rel {np.median(rel_row):.2e}, max
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## The emergent spectrum: reusing the JOSH solver
 
-The molecular opacity is just another absorption term, so the emergent spectrum comes from the **JOSH moment solver of Lecture 8** with no change at all.  We reuse the compact solver from the NumPy twin here: the parabolic optical-depth integrator (`PARCOE`/`INTEG`), `MAP1` interpolation onto the fixed Eddington grid, and the single-precision backward Gauss--Seidel source iteration.  The GPU-specific work in this lecture is the molecular opacity accumulation above; this transfer check is a small CPU/fp64 reuse of the already-verified Lecture-8 algorithm so the spectrum is genuinely solved instead of read from the production flux arrays.
+The molecular opacity is just another absorption term, so the emergent spectrum comes from the **JOSH moment solver of Lecture 8** with no change at all.  We use a compact local copy of that solver here: the parabolic optical-depth integrator (`PARCOE`/`INTEG`), `MAP1` interpolation onto the fixed Eddington grid, and the single-precision backward Gauss--Seidel source iteration.  The GPU-specific work in this lecture is the molecular opacity accumulation above; this transfer check is a small CPU/fp64 reuse of the already-verified Lecture-8 algorithm so the spectrum is genuinely solved instead of read from the production flux arrays.
 
 For the line opacity we use the molecules-off reference line opacity plus the **computed** molecular opacity `mol_np`.  That keeps the warm atomic/hydrogen background fixed while proving the band opacity we just built is the component that carves the cool-star spectrum.""")
 
@@ -793,6 +801,8 @@ def map1(xold, fold, xnew):
     return fnew
 ''')
 
+md(r"""Those three scalar helpers are the compact Lecture-8 transfer toolkit for this final spectrum check. The next cell wires them into the fixed JOSH grid and defines the source iteration; it is kept separate so the physics kernel and transfer wrapper are easier to audit independently.""")
+
 code(r'''JT = np.load(REF / "josh_tables.npz")
 XTAU = JT["xtau"].astype(float); CH = JT["ch"].astype(float); COEFJ = JT["coefj"].astype(float)
 EPS, TOL, MAXIT = 1e-38, 1e-5, 51; COEFJ_DIAG = np.diag(COEFJ).copy()
@@ -846,6 +856,8 @@ print(f"inline B_nu vs reference line_source: max rel diff = {rel_l.max():.2e}")
 print(f"reference line_scattering is exactly zero: {np.all(DT['line_scattering'].astype(float) == 0.0)}")
 assert rel_c.max() < 1e-12 and rel_l.max() < 1e-12''')
 
+md(r"""With the source verified, the last solve combines the molecules-off atomic background with the molecular opacity we computed above. The production spectrum appears only in the final ratio check, after the transfer solve has produced `spectrum`.""")
+
 code(r'''acont = DT["continuum_absorption"].astype(float)
 sigmac = DT["continuum_scattering"].astype(float)
 sigmal = DT["line_scattering"].astype(float)
@@ -897,7 +909,7 @@ md(r"""## Synthesis
 
 Adding molecules to the synthesis took exactly two new ideas on top of the warm-star pipeline. The first was **dissociation equilibrium** — chemical balance written as a Saha-like law, the dissociation energy $D_0$ in a Boltzmann factor times a temperature polynomial for the formation constant $\ln K_f(T)$ in the NMOLEC convention. We read TiO's $D_0$ and polynomial from `molecules.dat`, saw the steep formation curve that keeps the molecule whole in cool gas, and took the converged populations as given from the cool M-dwarf model (Lecture 13 earns them from scratch).
 
-The second was **nothing new in the physics at all**: the molecular populations enter the line opacity through the same XNFDOP combination, are broadened by the same Voigt profile, and are accumulated by the same wing kernel as the atomic lines of Lectures 4–6 — then carried to the surface by the same JOSH solver of Lecture 8. The GPU edition's distinct value is the **vectorization of that accumulation**. The NumPy edition built the band opacity with a Python `for` over 80 depths, each running a per-line outward wing-march that `np.add.at`-ed one Voigt value at a time. We collapsed it: the depth axis became a batch axis, the line list became `CHUNK_LINES` tensor blocks, the per-line scalar march became a fixed step-block sweep over every surviving $(\text{depth},\text{line})$ pair at once (with `argmax` finding each pair's cutoff crossing instead of a per-line `break`), and the deposit became **one `index_put_(accumulate=True)`** per red/blue block — the batched atomic scatter, over 1.17 million lines. The precision budget demanded one honest choice: summing $\sim10^6$ positive wings per bin is a wide-dynamic-range reduction, so the heavy accumulation runs on the **CPU-fp64 reference path** for bit-exact parity, while the public `molecular_dopple` stays GPU-resident. The band opacity reproduced the production kernel to a float64 accumulation floor — machine precision — and the emergent bandhead spectrum is the Sun's pipeline plus one dissociation balance.""")
+The second was **nothing new in the physics at all**: the molecular populations enter the line opacity through the same XNFDOP combination, are broadened by the same Voigt profile, and are accumulated by the same wing kernel as the atomic lines of Lectures 4–6 — then carried to the surface by the same JOSH solver of Lecture 8. The distinct computational value is the **vectorization of that accumulation**. The scalar path builds the band opacity with a Python `for` over 80 depths, each running a per-line outward wing-march that `np.add.at`-s one Voigt value at a time. We collapsed it: the depth axis became a batch axis, the line list became `CHUNK_LINES` tensor blocks, the per-line scalar march became a fixed step-block sweep over every surviving $(\text{depth},\text{line})$ pair at once (with `argmax` finding each pair's cutoff crossing instead of a per-line `break`), and the deposit became **one `index_put_(accumulate=True)`** per red/blue block — the batched scatter, over 1.17 million lines. The precision budget demanded one honest choice: on MPS, summing $\sim10^6$ positive wings per bin is a wide-dynamic-range reduction, so the heavy accumulation runs on the **CPU-fp64 reference path** for parity, while the public `molecular_dopple` stays GPU-resident. The band opacity reproduced the production kernel to a float64 accumulation floor, and the emergent bandhead spectrum is the Sun's pipeline plus one dissociation balance.""")
 
 md(r"""## Summary
 
@@ -905,7 +917,7 @@ md(r"""## Summary
 - The opacity driver is **XNFDOP** $= n_{\rm mol}/(\rho\,\Delta\lambda_D/\lambda)$, with the molecular **Doppler width** built from the species mass plus microturbulence — the GPU-resident public kernel `molecular_dopple`, one fused tensor op on the device.
 - Molecular line opacity uses the **same Voigt engine** as atomic lines (Lectures 4–6): center $+$ near wings (tabulated $H(a,v)$) $+$ Lorentz far wing ($1/n^2$), with the `KAPMIN` cutoff — only the populations differ. The kernel `_voigt` is the L4/L5 Harris profile written branchlessly over a whole `(v, a)` tensor.
 - **The scatter, batched.** The NumPy per-depth loop + per-line `np.add.at` march became: depth axis $\to$ batch axis; per-line march $\to$ fixed step-block sweep over every surviving pair (`_near_wing`/`_far_wing`, cutoff crossing by `argmax`, no per-line break); `np.add.at` $\to$ **one `index_put_(accumulate=True)`** per red/blue block. The only loops left are bounded line-chunk / pair-chunk / step-block tilers.
-- **The precision choice.** The $\sim10^6$-wing-per-bin reduction runs on the **CPU-fp64 reference path** for bit-exact accumulation; the public API stays GPU-resident on MPS/CUDA. The band opacity matched the production reference to a **median of $\sim10^{-16}$** (worst point $\sim10^{-11}$), machine precision against the production code.""")
+- **The precision choice.** On MPS, the $\sim10^6$-wing-per-bin reduction runs on the **CPU-fp64 reference path** for parity; the public API stays GPU-resident on MPS/CUDA. The band opacity matched the production reference to a **median of $\sim10^{-16}$** (worst point $\sim10^{-11}$), the float64 accumulation floor for this path.""")
 
 md(r"""## Practice exercises
 
@@ -915,7 +927,7 @@ md(r"""## Practice exercises
 
 **3. The Doppler width matters.** Recompute the TiO Doppler width with `molecular_dopple(T, vturb, 48.0)` (Ti alone) instead of the molecular mass 64, and quantify the change in the central band opacity by re-running `mol_band_opacity` with the altered mass table. Explain why the molecular mass is the right one (the line centres do not move — only the profile widths and peak heights do).
 
-**4. The accumulation floor and the device path.** Re-run `mol_band_opacity` but force the accumulation onto fp32 (set `_COMPUTE_DTYPE = torch.float32` and, if you have a GPU, `_COMPUTE_DEVICE = DEVICE`). Does the band-opacity residual against the reference grow, and at what level? Explain why the $\sim10^6$-wing-per-bin sum is exactly the wide-dynamic-range reduction the bible flags for fp64-promotion — and why `molecular_dopple` can safely stay fp32 while the accumulation cannot.
+**4. The accumulation floor and the device path.** Re-run `mol_band_opacity` but force the accumulation onto fp32 (set `_COMPUTE_DTYPE = torch.float32` and, if you have a GPU, `_COMPUTE_DEVICE = DEVICE`). Does the band-opacity residual against the reference grow, and at what level? Explain why the $\sim10^6$-wing-per-bin sum is exactly the wide-dynamic-range reduction this book flags for fp64-promotion — and why `molecular_dopple` can safely stay fp32 while the accumulation cannot.
 
 **5. Why no Metal kernel here.** The wing deposit is a scatter-add — the same pattern Lecture 5 flagged as the prime Metal-kernel candidate. Argue, from the parity/timing evidence, whether a hand-rolled `torch.mps.compile_shader` scatter would help the *molecular* accumulation, given that this path runs on CPU-fp64 (because of the precision choice) rather than on MPS. What would have to change for a Metal kernel to be worth writing?""")
 
