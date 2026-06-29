@@ -54,11 +54,15 @@ say so and name the integration work needed to remove it.
 - GPU-native status is mixed, and should stay honest: lectures 1-7, 9-13, 15-16 have
   `build_lecture<N>_gpu.py` torch/MPS builders; L8 and L14 still use non-torch builders.
   L14 is numerically honest now, but not yet the final GPU-native capstone.
-- L15/L16 are not final GPU-native closures yet. L15 contains torch/vectorized line-record
-  physics, but its accepted fidelity gate still uses the clean-room scalar `verify_lineblanket`
-  recurrence for the LINOP1 window/full-step audit. L16 packs and audits the per-iteration state
-  in torch, but the load-bearing PFSAHA/NELECT/continuum/molecular pieces still come through the
-  clean-room NumPy helper modules (`eos_fromscratch.py`, `continuum_fromscratch.py`,
+- L15/L16 are not final GPU-native or strict self-contained closures yet. L15 contains
+  torch/vectorized line-record physics and now inlines its accepted scalar LINOP1 teaching-window
+  recurrence in the notebook; the standalone `verify_lineblanket.py` remains a regression oracle,
+  not a taught-path import. L15 still loads production-derived computed fixtures: the converged
+  atmosphere, per-iteration EOS/window state, continuum opacity/scattering/source arrays, and the
+  full-grid precomputed line blanket. Physical/static tables and line-list metadata are separate.
+  L16 recomputes EOS-derived state for a loaded atmosphere fixture and packs/audits the state in
+  torch, but PFSAHA/NELECT finite differences, continuum, and molecular pieces still come through
+  the clean-room NumPy helper modules (`eos_fromscratch.py`, `continuum_fromscratch.py`,
   `molecular_fromscratch.py`). These helpers are self-contained and do not import `kgpu`/`pykurucz`,
   but they are integration debts for the final GPU-native book.
 - A full L1-L16 API critic sweep completed on 2026-06-29:
@@ -120,8 +124,9 @@ Notebook audit:
   `_pipeline/critic_reports/GPU_textbook_selfcontained_gpu_native_gemini.md` both say the repo is
   honest/numerically useful but not final-passdown-ready. They flag the same open gaps recorded
   above: L14 loads atmosphere/EOS/population/Doppler state, L8/L14 use non-torch builders, L15
-  accepted LINOP1 fidelity still uses a clean-room scalar verifier path, and L16 still relies on
-  clean-room NumPy helper modules for load-bearing EOS/continuum/molecular computation.
+  still loads full-grid line-blanket, continuum, atmosphere, and EOS/window computed fixtures, and
+  L16 still relies on a loaded atmosphere fixture plus clean-room NumPy helper modules for
+  load-bearing EOS/continuum/molecular computation.
 
 ## Delegation policy
 
@@ -152,6 +157,17 @@ The orchestrator must keep ownership of the hard gates:
   above.
 - Use `reference/MANIFEST_L14_L16.md` as the bookkeeping gate when promoting loaded L14/L15 state
   into computed-in-notebook code.
+- Keep the textbook quality bar broader than numerical parity:
+  - Stored fixture files checked into this repo are acceptable when classified honestly as physical
+    input, scoped fixture, or comparison target. Runtime peeking into `pykurucz`/`leankurucz` code or
+    external computed state is not acceptable.
+  - Every nontrivial code cell needs teaching comments and useful function docstrings covering
+    inputs, outputs, precision/parity caveats, and fixture boundaries.
+  - Audit `for`/`while`/`if` blocks and `[i]`/`[i+1]` style slicing. Replace them with torch
+    vectorization/gather/searchsorted/masks where parity allows; otherwise mark them as structural
+    recurrences, table parsers, boundary stencils, or exact-order parity paths.
+  - Avoid leading blank lines in generated code cells; builder helpers should strip outer newlines.
+  - After any readability/vectorization change, rerun the matching NumPy/reference parity gate.
 - Maintain the full lecture build ledger. The 2026-06-28 full build passed; rerun after any
   builder/reference changes.
 - Use the L15/L16 exact-line-blanketing material to design a future kgpu squeeze that moves the

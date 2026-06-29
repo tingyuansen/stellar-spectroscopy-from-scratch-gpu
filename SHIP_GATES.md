@@ -35,8 +35,8 @@ Generated from source inspection on 2026-06-29.
 | L8 | non-torch builder | Self-contained JOSH lesson exists, but not final GPU-native textbook form. |
 | L9-L13 | GPU builders | Atmosphere primitives, molecular equilibrium, and molecular continuum are GPU-textbook form, with reference-input boundaries named in notebooks. |
 | L14 | non-torch builder | Numerically honest synthesis-half capstone. It computes opacity/transfer but loads atmosphere/EOS/population/Doppler state; not final stellar-parameters-to-spectrum closure. |
-| L15 | GPU builder with helper verifier | Line-blanketing lesson is honest and useful. Teaching-window deposit is computed; accepted heavy fidelity still uses clean-room verifier/full-grid precomputed inputs. |
-| L16 | GPU builder with clean-room helper modules | EOS-state blocker is repaired semantically: populations/state are recomputed before comparison. Load-bearing PFSAHA/continuum/molecular helpers are still clean-room NumPy modules, not final all-torch closure. |
+| L15 | GPU builder with in-notebook scalar LINOP1 gate | Teaching-window deposit is computed in the taught path. Strict boundary remains open: converged atmosphere, EOS/window state, continuum opacity/scattering/source arrays, and full-grid line blanket are production-derived computed fixtures. |
+| L16 | GPU builder with clean-room helper modules | EOS-state blocker is reduced: populations/state are recomputed before comparison, but only for a loaded atmosphere fixture. Load-bearing PFSAHA/finite-difference/continuum/molecular helpers are still clean-room NumPy modules, not final all-torch closure. |
 
 ## Required gates before calling the GPU textbook passdown-ready
 
@@ -57,6 +57,11 @@ Generated from source inspection on 2026-06-29.
   reclassified.
 - Do not upgrade any lecture claim from "comparison target" or "integration input" to
   "computed here" unless the notebook actually computes it in the taught path.
+- Stored fixture files checked into this repo are allowed when classified honestly as physical
+  input, scoped fixture, or comparison target. The hard ban is runtime dependence on external
+  `pykurucz`/`leankurucz` code or peeking into external computed state. Loaded fixtures must not
+  masquerade as computed notebook outputs. Physical/static tables and line-list metadata should
+  stay distinct from computed answer/state fixtures.
 
 ## Final closure work
 
@@ -65,5 +70,6 @@ Generated from source inspection on 2026-06-29.
   so the Sun state is regenerated rather than loaded.
 - Extend the non-solar capstone from SYNTHE on warm-started structures to full atmosphere+spectrum
   once the corresponding kgpu four-star ATLAS12+SYNTHE gate exists.
-- Replace L15/L16 helper-backed accepted paths with final torch-native lecture cells where practical,
-  while preserving the scalar clean-room verifier as a regression oracle.
+- Replace L15's production-derived atmosphere/EOS/window/continuum/full-grid blanket fixtures and
+  L16's loaded-atmosphere/helper-backed pieces with final self-contained torch-native lecture cells
+  where practical, while preserving the scalar clean-room verifiers as regression oracles.
