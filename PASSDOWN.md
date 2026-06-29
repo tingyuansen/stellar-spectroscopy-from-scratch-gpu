@@ -39,6 +39,10 @@ Lectures 1-16 build and render. The local site is currently running at
   tables (`josh_tables.npz`).
 - L9-L13: GPU builders for atmosphere primitives, molecular equilibrium, molecular bands, and
   molecular continuum. Parity checks are green.
+- L12: molecular-band readability slice is green. The taught Doppler helper is now
+  `molecular_doppler_fraction`; the legacy `molecular_dopple` spelling remains only as an explicit
+  alias. The dense band-opacity path translates XNFDOP/TXNXN into readable local names while
+  keeping fixture keys stable.
 - L15: GPU builder with in-notebook scalar LINOP1 teaching-window recurrence. The verifier reports
   teaching-window deposit max rel `2.877e-06`, one-step T `6.606e-09`, RHOX `5.850e-09`, and
   corrected Sun base `RHOX=12.152` versus `12.144`.
@@ -62,6 +66,10 @@ Lectures 1-16 build and render. The local site is currently running at
   rerun.
 - Naming is now an explicit quality track. `BIBLE.md` contains the shared glossary; keep raw
   fixture/table keys stable at boundaries and translate to readable names in taught code.
+- Readability is not globally closed. Completed slices include L3 analytic continuum, L10
+  atmosphere/convergence terminology, and L12 molecular Doppler/population-driver naming. Continue
+  lecture-by-lecture in small builder/verifier-gated commits before attempting the larger L14-L16
+  sequence refactor.
 
 ## L14 status
 
@@ -113,7 +121,8 @@ and transfer plus HR comparison.
 - `python _pipeline/verify_lineblanket.py`: PASS, values listed above.
 - `python _pipeline/verify_leankurucz.py`: PASS, values listed above.
 - `python _pipeline/verify_molecules.py`: TiO band spectrum max rel `1.063e-08`, median
-  `1.679e-13`.
+  `1.679e-13`; after the L12 readability rename, molecular opacity max rel `4.069e-11`, spectrum
+  max rel `1.063e-08`.
 - `python _pipeline/verify_nmolec.py`: all molecular densities max rel `9.920e-14`.
 - `python _pipeline/verify_mol_continuum.py`: molecular continuum max rel `0.000e+00`.
 - `python _pipeline/verify_convec_gaps.py`: PASS with sabotage checks.
