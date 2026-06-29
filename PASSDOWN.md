@@ -67,12 +67,13 @@ Lectures 1-16 build and render. The local site is currently running at
 - Naming is now an explicit quality track. `BIBLE.md` contains the shared glossary; keep raw
   fixture/table keys stable at boundaries and translate to readable names in taught code.
 - Global readability is stricter than the first naming pass. L1-L13 have had a broad
-  builder/verifier-gated readable-name and line-break pass, and L3/L5/L6 now have an additional
-  internal-function rename pass for the densest KAPP, line-opacity, and HPROF4 code. Legacy names
-  should remain only for canonical Kurucz concepts, fixture keys, parity-reference labels, or
-  scalar-reference transcriptions where renaming would obscure provenance. Continue aggressive
-  local-name cleanup in small gated slices before calling readability closed. The deeper
-  reader-walkthrough comment/docstring pass remains scheduled after the L14-L16 restructure gate.
+  builder/verifier-gated readable-name and line-break pass, and L3/L5/L6/L13 now have an additional
+  internal-function rename pass for the densest KAPP, line-opacity, HPROF4, and molecular-equilibrium
+  solver code. Legacy names should remain only for canonical Kurucz concepts, fixture keys,
+  parity-reference labels, or scalar-reference transcriptions where renaming would obscure
+  provenance. Continue aggressive local-name cleanup in small gated slices before calling
+  readability closed. The deeper reader-walkthrough comment/docstring pass remains scheduled after
+  the L14-L16 restructure gate.
 
 ## L14 status
 
@@ -131,6 +132,10 @@ and transfer plus HR comparison.
 - `python _pipeline/build_lecture6_gpu.py && python _pipeline/build.py 6 &&
   python _pipeline/verify_josh.py`: L6 stricter HPROF4 naming pass is green; inline Planck source
   max `2.62e-15`, normalized spectrum max `8.94e-09`, median `1.13e-11`.
+- `python _pipeline/build_lecture13_gpu.py && python _pipeline/build.py 13 &&
+  python _pipeline/verify_nmolec.py && python _pipeline/verify_mol_continuum.py`: L13 stricter
+  molecular-equilibrium solver naming pass is green; NMOLEC max rel `9.920e-14`, molecular
+  continuum max rel `0.000e+00`.
 - `python _pipeline/verify_josh.py`: normalised spectrum max `8.94e-09`, median `1.13e-11`.
 - `python _pipeline/verify_lineblanket.py`: PASS, values listed above.
 - `python _pipeline/verify_leankurucz.py`: PASS, values listed above.

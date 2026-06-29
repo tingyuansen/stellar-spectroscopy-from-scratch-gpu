@@ -27,11 +27,11 @@ Current status:
    - keep canonical Kurucz table names only when changing them would obscure provenance or break
      parity;
    - rename in small builder/verifier-gated slices;
-   - status: L1-L13 have now had the broad naming/line-break readability pass; L3/L5/L6 also have
-     stricter internal-function rename slices for KAPP, line opacity, and HPROF4. Continue any
-     remaining local-name cleanup in small builder/verifier-gated commits before claiming global
-     readability closure. Leave remaining legacy names only where they are canonical table/routine
-     labels, fixture keys, or scalar-reference transcriptions.
+   - status: L1-L13 have now had the broad naming/line-break readability pass; L3/L5/L6/L13 also
+     have stricter internal-function rename slices for KAPP, line opacity, HPROF4, and molecular
+     equilibrium. Continue any remaining local-name cleanup in small builder/verifier-gated commits
+     before claiming global readability closure. Leave remaining legacy names only where they are
+     canonical table/routine labels, fixture keys, or scalar-reference transcriptions.
 
 2. Rework the L14-L16 curriculum order before major capstone promotion:
    - collect the end-to-end ATLAS12+SYNTHE topics in `BIBLE.md`/`PLAN.md`;
