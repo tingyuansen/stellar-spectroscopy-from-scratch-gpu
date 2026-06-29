@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Assemble content/Lecture10.ipynb (unexecuted). Execute + render via build.py.
 
-Lecture 10 — Radiative Equilibrium & the Temperature Correction, written in clean torch/MPS.
+Lecture 10 — Radiative Equilibrium & the Temperature Correction, written in torch/MPS.
 The other half of the model atmosphere: take the hydrostatic grey start of Lecture 9 and correct
 its temperature so the radiative flux H(tau) equals the Eddington target sigma*Teff^4/(4 pi) at
 every depth. The lecture rebuilds, depth-batched in torch: the per-frequency JOSH radiative-transfer
@@ -17,13 +17,12 @@ wide-dynamic-range sum over 30000 frequencies) and the temperature-correction SE
 cancellation). Both are kept tiny (per-depth vectors); the bulk stays MPS-resident. This mirrors
 kgpu's reduce_fp64 gates exactly (atlas_rt / atlas_rosseland / atlas_tcorr, read-only).
 
-NOTE ON RHOX (honest): the converged atmosphere reaches base RHOX ~12.32 (the
+NOTE ON RHOX: the converged atmosphere reaches base RHOX ~12.32 (the
 documented coarse-OS deposit value), which is optically invisible vs pyk's 12.14; the lecture
 presents the value it actually computes and does NOT claim pyk's 12.14.
 
-The clean torch is a pedagogical reduction (no kgpu import); the notebook imports neither kgpu nor
-pykurucz. The body + comparison cells + closers are generated and completeness/parity-gated by the
-external-API worker (_pipeline/port_worker.py, fill job 'lecture10') against reference/tcorr_ref.npz.
+The notebook imports neither kgpu nor pykurucz and validates each stage against
+reference/tcorr_ref.npz.
 """
 from pathlib import Path
 import nbformat
@@ -33,8 +32,14 @@ BOOK = Path(__file__).resolve().parent.parent
 OUT = BOOK / "content" / "Lecture10.ipynb"
 
 cells = []
-def md(src): cells.append(new_markdown_cell(src))
-def code(src): cells.append(new_code_cell(src.strip("\n")))
+def md(src):
+    """Append a markdown cell to the lecture notebook."""
+    cells.append(new_markdown_cell(src))
+
+
+def code(src):
+    """Append a code cell, trimming only outer blank lines from the source block."""
+    cells.append(new_code_cell(src.strip("\n")))
 
 # ── Title + front matter + objectives (one cell, so the callout lifts) ───
 md(r"""# Lecture 10 — Radiative Equilibrium & the Temperature Correction
@@ -43,9 +48,7 @@ md(r"""# Lecture 10 — Radiative Equilibrium & the Temperature Correction
 
 *Yuan-Sen Ting*
 
-*Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
-
-*The **radiative-equilibrium** half of the model atmosphere — the JOSH flux sweep, the Rosseland mean opacity, and the ATLAS temperature correction that drives the depth-dependent flux $H(\tau)$ to the Eddington target $\sigma T_{\rm eff}^4/4\pi$ — is rebuilt in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). This is the lecture where the **precision budget** earns its keep. The whole per-evaluation pipeline — the radiative-transfer sweep, the Rosseland fold, the $E_3$ Lambda-diagonal walk, every hydrostatic march — holds **fp32 parity** to the float floor; but two reductions would peel away in pure fp32 and so are **surgically fp64-promoted** on a tiny CPU offload: the Rosseland **harmonic fold** (a wide-dynamic-range sum over 30 000 frequencies) and the temperature-correction **secant** $(\Delta P_{\rm tot})/P_{\rm tot}$, a difference of two nearly-equal pressures (catastrophic fp32 cancellation). Both stay per-depth-vector small; the bulk stays GPU-resident. This mirrors `kgpu`'s `reduce_fp64` gates exactly. It ends with **comparison cells** validating each piece against `reference/tcorr_ref.npz` to the documented floor. The clean torch implementation is a pedagogical reduction of `kgpu/atlas_rt.py` + `atlas_rosseland.py` + `atlas_tcorr.py`; the notebook imports neither `kgpu` nor pykurucz.*
+*The **radiative-equilibrium** half of the model atmosphere — the JOSH flux sweep, the Rosseland mean opacity, and the ATLAS temperature correction that drives the depth-dependent flux $H(\tau)$ to the Eddington target $\sigma T_{\rm eff}^4/4\pi$ — is rebuilt in **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). This is the lecture where the **precision budget** earns its keep. The whole per-evaluation pipeline — the radiative-transfer sweep, the Rosseland fold, the $E_3$ Lambda-diagonal walk, every hydrostatic march — holds **fp32 parity** to the float floor; but two reductions would peel away in pure fp32 and so are **surgically fp64-promoted** on a tiny CPU offload: the Rosseland **harmonic fold** (a wide-dynamic-range sum over 30 000 frequencies) and the temperature-correction **secant** $(\Delta P_{\rm tot})/P_{\rm tot}$, a difference of two nearly-equal pressures (catastrophic fp32 cancellation). Both stay per-depth-vector small; the bulk stays GPU-resident. This mirrors `kgpu`'s `reduce_fp64` gates exactly. It ends with **comparison cells** validating each piece against `reference/tcorr_ref.npz` to the documented floor. The notebook imports neither `kgpu` nor pykurucz.*
 
 ---
 
@@ -55,7 +58,7 @@ md(r"""# Lecture 10 — Radiative Equilibrium & the Temperature Correction
 - Run the **JOSH** radiative-transfer sweep over the continuum frequency grid, batched over frequency in `torch`, and fold its moments into the four correction integrals.
 - Form the **Rosseland mean** opacity as a *harmonic* (weighted-$1/\kappa$) fold over frequency and the $\tau_{\rm Ross}$ integral — and recognise these as the reductions that need **fp64-promotion** on the GPU (the wide dynamic range across 30 000 frequencies drifts in fp32).
 - Assemble the **temperature correction** as three terms — the Avrett–Krook flux term, the local-$\Lambda$ term, and the surface-boundary term — apply it with a monotonicity guard, and re-integrate hydrostatic equilibrium for the **density correction**, whose **secant** $(P_{\rm tot}'-P_{\rm tot})/P_{\rm tot}$ is the lecture's headline fp32-cancellation trap (fp64-promoted).
-- **Validate** every stage against the reference to the float floor, and read **honestly** the converged structure: the atmosphere reaches a base column mass $\mathrm{RHOX}\approx12.32$ — the documented coarse-opacity-sampling deposit value, optically invisible against the production $12.14$ — and the lecture quotes the number it computes, not the production one.""")
+- **Validate** every stage against the reference to the float floor, and read the converged structure with the fixture boundary in view: the atmosphere reaches a base column mass $\mathrm{RHOX}\approx12.32$ — the documented coarse-opacity-sampling deposit value, optically invisible against the production $12.14$ — and the lecture quotes the number it computes, not the production one.""")
 
 # ── Device + precision preamble ───────────────────────────────────────────
 md(r"""## Setup and the reference
@@ -114,7 +117,7 @@ print(f"  continuum grid: {REF['freq_hz'].size} frequencies x {REF['T_in'].size}
 
 
 
-# ── CATCH-AND-FILL: appended sections (port_worker fill) ──
+# ── Main lecture sections ─────────────────────────────────────────────────
 md(r"""## Introduction: the half of the atmosphere we still owe
 
 Lecture 9 built the **hydrostatic** half of a model atmosphere: from $T_{\rm eff}$ and $\log g$ it produced a run of temperature, pressure, and column mass that balances the weight of the overlying gas exactly. But it built that structure on two placeholders. The temperature came from the **grey/Hopf law**, which assumes the opacity is the same at every wavelength; and the opacity itself was the crude cold-start value $\kappa\equiv1$. Neither assumption is true of a real star, where the opacity swings over orders of magnitude from one wavelength to the next, and the temperature that the grey law predicts is *not* the temperature that conserves energy.

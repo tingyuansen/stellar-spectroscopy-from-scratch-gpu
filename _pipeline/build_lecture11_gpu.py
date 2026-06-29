@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Assemble content/Lecture11.ipynb (unexecuted). Execute + render via build.py.
 
-Lecture 11 — Convection & the Converged Atmosphere, written in clean depth-batched
+Lecture 11 — Convection & the Converged Atmosphere, written in depth-batched
 torch/MPS. Adds mixing-length convection to the deep photosphere and ITERATES the
 radiative-equilibrium temperature correction of Lecture 10 to flux constancy, producing the
 end-to-end converged continuum-only solar model (Teff=5770, logg=4.44). Validated cell-by-cell
@@ -12,10 +12,9 @@ fold, the CONVEC mixing-length thermodynamics, the geometric height — holds fp
 float floor; the convergence-core secant (the temperature correction's ptot difference) is the one
 catastrophic-cancellation reduction that is fp64-promoted on the host, exactly as the L15 diagnostic
 localized it. The converged from-scratch atmosphere reaches RHOX ~12.32 at the deep base (the
-documented coarse-OS deposit value; optically invisible vs the production 12.14) — presented honestly.
+documented coarse-OS deposit value; optically invisible vs the production 12.14) — stated as the computed fixture value.
 
-The clean torch implementation is a pedagogical reduction of the production kgpu (atlas_convec.py / atlas_loop.py /
-atlas_tcorr.py / atlas_rosseland.py, read-only); the notebook never imports kgpu or pykurucz.
+The notebook never imports kgpu or pykurucz.
 """
 from pathlib import Path
 import nbformat
@@ -24,8 +23,14 @@ from nbformat.v4 import new_notebook, new_markdown_cell, new_code_cell
 BOOK = Path(__file__).resolve().parent.parent
 OUT = BOOK / "content" / "Lecture11.ipynb"
 cells = []
-def md(s): cells.append(new_markdown_cell(s))
-def code(s): cells.append(new_code_cell(s.strip("\n")))
+def md(s):
+    """Append a markdown cell to the lecture notebook."""
+    cells.append(new_markdown_cell(s))
+
+
+def code(s):
+    """Append a code cell, trimming only outer blank lines from the source block."""
+    cells.append(new_code_cell(s.strip("\n")))
 
 # ── title + objectives ────────────────────────────────────────────────────────
 md(r"""# Lecture 11 — Convection & the Converged Atmosphere
@@ -34,9 +39,7 @@ md(r"""# Lecture 11 — Convection & the Converged Atmosphere
 
 *Yuan-Sen Ting*
 
-*Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
-
-*The convection kernel and the convergence loop are rebuilt in clean, depth-batched **`torch`**. Every computation is paired with a **comparison cell** that runs the torch result against the shipped `reference/converged_ref.npz` and reports the maximum relative deviation, asserting parity to the documented float floor. The clean torch implementation is a pedagogical reduction of the production `kgpu` engine (read-only); the notebook imports neither `kgpu` nor pykurucz.*
+*The convection kernel and the convergence loop are rebuilt in depth-batched **`torch`**. Every computation is paired with a **comparison cell** that runs the torch result against the shipped `reference/converged_ref.npz` and reports the maximum relative deviation, asserting parity to the documented float floor. The notebook imports neither `kgpu` nor pykurucz.*
 
 ---
 
@@ -52,7 +55,7 @@ md(r"""# Lecture 11 — Convection & the Converged Atmosphere
 # ── introduction ──────────────────────────────────────────────────────────────
 md(r"""## Introduction: from one correction step to a converged atmosphere
 
-Lecture 10 built **one** step of the radiative-equilibrium temperature correction: it measured how far the grey atmosphere's flux was from constant, and shifted the temperature to push it back. That was the engine. This lecture turns the engine into a machine that *converges* a model atmosphere, and it does so by adding the two pieces Lecture 10 deliberately left out. One honesty note up front, so the goal of this lecture is crisp: the model we converge here is **continuum-only** — the millions of spectral lines are switched off, deliberately, so the whole loop stays reproducible. That is the converged *continuum* atmosphere, the convergence machinery proven to a fixed point on the simplest opacity. Switching the line blanket on — and reaching the *real* Sun — is the work of Part VI (Lectures 15/16); this lecture builds the engine that Part VI then reruns unchanged.
+Lecture 10 built **one** step of the radiative-equilibrium temperature correction: it measured how far the grey atmosphere's flux was from constant, and shifted the temperature to push it back. That was the engine. This lecture turns the engine into a machine that *converges* a model atmosphere, and it does so by adding the two pieces Lecture 10 deliberately left out. The model we converge here is **continuum-only** — the millions of spectral lines are switched off, deliberately, so the whole loop stays reproducible. That is the converged *continuum* atmosphere, the convergence machinery proven to a fixed point on the simplest opacity. Switching the line blanket on — and reaching the *real* Sun — is the work of Part VI (Lectures 15/16); this lecture builds the engine that Part VI then reruns unchanged.
 
 The first new piece is **iteration**. One correction does not converge a model: after we change the temperature, the equation of state (Lecture 2), the opacities (Lecture 3), the Rosseland mean and the fluxes (Lectures 8, 10) all change too, so we must recompute them and correct again — and again — until the flux stops drifting with depth and the temperature stops moving. A solar model takes a few dozen such iterations from a grey start.
 
@@ -148,13 +151,13 @@ md(r"""The deep-layer metric falls monotonically from order unity (the grey star
 
 **The rest of this lecture** ports, cell by cell, the engine that produces that history: the numerical toolbox (`parcoe`/`integ`/`deriv`/`map1` as batched torch), the per-frequency flux sweep with the Rosseland mean and the radiation-pressure moments, the Rosseland optical-depth scale, the surface K-moment, the CONVEC mixing-length thermodynamics and flux, the overshoot blend, the temperature correction with convection (where the fp64-promoted secant lives), and the closing fixed-point benchmark against the converged model. Each carries its own numpy-vs-GPU comparison cell, so the parity spans the whole computation.""")
 
-# ── CATCH-AND-FILL inserts the remaining sections here (port_worker) ──
+# ── Main lecture sections ─────────────────────────────────────────────────
 
-cells = cells[:8]  # clean seed: discard the failed generated tail below
+cells = cells[:8]  # retain the curated seed cells before appending validated sections
 
-md(r"""## Validated clean-room algorithms used below
+md(r"""## Validated algorithms used below
 
-The remainder of this notebook intentionally starts from the clean eight-cell seed above. The failed generated tail is not emitted. Instead, the physics is integrated section by section from the repository's clean-room verification modules:
+The remainder of this notebook intentionally starts from the curated eight-cell seed above. The physics is integrated section by section from the repository's verification modules:
 
 - `verify_convec_gaps.py` recomputes the EOS finite-difference samples and the exact sequential `INTEG`/`MAP1` overshoot blend from input state and atomic data.
 - `verify_converged.py` recomputes the full one-step operator: JOSH moments, Rosseland mean, RADIAP radiation pressure, `CONVEC`, and TCORR-with-convection.
@@ -179,7 +182,7 @@ def rel_array(a, b):
 def maxrel(a, b):
     return float(np.max(rel_array(a, b)))
 
-print("loaded clean-room validators:")
+print("loaded validation modules:")
 print("  VG: EOS finite differences + exact sequential INTEG/MAP1 overshoot")
 print("  VC: RADIAP + exact CONVEC + TCORR one-step fixed-point verifier")''')
 
@@ -352,7 +355,7 @@ md(r"""## Summary
 - ROSSTAB uses exact table-point hits plus nearest candidates in the four quadrants, not all-point inverse-distance smoothing.
 - EOS finite-difference samples are recomputed from the input thermodynamic state and atomic data.
 - Overshoot uses exact sequential `INTEG`/`MAP1` and the full `OVERWT` window average, verified for `OVERWT=1` and `OVERWT=2`.
-- The full RADIAP + `CONVEC` + TCORR one-step replay is recomputed and asserted by the clean-room verifier.""")
+- The full RADIAP + `CONVEC` + TCORR one-step replay is recomputed and asserted by the verifier.""")
 
 md(r"""## Practice exercises
 

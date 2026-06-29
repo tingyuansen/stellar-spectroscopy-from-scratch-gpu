@@ -7,11 +7,10 @@
 <li>State the <strong>convergence criterion</strong> — flux constancy; the proxy ATLAS actually tests is the deep-layer <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>max</mi><mo>⁡</mo><mi mathvariant="normal">∣</mi><mi mathvariant="normal">Δ</mi><mi>T</mi><mi mathvariant="normal">/</mi><mi>T</mi><mi mathvariant="normal">∣</mi></mrow><annotation encoding="application/x-tex">\max|\Delta T/T|</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mop">max</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord">∣Δ</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mord">/</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mord">∣</span></span></span></span> between iterations — and read the iteration history of a real model converging.</li>
 <li><strong>Learn the GPU-precision story of a convergence loop</strong>: which reductions are fp32-safe to the float floor (the whole per-evaluation physics) and which one — the temperature-correction secant — is a difference of two nearly-equal pressure sums that must be <strong>fp64-promoted on the host</strong> (catastrophic cancellation). This is the lesson the Part VI diagnostic lectures (15/16) localized cell by cell; here it lives inside a working loop.</li>
 </ul>
-</div><div class="prose"><p><em>Written in collaboration with <strong>Claude Opus 4.8</strong>, under the author&#39;s supervision. Schematics generated with <strong>Gemini 3 Pro</strong> (Nano Banana).</em></p>
-<p>*The convection kernel and the convergence loop are rebuilt in clean, depth-batched <strong><code>torch</code></strong>. Every computation is paired with a <strong>comparison cell</strong> that runs the torch result against the shipped <code>reference/converged_ref.npz</code> and reports the maximum relative deviation, asserting parity to the documented float floor. The clean torch implementation is a pedagogical reduction of the production <code>kgpu</code> engine (read-only); the notebook imports neither <code>kgpu</code> nor pykurucz.*</p>
+</div><div class="prose"><p>*The convection kernel and the convergence loop are rebuilt in depth-batched <strong><code>torch</code></strong>. Every computation is paired with a <strong>comparison cell</strong> that runs the torch result against the shipped <code>reference/converged_ref.npz</code> and reports the maximum relative deviation, asserting parity to the documented float floor. The notebook imports neither <code>kgpu</code> nor pykurucz.*</p>
 <hr>
 <h2>Introduction: from one correction step to a converged atmosphere</h2>
-<p>Lecture 10 built <strong>one</strong> step of the radiative-equilibrium temperature correction: it measured how far the grey atmosphere&#39;s flux was from constant, and shifted the temperature to push it back. That was the engine. This lecture turns the engine into a machine that <em>converges</em> a model atmosphere, and it does so by adding the two pieces Lecture 10 deliberately left out. One honesty note up front, so the goal of this lecture is crisp: the model we converge here is <strong>continuum-only</strong> — the millions of spectral lines are switched off, deliberately, so the whole loop stays reproducible. That is the converged <em>continuum</em> atmosphere, the convergence machinery proven to a fixed point on the simplest opacity. Switching the line blanket on — and reaching the <em>real</em> Sun — is the work of Part VI (Lectures 15/16); this lecture builds the engine that Part VI then reruns unchanged.</p>
+<p>Lecture 10 built <strong>one</strong> step of the radiative-equilibrium temperature correction: it measured how far the grey atmosphere&#39;s flux was from constant, and shifted the temperature to push it back. That was the engine. This lecture turns the engine into a machine that <em>converges</em> a model atmosphere, and it does so by adding the two pieces Lecture 10 deliberately left out. The model we converge here is <strong>continuum-only</strong> — the millions of spectral lines are switched off, deliberately, so the whole loop stays reproducible. That is the converged <em>continuum</em> atmosphere, the convergence machinery proven to a fixed point on the simplest opacity. Switching the line blanket on — and reaching the <em>real</em> Sun — is the work of Part VI (Lectures 15/16); this lecture builds the engine that Part VI then reruns unchanged.</p>
 <p>The first new piece is <strong>iteration</strong>. One correction does not converge a model: after we change the temperature, the equation of state (Lecture 2), the opacities (Lecture 3), the Rosseland mean and the fluxes (Lectures 8, 10) all change too, so we must recompute them and correct again — and again — until the flux stops drifting with depth and the temperature stops moving. A solar model takes a few dozen such iterations from a grey start.</p>
 <p>The second is <strong>convection</strong>. In the deep photosphere of a cool star like the Sun, radiation alone cannot carry all the flux: the temperature gradient steepens until the gas becomes <strong>convectively unstable</strong>, and rising hot parcels and sinking cool ones take over a large fraction of the energy transport. The temperature correction has to know about that convective flux, or it will get the deep structure wrong. In a 1D mixing-length model the <strong>convective flux is negligible where the spectral lines form</strong> (the upper photosphere stays radiative), so none of our continuum-and-line spectrum work in Lectures 1–8 needed it — but it matters for the <em>structure</em> of the deep layers, and therefore for a self-consistent model.</p>
 <p>We reuse, unchanged, every engine the book has built: the continuum opacity <strong>KAPP</strong> (Lecture 3, supplied as a given input), the <strong>JOSH</strong> moment solver (Lecture 8) for the per-frequency flux, the <strong>Rosseland mean</strong> and the <strong>temperature correction TCORR</strong> (Lecture 10). The genuinely new physics is the mixing-length <strong>convection</strong> kernel and the <strong>convergence</strong> loop that ties everything together. The GPU story this lecture adds: every one of those engines is depth-batched torch, and the convergence loop teaches <em>where</em> fp32 is safe and <em>where</em> it is not.</p>
@@ -196,8 +195,8 @@ dtmax = back(REF[<span class="hljs-string">&quot;dtmax_history&quot;</span>])
 
 converged when deep-layer max|dT/T| &lt; 1e-4 (Fortran checkconv.f90)
 determinism: two full runs identical  T=True  RHOX=True
-</pre></div></div><div class="prose"><h2>Validated clean-room algorithms used below</h2>
-<p>The remainder of this notebook intentionally starts from the clean eight-cell seed above. The failed generated tail is not emitted. Instead, the physics is integrated section by section from the repository&#39;s clean-room verification modules:</p>
+</pre></div></div><div class="prose"><h2>Validated algorithms used below</h2>
+<p>The remainder of this notebook intentionally starts from the curated eight-cell seed above. The physics is integrated section by section from the repository&#39;s verification modules:</p>
 <ul>
 <li><code>verify_convec_gaps.py</code> recomputes the EOS finite-difference samples and the exact sequential <code>INTEG</code>/<code>MAP1</code> overshoot blend from input state and atomic data.</li>
 <li><code>verify_converged.py</code> recomputes the full one-step operator: JOSH moments, Rosseland mean, RADIAP radiation pressure, <code>CONVEC</code>, and TCORR-with-convection.</li>
@@ -224,7 +223,7 @@ def rel_array(a, b):
 def maxrel(a, b):
     return float(np.max(rel_array(a, b)))
 
-print(&quot;loaded clean-room validators:&quot;)
+print(&quot;loaded validation modules:&quot;)
 print(&quot;  VG: EOS finite differences + exact sequential INTEG/MAP1 overshoot&quot;)
 print(&quot;  VC: RADIAP + exact CONVEC + TCORR one-step fixed-point verifier&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
@@ -247,10 +246,10 @@ TRUTH = np.load(pathlib.Path(<span class="hljs-string">&quot;..&quot;</span>) / 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">maxrel</span>(<span class="hljs-params">a, b</span>):
     <span class="hljs-keyword">return</span> <span class="hljs-built_in">float</span>(np.<span class="hljs-built_in">max</span>(rel_array(a, b)))
 
-<span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;loaded clean-room validators:&quot;</span>)
+<span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;loaded validation modules:&quot;</span>)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;  VG: EOS finite differences + exact sequential INTEG/MAP1 overshoot&quot;</span>)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;  VC: RADIAP + exact CONVEC + TCORR one-step fixed-point verifier&quot;</span>)</code></pre>
-    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">loaded clean-room validators:
+    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">loaded validation modules:
   VG: EOS finite differences + exact sequential INTEG/MAP1 overshoot
   VC: RADIAP + exact CONVEC + TCORR one-step fixed-point verifier
 </pre></div></div><div class="prose"><h2>ROSSTAB — exact quadrant lookup, with exact table-point hits</h2>
@@ -576,7 +575,7 @@ fig.tight_layout()</code></pre>
 <li>ROSSTAB uses exact table-point hits plus nearest candidates in the four quadrants, not all-point inverse-distance smoothing.</li>
 <li>EOS finite-difference samples are recomputed from the input thermodynamic state and atomic data.</li>
 <li>Overshoot uses exact sequential <code>INTEG</code>/<code>MAP1</code> and the full <code>OVERWT</code> window average, verified for <code>OVERWT=1</code> and <code>OVERWT=2</code>.</li>
-<li>The full RADIAP + <code>CONVEC</code> + TCORR one-step replay is recomputed and asserted by the clean-room verifier.</li>
+<li>The full RADIAP + <code>CONVEC</code> + TCORR one-step replay is recomputed and asserted by the verifier.</li>
 </ul>
 <h2>Practice exercises</h2>
 <ol>

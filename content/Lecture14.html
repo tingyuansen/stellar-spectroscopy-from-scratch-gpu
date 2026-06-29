@@ -130,8 +130,8 @@ book, but the final solar check consumes the line-blanketed atmosphere built in 
 <p><strong>The model atmosphere boundary.</strong> The solar structure consumed by this capstone is the line-blanketed Part-VI atmosphere: the real solar model, with the blanket switched on and the full per-iteration state built and audited in Lectures 15–16, then loaded here as the solar atmosphere input. Its deep base is <code>RHOX = 12.1439</code> in the pykurucz reference, and the independent from-scratch fixed point documented in Part VI / passdown sits in the same 12.3-class regime; the stale continuum-only <code>RHOX = 10.5</code> capstone state is no longer used. We also run the book&#39;s own temperature-correction <em>operator</em> — inlined here — from the grey-start reference step to match the production code&#39;s single step to <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>∼</mo><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>9</mn></mrow></msup></mrow><annotation encoding="application/x-tex">\sim10^{-9}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">∼</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">9</span></span></span></span></span></span></span></span></span></span></span></span>. For the other three stars the grey start does <strong>not</strong> converge — and we document exactly why, falling back to the production emulator&#39;s warm-start atmosphere for those.</p>
 <p><strong>The one stage still given (the atmosphere structure, for three stars) — and why it is <em>not</em> the opacity.</strong> Self-driving the grey<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>→</mo></mrow><annotation encoding="application/x-tex">\rightarrow</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">→</span></span></span></span>converged loop from a cold start needs, each iteration, the full multi-element population dictionary <em>finite-differenced</em> with respect to temperature and pressure to provide the thermodynamic derivatives, such as specific heat and the adiabatic gradient, that the convection step requires. Lectures 15–16 build that state for the solar line-blanketed atmosphere, so the Sun is no longer the old borrowed continuum-only structure. The hot dwarf, giant, and M dwarf remain warm-started structures in this capstone because their grey starts fail in the regimes printed below. That is a property of the convergence loop, not of the opacity: the opacity is computed from scratch on every atmosphere, converged or warm-started alike.</p>
 <h2>The four stars, and how each atmosphere was built</h2>
-<p>We load four stars spanning the HR diagram. Each reference file carries the <strong>model atmosphere</strong> the spectrum is built on (the column-mass depth scale <code>atm_depth</code>, the temperature, density, and so on), the <strong>equation-of-state populations</strong> the opacity is computed from (<code>population_per_ion</code>, <code>doppler_per_ion</code>, the special continuum populations, the continuum-edge grids), the <strong>line catalog</strong> for the star&#39;s window (atomic and, for cool stars, molecular), the <strong>production reference</strong> we check against (the continuum and line opacity, the emergent and continuum fluxes — loaded only to measure precision), and the <strong>provenance</strong> of the atmosphere: whether it converged from a grey start (<code>atm_converged_from_scratch</code>), how many iterations it took, and — if it did not — the recorded reason.</p>
-<p>These reference files carry <em>input data and a comparison target only</em>. The populations are the verified equation-of-state state (Lecture 2), used the way Lecture 2 uses a tabulated partition function; the line catalog is data; the production opacity and spectrum are loaded at the very end, to measure precision. In this notebook the EOS is not re-solved: its verified output arrays are inputs, and the from-scratch computation begins at opacity construction from those populations. Everything after that — the opacity, the transfer, the source function — we build in this notebook.</p>
+<p>We load four stars spanning the HR diagram. Each reference file is a fixture with two kinds of content. The input side carries the <strong>model atmosphere</strong> the spectrum is built on (the column-mass depth scale <code>atm_depth</code>, the temperature, density, and so on), the <strong>equation-of-state populations</strong> the opacity is computed from (<code>population_per_ion</code>, <code>doppler_per_ion</code>, the special continuum populations, the continuum-edge grids), the <strong>line catalog</strong> for the star&#39;s window (atomic and, for cool stars, molecular), and the <strong>provenance</strong> of the atmosphere: whether it converged from a grey start (<code>atm_converged_from_scratch</code>), how many iterations it took, and — if it did not — the recorded reason. The target side carries the <strong>production reference</strong> we check against (the continuum and line opacity, the emergent and continuum fluxes), which is loaded only after the notebook has built its own opacity and transfer solution.</p>
+<p>These reference files carry <em>input data and a comparison target only</em>. The populations are the verified equation-of-state state (Lecture 2), used the way Lecture 2 uses a tabulated partition function; the line catalog is data; the production opacity and spectrum are read only for diagnostics, never as inputs to the computed path. In this notebook the EOS is not re-solved: its verified output arrays are inputs, and the from-scratch computation begins at opacity construction from those populations. Everything after that — the opacity, the transfer, the source function — we build in this notebook.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[1]</span>Python</span>
@@ -2478,6 +2478,12 @@ def nearest_grid_indices(grid, values):
 def process_wing_pair(asynth_d, wavelength_grid, center_idx, kappa0, adamp,
                       doppler_width, line_wavelength, kapmin_ref, use_cutoff,
                       resolu, h0tab, h1tab, h2tab):
+    &quot;&quot;&quot;Deposit one metal-line Voigt wing pair onto the ASYNTH wavelength grid.
+
+    The routine mirrors the production walk: probe outward from the line centre,
+    decide whether the explicit wing cutoff is reached, then add symmetric red
+    and blue contributions without owning any catalogue or depth-loop state.
+    &quot;&quot;&quot;
     n_wavelengths = wavelength_grid.size
     if doppler_width &lt;= 0.0:
         return
@@ -2586,6 +2592,12 @@ def process_wing_pair(asynth_d, wavelength_grid, center_idx, kappa0, adamp,
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">process_wing_pair</span>(<span class="hljs-params">asynth_d, wavelength_grid, center_idx, kappa0, adamp,
                       doppler_width, line_wavelength, kapmin_ref, use_cutoff,
                       resolu, h0tab, h1tab, h2tab</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Deposit one metal-line Voigt wing pair onto the ASYNTH wavelength grid.
+
+    The routine mirrors the production walk: probe outward from the line centre,
+    decide whether the explicit wing cutoff is reached, then add symmetric red
+    and blue contributions without owning any catalogue or depth-loop state.
+    &quot;&quot;&quot;</span>
     n_wavelengths = wavelength_grid.size
     <span class="hljs-keyword">if</span> doppler_width &lt;= <span class="hljs-number">0.0</span>:
         <span class="hljs-keyword">return</span>
@@ -3103,6 +3115,12 @@ _E1_TABLE = _build_e1_table()</code></pre>
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[37]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _sofbeta(beta, p, n, m, propbm, c_arr, d_arr, pp_arr, beta_arr):
+    &quot;&quot;&quot;Evaluate the hydrogen Stark S(beta) helper for one reduced field value.
+
+    This is the scalar profile-table interpolation used by HPROF4.  The caller
+    supplies the transition quantum numbers and preloaded Stark tables; this
+    helper returns only the local line-shape factor.
+    &quot;&quot;&quot;
     if beta &lt;= 0.0:
         return 0.0
     b2 = beta * beta
@@ -3169,6 +3187,12 @@ _E1_TABLE = _build_e1_table()</code></pre>
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_sofbeta</span>(<span class="hljs-params">beta, p, n, m, propbm, c_arr, d_arr, pp_arr, beta_arr</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Evaluate the hydrogen Stark S(beta) helper for one reduced field value.
+
+    This is the scalar profile-table interpolation used by HPROF4.  The caller
+    supplies the transition quantum numbers and preloaded Stark tables; this
+    helper returns only the local line-shape factor.
+    &quot;&quot;&quot;</span>
     <span class="hljs-keyword">if</span> beta &lt;= <span class="hljs-number">0.0</span>:
         <span class="hljs-keyword">return</span> <span class="hljs-number">0.0</span>
     b2 = beta * beta
@@ -3666,6 +3690,12 @@ _E1_TABLE = _build_e1_table()</code></pre>
                                line_wavelength, kappa0, n_lower, n_upper, wcon, wtail,
                                wlminus1, wlminus2, wlplus1, wlplus2, redcut, bluecut, cutoff,
                                hyd, tabs, fine_offsets, fine_weights, n_fine):
+    &quot;&quot;&quot;Accumulate one hydrogen transition across one atmospheric depth row.
+
+    The center, red, and blue walks apply the HPROF4 profile plus the continuum
+    taper/series-merge limits already chosen by the caller.  The function mutates
+    only the supplied opacity row buffer.
+    &quot;&quot;&quot;
     n_points = buffer.shape[0]
     simple_wings = n_upper &lt;= n_lower + 2
     use_taper = (not simple_wings) and (wtail &gt; wcon)
@@ -3770,6 +3800,12 @@ _E1_TABLE = _build_e1_table()</code></pre>
                                line_wavelength, kappa0, n_lower, n_upper, wcon, wtail,
                                wlminus1, wlminus2, wlplus1, wlplus2, redcut, bluecut, cutoff,
                                hyd, tabs, fine_offsets, fine_weights, n_fine</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Accumulate one hydrogen transition across one atmospheric depth row.
+
+    The center, red, and blue walks apply the HPROF4 profile plus the continuum
+    taper/series-merge limits already chosen by the caller.  The function mutates
+    only the supplied opacity row buffer.
+    &quot;&quot;&quot;</span>
     n_points = buffer.shape[<span class="hljs-number">0</span>]
     simple_wings = n_upper &lt;= n_lower + <span class="hljs-number">2</span>
     use_taper = (<span class="hljs-keyword">not</span> simple_wings) <span class="hljs-keyword">and</span> (wtail &gt; wcon)
@@ -4308,6 +4344,12 @@ def _hyd_he_static(d):
                             line_wavelength, kappa_eff, doppler, adamp, cutoff,
                             has_wcon, wcon_val, has_wtail, wtail_val, base_wave,
                             h0tab, h1tab, h2tab):
+    &quot;&quot;&quot;Deposit one helium line&#39;s Voigt wings into a single depth row.
+
+    This is the small He-specific analogue of the ASYNTH wing walk, including
+    the caller-provided continuum-merge and tail taper limits for dissolved
+    high-series lines.
+    &quot;&quot;&quot;
     n_points = grid.shape[0]
     clamped = max(0, min(center_index, n_points - 1))
     # red wing (clamped .. end)
@@ -4350,6 +4392,12 @@ def _hyd_he_static(d):
                             line_wavelength, kappa_eff, doppler, adamp, cutoff,
                             has_wcon, wcon_val, has_wtail, wtail_val, base_wave,
                             h0tab, h1tab, h2tab</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Deposit one helium line&#x27;s Voigt wings into a single depth row.
+
+    This is the small He-specific analogue of the ASYNTH wing walk, including
+    the caller-provided continuum-merge and tail taper limits for dissolved
+    high-series lines.
+    &quot;&quot;&quot;</span>
     n_points = grid.shape[<span class="hljs-number">0</span>]
     clamped = <span class="hljs-built_in">max</span>(<span class="hljs-number">0</span>, <span class="hljs-built_in">min</span>(center_index, n_points - <span class="hljs-number">1</span>))
     <span class="hljs-comment"># red wing (clamped .. end)</span>
@@ -5892,6 +5940,12 @@ TC_CH_MAT = <span class="hljs-literal">None</span>                <span class="h
 # ===========================================================================
 def tc_josh_profiles(acont, scont, aline, sline, sigmac, sigmal, rhox, bnu,
                   xtau, ch, coefj):
+    &quot;&quot;&quot;Solve one-frequency JOSH moments over depth for the TCORR operator.
+
+    Inputs are continuum/line absorption, scattering, source terms, and the
+    column-mass grid.  Outputs are the opacity totals and moment profiles that
+    ROSS and TCORR consume, including the float32 scattering iteration state.
+    &quot;&quot;&quot;
     n = rhox.size
     nxtau = xtau.size
     coefj_diag = np.diag(coefj).astype(np.float32)
@@ -6006,6 +6060,12 @@ TC_CH_MAT = None" aria-label="Copy code">
 <span class="hljs-comment"># ===========================================================================</span>
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">tc_josh_profiles</span>(<span class="hljs-params">acont, scont, aline, sline, sigmac, sigmal, rhox, bnu,
                   xtau, ch, coefj</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Solve one-frequency JOSH moments over depth for the TCORR operator.
+
+    Inputs are continuum/line absorption, scattering, source terms, and the
+    column-mass grid.  Outputs are the opacity totals and moment profiles that
+    ROSS and TCORR consume, including the float32 scattering iteration state.
+    &quot;&quot;&quot;</span>
     n = rhox.size
     nxtau = xtau.size
     coefj_diag = np.diag(coefj).astype(np.float32)
@@ -6241,6 +6301,12 @@ class TcRosstab:
         self.t = list(self.t); self.p = list(self.p); self.k = list(self.k)
 
     def eval(self, temp, pressure):
+        &quot;&quot;&quot;Interpolate the ingested Rosseland opacity table at one (T, P) point.
+
+        The production table lookup chooses the nearest sample in each quadrant
+        of normalized log-temperature/log-pressure space, then blends their
+        log-kappa values with inverse-distance weights.
+        &quot;&quot;&quot;
         if self.n &lt;= 0:
             return 1.0
         templog = (np.log10(max(temp, 1e-300)) - self.zerot) / self.slopet
@@ -6318,6 +6384,12 @@ class TcRosstab:
         self.t = <span class="hljs-built_in">list</span>(self.t); self.p = <span class="hljs-built_in">list</span>(self.p); self.k = <span class="hljs-built_in">list</span>(self.k)
 
     <span class="hljs-keyword">def</span> <span class="hljs-title function_">eval</span>(<span class="hljs-params">self, temp, pressure</span>):
+        <span class="hljs-string">&quot;&quot;&quot;Interpolate the ingested Rosseland opacity table at one (T, P) point.
+
+        The production table lookup chooses the nearest sample in each quadrant
+        of normalized log-temperature/log-pressure space, then blends their
+        log-kappa values with inverse-distance weights.
+        &quot;&quot;&quot;</span>
         <span class="hljs-keyword">if</span> self.n &lt;= <span class="hljs-number">0</span>:
             <span class="hljs-keyword">return</span> <span class="hljs-number">1.0</span>
         templog = (np.log10(<span class="hljs-built_in">max</span>(temp, <span class="hljs-number">1e-300</span>)) - self.zerot) / self.slopet
@@ -6368,6 +6440,12 @@ class TcRosstab:
 #    The opacity comes from the ROSSTAB table built this iteration.
 # ===========================================================================
 def tc_ttaup(t, tau, prad, pturb, grav, rosstab):
+    &quot;&quot;&quot;Reintegrate hydrostatic pressure on the current Rosseland-depth grid.
+
+    TCORR uses this DRHOX-side operator after building a fresh ROSSTAB table:
+    radiation and turbulent pressure are subtracted from total pressure while
+    the gas opacity is looked up from the table at each trial pressure.
+    &quot;&quot;&quot;
     n = int(t.size)
     abstd = np.zeros(n); ptotal = np.zeros(n); pgas = np.zeros(n)
     dlg_tau = np.log(max(float(tau[1] / max(tau[0], 1e-300)), 1e-300)) if n &gt; 1 else 0.0
@@ -6414,6 +6492,12 @@ def tc_ttaup(t, tau, prad, pturb, grav, rosstab):
 <span class="hljs-comment">#    The opacity comes from the ROSSTAB table built this iteration.</span>
 <span class="hljs-comment"># ===========================================================================</span>
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">tc_ttaup</span>(<span class="hljs-params">t, tau, prad, pturb, grav, rosstab</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Reintegrate hydrostatic pressure on the current Rosseland-depth grid.
+
+    TCORR uses this DRHOX-side operator after building a fresh ROSSTAB table:
+    radiation and turbulent pressure are subtracted from total pressure while
+    the gas opacity is looked up from the table at each trial pressure.
+    &quot;&quot;&quot;</span>
     n = <span class="hljs-built_in">int</span>(t.size)
     abstd = np.zeros(n); ptotal = np.zeros(n); pgas = np.zeros(n)
     dlg_tau = np.log(<span class="hljs-built_in">max</span>(<span class="hljs-built_in">float</span>(tau[<span class="hljs-number">1</span>] / <span class="hljs-built_in">max</span>(tau[<span class="hljs-number">0</span>], <span class="hljs-number">1e-300</span>)), <span class="hljs-number">1e-300</span>)) <span class="hljs-keyword">if</span> n &gt; <span class="hljs-number">1</span> <span class="hljs-keyword">else</span> <span class="hljs-number">0.0</span>
@@ -6478,6 +6562,12 @@ def tc_ttaup(t, tau, prad, pturb, grav, rosstab):
 # ===========================================================================
 def tc_tcorr_mode3(T, rhox, tauros, abross, flxrad, rjmins, rdabh, rdiagj,
                 flux, teff, prad, gravity_cgs, rosstab, steplg=0.125, tau1lg=-6.875):
+    &quot;&quot;&quot;Apply the mode-3 Avrett-Krook temperature correction for one grey step.
+
+    This lecture uses the convection-off, first-iteration path: build the flux,
+    Lambda, and surface correction terms, enforce the production clamps, and
+    return the corrected temperature plus the regridded column mass.
+    &quot;&quot;&quot;
     n = T.size
     dtdrhx = tc_deriv(rhox, T)
     dabros = tc_deriv(rhox, abross)
@@ -6575,6 +6665,12 @@ def tc_tcorr_mode3(T, rhox, tauros, abross, flxrad, rjmins, rdabh, rdiagj,
 <span class="hljs-comment"># ===========================================================================</span>
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">tc_tcorr_mode3</span>(<span class="hljs-params">T, rhox, tauros, abross, flxrad, rjmins, rdabh, rdiagj,
                 flux, teff, prad, gravity_cgs, rosstab, steplg=<span class="hljs-number">0.125</span>, tau1lg=-<span class="hljs-number">6.875</span></span>):
+    <span class="hljs-string">&quot;&quot;&quot;Apply the mode-3 Avrett-Krook temperature correction for one grey step.
+
+    This lecture uses the convection-off, first-iteration path: build the flux,
+    Lambda, and surface correction terms, enforce the production clamps, and
+    return the corrected temperature plus the regridded column mass.
+    &quot;&quot;&quot;</span>
     n = T.size
     dtdrhx = tc_deriv(rhox, T)
     dabros = tc_deriv(rhox, abross)

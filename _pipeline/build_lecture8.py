@@ -19,10 +19,12 @@ cells = []
 
 
 def md(s):
+    """Append a markdown cell to the lecture notebook."""
     cells.append(new_markdown_cell(s))
 
 
 def code(s):
+    """Append a code cell, trimming only outer blank lines from the source block."""
     cells.append(new_code_cell(s.strip("\n")))
 
 
@@ -32,8 +34,6 @@ md(
 *Stellar Spectroscopy from Scratch — a torch/MPS implementation, with each part validated against reference calculations*
 
 *Yuan-Sen Ting*
-
-*Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
 
 *This lecture rebuilds the Kurucz/ATLAS JOSH moment-solver **algorithm** as clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback). It imports neither `kgpu` nor `pykurucz`. Under the strict data-provenance rule, this is not yet a final closed-from-raw-input Lecture 8: the taught computation still consumes precomputed opacity slabs from earlier synthesis stages and fixed JOSH operator tables. Source arrays and flux arrays are comparison-only references, not inputs to the solver.*
 
@@ -134,7 +134,7 @@ print(f"JOSH grid: {XTAU.numel()} points, tau = {xtau_np[0]:.3g} .. {xtau_np[-1]
 md(
     r"""## Data-boundary audit
 
-Under the strict rule, no `pykurucz`/`leankurucz` code and no production-derived computed-state data should appear in the taught computation path. This current L8 patch satisfies the **code** boundary but not the final **data** closure. The table below is the honest status of every loaded array:
+Under the strict rule, no `pykurucz`/`leankurucz` code and no production-derived computed-state data should appear in the taught computation path. This current L8 patch satisfies the **code** boundary but not the final **data** closure. The table below states the role of every loaded array:
 
 | Array(s) | Classification | Used by taught solver? | Boundary status |
 |---|---:|---:|---|

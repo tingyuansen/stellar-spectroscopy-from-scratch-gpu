@@ -139,7 +139,7 @@ This is a coupled nonlinear system. The unknowns are a total-nuclei scaling vari
 
 md(r"""### Loading the cool-dwarf atmosphere and the molecular data
 
-We work on the same cool M-dwarf model as Lecture 12 ($T_{\rm eff}=3500$ K, $\log g = 5.0$), reduced to the few per-depth quantities the chemistry needs: temperature, gas pressure, a starting electron density, and the element abundances `xabund` (number fractions by atomic number). We also load the production ion equilibrium constants `equilj_ion` — the formation constants of the **atomic ions** (H$^+$, C$^+$, Mg$^+$, ...) from the atomic Saha routine (Lectures 2–3), an *input* to the molecular solver, not part of it. The molecule-formation constants (TiO, H$_2$, CO, OH, ...) we recompute ourselves and check against these values. The ground-truth file `nmolec_groundtruth.npz` is loaded much later, **only** to measure precision.""")
+We work on the same cool M-dwarf model as Lecture 12 ($T_{\rm eff}=3500$ K, $\log g = 5.0$), reduced to the few per-depth quantities the chemistry needs: temperature, gas pressure, a starting electron density, and the element abundances `xabund` (number fractions by atomic number). The fixture boundary is narrow: this cell supplies the atmosphere state and the production **atomic-ion** formation constants `equilj_ion` (H$^+$, C$^+$, Mg$^+$, ...) from the atomic Saha routine of Lectures 2–3. Those ion constants are inputs to the molecular solver; the molecular polynomial constants (TiO, H$_2$, CO, OH, ...) are recomputed here from `molecules.dat` and checked before use. The ground-truth file `nmolec_groundtruth.npz` is loaded much later, **only** to measure precision.""")
 
 code(r'''# The cool M-dwarf atmosphere state the chemistry needs, per depth (80 layers).
 inp = np.load(REF / "nmolec_inputs.npz")
@@ -167,11 +167,13 @@ KBOLTZ_CGS = 1.380649e-16      # erg/K
 _LOG_ZERO = -700.0
 
 def _as_numpy64(x):
+    """Copy a tensor/array to host fp64 for the CPU reference-path solve."""
     if torch.is_tensor(x):
         return x.detach().cpu().to(torch.float64).numpy()  # JUSTIFY: fp64-solver boundary adapter
     return np.asarray(x, dtype=np.float64)   # JUSTIFY: numpy<->torch boundary adapter (fp64 solve reads numpy)
 
 def _as_numpy_i32(x):
+    """Copy static index arrays to host int32 for molecule-table setup."""
     if torch.is_tensor(x):
         return x.detach().cpu().to(torch.int32).numpy()  # JUSTIFY: static-index boundary adapter
     return np.asarray(x, dtype=np.int32)   # JUSTIFY: numpy<->torch boundary adapter
@@ -346,6 +348,7 @@ class MolStructure:
 
     @classmethod
     def build(cls, nummol, locj, kcomps, idequa, nequa, *, device, dtype):
+        """Convert READMOL's component list into dense masks used by every residual call."""
         nummol = int(nummol); nequa = int(nequa)
         locj = _as_numpy_i32(locj); kcomps = _as_numpy_i32(kcomps); idequa = _as_numpy_i32(idequa)
         ne = nequa - 1 if int(idequa[nequa - 1]) == 100 else -1
@@ -381,9 +384,11 @@ md(r"""### Assembling the system, part A: the conservation equations; part B: ev
 Now the residual $f(x_n)$ — how far each algebraic equation is from being satisfied — built **entirely without `if`**, and **in log space** to keep the dynamic range tame. The skeleton (element residual $x_k - X_k\,x_0$, where $x_0$ is the total-nuclei scaling variable; the total-particle closure; the $-n_e$ charge term) is laid down with the one-hot `total_mask` / `electron_mask` *adding in* the special rows rather than branching to them. Then every molecule's mass-action term $K_f\prod_i n_i$ is formed as `exp(log_equilj + count @ log_xn)` — a single matrix contraction over the incidence `count`, with `inv_e` subtracting the inverse-electron $\log n_e$ — and scattered into the total row and each element row by `count.T`, with the negative-ion electron correction applied through the `neg_ion` mask. For a negative ion such as H$^-$, the component bookkeeping first contributes $+n_{\rm mol}$ to the charge row; because the row tracks net positive charge, the correction subtracts $2n_{\rm mol}$ to turn that into the physical $-n_{\rm mol}$ contribution. **Why log space:** the product $\prod_i n_i$ over a dozen components, each $\sim10^{12}$–$10^{20}$, would overflow even fp64 intermediates and certainly fp32; summing logs and exponentiating once keeps every intermediate finite. `_safe_log` clamps to the dtype's tiny, and `_finite_or_zero` zeros any non-finite term. Transcribed verbatim.""")
 
 code(r'''def _safe_log(x):
+    """Log of a density-like tensor, clamped just above the dtype zero floor."""
     return torch.log(x.clamp_min(torch.finfo(x.dtype).tiny))
 
 def _finite_or_zero(x):
+    """Keep valid mass-action terms and silence overflow/invalid entries as zero opacity/density."""
     return torch.where(torch.isfinite(x), x, torch.zeros_like(x))
 
 def _residual(xn, log_equilj, xab, xntot, struct):
@@ -447,8 +452,12 @@ The driver chains the pieces. For each layer it **seeds** the unknowns (top dept
 
 code(r'''def nmolec_solve(T, gas_pressure, electron_density, xabund,
                  nummol, code_mol, equil, locj, kcomps, idequa, nequa, equilj_ion):
-    """Newton-iterate the coupled equilibrium at every depth. Returns
-    (xnatom[80], xnmol[80,200], xnz[80,30], electron[80])."""
+    """Normalize inputs, build the incidence tensors, and run the warm-started NMOLEC solve.
+
+    The atmospheric state and atomic-ion K_f values enter as fixtures; polynomial molecular
+    K_f values are recomputed below before the depth driver sees them.
+    Returns (xnatom[80], xnmol[80,200], xnz[80,30], electron[80]).
+    """
     from torch.func import jacrev, vmap
 
     # the stiff coupled solve runs on CPU/fp64 (the reference path) -- see the markdown above
@@ -477,13 +486,12 @@ code(r'''def nmolec_solve(T, gas_pressure, electron_density, xabund,
 
 print("nmolec_solve (setup) ready")''')
 
-md(r"""The wrapper above normalizes inputs and builds the tensor incidence structure. The driver below is
-the actual warm-started depth loop: each depth solves a stiff local Newton problem seeded from the
-converged depth above, then the solved rows are stacked back into molecule and neutral-atom arrays.""")
+md(r"""The wrapper above normalizes inputs and builds the tensor incidence structure. Before the dense
+depth loop, we split out the fixed abundance vector: it is pure equation bookkeeping, independent of
+Newton damping and molecular physics, and the separate helper makes the loop cell easier to audit.""")
 
-code(r'''def _nmolec_driver(struct, ne, log_equilj, ed_np, xabund_np, gp_np, T_np, idequa_np,
-                   n_layers, nequa, nummol, solve_device, solve_dtype, jacrev, vmap):
-    # abundance per equation variable (electron equation carries none)
+code(r'''def _equation_abundance_vector(xabund_np, idequa_np, nequa, ne):
+    """Abundance per equation variable; element rows get X_Z, the electron row gets zero."""
     xab_np = np.zeros(nequa, dtype=np.float64)   # JUSTIFY: fixed-nequa abundance vector (host setup)
     for k in range(1, nequa):     # JUSTIFIED-LOOP: fixed nequa(=23) host setup of the abundance vector
         id_elem = int(idequa_np[k])
@@ -491,6 +499,18 @@ code(r'''def _nmolec_driver(struct, ne, log_equilj, ed_np, xabund_np, gp_np, T_n
             xab_np[k] = max(xabund_np[id_elem - 1], 1e-20)
     if ne >= 0:
         xab_np[ne] = 0.0
+    return xab_np
+
+print("_equation_abundance_vector ready")''')
+
+md(r"""The driver below is the actual warm-started depth loop: each depth solves a stiff local Newton
+problem seeded from the converged depth above, then the solved rows are stacked back into molecule
+and neutral-atom arrays.""")
+
+code(r'''def _nmolec_driver(struct, ne, log_equilj, ed_np, xabund_np, gp_np, T_np, idequa_np,
+                   n_layers, nequa, nummol, solve_device, solve_dtype, jacrev, vmap):
+    """Run the sequential pressure-continuation depth loop and batched molecule readout."""
+    xab_np = _equation_abundance_vector(xabund_np, idequa_np, nequa, ne)
     xntot_np = gp_np / (T_np * KBOLTZ_CGS)                # total particle density (ideal gas law)
 
     to = lambda a: torch.as_tensor(a, dtype=solve_dtype, device=solve_device)
@@ -498,6 +518,7 @@ code(r'''def _nmolec_driver(struct, ne, log_equilj, ed_np, xabund_np, gp_np, T_n
     electron_seed_t = to(ed_np)
 
     def resid_one(xn_j, log_eqj_j, xntot_j):
+        """Single-depth residual closure for jacrev; captures the fixed abundance vector."""
         return _residual(xn_j, log_eqj_j, xab_t, xntot_j, struct)
     jac_one = jacrev(resid_one, argnums=0)               # the autodiff Jacobian of the residual
 
@@ -616,11 +637,13 @@ md(r"""The next two helpers reproduce the scalar reference's damping arithmetic.
 code(r'''# --- fp64 reference damping helpers ---
 
 def _stable_subtract(a, b):
+    """Reference damping subtract that preserves a relative step between large values."""
     a = float(a); b = float(b)
     if not (np.isfinite(a) and np.isfinite(b)): return a - b   # numpy-ref
     return a * (1.0 - b / a) if abs(a) > np.finfo(np.float64).tiny else a - b   # numpy-ref
 
 def _ratio_pp(num, den):
+    """Reference relative-step magnitude computed with frexp to avoid overflow."""
     num = float(num); den = float(den)
     if den == 0.0: return 0.0 if num == 0.0 else np.inf   # numpy-ref
     if num == 0.0: return 0.0
@@ -767,7 +790,9 @@ md(r"""**What the number means.** The torch `nmolec_solve` matches both the inli
 
 md(r"""To make the chemistry concrete, the major carriers of oxygen and hydrogen through the M dwarf's atmosphere, and the self-consistently computed electron density. The $x$-axis is the **local model temperature** (the $T_{\rm eff}=3500$ K dwarf has a stratified photosphere from $\sim2500$ K at the surface to $\sim5250$ K at the base), so absolute densities mostly *increase* inward — denser gas, not a hotter parcel — until thermal dissociation finally turns the fragile TiO over.""")
 
-code(r'''def mol_index(target): return int(np.argmin(np.abs(code_mol[:nummol] - target)))
+code(r'''def mol_index(target):
+    """Return the row index whose Kurucz molecule code is closest to target."""
+    return int(np.argmin(np.abs(code_mol[:nummol] - target)))
 idx_H2, idx_CO, idx_OH, idx_TiO = mol_index(101.0), mol_index(608.0), mol_index(108.0), mol_index(822.0)
 o_eq = int(np.where(idequa[:nequa] == 8)[0][0]); n_O_free = xnz_g[:, o_eq]
 
@@ -797,7 +822,7 @@ A warm star's continuum is H$^-$ — bound-free and free-free absorption by the 
 
 md(r"""### Loading the continuum inputs and the coefficient tables
 
-The continuum needs the atmosphere state (temperature, mass density, the H ground-state and He I populations) plus the molecular-equilibrium populations of CH and OH (`xnfpch`, `xnfpoh` — Kurucz-style mode-1 $N/U$ populations; multiplying by the interpolated partition function restores the absorber density used by the cross-section table). In the full pipeline these populations are supplied by the EOS/equilibrium stages; here they are loaded as the parity-state input for the continuum cell. The wavelength grid spans 300–5000 nm so we see both the blue CH/OH region and the near-infrared H$_2$-CIA region. The tables are the CH/OH cross-section and partition-function tables and the Borysow H$_2$–H$_2$ / H$_2$–He CIA coefficient tables. The accepted `mol_continuum` port reads them straight from the npz, so we pass the loaded archive through.""")
+The continuum needs the atmosphere state (temperature, mass density, the H ground-state and He I populations) plus the molecular-equilibrium populations of CH and OH (`xnfpch`, `xnfpoh` — Kurucz-style mode-1 $N/U$ populations; multiplying by the interpolated partition function restores the absorber density used by the cross-section table). This is the continuum fixture boundary: in the full pipeline those state populations are supplied by the EOS/equilibrium stages; in this standalone lecture they are loaded only to hold the input state fixed while we test the CH/OH/H$_2$ continuum implementation. The wavelength grid spans 300–5000 nm so we see both the blue CH/OH region and the near-infrared H$_2$-CIA region. The tables are the CH/OH cross-section and partition-function tables and the Borysow H$_2$–H$_2$ / H$_2$–He CIA coefficient tables. The accepted `mol_continuum` port reads them straight from the npz, so we pass the loaded archive through.""")
 
 code(r'''mc = np.load(REF / "mol_continuum_inputs.npz")
 wl_nm = mc["wavelength_nm"].astype(float)               # nm
@@ -820,10 +845,21 @@ LN10 = 2.30258509299405
 
 _CPU = torch.device("cpu"); _F64 = torch.float64
 
-def _np64(inp, name): return np.asarray(inp[name], dtype=np.float64)
-def _cpu64(a): return torch.as_tensor(np.ascontiguousarray(a), dtype=_F64, device=_CPU)
-def _cpu_long(a): return torch.as_tensor(np.ascontiguousarray(a), dtype=torch.long, device=_CPU)
-def _trunc_i64(x): return np.trunc(x).astype(np.int64)
+def _np64(inp, name):
+    """Read one named fixture array as host fp64."""
+    return np.asarray(inp[name], dtype=np.float64)
+
+def _cpu64(a):
+    """Move a host array to contiguous CPU/fp64 for table interpolation."""
+    return torch.as_tensor(np.ascontiguousarray(a), dtype=_F64, device=_CPU)
+
+def _cpu_long(a):
+    """Move an index array to contiguous CPU/int64 for torch gathers."""
+    return torch.as_tensor(np.ascontiguousarray(a), dtype=torch.long, device=_CPU)
+
+def _trunc_i64(x):
+    """Fortran-style integer truncation used by the table-cell arithmetic."""
+    return np.trunc(x).astype(np.int64)
 
 def _finish(x):
     """Move the finished opacity onto the notebook's device in its working dtype."""
@@ -889,6 +925,7 @@ md(r"""### The H$_2$ density driving the collision-induced absorption; H$_2$ col
 H$_2$-CIA scales as $n_{\rm H_2}$ times the partner density, so we need $n_{\rm H_2}$ first — from the **same** dissociation polynomial as the code-101 formation constant of Part 1, applied to the H ground-state population: $n_{\rm H_2} = (n_{\rm H,1}\cdot 2\,b_1)^2\,\exp(4.478/kT - 46.4584 + P(T) - \tfrac32\ln T)$, frequency-independent. The Borysow tables give $\log_{10}$ of the absorption coefficient (cm$^5$) on a (wavenumber, temperature) grid; `_h2_frequency_rows` does the **wavenumber** interpolation (250 cm$^{-1}$ bins) for all frequencies at once, masking $> 20000$ cm$^{-1}$ to a $-300$ log floor, and `_temp_lerp_rows` the **temperature** interpolation (1000 K bins). Transcribed verbatim.""")
 
 code(r'''def _h2_temp_cell(temperature):
+    """Borysow H2-CIA temperature-cell index and interpolation weight."""
     it = np.clip(_trunc_i64(temperature / 1000.0), 1, 6)
     delt = np.clip((temperature - 1000.0 * it.astype(np.float64)) / 1000.0, 0.0, 1.0)
     return it, delt
@@ -1004,6 +1041,7 @@ md(r"""The CH/OH reference helper is the scalar version of the same table interp
 code(r'''# --- fp64 reference: scalar CHOP/OHOP band interpolation ---
 
 def _band_xsect_np(freq_scalar, CROSS, PART, n_off, idx_off, en_off, n_lo, n_hi, idx_hi):
+    """Scalar CH/OH cross-section lookup used only by the fp64 parity oracle."""
     out = np.zeros(temp_np.size); wn = freq_scalar / C_LIGHT_CM; ev = wn / 8065.479   # numpy-ref
     n = int(ev * 10) - n_off
     if n <= n_lo or n >= n_hi: return out
@@ -1026,6 +1064,7 @@ md(r"""The H$_2$-CIA helper is the scalar Borysow-table lookup: interpolate in w
 code(r'''# --- fp64 reference: scalar H2 collision-induced absorption ---
 
 def h2cia_np(freq_scalar, stim_col):
+    """Scalar Borysow H2-CIA lookup used only by the fp64 parity oracle."""
     out = np.zeros(temp_np.size); wn = freq_scalar / C_LIGHT_CM   # numpy-ref
     if wn > 20000.0: return out
     nu = min(79, int(wn / 250.0)); delnu = (wn - 250.0 * nu) / 250.0

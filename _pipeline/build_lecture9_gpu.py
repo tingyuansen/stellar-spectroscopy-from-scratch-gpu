@@ -1,22 +1,12 @@
 #!/usr/bin/env python
 """Assemble content/Lecture9.ipynb (unexecuted). Execute + render via build.py.
 
-Lecture 9 — Hydrostatic Equilibrium & Temperature Structure, written in clean torch/MPS.
-The grey/Hopf temperature law and the ATLAS12 log-tau grid are vectorized over the 80 depth layers
-as tensor ops; the radiation pressure is an elementwise torch expression; and the Kurucz **TTAUP**
-predictor-corrector integration of hydrostatic equilibrium in log-pressure is rebuilt as the one
-genuinely-sequential depth march the lecture needs (the 4-term Adams history couples layer j to
-j-1..j-4, so it is a JUSTIFIED depth loop over a fixed 80 layers — not a useful target for
-the elementwise vectorization used elsewhere, and kept as a depth march in kgpu/atlas_hydrostatic.py
-too; the per-layer scalar arithmetic is still done torch-native on the device). The result —
-P_gas, RHOX — matches the reference to the documented float floor, sharpening Lecture 1's
-one-line P=g*tau from one part in 1e5 to the stored production-grid result.
-
-The clean torch is a pedagogical reduction of kgpu/atlas_hydrostatic.py's grey_temperature + ttaup
-(read-only algorithm reference); the notebook imports neither kgpu nor pykurucz. The body +
-comparison cells + closers are generated and completeness/parity-gated by the external-API port
-worker (_pipeline/port_worker.py, fill job 'lecture9') against the numpy twin
-(~/Stellar_Spectroscopy_From_Scratch/_pipeline/build_lecture9.py) and reference/L1.npz.
+Lecture 9 — Hydrostatic Equilibrium & Temperature Structure, written in torch/MPS.
+The grey/Hopf temperature law, ATLAS12 log-tau grid, and radiation pressure are
+elementwise tensor operations over the 80 depth layers. The Kurucz TTAUP
+predictor-corrector remains a true depth recurrence because its four-term Adams
+history couples each layer to previous layers. The resulting gas pressure and
+column mass match the stored reference to the documented float floor.
 """
 from pathlib import Path
 import nbformat
@@ -26,8 +16,14 @@ BOOK = Path(__file__).resolve().parent.parent
 OUT = BOOK / "content" / "Lecture9.ipynb"
 
 cells = []
-def md(src): cells.append(new_markdown_cell(src))
-def code(src): cells.append(new_code_cell(src))
+def md(src):
+    """Append a markdown cell to the lecture notebook."""
+    cells.append(new_markdown_cell(src))
+
+
+def code(src):
+    """Append a code cell exactly as supplied by the builder."""
+    cells.append(new_code_cell(src))
 
 # ── Title + front matter + objectives (one cell, so the callout lifts) ───
 md(r"""# Lecture 9 — Hydrostatic Equilibrium & Temperature Structure
@@ -36,9 +32,7 @@ md(r"""# Lecture 9 — Hydrostatic Equilibrium & Temperature Structure
 
 *Yuan-Sen Ting*
 
-*Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
-
-*The **hydrostatic** half of the model atmosphere — the grey/Hopf temperature, the radiation pressure, and Kurucz's **TTAUP** predictor-corrector integration of $dP/d\tau = g/\kappa$ in log-pressure — is rebuilt in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). The lecture's new pedagogy is the **vectorization budget**: the temperature, the grid, and the radiation pressure are evaluated for **all 80 depth layers at once** as tensor ops; the TTAUP march, by contrast, is a true recurrence — its 4-term Adams history couples each layer to the previous four, so it remains a justified loop over a fixed, small number of layers, exactly as the production `kgpu` engine keeps it a depth march. It ends with a **comparison cell** that validates the torch structure ($P_{\rm gas}$, $\mathrm{RHOX}$) against the reference to the documented float floor. The clean torch implementation is a pedagogical reduction of `kgpu/atlas_hydrostatic.py`; the notebook imports neither `kgpu` nor pykurucz.*
+*The **hydrostatic** half of the model atmosphere — the grey/Hopf temperature, the radiation pressure, and Kurucz's **TTAUP** predictor-corrector integration of $dP/d\tau = g/\kappa$ in log-pressure — is rebuilt in **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). The lecture's new pedagogy is the **vectorization budget**: the temperature, the grid, and the radiation pressure are evaluated for **all 80 depth layers at once** as tensor ops; the TTAUP march, by contrast, is a true recurrence — its 4-term Adams history couples each layer to the previous four, so it remains a justified loop over a fixed, small number of layers, exactly as the production `kgpu` engine keeps it a depth march. It ends with a **comparison cell** that validates the torch structure ($P_{\rm gas}$, $\mathrm{RHOX}$) against the reference to the documented float floor. The notebook imports neither `kgpu` nor pykurucz.*
 
 ---
 
@@ -103,7 +97,7 @@ print("reference values loaded:", ", ".join(REF.files))''')
 
 # ── write ───────────────────────────────────────────────────────────────
 
-# ── CATCH-AND-FILL: appended sections (port_worker fill) ──
+# ── Main lecture sections ─────────────────────────────────────────────────
 md(r"""## Introduction: building the atmosphere we have been given
 
 For eight lectures the **model atmosphere** has been a given. We took its run of temperature, gas pressure, and density with depth — the columns of a `.atm` file — and on top of it built the equation of state, the continuous and line opacities, and the radiative-transfer solver, until we reproduced the reference solar spectrum to the relevant numerical floor. But where did that atmosphere come from? In this static, plane-parallel setup the two *structural* equilibrium constraints are **hydrostatic equilibrium**, that the gas neither collapses under its own weight nor blows away, and **radiative equilibrium**, that the energy carried outward by radiation is conserved at every depth; closing the model also requires an equation of state, opacities, a composition, boundary conditions, and a convection treatment.

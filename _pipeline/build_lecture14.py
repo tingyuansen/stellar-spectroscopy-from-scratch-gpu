@@ -119,9 +119,9 @@ Nothing reads the opacity answer: the continuum and line opacity are *computed* 
 # ── load the stars ──────────────────────────────────────────────────────────────
 md(r"""## The four stars, and how each atmosphere was built
 
-We load four stars spanning the HR diagram. Each reference file carries the **model atmosphere** the spectrum is built on (the column-mass depth scale `atm_depth`, the temperature, density, and so on), the **equation-of-state populations** the opacity is computed from (`population_per_ion`, `doppler_per_ion`, the special continuum populations, the continuum-edge grids), the **line catalog** for the star's window (atomic and, for cool stars, molecular), the **production reference** we check against (the continuum and line opacity, the emergent and continuum fluxes — loaded only to measure precision), and the **provenance** of the atmosphere: whether it converged from a grey start (`atm_converged_from_scratch`), how many iterations it took, and — if it did not — the recorded reason.
+We load four stars spanning the HR diagram. Each reference file is a fixture with two kinds of content. The input side carries the **model atmosphere** the spectrum is built on (the column-mass depth scale `atm_depth`, the temperature, density, and so on), the **equation-of-state populations** the opacity is computed from (`population_per_ion`, `doppler_per_ion`, the special continuum populations, the continuum-edge grids), the **line catalog** for the star's window (atomic and, for cool stars, molecular), and the **provenance** of the atmosphere: whether it converged from a grey start (`atm_converged_from_scratch`), how many iterations it took, and — if it did not — the recorded reason. The target side carries the **production reference** we check against (the continuum and line opacity, the emergent and continuum fluxes), which is loaded only after the notebook has built its own opacity and transfer solution.
 
-These reference files carry *input data and a comparison target only*. The populations are the verified equation-of-state state (Lecture 2), used the way Lecture 2 uses a tabulated partition function; the line catalog is data; the production opacity and spectrum are loaded at the very end, to measure precision. In this notebook the EOS is not re-solved: its verified output arrays are inputs, and the from-scratch computation begins at opacity construction from those populations. Everything after that — the opacity, the transfer, the source function — we build in this notebook.""")
+These reference files carry *input data and a comparison target only*. The populations are the verified equation-of-state state (Lecture 2), used the way Lecture 2 uses a tabulated partition function; the line catalog is data; the production opacity and spectrum are read only for diagnostics, never as inputs to the computed path. In this notebook the EOS is not re-solved: its verified output arrays are inputs, and the from-scratch computation begins at opacity construction from those populations. Everything after that — the opacity, the transfer, the source function — we build in this notebook.""")
 
 code(r'''import pathlib
 import numpy as np
@@ -1351,6 +1351,12 @@ code(r'''
 def process_wing_pair(asynth_d, wavelength_grid, center_idx, kappa0, adamp,
                       doppler_width, line_wavelength, kapmin_ref, use_cutoff,
                       resolu, h0tab, h1tab, h2tab):
+    """Deposit one metal-line Voigt wing pair onto the ASYNTH wavelength grid.
+
+    The routine mirrors the production walk: probe outward from the line centre,
+    decide whether the explicit wing cutoff is reached, then add symmetric red
+    and blue contributions without owning any catalogue or depth-loop state.
+    """
     n_wavelengths = wavelength_grid.size
     if doppler_width <= 0.0:
         return
@@ -1679,6 +1685,12 @@ md(r"""`_sofbeta` evaluates the Stark profile $S(\beta)$ as a function of the re
 code(r'''
 
 def _sofbeta(beta, p, n, m, propbm, c_arr, d_arr, pp_arr, beta_arr):
+    """Evaluate the hydrogen Stark S(beta) helper for one reduced field value.
+
+    This is the scalar profile-table interpolation used by HPROF4.  The caller
+    supplies the transition quantum numbers and preloaded Stark tables; this
+    helper returns only the local line-shape factor.
+    """
     if beta <= 0.0:
         return 0.0
     b2 = beta * beta
@@ -1970,6 +1982,12 @@ def _accumulate_hyd_line_depth(buffer, continuum_row, stim_row, grid, center_ind
                                line_wavelength, kappa0, n_lower, n_upper, wcon, wtail,
                                wlminus1, wlminus2, wlplus1, wlplus2, redcut, bluecut, cutoff,
                                hyd, tabs, fine_offsets, fine_weights, n_fine):
+    """Accumulate one hydrogen transition across one atmospheric depth row.
+
+    The center, red, and blue walks apply the HPROF4 profile plus the continuum
+    taper/series-merge limits already chosen by the caller.  The function mutates
+    only the supplied opacity row buffer.
+    """
     n_points = buffer.shape[0]
     simple_wings = n_upper <= n_lower + 2
     use_taper = (not simple_wings) and (wtail > wcon)
@@ -2305,6 +2323,12 @@ def _accumulate_helium_line(wings_row, continuum_row, grid, center_index,
                             line_wavelength, kappa_eff, doppler, adamp, cutoff,
                             has_wcon, wcon_val, has_wtail, wtail_val, base_wave,
                             h0tab, h1tab, h2tab):
+    """Deposit one helium line's Voigt wings into a single depth row.
+
+    This is the small He-specific analogue of the ASYNTH wing walk, including
+    the caller-provided continuum-merge and tail taper limits for dissolved
+    high-series lines.
+    """
     n_points = grid.shape[0]
     clamped = max(0, min(center_index, n_points - 1))
     # red wing (clamped .. end)
@@ -3159,6 +3183,12 @@ code(r'''
 # ===========================================================================
 def tc_josh_profiles(acont, scont, aline, sline, sigmac, sigmal, rhox, bnu,
                   xtau, ch, coefj):
+    """Solve one-frequency JOSH moments over depth for the TCORR operator.
+
+    Inputs are continuum/line absorption, scattering, source terms, and the
+    column-mass grid.  Outputs are the opacity totals and moment profiles that
+    ROSS and TCORR consume, including the float32 scattering iteration state.
+    """
     n = rhox.size
     nxtau = xtau.size
     coefj_diag = np.diag(coefj).astype(np.float32)
@@ -3353,6 +3383,12 @@ class TcRosstab:
         self.t = list(self.t); self.p = list(self.p); self.k = list(self.k)
 
     def eval(self, temp, pressure):
+        """Interpolate the ingested Rosseland opacity table at one (T, P) point.
+
+        The production table lookup chooses the nearest sample in each quadrant
+        of normalized log-temperature/log-pressure space, then blends their
+        log-kappa values with inverse-distance weights.
+        """
         if self.n <= 0:
             return 1.0
         templog = (np.log10(max(temp, 1e-300)) - self.zerot) / self.slopet
@@ -3404,6 +3440,12 @@ code(r'''
 #    The opacity comes from the ROSSTAB table built this iteration.
 # ===========================================================================
 def tc_ttaup(t, tau, prad, pturb, grav, rosstab):
+    """Reintegrate hydrostatic pressure on the current Rosseland-depth grid.
+
+    TCORR uses this DRHOX-side operator after building a fresh ROSSTAB table:
+    radiation and turbulent pressure are subtracted from total pressure while
+    the gas opacity is looked up from the table at each trial pressure.
+    """
     n = int(t.size)
     abstd = np.zeros(n); ptotal = np.zeros(n); pgas = np.zeros(n)
     dlg_tau = np.log(max(float(tau[1] / max(tau[0], 1e-300)), 1e-300)) if n > 1 else 0.0
@@ -3464,6 +3506,12 @@ code(r'''
 # ===========================================================================
 def tc_tcorr_mode3(T, rhox, tauros, abross, flxrad, rjmins, rdabh, rdiagj,
                 flux, teff, prad, gravity_cgs, rosstab, steplg=0.125, tau1lg=-6.875):
+    """Apply the mode-3 Avrett-Krook temperature correction for one grey step.
+
+    This lecture uses the convection-off, first-iteration path: build the flux,
+    Lambda, and surface correction terms, enforce the production clamps, and
+    return the corrected temperature plus the regridded column mass.
+    """
     n = T.size
     dtdrhx = tc_deriv(rhox, T)
     dabros = tc_deriv(rhox, abross)
