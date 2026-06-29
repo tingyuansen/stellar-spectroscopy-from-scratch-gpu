@@ -1,557 +1,757 @@
 #!/usr/bin/env python
-"""Lecture 8 — The JOSH Solver: Production Radiative Transfer. The moment equations and
-Eddington closure, the discrete Lambda operator on a fixed optical-depth grid, the
-scattering source function and its iteration, and the CH-weighted surface flux. Rebuilds
-pykurucz's solve_josh_flux from scratch and reproduces the spectrum to machine precision.
-Checked against reference/diag.npz + reference/josh_tables.npz. No pykurucz import.
+"""Assemble content/Lecture8.ipynb (unexecuted). Execute + render via build.py.
+
+Lecture 8 — The JOSH Solver: Production Radiative Transfer, rebuilt as a
+torch-native notebook. The notebook imports neither kgpu nor pykurucz and marks
+its remaining data boundaries explicitly: precomputed opacity slabs and fixed
+JOSH operator tables are still taught-path inputs, while source and flux arrays
+are comparison-only references.
 """
 from pathlib import Path
+
 import nbformat
-from nbformat.v4 import new_notebook, new_markdown_cell, new_code_cell
+from nbformat.v4 import new_code_cell, new_markdown_cell, new_notebook
 
 BOOK = Path(__file__).resolve().parent.parent
 OUT = BOOK / "content" / "Lecture8.ipynb"
+
 cells = []
-def md(s): cells.append(new_markdown_cell(s))
-def code(s): cells.append(new_code_cell(s))
 
-md(r"""# Lecture 8 — The JOSH Solver: Production Radiative Transfer
 
-*Stellar Spectroscopy from Scratch — rebuilding the physics of ATLAS and SYNTHE from first principles*
+def md(s):
+    cells.append(new_markdown_cell(s))
+
+
+def code(s):
+    cells.append(new_code_cell(s.strip("\n")))
+
+
+md(
+    r"""# Lecture 8 — The JOSH Solver: Production Radiative Transfer
+
+*Stellar Spectroscopy from Scratch — a torch/MPS implementation, with each part validated against reference calculations*
 
 *Yuan-Sen Ting*
 
 *Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
 
-*Every result in this book is checked against reference values computed with [**pykurucz**](https://arxiv.org/abs/2603.11693) — a pure-Python implementation of Kurucz's ATLAS12 and SYNTHE — shipped beside the lectures as small data files, so the notebooks need only NumPy to run.*
+*This lecture rebuilds the Kurucz/ATLAS JOSH moment-solver **algorithm** as clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback). It imports neither `kgpu` nor `pykurucz`. Under the strict data-provenance rule, this is not yet a final closed-from-raw-input Lecture 8: the taught computation still consumes precomputed opacity slabs from earlier synthesis stages and fixed JOSH operator tables. Source arrays and flux arrays are comparison-only references, not inputs to the solver.*
 
 ---
 
 **Learning objectives.** By the end of this lecture you will be able to:
 
-- Take the **moments** of the transfer equation and close them with the **Eddington approximation**, turning radiative transfer into a pair of moment equations for the mean intensity $J$ and the flux $H$.
-- Read the production code's three precomputed tables — a fixed **optical-depth grid**, a discrete **lambda-like operator** `COEFJ`, and surface-flux weights `CH` — and say what each one does.
-- Build the optical-depth scale with a **parabolic integrator**, map the source onto the fixed grid with **parabolic interpolation**, and solve the **scattering source function** by iteration.
-- Assemble the emergent flux and reproduce the reference solar spectrum to **machine precision** — meaning agreement with the production JOSH code path and its tabulated operators and arithmetic, not an assertion that the moment approximation is exact radiative transfer — closing the deep-core gap the formal solution of Lecture 7 left against the production engine, which in this window is a **method** difference (the fixed grid, parabolic quadrature, tabulated operators, and single-precision arithmetic), not missing scattering.""")
+- Derive the moment-equation form of plane-parallel transfer and identify the Eddington closure used by JOSH.
+- Interpret the three fixed JOSH tables: the optical-depth grid `XTAU`, the lambda-like operator `COEFJ`, and the surface-flux weights `CH`.
+- Build optical depth with Kurucz's parabolic quadrature, map source terms onto the fixed grid, and solve the scattering source function.
+- Run the full JOSH solve as batched torch tensor operations over wavelength, using fp32 where the production iteration used single precision.
+- Reproduce the shipped production spectrum within the documented torch/MPS numerical floor, while keeping the remaining data-boundary debt explicit."""
+)
 
-md(r"""## Introduction
+md(
+    r"""## Introduction
 
-Lecture 7 solved radiative transfer with the **formal solution**, which is exact for any specified source. It reproduced the solar spectrum to a part in a thousand, loosening to about ten percent only in the deepest cores — and Lecture 7 pinned down what that residual is. It is not missing scattering: in this LTE solar window the deep line cores are nearly **pure absorption**, the local scattering fraction falling to $\sim10^{-4}$ there, so the prescribed thermal source $S_\nu = B_\nu$ is an excellent approximation in the cores. The gap is instead a **method** difference. Lecture 7's formal solution integrates the steep near-surface source by the trapezoidal rule on the atmosphere's *native* depth grid, while the production engine maps the source onto a *fixed* optical-depth grid, integrates it with a parabolic moment scheme through tabulated operators, and works in single precision. Where the source is nearly linear in $\tau$ — almost everywhere — the two paths agree to a part in a thousand; only in the steep strong-line cores does the grid, the quadrature, and the arithmetic account for the ten-percent gap. This lecture rebuilds that production path so the gap closes.
+Lecture 7 used the formal solution of transfer: prescribe the LTE source, integrate against an $E_2$ kernel, and recover an emergent flux. It was physically transparent and very close to the production spectrum, but not identical in the strongest cores. This lecture rebuilds the production path responsible for that remaining difference.
 
-Scattering still belongs in a production solver, but it earns its place elsewhere in this window. Where it matters is the **continuum surface**: in the thin, cool top layers the continuum absorption nearly vanishes while Rayleigh and Thomson scattering do not, so there the scattering fraction climbs to $\alpha_\nu \to 1$ and the source is genuinely pulled away from $B_\nu$ toward the scattered radiation field — exactly the regime a prescribed thermal source cannot follow. The general source function that covers both regimes is a mix of the thermal Planck term and the scattered mean intensity:
+The production solver is called **JOSH**. It maps each wavelength onto a fixed optical-depth grid, solves moment equations with a precomputed lambda-like operator, iterates the source when scattering matters, and forms the emergent surface flux with fixed weights. The algorithm is old and compact; the GPU lesson is to make wavelength the batch axis so the whole spectral window is a tensor program rather than a Python loop over wavelengths.
 
-$$
-S_\nu = \frac{\kappa^{\rm abs}_\nu\,B_\nu + \kappa^{\rm scat}_\nu\,J_\nu}{\kappa^{\rm abs}_\nu + \kappa^{\rm scat}_\nu}
-        = (1-\alpha_\nu)\,B_\nu + \alpha_\nu\,J_\nu,
-\qquad
-\alpha_\nu \equiv \frac{\kappa^{\rm scat}_\nu}{\kappa^{\rm abs}_\nu + \kappa^{\rm scat}_\nu}.
-$$
+![The JOSH moment solver: opacity to optical depth, a map onto a fixed Eddington grid, a scattering iteration for the source, and a weighted surface flux.](resources/figures/s7_josh.png)"""
+)
 
-The difficulty Lecture 7 deferred is the **mean intensity** $J_\nu$: it is an angular moment of the radiation field at each depth, and that field in turn depends nonlocally on $S_\nu$ throughout the atmosphere — so the source and the field are coupled, and we can no longer just read $S$ off the temperature structure. The production code resolves this with a **moment method** on a fixed optical-depth grid, due to Avrett & Loeser and known in the Kurucz codes as **JOSH**. It reduces the angular transfer problem to two coupled ordinary differential equations for the moments, discretises them as a precomputed matrix, and iterates the source to self-consistency. This lecture rebuilds it step by step, and the payoff is the spectrum to machine precision.
+md(
+    r"""## Load the data and choose the device
 
-![The JOSH moment solver: opacity to optical depth, a map onto a fixed Eddington grid, a scattering iteration for the source, and a weighted surface flux.](resources/figures/s7_josh.png)""")
+The code path is self-contained in the narrow sense that it imports no production solver. The data path is not fully closed under the stricter rule: the opacity slabs are precomputed products of earlier continuum and line-opacity stages, and the JOSH operator tables are fixed numerical tables extracted from the Kurucz/ATLAS implementation rather than generated in this notebook.
 
-# ── moment equations ────────────────────────────────────────────────────
-md(r"""## The moment equations and the Eddington closure
+That boundary is acceptable for a provisional transfer-kernel lesson, but it is not final purity closure. The next section audits every loaded array so the distinction is explicit. The LTE source is computed from the atmosphere temperatures, not imported from any solver.
 
-This is the conceptual core of the lecture. Start from the plane-parallel transfer equation of Lecture 7, $\mu\,dI/d\tau = I - S$, where $\tau$ is the optical depth of Lecture 1, and take **moments** in the angle cosine $\mu$ — that is, multiply by powers of $\mu$ and average over solid angle. Assuming azimuthal symmetry, the $d\Omega$ integral reduces to the $\mu$ integrals below. Define the first three moments of the intensity,
+On MPS/CUDA the working dtype is fp32 because that is the practical GPU format and because the JOSH source iteration is specified by the original single-precision arithmetic. On CPU we use fp64 for the structural tensor operations, then still cast the source iteration to fp32."""
+)
 
-$$
-J = \tfrac12\!\int_{-1}^{1} I\,d\mu, \qquad
-H = \tfrac12\!\int_{-1}^{1} I\,\mu\,d\mu, \qquad
-K = \tfrac12\!\int_{-1}^{1} I\,\mu^2\,d\mu,
-$$
-
-the **mean intensity** $J$, the **Eddington flux** $H$ (the physical flux is $F = 4\pi H$), and the second moment $K$. Taking the zeroth and first moments of the transfer equation gives
-
-$$
-\frac{dH}{d\tau} = J - S, \qquad \frac{dK}{d\tau} = H.
-$$
-
-This is two equations in three unknowns ($J, H, K$) — not closed. The **Eddington approximation** closes it: deep in the atmosphere the radiation field is nearly isotropic, so $K = \tfrac13 J$ (for an isotropic field $\langle\mu^2\rangle = 1/3$). In the simplified Eddington closure used here we take the Eddington factor $f \equiv K/J = \tfrac13$, extending this deep-atmosphere relation as a closure across the whole grid; the surface boundary condition partly compensates for the fact that the field is not isotropic near $\tau = 0$. With $K = fJ$ the second moment equation becomes $H = d(fJ)/d\tau$; differentiating it and substituting into the first moment equation eliminates both $H$ and $K$, leaving
-
-$$
-\frac{d^2(fJ)}{d\tau^2} = J - S, \qquad f = \tfrac13,
-$$
-
-a single second-order equation for $J$ given the source $S$. We close it with the usual **Eddington surface boundary condition**, $H(0) = J(0)/\sqrt3$, which approximates the no-incoming-radiation boundary within the closure (it does not follow exactly from $I(\mu<0)=0$), together with a diffusion condition at depth: at large optical depth the radiation field approaches the local thermal field, with a flux set by the source gradient. Because the equation is linear in $S$, so is its solution: $J = \Lambda_{\rm JOSH}[S]$, the lambda-like operator of this moment closure. Discretised on a fixed optical-depth grid it becomes a **matrix**, and that matrix is one of the tables the production code ships.""")
-
-code(r'''import pathlib
+code(
+    r'''import pathlib
 import numpy as np
+import torch
 import matplotlib.pyplot as plt
 
-# shared plot styling for the whole notebook
-plt.rcParams.update({"figure.figsize": (7.2, 4.3), "figure.dpi": 120, "savefig.facecolor": "white",
+plt.rcParams.update({
+    "figure.figsize": (7.2, 4.3), "figure.dpi": 120, "savefig.facecolor": "white",
     "axes.grid": True, "grid.alpha": 0.25, "axes.axisbelow": True,
-    "font.size": 11, "axes.titlesize": 12.5, "axes.labelsize": 11.5})
+    "font.size": 11, "axes.titlesize": 12.5, "axes.labelsize": 11.5,
+})
 
-# the production code's precomputed JOSH tables, all on the fixed optical-depth grid
+if torch.backends.mps.is_available():
+    DEVICE, DTYPE = torch.device("mps"), torch.float32
+elif torch.cuda.is_available():
+    DEVICE, DTYPE = torch.device("cuda"), torch.float32
+else:
+    DEVICE, DTYPE = torch.device("cpu"), torch.float64
+print(f"device = {DEVICE}, working dtype = {DTYPE}")
+
 REF = pathlib.Path("..") / "reference"
-T = np.load(REF / "josh_tables.npz")
+D = np.load(REF / "diag.npz")
+JT = np.load(REF / "josh_tables.npz")
 
-# the fixed optical-depth grid, 51 points, surface -> deep
-XTAU = T["xtau"]
+wl_np = D["wavelength"].astype(np.float64)
+cont_abs_np = D["continuum_absorption"].astype(np.float64)
+cont_scat_np = D["continuum_scattering"].astype(np.float64)
+line_abs_np = D["line_opacity"].astype(np.float64)
+line_scat_np = D["line_scattering"].astype(np.float64)
+flux_total_ref_np = D["flux_total"].astype(np.float64)
+flux_cont_ref_np = D["flux_continuum"].astype(np.float64)
 
-# surface-flux weights: H(0) = sum(CH * S)
-CH = T["ch"]
+Tdepth_np = np.load(REF / "atmosphere.npz")["temperature"].astype(np.float64)
+rhox_np = JT["rhox"].astype(np.float64)
+xtau_np = JT["xtau"].astype(np.float64)
+coefj_np = JT["coefj"].astype(np.float64)
+ch_np = JT["ch"].astype(np.float64)
 
-# the discrete lambda-like operator: J = COEFJ @ S on the grid
-COEFJ = T["coefj"]
+def tt(x, dtype=DTYPE):
+    """Move a host value to the selected torch device and dtype.
 
-# column mass of the model atmosphere, 80 layers [g/cm^2]
-RHOX = T["rhox"]
+    This helper only enforces the notebook-wide device policy. On MPS/CUDA the
+    structural tensors are fp32; on CPU they are fp64 until the JOSH source
+    iteration explicitly casts to fp32 for parity with the historical solver.
+    """
+    return torch.as_tensor(x, device=DEVICE, dtype=dtype)
 
-# number of grid points we will solve on
-NXTAU = XTAU.size
+wl = tt(wl_np)
+Tdepth = tt(Tdepth_np)
+rhox = tt(rhox_np)
+cont_abs = tt(cont_abs_np)
+cont_scat = tt(cont_scat_np)
+line_abs = tt(line_abs_np)
+line_scat = tt(line_scat_np)
+XTAU = tt(xtau_np)
+COEFJ = tt(coefj_np)
+CH = tt(ch_np)
+COEFJ_DIAG = torch.diagonal(COEFJ).contiguous()
 
-# report the grid extent and the shapes of the two operators
-print(f"fixed grid: {NXTAU} points, tau = {XTAU[0]:.3g} .. {XTAU[-1]:.3g}")
-print(f"COEFJ is {COEFJ.shape}, CH is {CH.shape}, atmosphere has {RHOX.size} layers")''')
+print(f"opacity grid: {cont_abs.shape[0]} depths x {cont_abs.shape[1]} wavelengths")
+print(f"JOSH grid: {XTAU.numel()} points, tau = {xtau_np[0]:.3g} .. {xtau_np[-1]:.3g}")'''
+)
 
-md(r"""## The three tables, and what they mean
+md(
+    r"""## Data-boundary audit
 
-The method rests on three precomputed objects, all defined on the **fixed optical-depth grid** `XTAU` (51 points spanning $\tau \approx 10^{-5}$ at the surface to $\tau \approx 20$ deep). The operator can be fixed because, once each wavelength is mapped onto its own optical-depth coordinate, the closure equations have the same form; the wavelength dependence enters only through the source $S$, the scattering fraction $\alpha$, and the depth-to-$\tau$ mapping.
+Under the strict rule, no `pykurucz`/`leankurucz` code and no production-derived computed-state data should appear in the taught computation path. This current L8 patch satisfies the **code** boundary but not the final **data** closure. The table below is the honest status of every loaded array:
 
-- **`COEFJ`** is the discrete lambda-like operator $\Lambda_{\rm JOSH}$. Given the source function sampled on the grid, $J = \texttt{COEFJ} \cdot S$ returns the mean intensity on the grid — it *is* the solution of the moment equations, packaged as a matrix multiply. Its diagonal, $\texttt{COEFJ}_{kk}$, is how strongly the local source feeds the local mean intensity, and it is the dominant term.
-- **`CH`** turns the converged source into the emergent **surface flux**: $H(0) = \sum_k \texttt{CH}_k\,S_k$. It is the discrete form of the flux integral, the moment-method counterpart of the $E_2$ kernel from Lecture 7. Throughout this notebook the returned quantity is the Eddington flux $H$; the physical flux is $F = 4\pi H$, and that constant factor cancels in the normalised spectrum.
-- **`XTAU`** is the grid both are built on.
+| Array(s) | Classification | Used by taught solver? | Boundary status |
+|---|---:|---:|---|
+| `diag.wavelength` | numerical wavelength grid | yes | Scoped grid input for this transfer window. |
+| `diag.continuum_absorption`, `diag.continuum_scattering` | computed opacity state from earlier continuum physics | yes | Remaining boundary: not raw physical tables and not recomputed here. Final closure should pass the Lecture 3 torch continuum output directly. |
+| `diag.line_opacity`, `diag.line_scattering` | computed opacity state from earlier line physics | yes | Remaining boundary: not recomputed here. Final closure should pass the Lecture 4-6 torch line-opacity outputs directly. |
+| `atmosphere.temperature` | model-atmosphere state | yes | Scoped model input for this transfer lesson, not a transfer answer. |
+| `josh_tables.rhox` | model column-mass grid | yes | Scoped atmosphere grid input, duplicated from the model state. |
+| `josh_tables.xtau`, `josh_tables.coefj`, `josh_tables.ch` | fixed numerical JOSH operator/quadrature tables | yes | Remaining boundary: not per-star answers, but still external computed operator tables. Final closure should derive/generate them locally or vendor their source/provenance as numerical constants. |
+| `diag.slinec`, `diag.line_source` | computed source arrays | no | Comparison-only sanity check against inline LTE Planck; never fed into the solver. |
+| `diag.flux_total`, `diag.flux_continuum` | computed spectrum answers | no | Comparison-only parity targets. |
 
-Let us look at them.""")
+So the claim for this notebook is deliberately narrow: it is a torch-native implementation of the JOSH **algorithmic path** on scoped opacity/operator inputs. It is not final strict data-purity closure."""
+)
 
-code(r'''fig, (a1, a2) = plt.subplots(1, 2, figsize=(11, 4.0))
+md(
+    r"""## The moment equations and fixed tables
 
-# left: the full operator as a heat map (log scale so the off-diagonal tails show)
-im = a1.imshow(np.log10(np.abs(COEFJ) + 1e-30), cmap="magma", aspect="auto")
-a1.set_title(r"$\log_{10}|\,$COEFJ$\,|$ — the discrete $\Lambda_{\rm JOSH}$ operator")
-a1.set_xlabel("source grid point $m$"); a1.set_ylabel("response grid point $k$")
+Start from the plane-parallel transfer equation $\mu\,dI/d\tau=I-S$ and take angular moments,
+
+$$
+J=\tfrac12\int_{-1}^{1}I\,d\mu,\qquad
+H=\tfrac12\int_{-1}^{1}I\mu\,d\mu,\qquad
+K=\tfrac12\int_{-1}^{1}I\mu^2\,d\mu .
+$$
+
+The first two moment equations are
+
+$$
+\frac{dH}{d\tau}=J-S,\qquad \frac{dK}{d\tau}=H .
+$$
+
+JOSH closes them with the Eddington approximation $K=fJ$, $f=1/3$, plus surface and deep boundary conditions. The resulting linear solve for $J$ on a fixed 51-point optical-depth grid is precomputed:
+
+$$
+J_k=\sum_m \mathrm{COEFJ}_{km}S_m .
+$$
+
+The emergent Eddington flux is another fixed weighted sum,
+
+$$
+H(0)=\sum_k \mathrm{CH}_k S_k .
+$$"""
+)
+
+code(
+    r'''fig, (a1, a2) = plt.subplots(1, 2, figsize=(11, 4.0))
+im = a1.imshow(np.log10(np.abs(coefj_np) + 1e-30), cmap="magma", aspect="auto")
+a1.set_title(r"$\log_{10}|\mathrm{COEFJ}|$")
+a1.set_xlabel("source grid point")
+a1.set_ylabel("response grid point")
 fig.colorbar(im, ax=a1, fraction=0.046)
 
-# right: the dominant diagonal of Lambda alongside the surface-flux weights
-a2.plot(np.arange(NXTAU), np.diag(COEFJ), "o-", ms=3, label="diagonal COEFJ$_{kk}$")
-a2.plot(np.arange(NXTAU), CH, "s-", ms=3, color="C3", label="CH (flux weights)")
-a2.set_xlabel("grid point $k$"); a2.set_title("diagonal of $\\Lambda$, and the flux weights")
+a2.plot(np.arange(xtau_np.size), np.diag(coefj_np), "o-", ms=3, label="diag(COEFJ)")
+a2.plot(np.arange(xtau_np.size), ch_np, "s-", ms=3, label="CH")
+a2.set_xlabel("fixed-grid index")
+a2.set_title("local response and surface weights")
+a2.legend()
+fig.tight_layout()
+plt.show()'''
+)
 
-a2.legend(); fig.tight_layout(); plt.show()''')
+md(
+    r"""## LTE source and extinction
 
-md(r"""The operator is strongly diagonal — the mean intensity at a point is dominated by the source there, with smaller contributions from neighbouring depths — exactly the local-plus-tails structure of $\Lambda$. The flux weights `CH` are concentrated near the surface points: the emergent flux is set by the source in the top few optical depths, the same Eddington–Barbier intuition as Lecture 7, now as a discrete sum.""")
-
-# ── the opacities and sources ───────────────────────────────────────────
-md(r"""## The inputs: opacity, scattering, and the source
-
-For each wavelength the solver needs, at every atmospheric depth, four opacity quantities and a source function. The four opacities we built in earlier lectures and read here as reference arrays of shape (depth, wavelength):
-
-- `cont_abs` $=\kappa^{\rm abs}_{\rm cont}$ — the **continuum absorption** of Lecture 3 (mostly H$^-$).
-- `cont_scat` $=\kappa^{\rm scat}_{\rm cont}$ — the **continuum scattering** of Lecture 3 (Rayleigh + Thomson).
-- `line_abs` $=\kappa^{\rm abs}_{\rm line}$ — the **line absorption** of Lecture 5 (the forest of Voigt profiles).
-- `line_scat` $=\kappa^{\rm scat}_{\rm line}$ — a placeholder for line scattering; in this solar window's reference setup it is exactly zero.
-
-The **source function**, by contrast, we do not read — we compute it. In the local thermodynamic equilibrium (LTE) this book works in, the thermal source is the **Planck function** $B_\nu(T)$ of Lecture 1 — per unit frequency, to match Kurucz's source arrays — evaluated at each depth's temperature and each wavelength point's frequency. The next section makes the LTE identity precise and computes $B_\nu$ inline; here we load only the opacities, the wavelength grid, and the per-depth temperatures of the solar model.
-
-These opacities are **mass extinction coefficients**, so they convert to optical depth by $d\tau_\lambda = \kappa_\lambda\,dm$, with $m$ the column mass increasing inward — the relation we integrate in Step 1. From the opacities and the source we form, at each depth, the **total extinction** $\kappa^{\rm abs}+\kappa^{\rm scat}$, the **scattering fraction** $\alpha = \kappa^{\rm scat}/(\kappa^{\rm abs}+\kappa^{\rm scat})$, and the **absorption-weighted source**
+At each depth and wavelength JOSH needs the total extinction, the scattering fraction, and the thermal source. The opacities are mass extinction coefficients, so optical depth is integrated over column mass $m$:
 
 $$
-\bar S = \frac{\kappa^{\rm abs}_{\rm cont}\,S_{\rm cont} + \kappa^{\rm abs}_{\rm line}\,S_{\rm line}}
-              {\kappa^{\rm abs}_{\rm cont} + \kappa^{\rm abs}_{\rm line}},
+d\tau_\lambda = \kappa_\lambda\,dm .
 $$
 
-which is the thermal ($B$-like) part of the source, before scattering mixes in $J$. The scattering opacities are deliberately absent from $\bar S$: their emissivity is the separate $\alpha J$ term that the iteration of Step 3 supplies, so $\bar S$ holds only the thermal emissivity divided by the absorptive opacity.""")
+In LTE, both the continuum and line thermal source functions reduce to the Planck function $B_\nu(T)$. We compute that source inline with Kurucz's overflow-safe per-frequency form. The reference source arrays are used only as a sanity check."""
+)
 
-code(r'''# the per-wavelength opacities built in earlier lectures
-D = np.load(REF / "diag.npz")
+code(
+    r'''H_PLANCK = 6.62607015e-27
+K_BOLTZ = 1.380649e-16
+C_NM = 2.99792458e17
+PLANCK_PREFACTOR = 1.47439e-2
+EPS = 1.0e-38
+ITER_TOL = 1.0e-5
+MAX_ITER = 51
+DEFAULT_SWEEPS = 8
 
-# the four opacity arrays, shape (depth, wl)
-cont_abs  = D["continuum_absorption"].astype(float)   # kappa_abs continuum  (depth, wl)
-cont_scat = D["continuum_scattering"].astype(float)    # kappa_scat continuum
-line_abs  = D["line_opacity"].astype(float)            # kappa_abs lines
-line_scat = D["line_scattering"].astype(float)         # kappa_scat lines
+def planck_bnu(wl_nm, temperature):
+    """Evaluate the LTE Planck source B_nu(T) on the depth-wavelength grid.
 
-# the wavelength axis and the reference spectra we will compare against
-wl        = D["wavelength"].astype(float)              # nm
-flux_total_ref = D["flux_total"]; flux_cont_ref = D["flux_continuum"]
+    Parameters
+    ----------
+    wl_nm : torch.Tensor, shape [n_wl]
+        Wavelength grid in nm.
+    temperature : torch.Tensor, shape [n_depth]
+        Atmospheric temperature in K.
 
-# the solar model's per-depth temperatures: the source function is built FROM these,
-# not read from the reference -- the Planck function of Lecture 1 (next section)
-Tdepth = np.load(REF / "atmosphere.npz")["temperature"].astype(float)   # K, 80 layers
+    Returns
+    -------
+    torch.Tensor, shape [n_depth, n_wl]
+        Per-frequency Planck source in the overflow-safe Kurucz form. This is
+        the source fed to the taught solver; loaded source arrays are used only
+        for a comparison sanity check.
+    """
+    nu = C_NM / wl_nm
+    x = (H_PLANCK * nu)[None, :] / (K_BOLTZ * temperature[:, None])
+    ehvkt = torch.exp(-x)
+    return PLANCK_PREFACTOR * (nu[None, :] / 1.0e15) ** 3 * ehvkt / (1.0 - ehvkt)
 
-print(f"{cont_abs.shape[0]} depths x {wl.size} wavelengths, {wl[0]:.1f}-{wl[-1]:.1f} nm")''')
+B_nu = planck_bnu(wl, Tdepth)
 
-md(r"""## The source function in LTE is the Planck function
-
-The one physical quantity left to supply is the **thermal source function** $S_\nu$ — the thermal emissivity divided by the absorptive opacity. (The *total* source entering the transfer is then the extinction-weighted mixture of this thermal term and the scattering emissivity $\alpha J$; that mixing is the iteration's job, Step 3.) We do not read the thermal source from the reference — we **compute** it, because in LTE it has a closed form. Throughout this section the Planck function is the *per-frequency* $B_\nu$: although the grid is labelled by wavelength, Kurucz's source arrays are per unit frequency, so the subscript only labels the wavelength point and all source functions below are $B_\nu(T)$. The production code builds its continuum source as $S_{\rm cont} = B_\nu\,(1-e^{-h\nu/kT})/(\texttt{BFUDGE} - e^{-h\nu/kT})$, where `BFUDGE` is a departure factor that would carry any non-LTE level populations. In strict LTE the level populations are thermal, so $\texttt{BFUDGE}\equiv 1$, and the denominator collapses to the stimulated-emission factor $1-e^{-h\nu/kT}$ — exactly the numerator's factor — leaving
-
-$$
-S_{\rm cont} = \frac{B_\nu\,(1-e^{-h\nu/kT})}{1 - e^{-h\nu/kT}} = B_\nu(T) .
-$$
-
-The **line** source is the same story: with no line scattering ($\kappa^{\rm scat}_{\rm line}\equiv 0$ here) and thermal populations, the line emissivity is also Boltzmann-thermal, so $S_{\rm line} = B_\nu(T)$ too. Both source functions therefore reduce, *to the bit*, to the single Planck function at the local temperature. So rather than read `slinec`/`line_source` from the reference, we evaluate $B_\nu$ inline — the identical overflow-safe Kurucz form, constants, and literal $1.47439\times10^{-2}$ prefactor we wrote in Lecture 1 — and feed that into the transfer. We then verify, before using it, that the inline $B_\nu$ reproduces the reference source arrays to machine precision; agreement confirms the LTE identity holds and that no source function need ever be read as an input.""")
-
-code(r'''# the Planck function B_nu(T), the exact overflow-safe Kurucz form of Lecture 1:
-# the 1.47439e-2 prefactor is 2h/c^2 with nu rescaled by 1e15 (Kurucz's historical literal),
-# and e^{-x}/(1-e^{-x}) is the photon occupation factor written so the Wien tail never overflows
-H_PLANCK = 6.62607015e-27       # Planck constant   [erg s]   (the Lecture 1 constants)
-K_BOLTZ  = 1.380649e-16         # Boltzmann constant [erg/K]
-C_NM     = 2.99792458e17        # speed of light    [nm/s]    (so nu = C_NM / wl_nm)
-
-def planck_nu(freq_hz, temperature):
-    """Planck B_nu(T) [CGS], the exact overflow-safe Kurucz form of Lecture 1."""
-    x = H_PLANCK * freq_hz / (K_BOLTZ * np.asarray(temperature, float))   # x = h nu / kT
-    ehvkt = np.exp(-x)                                                     # <= 1: never overflows
-    return 1.47439e-2 * (freq_hz / 1e15)**3 * ehvkt / (1.0 - ehvkt)
-
-# evaluate B_nu at every (depth, wavelength): frequency from the grid, temperature from the model
-nu = C_NM / wl                                          # [Hz]
-B_nu = planck_nu(nu[None, :], Tdepth[:, None])          # (depth, wl)
-
-# PROOF the substitution is exact: compare inline B_nu to the reference source arrays.
-# in LTE these are equal -- slinec = line_source = B_nu -- so this must match to machine precision
-ref_slinec = D["slinec"].astype(float)
-ref_lsource = D["line_source"].astype(float)
-
-# relative difference of the inline Planck against each stored reference source
-rel_c = np.abs(B_nu - ref_slinec) / np.abs(ref_slinec)
-rel_l = np.abs(B_nu - ref_lsource) / np.abs(ref_lsource)
-
-print(f"inline B_nu vs reference slinec     : max rel diff = {rel_c.max():.2e}  (LTE: = 0 to roundoff)")
-print(f"inline B_nu vs reference line_source: max rel diff = {rel_l.max():.2e}")
-print(f"reference line_scattering is exactly zero: {np.all(line_scat == 0.0)}")
-
-# USE the inline B_nu as BOTH the continuum and the line source -- no source is read as input
-S_cont = B_nu
-S_line = B_nu''')
-
-md(r"""From those raw arrays a small helper builds the three quantities the moment solver needs at every depth: the total extinction, the scattering fraction $\alpha$, and the absorption-weighted thermal source $\bar S$. The `EPS` floor mirrors the Fortran's tiny constant, used to keep divisions safe rather than to change any physics.""")
-
-code(r'''# Fortran's tiny floor, used to keep divisions safe
-EPS = 1e-38
+rel_slinec = torch.max(torch.abs(B_nu.detach().cpu().to(torch.float64) - torch.as_tensor(D["slinec"])) / torch.abs(torch.as_tensor(D["slinec"])))
+rel_lsource = torch.max(torch.abs(B_nu.detach().cpu().to(torch.float64) - torch.as_tensor(D["line_source"])) / torch.abs(torch.as_tensor(D["line_source"])))
+print(f"inline B_nu vs reference slinec     : max rel diff = {float(rel_slinec):.2e}")
+print(f"inline B_nu vs reference line_source: max rel diff = {float(rel_lsource):.2e}")
+print(f"reference line_scattering is exactly zero: {bool(np.all(line_scat_np == 0.0))}")
 
 def source_and_alpha(acont, scont, aline, sline, sigmac, sigmal):
-    """Total extinction, scattering fraction, and absorption-weighted source per depth."""
-    # total extinction = absorption + scattering, continuum + lines
-    abtot = np.maximum(acont + aline + sigmac + sigmal, EPS)
+    """Build total extinction, scattering fraction, and thermal source.
 
-    # scattering fraction alpha, clipped into [0,1]
-    alpha = np.clip((sigmac + sigmal) / abtot, 0.0, 1.0)
+    All inputs have shape [batch, depth], with wavelength as the batch axis.
+    `acont`/`aline` are absorptive opacity terms, `sigmac`/`sigmal` are
+    scattering terms, and `scont`/`sline` are LTE thermal source functions.
 
-    # the thermal source divides the thermal emissivity by the absorptive opacity only
+    Returns
+    -------
+    abtot : torch.Tensor
+        Total extinction, floored by `EPS` for safe division.
+    alpha : torch.Tensor
+        Scattering fraction clipped to [0, 1].
+    snubar : torch.Tensor
+        Absorption-weighted thermal source. Scattering emission is excluded
+        here because it enters through the later alpha*J fixed point.
+    """
+    abtot = torch.clamp(acont + aline + sigmac + sigmal, min=EPS)
+    alpha = torch.clamp((sigmac + sigmal) / abtot, 0.0, 1.0)
     denom = acont + aline
+    snubar = torch.where(denom > 0, (acont * scont + aline * sline) / denom, scont)
+    return abtot, alpha, snubar'''
+)
 
-    # opacity-weighted blend of the continuum and line source functions
-    sbar = np.where(denom > 0, (acont*scont + aline*sline)/denom, scont)
+md(
+    r"""## Step 1 — optical depth by parabolic integration
 
-    return abtot, alpha, sbar''')
+The production solver does not use a trapezoid here. It uses Kurucz's `PARCOE`/`INTEG` pair: fit local parabolas to the extinction as a function of column mass, integrate each interval analytically, and accumulate the optical depth inward.
 
-# ── step 1: optical depth ───────────────────────────────────────────────
-md(r"""## Step 1 — optical depth, by parabolic integration
+The implementation below is batched over wavelength. The depth dependence is a prefix sum (`torch.cumsum`), which is a native tensor primitive."""
+)
 
-The moment equations live in optical depth, so first we turn the mass extinction into a $\tau_\lambda$ scale by integrating $d\tau_\lambda = \kappa_\lambda\,dm$ over the column mass `RHOX`, exactly as in Lecture 7 — but here we use the production code's **parabolic** quadrature rather than the trapezoid, because the same routine is used to build the grid the operator was tabulated on, and we want the optical-depth scale to match to the bit.
+code(
+    r'''def parcoe_batched(f, x):
+    """Return PARCOE parabolic coefficients for batched f(x).
 
-You do not need to memorise the coefficient algebra below; the point to retain is that `parcoe`/`integ` is a local parabolic quadrature that the production code applies everywhere. The routine `parcoe` fits, on every interval, a parabola $f(x) \approx a + bx + cx^2$ through three neighbouring points — where here the independent variable $x$ is the column mass `RHOX`, and $\tau_\lambda$ is the *output* of the integration, not the variable being fitted. It then forces the first one or two interior intervals near the boundary to use linear fits, where a stable neighbouring parabola is not available, and blends each parabola with its neighbour by curvature weight — a mild smoothing that keeps the integrand well behaved near the boundaries.""")
+    Parameters
+    ----------
+    f : torch.Tensor, shape [batch, depth]
+        Values to fit on the shared depth grid, here total extinction per
+        wavelength.
+    x : torch.Tensor, shape [depth]
+        Monotone column-mass grid.
 
-code(r'''def parcoe(f, x):
-    """Parabolic coefficients a,b,c per interval (Kurucz PARCOE)."""
-    n = f.size
-    a = np.zeros(n); b = np.zeros(n); c = np.zeros(n)
-    if n == 1:                                                      # single point: constant
-        a[0] = f[0]; return a, b, c
+    Returns
+    -------
+    (a, b, c) : tuple of torch.Tensor
+        Coefficients, each shape [batch, depth], for interval-local parabolas
+        f ~= a + b*x + c*x**2. The first interior intervals are forced linear,
+        interior fits are curvature-blended, and the last interval is copied
+        back exactly as in the JOSH/PARCOE parity path.
+    """
+    B, n = f.shape
+    a = torch.zeros_like(f)
+    b = torch.zeros_like(f)
+    c = torch.zeros_like(f)
+    if n == 1:
+        a[:, 0] = f[:, 0]
+        return a, b, c
 
-    # linear fit at the two endpoints (no interior neighbour for a parabola)
-    b[0]  = (f[1]-f[0])/(x[1]-x[0]);     a[0]  = f[0]-x[0]*b[0]
-    n1 = n-1
-    b[-1] = (f[-1]-f[n1-1])/(x[-1]-x[n1-1]); a[-1] = f[-1]-x[-1]*b[-1]
-    if n == 2: return a, b, c                                       # two points: linear only
+    b[:, 0] = (f[:, 1] - f[:, 0]) / (x[1] - x[0])
+    a[:, 0] = f[:, 0] - x[0] * b[:, 0]
+    n1 = n - 1
+    b[:, -1] = (f[:, -1] - f[:, n1 - 1]) / (x[-1] - x[n1 - 1])
+    a[:, -1] = f[:, -1] - x[-1] * b[:, -1]
+    if n == 2:
+        return a, b, c
 
-    # fit a parabola through three consecutive points on each interior interval
-    for j in range(1, n1):                                          # parabola through 3 points
-        j1 = j-1
-        d = (f[j]-f[j1])/(x[j]-x[j1])                               # local slope
-        c[j] = f[j+1]/((x[j+1]-x[j])*(x[j+1]-x[j1])) + \
-               (f[j1]/(x[j+1]-x[j1]) - f[j]/(x[j+1]-x[j]))/(x[j]-x[j1])
-        b[j] = d - (x[j]+x[j1])*c[j]
-        a[j] = f[j1] - x[j1]*d + x[j]*x[j1]*c[j]
+    xj = x[1:n1]
+    xj1 = x[0:n1 - 1]
+    xjp = x[2:n]
+    fj = f[:, 1:n1]
+    fj1 = f[:, 0:n1 - 1]
+    fjp = f[:, 2:n]
+    d = (fj - fj1) / (xj - xj1)
+    cj = fjp / ((xjp - xj) * (xjp - xj1)) + (fj1 / (xjp - xj1) - fj / (xjp - xj)) / (xj - xj1)
+    bj = d - (xj + xj1) * cj
+    aj = fj1 - xj1 * d + xj * xj1 * cj
+    a[:, 1:n1] = aj
+    b[:, 1:n1] = bj
+    c[:, 1:n1] = cj
 
-    # force the first one or two interior intervals to be linear (no curvature)
-    c[1] = 0.0; b[1] = (f[2]-f[1])/(x[2]-x[1]); a[1] = f[1]-x[1]*b[1]   # force pts 2,3 linear
+    c[:, 1] = 0.0
+    b[:, 1] = (f[:, 2] - f[:, 1]) / (x[2] - x[1])
+    a[:, 1] = f[:, 1] - x[1] * b[:, 1]
     if n > 3:
-        c[2] = 0.0; b[2] = (f[3]-f[2])/(x[3]-x[2]); a[2] = f[2]-x[2]*b[2]
+        c[:, 2] = 0.0
+        b[:, 2] = (f[:, 3] - f[:, 2]) / (x[3] - x[2])
+        a[:, 2] = f[:, 2] - x[2] * b[:, 2]
 
-    # blend each parabola with its neighbour, weighted by relative curvature
-    for j in range(1, n1):                                          # curvature-weighted blend
-        if c[j] == 0.0: continue
-        j1 = min(j+1, n-1); denom = abs(c[j1]) + abs(c[j])
-        wt = abs(c[j1])/denom if denom > 0 else 0.0                 # weight by neighbour curvature
-        a[j] = a[j1]+wt*(a[j]-a[j1]); b[j] = b[j1]+wt*(b[j]-b[j1]); c[j] = c[j1]+wt*(c[j]-c[j1])
+    j = torch.arange(1, n1, device=f.device)
+    j1 = torch.clamp(j + 1, max=n - 1)
+    cj_cur = c[:, j]
+    cj_nb = c[:, j1]
+    denom = cj_nb.abs() + cj_cur.abs()
+    wt = torch.where(denom > 0, cj_nb.abs() / denom, torch.zeros_like(denom))
+    blended_a = a[:, j1] + wt * (a[:, j] - a[:, j1])
+    blended_b = b[:, j1] + wt * (b[:, j] - b[:, j1])
+    blended_c = c[:, j1] + wt * (c[:, j] - c[:, j1])
+    apply = cj_cur != 0.0
+    a[:, j] = torch.where(apply, blended_a, a[:, j])
+    b[:, j] = torch.where(apply, blended_b, b[:, j])
+    c[:, j] = torch.where(apply, blended_c, c[:, j])
 
-    a[n1-1] = a[-1]; b[n1-1] = b[-1]; c[n1-1] = c[-1]               # copy last interval coeffs
-    return a, b, c''')
+    a[:, n1 - 1] = a[:, -1]
+    b[:, n1 - 1] = b[:, -1]
+    c[:, n1 - 1] = c[:, -1]
+    return a, b, c
 
-md(r"""With the per-interval coefficients in hand, `integ` accumulates the integral analytically: on each interval it integrates that interval's parabola in closed form and adds it to the running total, so the result is the cumulative optical depth $\tau_\lambda$ down through the atmosphere. The two routines together are the Kurucz `PARCOE`/`INTEG` pair.""")
+def integ_batched(x, f, start):
+    """Integrate f dx cumulatively with the PARCOE/INTEG quadrature.
 
-code(r'''def integ(x, f, start):
-    """Cumulative integral of f dx using each interval's left-point parabola (Kurucz INTEG)."""
-    a, b, c = parcoe(f, x)                       # per-interval parabola coefficients
-    out = np.zeros(f.size); out[0] = start       # seed with the surface boundary value
-    for i in range(f.size-1):
-        dx = x[i+1]-x[i]                          # width of this interval
-        # closed-form integral of a + b x + c x^2 across [x_i, x_{i+1}]
-        term = a[i] + 0.5*b[i]*(x[i+1]+x[i]) + (c[i]/3.0)*((x[i+1]+x[i])*x[i+1] + x[i]*x[i])
-        out[i+1] = out[i] + term*dx              # accumulate the running integral
-    return out''')
+    Parameters
+    ----------
+    x : torch.Tensor, shape [depth]
+        Shared column-mass grid.
+    f : torch.Tensor, shape [batch, depth]
+        Total extinction for each wavelength row.
+    start : torch.Tensor, shape [batch]
+        Surface optical-depth seed, normally f[:, 0] * x[0].
 
-# ── step 2: map onto the grid ───────────────────────────────────────────
-md(r"""## Step 2 — map the source onto the fixed grid
+    Returns
+    -------
+    torch.Tensor, shape [batch, depth]
+        Monochromatic optical-depth scale for every wavelength. The depth
+        recurrence is a prefix sum, implemented as `torch.cumsum`.
+    """
+    a, b, c = parcoe_batched(f, x)
+    out = torch.empty_like(f)
+    out[:, 0] = start
+    if f.shape[1] == 1:
+        return out
+    xi = x[:-1]
+    xip = x[1:]
+    dx = xip - xi
+    term = (
+        a[:, :-1]
+        + 0.5 * b[:, :-1] * (xip + xi)
+        + (c[:, :-1] / 3.0) * ((xip + xi) * xip + xi * xi)
+    )
+    out[:, 1:] = start[:, None] + torch.cumsum(term * dx, dim=1)
+    return out'''
+)
 
-The atmosphere has 80 depth points, with a $\tau_\lambda$ scale that differs at every wavelength; the operator `COEFJ` lives on the fixed 51-point grid `XTAU`. So we interpolate the absorption-weighted source $\bar S$ and the scattering fraction $\alpha$ from the atmosphere's $\tau_\lambda$ onto `XTAU`. The production code uses the same parabolic interpolation everywhere — the `MAP1` routine — so we reproduce it rather than reach for a library spline; the small differences in interpolation scheme are exactly what would spoil bit-level agreement.
+md(
+    r"""## Step 2 — map onto the fixed optical-depth grid
 
-The body of `map1` below is long and faithfully Fortran-shaped, but its conceptual role is simple, and that is all you need to retain: **given values on the atmosphere grid, `MAP1` returns values on `XTAU` using the same local parabolic rule as the production code.** It walks the new abscissae in order, and for each one selects a local parabola — a forward fit, a backward fit, or a curvature-weighted blend of the two — choosing linear fits near the ends where a parabola has no neighbour. The branching is bookkeeping to pick the right three points; the arithmetic is the same parabola as `parcoe`.
+The physical atmosphere has 80 depth points, but `COEFJ` and `CH` live on the fixed 51-point `XTAU` grid. The production `MAP1` interpolation chooses a local linear, backward-parabolic, or curvature-blended parabolic fit. The tensor version below finds all brackets with `torch.searchsorted` and evaluates the same canonical parabola for every wavelength/grid pair."""
+)
 
-Where a grid point lies **above** the top of the model atmosphere — at an optical depth smaller than that of the topmost mass layer, $\tau < \tau_\lambda[0]$ — there is nothing to interpolate from, so the source is held at its surface value. That surface masking matters in strong lines, whose opacity lifts $\tau_\lambda[0]$ to non-negligible values.""")
+code(
+    r'''def map1_batched(taunu, fold, xnew):
+    """Interpolate fold(taunu) onto xnew with the MAP1 parabolic rule.
 
-code(r'''def map1(xold, fold, xnew):
-    """Parabolic interpolation of fold(xold) onto xnew (Kurucz MAP1)."""
-    nold, nnew = xold.size, xnew.size
-    fnew = np.zeros(nnew)
-    if nold == 0 or nnew == 0: return fnew
+    Parameters
+    ----------
+    taunu : torch.Tensor, shape [batch, depth]
+        Monotone optical-depth grid for each wavelength.
+    fold : torch.Tensor, shape [batch, depth]
+        Quantity to remap, usually the thermal source or scattering fraction.
+    xnew : torch.Tensor, shape [n_grid]
+        Fixed JOSH optical-depth grid.
 
-    # 1-based padding so the index arithmetic matches the original Fortran exactly
-    xo = np.empty(nold+1); fo = np.empty(nold+1); xo[1:] = xold; fo[1:] = fold
-    l = 2; ll = 0                                          # l: bracketing index; ll: last one used
-    cfor = bfor = afor = cbac = bbac = abac = a = b = c = 0.0
+    Returns
+    -------
+    torch.Tensor, shape [batch, n_grid]
+        `fold` sampled on `xnew`. This tensor form computes the same local
+        linear/backward/blended parabolas as MAP1 but uses `torch.searchsorted`
+        to select every bracket in one batched operation.
+    """
+    B, nold = taunu.shape
+    G = xnew.shape[0]
+    needles = xnew[None, :].expand(B, G).contiguous()
+    j0 = torch.searchsorted(taunu, needles, right=True)
+    l = torch.clamp(j0 + 1, min=2, max=nold)  # 1-based Fortran bracket
 
-    for k in range(1, nnew+1):
-        xk = xnew[k-1]                                     # the new abscissa to evaluate at
-        while True:
-            if xk < xo[l]:                                 # xk now bracketed by [xo[l-1], xo[l]]
-                if l == ll: break                          # reuse the parabola from the last point
-                if l == 2 or l == 3:                       # near the top: linear fit only
-                    l = min(nold, l); c = 0.0
-                    b = (fo[l]-fo[l-1])/(xo[l]-xo[l-1]); a = fo[l]-xo[l]*b; ll = l; break
-                l1 = l-1
-                if l > ll+1 or l == 3 or l == 4:           # backward parabola (3 points ending at l)
-                    l2 = l-2
-                    d = (fo[l1]-fo[l2])/(xo[l1]-xo[l2])
-                    cbac = fo[l]/((xo[l]-xo[l1])*(xo[l]-xo[l2])) + \
-                           (fo[l2]/(xo[l]-xo[l2]) - fo[l1]/(xo[l]-xo[l1]))/(xo[l1]-xo[l2])
-                    bbac = d - (xo[l1]+xo[l2])*cbac
-                    abac = fo[l2] - xo[l2]*d + xo[l1]*xo[l2]*cbac
-                    if l >= nold: c, b, a, ll = cbac, bbac, abac, l; break   # no forward room
-                else:
-                    cbac, bbac, abac = cfor, bfor, afor    # reuse previous forward fit as backward
-                    if l == nold: c, b, a, ll = cbac, bbac, abac, l; break
-                d = (fo[l]-fo[l1])/(xo[l]-xo[l1])          # forward parabola (3 points starting at l1)
-                cfor = fo[l+1]/((xo[l+1]-xo[l])*(xo[l+1]-xo[l1])) + \
-                       (fo[l1]/(xo[l+1]-xo[l1]) - fo[l]/(xo[l+1]-xo[l]))/(xo[l]-xo[l1])
-                bfor = d - (xo[l]+xo[l1])*cfor
-                afor = fo[l1] - xo[l1]*d + xo[l]*xo[l1]*cfor
-                wt = abs(cfor)/(abs(cfor)+abs(cbac)) if abs(cfor) != 0 else 0.0   # curvature weight
-                a = afor+wt*(abac-afor); b = bfor+wt*(bbac-bfor); c = cfor+wt*(cbac-cfor); ll = l; break
-            l += 1                                         # xk lies deeper: advance the bracket
-            if l > nold:                                   # off the deep end: linear fit
-                l = min(nold, l); c = 0.0
-                b = (fo[l]-fo[l-1])/(xo[l]-xo[l-1]); a = fo[l]-xo[l]*b; ll = l; break
-        fnew[k-1] = a + (b + c*xk)*xk                      # evaluate the chosen parabola at xk
-    return fnew''')
+    i = l - 1
+    im1 = i - 1
+    im2 = i - 2
+    ip1 = i + 1
 
-# ── step 3: the scattering iteration ────────────────────────────────────
-md(r"""## Step 3 — the scattering source, by iteration
+    def gather(src, idx):
+        """Gather depth-indexed values after clamping invalid stencil endpoints."""
+        return torch.gather(src, 1, torch.clamp(idx, 0, nold - 1))
 
-Now the heart of the method, and the part this lecture owns. On the grid we want the source function that is consistent with the radiation field it produces. With the absorption-weighted source $\bar S$ and the operator $J = \texttt{COEFJ}\cdot S$ of the Eddington closure, the scattering relation $S = (1-\alpha)\bar S + \alpha J$ — written down in Lecture 7 — becomes a **linear fixed point on the grid**:
+    xo_i, fo_i = gather(taunu, i), gather(fold, i)
+    xo_m1, fo_m1 = gather(taunu, im1), gather(fold, im1)
+    xo_m2, fo_m2 = gather(taunu, im2), gather(fold, im2)
+    xo_p1, fo_p1 = gather(taunu, ip1), gather(fold, ip1)
+
+    b_lin = (fo_i - fo_m1) / (xo_i - xo_m1)
+    a_lin = fo_i - xo_i * b_lin
+    c_lin = torch.zeros_like(a_lin)
+
+    d_b = (fo_m1 - fo_m2) / (xo_m1 - xo_m2)
+    c_bac = fo_i / ((xo_i - xo_m1) * (xo_i - xo_m2)) + (fo_m2 / (xo_i - xo_m2) - fo_m1 / (xo_i - xo_m1)) / (xo_m1 - xo_m2)
+    b_bac = d_b - (xo_m1 + xo_m2) * c_bac
+    a_bac = fo_m2 - xo_m2 * d_b + xo_m1 * xo_m2 * c_bac
+
+    d_f = (fo_i - fo_m1) / (xo_i - xo_m1)
+    c_for = fo_p1 / ((xo_p1 - xo_i) * (xo_p1 - xo_m1)) + (fo_m1 / (xo_p1 - xo_m1) - fo_i / (xo_p1 - xo_i)) / (xo_i - xo_m1)
+    b_for = d_f - (xo_i + xo_m1) * c_for
+    a_for = fo_m1 - xo_m1 * d_f + xo_i * xo_m1 * c_for
+
+    denom = c_for.abs() + c_bac.abs()
+    wt = torch.where(c_for.abs() != 0.0, c_for.abs() / denom, torch.zeros_like(c_for))
+    a_bld = a_for + wt * (a_bac - a_for)
+    b_bld = b_for + wt * (b_bac - b_for)
+    c_bld = c_for + wt * (c_bac - c_for)
+
+    is_lin = (l == 2) | (l == 3)
+    is_bac = (~is_lin) & (l >= nold)
+    a = torch.where(is_lin, a_lin, torch.where(is_bac, a_bac, a_bld))
+    b = torch.where(is_lin, b_lin, torch.where(is_bac, b_bac, b_bld))
+    c = torch.where(is_lin, c_lin, torch.where(is_bac, c_bac, c_bld))
+    xk = xnew[None, :]
+    return a + (b + c * xk) * xk'''
+)
+
+md(
+    r"""## Step 3 — the scattering source iteration
+
+On the fixed grid the total source obeys
 
 $$
-S_k = (1-\alpha_k)\,\bar S_k + \alpha_k \sum_m \texttt{COEFJ}_{km}\,S_m .
+S_k=(1-\alpha_k)\bar S_k+\alpha_k\sum_m\mathrm{COEFJ}_{km}S_m .
 $$
 
-When the scattering fraction $\alpha$ is zero this collapses to $S = \bar S$ — the pure-absorption case Lecture 7 handled with a prescribed thermal source. When $\alpha > 0$ the source is pulled toward $J$ rather than held at $\bar S$; in the optically thin surface layers, where the radiation field is no longer thermalised, this is where the iteration does its work.
-
-We solve the fixed point by a **backward Gauss–Seidel sweep**, running from the deepest grid point up to the surface. The direction is not arbitrary: at depth the radiation field is strongly thermalised, $S \approx \bar S$, so that end is already near its answer; sweeping bottom-up propagates this stable, physically anchored value outward into the scattering-dominated surface layers where the correction is largest. To get the per-point update, take the fixed-point equation $S_k = (1-\alpha_k)\bar S_k + \alpha_k\sum_m \texttt{COEFJ}_{km}S_m$, split the sum into its diagonal $m=k$ term and the rest, and move the diagonal term to the left-hand side; solving for the updated $S_k$ leaves the $1 - \alpha_k\,\texttt{COEFJ}_{kk}$ denominator below. Subtracting the current value from that result gives the increment applied at each point,
+The production solver updates this fixed point with a backward Gauss-Seidel sweep, deepest grid point first. Isolating the diagonal term gives
 
 $$
-\Delta S_k = \frac{\alpha_k\,(\texttt{COEFJ}\cdot S)_k + (1-\alpha_k)\bar S_k - S_k}{1 - \alpha_k\,\texttt{COEFJ}_{kk}},
+\Delta S_k=\frac{\alpha_k(\mathrm{COEFJ}\cdot S)_k+(1-\alpha_k)\bar S_k-S_k}
+{1-\alpha_k\mathrm{COEFJ}_{kk}} .
 $$
 
-repeated until every relative change falls below $10^{-5}$. The update is **in place**: the dot product $(\texttt{COEFJ}\cdot S)_k$ uses the current working vector, so deeper points already visited in the backward sweep contribute their freshly updated values while the not-yet-visited upper points still hold their previous-iteration values — this is what makes it Gauss–Seidel rather than Jacobi, and it is what accelerates convergence. The production code carries this iteration in **single precision** (the original Fortran used `REAL*4` arrays here), so we do too — it is the one place where the working precision is part of the specification.""")
+The iteration is deliberately fp32: that single-precision path is part of the reference arithmetic."""
+)
 
-code(r'''ITER_TOL, MAX_ITER = 1e-5, 51       # relative tolerance and iteration cap
-COEFJ_DIAG = np.diag(COEFJ).copy()   # the diagonal of Lambda, reused below
+code(
+    r'''def iterate_source(xsbar, xalpha, coefj, coefj_diag, sweeps=DEFAULT_SWEEPS):
+    """Solve the scattering fixed point by backward Gauss-Seidel sweeps.
 
-def iterate_source(sbar_grid, alpha_grid):
-    """Solve S = (1-alpha) sbar + alpha (COEFJ @ S) by backward Gauss-Seidel, float32."""
-    # work in single precision throughout: this is part of the production specification
-    co = COEFJ.astype(np.float32)
-    xs = sbar_grid.astype(np.float32)                 # initial guess: the thermal source
-    al = alpha_grid.astype(np.float32)
+    Parameters
+    ----------
+    xsbar : torch.Tensor, shape [batch, n_grid]
+        Thermal source on the fixed JOSH grid.
+    xalpha : torch.Tensor, shape [batch, n_grid]
+        Scattering fraction on the fixed JOSH grid.
+    coefj : torch.Tensor, shape [n_grid, n_grid]
+        Fixed lambda-like operator, J = COEFJ @ S.
+    coefj_diag : torch.Tensor, shape [n_grid]
+        Diagonal of `coefj`, used in the diagonal-isolated update.
+    sweeps : int
+        Fixed number of backward sweeps. A fixed count keeps the GPU path
+        branchless over wavelength; the default is above the convergence need
+        for this window.
 
-    # (1-alpha) * sbar, the constant thermal term, precomputed once
-    sbar_mod = (sbar_grid * (1.0 - alpha_grid)).astype(np.float32)
-    # the per-point Gauss-Seidel denominator 1 - alpha * COEFJ_kk
-    diag = (1.0 - alpha_grid * COEFJ_DIAG).astype(np.float32)
-    tol, eps = np.float32(ITER_TOL), np.float32(EPS)
+    Returns
+    -------
+    torch.Tensor, shape [batch, n_grid]
+        Converged source estimate. The arithmetic is intentionally fp32 because
+        the historical JOSH source iteration used single precision; changing it
+        changes the parity floor.
+    """
+    G = xsbar.shape[1]
+    co = coefj.to(torch.float32)
+    cd = coefj_diag.to(torch.float32)
+    al = xalpha.to(torch.float32)
+    sbar = xsbar.to(torch.float32)
+    eps = torch.tensor(EPS, dtype=torch.float32, device=xsbar.device)
 
-    for _ in range(MAX_ITER):
-        converged = True
+    xsbar_mod = sbar * (1.0 - al)
+    diag = 1.0 - al * cd
 
-        # backward sweep: deepest (thermalised) point first, propagating up to the surface
-        for k in range(NXTAU-1, -1, -1):              # backward sweep: deepest point first
-            j_k = np.float32(np.dot(co[k], xs))       # (COEFJ @ S)_k, in place -> Gauss-Seidel
-            # the per-point increment from solving the diagonal-isolated fixed point
-            delta = (j_k*al[k] + sbar_mod[k] - xs[k]) / diag[k]
-            if (abs(delta/xs[k]) if xs[k] != 0 else np.inf) > tol:   # track relative change
-                converged = False
-            xs[k] = max(xs[k] + delta, eps)           # apply update, floored to stay positive
+    # Work as [grid, wavelength] so each source row is contiguous during the 51-point scan.
+    al_t = al.transpose(0, 1).contiguous()
+    diag_t = diag.transpose(0, 1).contiguous()
+    xsbar_mod_t = xsbar_mod.transpose(0, 1).contiguous()
+    xs_t = sbar.transpose(0, 1).contiguous()
 
-        if converged:                                 # stop once every point is below tolerance
-            break
-    return xs.astype(np.float64)''')
+    for _ in range(sweeps):
+        for k in range(G - 1, -1, -1):
+            j_k = torch.matmul(co[k], xs_t)
+            delta = (j_k * al_t[k] + xsbar_mod_t[k] - xs_t[k]) / diag_t[k]
+            xs_t[k] = torch.maximum(xs_t[k] + delta, eps)
+    return xs_t.transpose(0, 1).contiguous()'''
+)
 
-# ── step 4: assemble ────────────────────────────────────────────────────
-md(r"""## Step 4 — the surface flux, and the whole solver
+md(
+    r"""## Step 4 — batched JOSH flux
 
-The last step is owned by this lecture too: the converged source on the grid gives the emergent Eddington flux by the discrete weighted sum $H(0) = \sum_k \texttt{CH}_k\,S_k$ — a single dot product `CH @ S` of the surface-flux weights with the source. Assembling the four steps — optical depth, map to the grid, iterate the source, weight for the flux — is the complete `solve_josh` for one wavelength. One bookkeeping detail: `INTEG` needs the column mass increasing from the surface inward; our `RHOX` already is, so no reversal is needed here.""")
+The complete tensor path is now short:
 
-code(r'''def solve_josh(acont, scont, aline, sline, sigmac, sigmal):
-    """Emergent Eddington flux H(0) at one wavelength via the JOSH moment method."""
-    # build total extinction, scattering fraction, and thermal source at every depth
-    abtot, alpha, sbar = source_and_alpha(acont, scont, aline, sline, sigmac, sigmal)
-    tau = integ(RHOX, abtot, abtot[0]*RHOX[0])             # step 1: optical depth (seed = top dtau)
+1. Build total extinction, scattering fraction, and absorption-weighted thermal source.
+2. Integrate optical depth by `PARCOE`/`INTEG`.
+3. Map $\bar S$ and $\alpha$ onto `XTAU`.
+4. Iterate the scattering source on the fixed grid.
+5. Dot with `CH` for the surface Eddington flux.
 
-    sbar_g  = np.maximum(map1(tau, sbar,  XTAU), EPS)        # step 2: map source onto the grid
-    alpha_g = np.clip(   map1(tau, alpha, XTAU), 0.0, 1.0)   #         and the scattering fraction
+The total and continuum solves are independent, so they are stacked into one larger batch: first all total-spectrum wavelengths, then all continuum-only wavelengths."""
+)
 
-    # grid points above the atmosphere top have nothing to interpolate from:
-    # hold them at the surface values (matters in strong, opaque line cores)
-    above = XTAU < tau[0]
-    if above.any():
-        sbar_g[above] = max(sbar[0], EPS); alpha_g[above] = np.clip(alpha[0], 0.0, 1.0)
+code(
+    r'''def solve_josh_batched(acont, scont, aline, sline, sigmac, sigmal, rhox, sweeps=DEFAULT_SWEEPS):
+    """Compute emergent Eddington flux H(0) for a wavelength batch.
 
-    S = iterate_source(sbar_g, alpha_g)                     # step 3: scattering iteration
-    return float(CH @ S)                                    # step 4: CH-weighted surface flux H(0)
+    Parameters
+    ----------
+    acont, aline : torch.Tensor, shape [batch, depth]
+        Continuum and line absorption opacity. In this notebook these are loaded
+        scoped inputs, not recomputed from raw physical tables.
+    sigmac, sigmal : torch.Tensor, shape [batch, depth]
+        Continuum and line scattering opacity.
+    scont, sline : torch.Tensor, shape [batch, depth]
+        Continuum and line thermal source functions, here both inline Planck.
+    rhox : torch.Tensor, shape [depth]
+        Column-mass grid increasing inward.
+    sweeps : int
+        Fixed fp32 Gauss-Seidel sweep count.
 
-# the continuum is the same solver with the line terms switched off
-def solve_continuum(acont, scont, sigmac):
-    # zero line opacity and zero line scattering
-    zero = np.zeros_like(acont)
-    return solve_josh(acont, scont, zero, scont, sigmac, zero)
+    Returns
+    -------
+    torch.Tensor, shape [batch]
+        Surface Eddington flux H(0). On MPS the final CH dot is fp32 because MPS
+        lacks fp64; on CPU/CUDA it is promoted to fp64 to match the reference
+        dot-product precision.
+    """
+    abtot, alpha, snubar = source_and_alpha(acont, scont, aline, sline, sigmac, sigmal)
+    taunu = integ_batched(rhox, abtot, abtot[:, 0] * rhox[0])
 
-print("solver assembled")''')
+    saturated = taunu[:, 0] > XTAU[-1]
+    if bool(saturated.any()):
+        raise NotImplementedError("The saturated-core path does not fire in this solar window.")
 
-# ── worked example ──────────────────────────────────────────────────────
-md(r"""## A worked example: one line core, one continuum point
+    xsbar = torch.clamp(map1_batched(taunu, snubar, XTAU), min=EPS)
+    xalpha = torch.clamp(map1_batched(taunu, alpha, XTAU), 0.0, 1.0)
 
-Before running the whole window, watch the iteration act on a single wavelength. We pick the **deepest line core** in the band and a nearby **continuum** point, and look at the source function on the grid before and after the scattering iteration.
+    above = XTAU[None, :] < taunu[:, 0:1]
+    xsbar = torch.where(above, torch.clamp(snubar[:, 0:1], min=EPS).expand_as(xsbar), xsbar)
+    xalpha = torch.where(above, torch.clamp(alpha[:, 0:1], 0.0, 1.0).expand_as(xalpha), xalpha)
 
-The two points sit at opposite ends of the scattering scale, and not in the way generic intuition expects. The continuum point is **scattering-dominated at the surface**: in the thin, cool top layers the continuum absorption (H$^-$) is vanishingly small while Rayleigh and Thomson scattering are not, so the scattering fraction climbs to $\alpha \to 1$ there, and the iteration moves the source substantially as it couples $S$ to the nonlocal field $J$. The deep line core is the reverse: in this LTE solar window the line is **pure absorption** ($\kappa^{\rm scat}_{\rm line}\equiv 0$), and its enormous opacity swamps the continuum scattering at every depth, so $\alpha \approx 0$ throughout and the iteration leaves the source essentially untouched. The panel titles report each point's maximum $\alpha$ along the column, so they read $\alpha_{\max}\approx 1$ for the continuum point and $\alpha_{\max}\approx 0$ for the line core.""")
+    xs = iterate_source(xsbar, xalpha, COEFJ, COEFJ_DIAG, sweeps=sweeps)
+    dot_dtype = torch.float32 if DEVICE.type == "mps" else torch.float64
+    return torch.matmul(xs.to(dot_dtype), CH.to(dot_dtype))
 
-code(r'''ref_spec = flux_total_ref / flux_cont_ref
-kc = int(np.argmin(ref_spec))                              # deepest line core
-kk = int(np.argmin(np.abs(ref_spec - 1.0)))               # a continuum point (spectrum ~ 1)
+def solve_spectrum(cont_abs, cont_scat, line_abs, line_scat, b_nu, rhox, sweeps=DEFAULT_SWEEPS):
+    """Solve total and continuum spectra with one stacked JOSH batch.
+
+    Parameters
+    ----------
+    cont_abs, cont_scat, line_abs, line_scat : torch.Tensor, shape [depth, n_wl]
+        Opacity slabs for the window. These are the remaining taught-path data
+        boundary in this L8 patch: they are consumed as scoped inputs rather
+        than regenerated here from Lectures 3-6.
+    b_nu : torch.Tensor, shape [depth, n_wl]
+        Inline LTE Planck source.
+    rhox : torch.Tensor, shape [depth]
+        Column-mass grid.
+    sweeps : int
+        Fixed fp32 source-iteration sweep count.
+
+    Returns
+    -------
+    (flux_total, flux_cont, spectrum) : tuple of torch.Tensor
+        Total flux, continuum-only flux, and their normalised ratio. The
+        comparison target is loaded separately and is not used by this function.
+    """
+    acont = cont_abs.transpose(0, 1).contiguous()
+    sigmac = cont_scat.transpose(0, 1).contiguous()
+    aline = line_abs.transpose(0, 1).contiguous()
+    sigmal = line_scat.transpose(0, 1).contiguous()
+    src = b_nu.transpose(0, 1).contiguous()
+    zero = torch.zeros_like(aline)
+
+    acont2 = torch.cat((acont, acont), dim=0)
+    src2 = torch.cat((src, src), dim=0)
+    aline2 = torch.cat((aline, zero), dim=0)
+    sigmac2 = torch.cat((sigmac, sigmac), dim=0)
+    sigmal2 = torch.cat((sigmal, zero), dim=0)
+
+    h0 = solve_josh_batched(acont2, src2, aline2, src2, sigmac2, sigmal2, rhox, sweeps=sweeps)
+    n_wl = src.shape[0]
+    flux_total = h0[:n_wl]
+    flux_cont = h0[n_wl:]
+    return flux_total, flux_cont, flux_total / flux_cont'''
+)
+
+md(
+    r"""## A worked example: continuum versus line core
+
+The continuum surface can be scattering dominated because true absorption becomes tiny in the top layers, while the deep line cores in this solar window are almost pure absorption because the line opacity swamps the continuum scattering. The iteration matters where $\alpha$ is large, not simply where a spectral feature is deep."""
+)
+
+code(
+    r'''reference = flux_total_ref_np / flux_cont_ref_np
+kc = int(np.argmin(reference))
+kk = int(np.argmin(np.abs(reference - 1.0)))
 
 fig, axes = plt.subplots(1, 2, figsize=(11, 4.0), sharey=True)
 for ax, k, name in [(axes[0], kk, "continuum"), (axes[1], kc, "deep line core")]:
-    # run the first three pipeline steps by hand so we can plot the source before and after
-    abtot, alpha, sbar = source_and_alpha(cont_abs[:,k], S_cont[:,k], line_abs[:,k],
-                                          S_line[:,k], cont_scat[:,k], line_scat[:,k])
-    tau = integ(RHOX, abtot, abtot[0]*RHOX[0])             # optical depth for this wavelength
+    acont = cont_abs[:, [k]].T.contiguous()
+    sigmac = cont_scat[:, [k]].T.contiguous()
+    aline = line_abs[:, [k]].T.contiguous()
+    sigmal = line_scat[:, [k]].T.contiguous()
+    src = B_nu[:, [k]].T.contiguous()
+    abtot, alpha, snubar = source_and_alpha(acont, src, aline, src, sigmac, sigmal)
+    taunu = integ_batched(rhox, abtot, abtot[:, 0] * rhox[0])
+    xsbar = torch.clamp(map1_batched(taunu, snubar, XTAU), min=EPS)
+    xalpha = torch.clamp(map1_batched(taunu, alpha, XTAU), 0.0, 1.0)
+    above = XTAU[None, :] < taunu[:, 0:1]
+    xsbar = torch.where(above, torch.clamp(snubar[:, 0:1], min=EPS).expand_as(xsbar), xsbar)
+    xalpha = torch.where(above, torch.clamp(alpha[:, 0:1], 0.0, 1.0).expand_as(xalpha), xalpha)
+    xs = iterate_source(xsbar, xalpha, COEFJ, COEFJ_DIAG)
 
-    sbar_g  = np.maximum(map1(tau, sbar,  XTAU), EPS)        # thermal source on the grid
-    alpha_g = np.clip(   map1(tau, alpha, XTAU), 0.0, 1.0)   # scattering fraction on the grid
-    above = XTAU < tau[0]                                    # mask grid points above the atmosphere
-    if above.any(): sbar_g[above] = max(sbar[0], EPS); alpha_g[above] = np.clip(alpha[0],0,1)
-
-    S = iterate_source(sbar_g, alpha_g)                     # the scattering iteration
-
-    # compare the thermal source (no scattering) with the iterated source (with scattering)
-    ax.loglog(XTAU, sbar_g, "o-", ms=3, label=r"thermal $\bar S$ (no scattering)")
-    ax.loglog(XTAU, S, "s-", ms=3, color="C3", label="iterated $S$ (with scattering)")
-    ax.set_title(f"{name}:  $\\lambda$ = {wl[k]:.3f} nm,  max $\\alpha$ = {alpha_g.max():.2f}")
+    ax.loglog(xtau_np, xsbar[0].detach().cpu().numpy(), "o-", ms=3, label=r"thermal $\bar S$")
+    ax.loglog(xtau_np, xs[0].detach().cpu().numpy(), "s-", ms=3, label="iterated S")
+    ax.set_title(f"{name}: $\\lambda$ = {wl_np[k]:.3f} nm, max $\\alpha$ = {float(xalpha.max().detach().cpu()):.2f}")
     ax.set_xlabel(r"optical depth $\tau$")
 
-axes[0].set_ylabel("source function"); axes[0].legend(loc="upper left", fontsize=9)
-fig.tight_layout(); plt.show()''')
+axes[0].set_ylabel("source function")
+axes[0].legend(loc="upper left", fontsize=9)
+fig.tight_layout()
+plt.show()'''
+)
 
-md(r"""In the line-core panel the two curves lie on top of each other — with $\alpha\approx 0$ the source never leaves $\bar S$, and this pure-absorption line is exactly the case Lecture 7 already handled. In the continuum panel the iterated source peels away from the thermal source in the surface layers, where $\alpha\to 1$: those layers are dominated by nonlocal scattering, the local source is pulled toward the mean intensity $J$ rather than set by the local $\bar S$, and that coupling is precisely the part a prescribed thermal source cannot capture. The lesson is that whether the iteration matters is set by the scattering fraction $\alpha$, not by whether the wavelength sits in a line or the continuum.""")
+md(
+    r"""## The full spectrum
 
-# ── the full spectrum ───────────────────────────────────────────────────
-md(r"""## The full spectrum, to machine precision
+Now run the batched tensor solver over the whole 500--510 nm window. The ratio of the total and continuum fluxes is compared directly with the shipped production spectrum."""
+)
 
-Now run the solver across all wavelengths — the line flux with every opacity term, the continuum flux with the lines switched off — and take the ratio for the normalised spectrum. This is the same quantity Lecture 7 produced with the formal solution; here we compare it to the reference computed by the production code's own JOSH engine.""")
+code(
+    r'''flux_total, flux_cont, spectrum_t = solve_spectrum(cont_abs, cont_scat, line_abs, line_scat, B_nu, rhox)
+spectrum = spectrum_t.detach().cpu().to(torch.float64).numpy()
+reference = flux_total_ref_np / flux_cont_ref_np
+rel = np.abs(spectrum - reference) / np.abs(reference)
 
-code(r'''# full solve at every wavelength: line flux with all opacity terms switched on
-flux_line = np.array([solve_josh(cont_abs[:,k], S_cont[:,k], line_abs[:,k],
-                                 S_line[:,k], cont_scat[:,k], line_scat[:,k])
-                      for k in range(wl.size)])
+print(f"normalised spectrum vs reference: median |rel diff| = {np.median(rel):.2e}, max = {rel.max():.2e}")
+print(f"worst wavelength = {wl_np[int(np.argmax(rel))]:.6f} nm")
+assert np.median(rel) < 2e-7
+assert rel.max() < 5e-5'''
+)
 
-# continuum flux with the line terms switched off, for the normalisation
-flux_cont = np.array([solve_continuum(cont_abs[:,k], S_cont[:,k], cont_scat[:,k])
-                      for k in range(wl.size)])
+code(
+    r'''fig, (ax, axr) = plt.subplots(2, 1, figsize=(11, 5.2), sharex=True, gridspec_kw={"height_ratios": [3, 1]})
+ax.plot(wl_np, reference, color="0.6", lw=1.4, label="reference")
+ax.plot(wl_np, spectrum, color="C3", lw=0.6, label="torch JOSH")
+ax.set_ylabel("normalised flux")
+ax.set_ylim(0, 1.05)
+ax.set_title("Solar spectrum, 500-510 nm: JOSH rebuilt in torch")
+ax.legend(loc="lower right")
 
-# take the ratio and compare against the production-code spectrum, point by point
-spectrum  = flux_line / flux_cont                          # our normalised spectrum
-reference = flux_total_ref / flux_cont_ref                 # the production JOSH spectrum
-rel = np.abs(spectrum - reference) / np.abs(reference)     # point-by-point relative difference
+axr.semilogy(wl_np, np.maximum(rel, 1e-16), color="C0", lw=0.55)
+axr.axhline(5e-5, color="0.5", ls=":", lw=1)
+axr.set_xlabel("wavelength [nm]")
+axr.set_ylabel("|rel diff|")
+axr.set_ylim(1e-12, 1e-4)
+fig.tight_layout()
+plt.show()'''
+)
 
-print(f"normalised spectrum vs reference:  median |rel diff| = {np.median(rel):.2e}   "
-      f"max = {rel.max():.2e}")
-print("the residual is the single-precision iteration's last bit — the engine is reproduced.")''')
+md(
+    r"""## Numerical caveats and closure status
 
-md(r"""**Machine precision.** The from-scratch JOSH solver reproduces the reference solar spectrum to a median of a few parts in $10^{12}$, with the worst point at the level of the single-precision iteration's last bit — the same arithmetic the production code uses. Here *machine precision* is meant with respect to the reference implementation's stored outputs and arithmetic path; it is not a claim that the Eddington/moment approximation is itself exact radiative transfer. The gap the Lecture 7 calculation left against the production engine is gone: by matching the moment method, the tabulated operators, the self-consistent scattering source, and the working precision, we have reproduced the production code path rather than approximated it.""")
+The algorithmic parity is clean on the scoped inputs: the same fixed grid, parabolic quadrature/interpolation, operator, scattering update, and flux weights are used. The remaining differences are numerical:
 
-code(r'''fig, (ax, axr) = plt.subplots(2, 1, figsize=(11, 5.2), sharex=True,
-                              gridspec_kw={"height_ratios": [3, 1]})
+- The Gauss-Seidel source iteration is fp32 by specification, matching the original production arithmetic.
+- On CPU the structural tensor steps can use fp64 and the residual is near the single-precision iteration floor.
+- On Apple MPS the whole resident tensor path is fp32 because MPS has no fp64; the worst residual is therefore a GPU format floor rather than a physics or algorithm discrepancy.
+- The saturated-core path, where the top layer is already deeper than the fixed grid, does not fire in this solar optical window and is deliberately left out here.
 
-# top: the two spectra overlaid (they should be indistinguishable)
-ax.plot(wl, reference, color="0.6", lw=1.4, label="reference (production JOSH)")
-ax.plot(wl, spectrum, color="C3", lw=0.6, label="from scratch (this lecture)")
-ax.set_ylabel("normalised flux"); ax.set_ylim(0, 1.05); ax.legend(loc="lower right")
-ax.set_title("The solar spectrum, 500–510 nm — JOSH solver rebuilt, matched to the bit")
+The data closure is not final: precomputed opacity slabs and fixed operator tables are still taught-path inputs. The loaded source arrays and flux arrays are comparison-only, but the opacity and operator inputs must be regenerated or locally derived before L8 can be called strict self-contained closure."""
+)
 
-# bottom: the relative residual on a log scale (floored so zeros are plottable)
-axr.semilogy(wl, np.maximum(rel, 1e-16), color="C0", lw=0.5)
-axr.set_xlabel("wavelength  [nm]"); axr.set_ylabel("|rel diff|"); axr.set_ylim(1e-15, 1e-7)
+md(
+    r"""## Summary
 
-fig.tight_layout(); plt.show()''')
+- The Eddington closure turns moment transfer into a linear operator on the source, shipped as `COEFJ`.
+- JOSH maps each wavelength onto a fixed 51-point optical-depth grid, iterates the scattering source, and forms $H(0)$ with `CH`.
+- The executable path in this notebook is torch-native and batched over wavelength; it imports no production solver code.
+- The rebuilt spectrum matches the shipped reference to the documented torch precision floor.
+- This is not final strict data-purity closure: opacity slabs and JOSH operator tables remain scoped taught-path inputs, while source arrays and flux arrays are comparison-only."""
+)
 
-md(r"""The two spectra are indistinguishable, and the residual panel sits near $10^{-12}$ across the whole window, rising only to the single-precision floor in the sharpest cores. We have rebuilt the production radiative-transfer engine — moments, closure, operator, iteration, flux — and it reproduces the reference exactly.""")
+md(
+    r"""## Practice exercises
 
-# ── the saturated-core path ─────────────────────────────────────────────
-md(r"""## A note on saturated cores
+**1. Precision budget.** Force `DEVICE=torch.device("cpu")` and `DTYPE=torch.float64`, rebuild, and compare the residual with the MPS run. Which cells move, and why?
 
-One branch of the production solver does not fire in this window and so we have not needed it: when the **surface** optical depth already exceeds the deepest point of the fixed grid ($\tau_\lambda[0] > \tau_{\rm max}$, the bottom end of `XTAU`), the entire atmosphere lies below the grid, there is no grid point above it to anchor the interpolation, and the code switches to solving the moment equations directly on the physical $\tau_\lambda$ scale. That happens only in extremely opaque, saturated cores — the molecular band heads of cool stars, not the optical solar window — and we will meet it when we add molecules. For every wavelength in the Sun from 500 to 510 nm, the surface optical depth is small and the grid path above is exact.""")
+**2. Scattering switch.** Set `cont_scat` and `line_scat` to zero before `solve_spectrum`. Which wavelengths change most, and how does that relate to the plotted $\alpha$ values?
 
-# ── synthesis ───────────────────────────────────────────────────────────
-md(r"""## Synthesis
+**3. Operator reach.** Plot rows 5, 25, and 45 of `COEFJ`. How local is the lambda operator near the surface, middle, and deep grid?
 
-The Lecture 7 calculation gave the physical picture — flux as a weighted average of the source over depth — and the spectrum to a part in a thousand against the production engine. This lecture supplied the engine that closes the last gap. Taking moments of the transfer equation and applying the Eddington closure turns angle-dependent transfer into two moment equations; discretising them on a fixed optical-depth grid turns the lambda-like operator into a matrix; and iterating the source $S = (1-\alpha)\bar S + \alpha J$ to self-consistency replaces the prescribed thermal source with one that responds to its own radiation field. Reusing the same parabolic integration, the same interpolation, and the same single-precision iteration as the production code, the result is the solar spectrum reproduced to machine precision.
-
-With the microphysics (Lectures 2–6) and both radiative-transfer treatments (Lectures 7–8) in hand, the synthesis half of the pipeline is complete — and reproduces the production code bit for bit. What remains is to stop taking the **model atmosphere** as given: in Part IV we build the temperature and pressure structure ourselves, from hydrostatic and radiative equilibrium, and watch the spectrum settle onto the real Sun.""")
-
-md(r"""## Summary
-
-- Taking **moments** of the transfer equation gives $dH/d\tau = J - S$ and $dK/d\tau = H$; the **Eddington closure** $K = \tfrac13 J$ shuts the system, and its solution is linear in the source, $J = \Lambda[S]$.
-- The production solver ships $\Lambda$ as a matrix `COEFJ` on a **fixed 51-point optical-depth grid**, with flux weights `CH` for the surface flux $H(0) = \sum_k \texttt{CH}_k S_k$.
-- The scattering source obeys $S = (1-\alpha)\bar S + \alpha\,(\texttt{COEFJ}\cdot S)$, solved by a backward Gauss–Seidel sweep in **single precision** to a $10^{-5}$ tolerance.
-- The pipeline per wavelength is: **optical depth** (`parcoe`/`integ`) → **map onto the grid** (`map1`) → **iterate the source** → **weighted flux**.
-- The rebuilt solver reproduces the reference spectrum to a **median of $\sim10^{-12}$**, closing the deep-core gap the Lecture 7 calculation left — a **grid/quadrature/operator/arithmetic** difference, not missing scattering; in this window scattering matters only at the continuum surface, where $\alpha\to 1$.""")
-
-md(r"""## Practice exercises
-
-**1. The closure in action.** Set $\alpha = 0$ everywhere in `solve_josh` (so the source never leaves $\bar S$) and compare the result with the Lecture 7 pure-absorption formal solution. Confirm that the deep cores still differ at the ten-percent level even with all scattering off — proof that the real Lecture 7 gap is a method difference — and identify which of the remaining differences come from the grid, the flux weighting, and the interpolation rather than from the physics. *Separately*, as a hypothetical probe, raise $\alpha$ by hand in a single core (these cores are pure absorption in reality, so this is a "what if this core scattered" experiment, not the explanation of the real gap) and watch the central depth grow — how much scattering *would* it take to darken the core by ten percent?
-
-**2. The operator's reach.** Plot a few rows of `COEFJ` (say $k=5, 25, 45$) against grid index. How localised is the mean-intensity response, and how does its width compare with the spacing of the optical-depth grid? Relate this to why a scattering-dominated line core samples a nonlocal range of neighbouring optical depths rather than only the local temperature.
-
-**3. Precision matters.** Change `iterate_source` to work in `float64` instead of `float32` and recompute the spectrum. Where does it differ from the reference, and by how much? Explain why matching the production code requires matching its working precision, not just its algorithm.
-
-**4. Convergence.** Count the iterations to convergence as a function of the maximum scattering fraction $\alpha$ along the column (return the count from `iterate_source`). Why do scattering-dominated wavelengths take longer, and what does that imply for the cost of a full spectral synthesis?""")
-
-md(r"""## Further reading
-
-- **Avrett, E. H. & Loeser, R. (1969). *SAO Special Report* 303.** The moment method with variable Eddington factors that the JOSH solver descends from.
-- **Mihalas, D. (1978). *Stellar Atmospheres*, 2nd ed., Freeman.** Chapters 6–7 on the moment equations, the Eddington approximation, and $\Lambda$-iteration.
-- **Hubeny, I. & Mihalas, D. (2014). *Theory of Stellar Atmospheres*, Princeton.** Chapters 11–13 on operator methods, accelerated lambda iteration, and the convergence of scattering problems.
-- **Kurucz, R. L. (1970). *SAO Special Report* 309 (ATLAS).** The original code whose `PARCOE`, `INTEG`, `MAP1`, and JOSH routines we reproduce.
-- **Kim, E. M. & Ting, Y.-S. (2026). [*pykurucz*](https://arxiv.org/abs/2603.11693).** The implementation our reference spectrum is computed with.""")
+**4. Fixed sweeps.** Change `DEFAULT_SWEEPS` from 8 to 3, 5, and 12. How quickly does the spectrum converge, and where do insufficient sweeps first show up?"""
+)
 
 nb = new_notebook(cells=cells)
-nb.metadata.update({"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
-                    "language_info": {"name": "python"}})
+nb.metadata.update(
+    {
+        "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
+        "language_info": {"name": "python"},
+    }
+)
 OUT.parent.mkdir(parents=True, exist_ok=True)
 nbformat.write(nb, str(OUT))
-print(f"wrote {OUT}  ({len(cells)} cells)")
+print(f"wrote {OUT} ({len(cells)} cells)")

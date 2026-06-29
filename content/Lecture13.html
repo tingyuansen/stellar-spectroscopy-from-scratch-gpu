@@ -190,7 +190,10 @@ _LOG_ZERO = -<span class="hljs-number">700.0</span>
 
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;constants + index adapters ready&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">constants + index adapters ready
-</pre></div></div><div class="nb-cell"><div class="code-card">
+</pre></div></div><div class="prose"><p>With the constants and boundary adapters in place, <code>readmol</code> can decode the static molecule
+table into arrays: the molecule codes, the coefficient table, and the component/equation index
+structure used by both the torch solve and the independent fp64 reference.</p>
+</div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[5]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def readmol(molecules_path):
@@ -752,7 +755,10 @@ print(&quot;nmolec_solve (setup) ready&quot;)" aria-label="Copy code">
 
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;nmolec_solve (setup) ready&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">nmolec_solve (setup) ready
-</pre></div></div><div class="nb-cell"><div class="code-card">
+</pre></div></div><div class="prose"><p>The wrapper above normalizes inputs and builds the tensor incidence structure. The driver below is
+the actual warm-started depth loop: each depth solves a stiff local Newton problem seeded from the
+converged depth above, then the solved rows are stacked back into molecule and neutral-atom arrays.</p>
+</div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[13]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def _nmolec_driver(struct, ne, log_equilj, ed_np, xabund_np, gp_np, T_np, idequa_np,
@@ -920,7 +926,7 @@ xnatom, xnmol, xnz, electron = nmolec_solve(
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;coupled equilibrium solved at all <span class="hljs-subst">{n_layers}</span> depths in <span class="hljs-subst">{time.time()-t0:<span class="hljs-number">.1</span>f}</span>s &quot;</span>
       <span class="hljs-string">f&quot;(CPU/fp64 reference path)&quot;</span>)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;shapes:&quot;</span>, <span class="hljs-built_in">tuple</span>(xnatom.shape), <span class="hljs-built_in">tuple</span>(xnmol.shape), <span class="hljs-built_in">tuple</span>(xnz.shape), <span class="hljs-built_in">tuple</span>(electron.shape))</code></pre>
-    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">coupled equilibrium solved at all 80 depths in 0.7s (CPU/fp64 reference path)
+    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">coupled equilibrium solved at all 80 depths in 1.2s (CPU/fp64 reference path)
 shapes: (80,) (80, 200) (80, 30) (80,)
 </pre></div></div><div class="prose"><h3>Benchmark: the torch equilibrium solver against the inline fp64 reference and pykurucz</h3>
 <p>This is the per-part equilibrium check. We validate the torch <code>nmolec_solve</code> two ways: against the <strong>inline fp64 reference</strong> (the production reference solver — SOLVIT Gauss–Jordan with hand-coded <code>DEQ</code> and the double-double residual — transcribed from <code>verify_nmolec.py</code>, the parity oracle) and against the shipped <strong>ground truth</strong> <code>nmolec_groundtruth.npz</code>. Both validate the <em>same</em> converged equilibrium, reached by two different algorithms (autodiff-Newton + column-scaled solve vs hand-DEQ + complete-pivot SOLVIT) — which is the strong test that the torch recasting is correct, not merely self-consistent.</p>
@@ -1722,7 +1728,7 @@ t0 = time.time()
 chop, ohop, h2cia, total = mol_continuum(mc)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;molecular continuum computed over the <span class="hljs-subst">{nlc}</span>x<span class="hljs-subst">{nfreq}</span> grid in <span class="hljs-subst">{time.time()-t0:<span class="hljs-number">.3</span>f}</span>s &quot;</span>
       <span class="hljs-string">f&quot;(device <span class="hljs-subst">{DEVICE.<span class="hljs-built_in">type</span>}</span>)&quot;</span>)</code></pre>
-    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">molecular continuum computed over the 80x600 grid in 0.017s (device mps)
+    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">molecular continuum computed over the 80x600 grid in 0.016s (device mps)
 </pre></div></div><div class="prose"><h3>Benchmark: the torch continuum against the inline fp64 reference</h3>
 <p>We validate the torch <code>mol_continuum</code> against the inline fp64 reference (the scalar reference from <code>verify_mol_continuum.py</code> — CHOP/OHOP/H2COLLOP with their Python frequency loops — the parity oracle) and against the shipped ground truth, reporting <code>max|rel|</code> on chop, ohop, h2cia, and the total.</p>
 <p>First we prepare the scalar reference tables and the shared thermodynamic factors. The CH/OH cross-section helper and the H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mrow></mrow><mn>2</mn></msub></mrow><annotation encoding="application/x-tex">_2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4511em;vertical-align:-0.15em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>-CIA helper are defined in separate cells below because they are independent pieces of physics.</p>
@@ -1848,7 +1854,9 @@ print(&quot;fp64 reference: scalar H2-CIA helper ready&quot;)" aria-label="Copy 
 
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;fp64 reference: scalar H2-CIA helper ready&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">fp64 reference: scalar H2-CIA helper ready
-</pre></div></div><div class="nb-cell"><div class="code-card">
+</pre></div></div><div class="prose"><p>Finally assemble the fp64 reference continuum over the same frequency grid. This is the comparison
+target for the torch continuum cell above; it is not fed back into the taught calculation.</p>
+</div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[29]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# numpy-ref: assemble the fp64-reference reference arrays (the parity targets) over the frequency grid

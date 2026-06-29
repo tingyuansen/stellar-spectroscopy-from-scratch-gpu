@@ -24,7 +24,7 @@ OUT = BOOK / "content" / "Lecture5.ipynb"
 
 cells = []
 def md(s): cells.append(new_markdown_cell(s))
-def code(s): cells.append(new_code_cell(s))
+def code(s): cells.append(new_code_cell(s.strip("\n")))
 
 # ════════════════════════════════════════════════════════════════════════════
 #  Title + framing + objectives

@@ -19,7 +19,7 @@ BOOK = Path(__file__).resolve().parent.parent
 OUT = BOOK / "content" / "Lecture11.ipynb"
 cells = []
 def md(s): cells.append(new_markdown_cell(s))
-def code(s): cells.append(new_code_cell(s))
+def code(s): cells.append(new_code_cell(s.strip("\n")))
 
 # ── title ────────────────────────────────────────────────────────────────
 md(r"""# Lecture 11 — Convection & the Converged Atmosphere

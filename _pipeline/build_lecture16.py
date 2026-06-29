@@ -14,7 +14,7 @@ BOOK = Path(__file__).resolve().parent.parent
 OUT = BOOK / "content" / "Lecture16.ipynb"
 cells = []
 def md(s): cells.append(new_markdown_cell(s))
-def code(s): cells.append(new_code_cell(s))
+def code(s): cells.append(new_code_cell(s.strip("\n")))
 
 md(r"""# Lecture 16 — The Full Equation of State: Species Slots & the Convective Heat Capacity
 

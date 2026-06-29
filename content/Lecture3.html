@@ -512,7 +512,7 @@ status = <span class="hljs-string">&quot;PASS&quot;</span> <span class="hljs-key
   device = mps   dtype = float32
 
 -- (1) vs PRODUCTION reference L3.npz (the analytic model's physics fidelity) --
-</pre></div><div class="out-block"><pre class="out-stream">  absorption (H-), forming layers       max|rel| = 1.06e-01   (~few-percent: the analytic fit)
+  absorption (H-), forming layers       max|rel| = 1.06e-01   (~few-percent: the analytic fit)
   scattering (Rayleigh+Thomson)         max|rel| = 1.14e-02
 
 -- (2) vs the fp64 reference (the fp32 float floor: tensor implementation correctness) --
@@ -692,7 +692,9 @@ H_ENERGY_EV_t = dev64(KT_np[<span class="hljs-string">&quot;H_ENERGY_CM&quot;</s
 H_STAT_WEIGHT_t = dev64(KT_np[<span class="hljs-string">&quot;H_STAT_WEIGHT&quot;</span>])
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;scattering, COULFF, HOTOP, Si II, and partition tables loaded&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">scattering, COULFF, HOTOP, Si II, and partition tables loaded
-</pre></div></div><div class="nb-cell"><div class="code-card">
+</pre></div></div><div class="prose"><p>Before using the exact KAPP tables, check that the host-to-device transfer preserved the wavelength
+grid at the working precision. This is a setup sanity check, not a physics comparison.</p>
+</div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[16]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Comparison: table transfer to the device is exact to the working dtype.
@@ -751,7 +753,9 @@ freq_sel_t = freqset_t.index_select(<span class="hljs-number">0</span>, sel_t.to
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;this window uses <span class="hljs-subst">{<span class="hljs-built_in">int</span>(used_edges_t.shape[<span class="hljs-number">0</span>])}</span> edge interval(s), <span class="hljs-subst">{<span class="hljs-built_in">int</span>(freq_sel_t.shape[<span class="hljs-number">0</span>])}</span> sampled frequencies&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">341 edges -&gt; 1020 sample frequencies in the full grid
 this window uses 1 edge interval(s), 3 sampled frequencies
-</pre></div></div><div class="nb-cell"><div class="code-card">
+</pre></div></div><div class="prose"><p>The edge-triplet grid is a discrete bookkeeping object, so we validate it directly against the
+reference construction before evaluating any continuum opacity on it.</p>
+</div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[18]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Comparison: edge-triplet grid against the NumPy construction.
@@ -853,7 +857,9 @@ charge2 = (stage_hot.to(EDTYPE) ** <span class="hljs-number">2</span>)[<span cla
 xnf_sumqq_t = torch.<span class="hljs-built_in">sum</span>(pop_t[:, stage_hot[:, <span class="hljs-literal">None</span>], elem_hot[<span class="hljs-literal">None</span>, :]] * charge2, dim=<span class="hljs-number">2</span>)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;HOTOP population vectors built&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">HOTOP population vectors built
-</pre></div></div><div class="nb-cell"><div class="code-card">
+</pre></div></div><div class="prose"><p>The HOTOP population gathers are fixed slices through the population tensor. Validate the gathered
+columns once before they feed the minor metal and hot-star continuum terms.</p>
+</div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[21]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Comparison: population gather against the NumPy oracle.
@@ -1024,7 +1030,9 @@ def parabolic_table_torch(xold, yold, xnew):
     val = torch.where(any_cmp, torch.exp(xval * LN10_k) / zeff_squared,
                       torch.exp(XN_LOG_t[<span class="hljs-number">28</span>, <span class="hljs-number">14</span>] * LN10_k) / zeff_squared)
     <span class="hljs-keyword">return</span> torch.where(active, val, torch.zeros_like(freq_vec))</code></pre>
-    </div></div><div class="nb-cell"><div class="code-card">
+    </div></div><div class="prose"><p>A tiny interpolation check catches off-by-one errors in the <code>searchsorted</code>/<code>gather</code> helper before
+the same helper is used inside the full continuum engine.</p>
+</div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[24]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Comparison: linear interpolation helper on a small fixed grid.

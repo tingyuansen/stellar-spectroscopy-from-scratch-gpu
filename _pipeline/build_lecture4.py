@@ -11,7 +11,7 @@ BOOK = Path(__file__).resolve().parent.parent
 OUT = BOOK / "content" / "Lecture4.ipynb"
 cells = []
 def md(s): cells.append(new_markdown_cell(s))
-def code(s): cells.append(new_code_cell(s))
+def code(s): cells.append(new_code_cell(s.strip("\n")))
 
 md(r"""# Lecture 4 — Line Opacity I: A Single Line
 

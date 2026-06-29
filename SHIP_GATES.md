@@ -25,14 +25,16 @@ Generated from source inspection on 2026-06-29.
 - Reference-generation and verification utilities under `_pipeline/make_*`, `_pipeline/verify_*`,
   and `_pipeline/converge_fromscratch.py` may read `pykurucz` or `kgpu` as offline provenance tools.
   They are not the taught notebook path.
-- L8 and L14 still use non-`_gpu` builders. This is the clearest remaining GPU-textbook closure gap.
+- L8 is now torch-native but still uses the legacy `_pipeline/build_lecture8.py` filename and still
+  consumes scoped computed opacity slabs plus fixed JOSH operator tables in the taught path. L14
+  still uses a non-`_gpu` builder. These are remaining GPU-textbook/data-closure gaps.
 
 ### Lecture state
 
 | Lectures | Status | Ship interpretation |
 |---|---|---|
 | L1-L7 | GPU builders, executed parity cells | Core microphysics/synthesis primitives are torch-based and validated against shipped NumPy references. |
-| L8 | non-torch builder | Self-contained JOSH lesson exists, but not final GPU-native textbook form. |
+| L8 | torch-native builder; data-boundary debt | JOSH kernels run in torch/MPS and import no production solver, but the taught path still consumes `diag.npz` opacity slabs and `josh_tables.npz` operator tables. Source/flux arrays are comparison-only. Not strict self-contained closure. |
 | L9-L13 | GPU builders | Atmosphere primitives, molecular equilibrium, and molecular continuum are GPU-textbook form, with reference-input boundaries named in notebooks. |
 | L14 | non-torch builder | Numerically honest synthesis-half capstone. It computes opacity/transfer but loads atmosphere/EOS/population/Doppler state; not final stellar-parameters-to-spectrum closure. |
 | L15 | GPU builder with in-notebook scalar LINOP1 gate | Teaching-window deposit is computed in the taught path. Strict boundary remains open: converged atmosphere, EOS/window state, continuum opacity/scattering/source arrays, and full-grid line blanket are production-derived computed fixtures. |
@@ -65,7 +67,9 @@ Generated from source inspection on 2026-06-29.
 
 ## Final closure work
 
-- Promote L8 to a true torch/MPS builder.
+- Close L8's remaining data boundary: feed opacity slabs from the Lecture 3-6 torch outputs and
+  derive/generate or explicitly vendor-provenance the fixed JOSH operator tables, instead of
+  treating production-derived computed arrays as closure.
 - Promote L14 to a true torch/MPS capstone and wire/inline the L15/L16 atmosphere + EOS-state path
   so the Sun state is regenerated rather than loaded.
 - Extend the non-solar capstone from SYNTHE on warm-started structures to full atmosphere+spectrum

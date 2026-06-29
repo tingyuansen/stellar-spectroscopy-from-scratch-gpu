@@ -1,21 +1,39 @@
 #!/usr/bin/env python
-"""From-scratch JOSH moment solver, verified two ways:
-  (A) per-wavelength against pykurucz's solve_josh_flux (solver equivalence),
-  (B) assembled normalised spectrum against the reference diag.flux_total/flux_continuum.
+"""Self-contained JOSH transfer-kernel verifier for Lecture 8.
 
-Clean reimplementation: same algorithm, same constants, same tables as pykurucz, with
-the JIT/guard machinery stripped. Tables (XTAU_GRID, CH_WEIGHTS, COEFJ_MATRIX) are loaded
-from pykurucz here for verification; the lecture will ship them as a data file.
+The verifier imports no kgpu/pykurucz/leankurucz code. It loads the scoped L8 transfer
+inputs from the book's reference directory:
+
+  * reference/diag.npz opacity slabs and comparison-only flux targets,
+  * reference/josh_tables.npz fixed JOSH operator tables and column-mass grid,
+  * reference/atmosphere.npz temperatures for the inline LTE Planck source.
+
+This is not strict from-raw-input closure: the opacity slabs and fixed operator tables are
+still taught-path inputs. The source arrays and flux arrays in diag.npz are comparison-only.
 """
-import sys, numpy as np
+import numpy as np
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, "/Users/ysting/pykurucz")
-from synthe_py.physics.josh_tables import XTAU_GRID, CH_WEIGHTS, COEFJ_MATRIX
-from synthe_py.physics.josh_solver import solve_josh_flux as pk_solve
+
+JT = np.load(ROOT / "reference/josh_tables.npz")
+XTAU_GRID = JT["xtau"].astype(np.float64)
+CH_WEIGHTS = JT["ch"].astype(np.float64)
+COEFJ_MATRIX = JT["coefj"].astype(np.float64)
 
 EPS, ITER_TOL, MAX_ITER = 1e-38, 1e-5, 51
 COEFJ_DIAG = np.diag(COEFJ_MATRIX).copy()
+
+H_PLANCK = 6.62607015e-27
+K_BOLTZ = 1.380649e-16
+C_NM = 2.99792458e17
+PLANCK_PREFACTOR = 1.47439e-2
+
+def planck_nu(wl_nm, temperature):
+    """Return LTE Planck B_nu(T) [depth, wavelength] using the L8 overflow-safe form."""
+    nu = C_NM / np.asarray(wl_nm, dtype=np.float64)
+    x = (H_PLANCK * nu)[None, :] / (K_BOLTZ * np.asarray(temperature, dtype=np.float64)[:, None])
+    ehvkt = np.exp(-x)
+    return PLANCK_PREFACTOR * (nu[None, :] / 1.0e15) ** 3 * ehvkt / (1.0 - ehvkt)
 
 # ── 1. optical-depth integrator (parabolic): tau from column mass & extinction ──
 def parcoe(f, x):
@@ -23,7 +41,7 @@ def parcoe(f, x):
 
     Each interior point gets a parabola through its three neighbours; the 2nd and 3rd
     points are forced linear; a curvature-weighted blend then averages each parabola with
-    its right neighbour so the coefficients vary smoothly. (Faithful port of pykurucz.)
+    its right neighbour so the coefficients vary smoothly. This mirrors the L8 parity path.
     """
     n = f.size
     a = np.zeros(n); b = np.zeros(n); c = np.zeros(n)
@@ -174,25 +192,21 @@ if __name__ == "__main__":
     d = np.load(ROOT/"reference/diag.npz")
     cabs, cscat = d["continuum_absorption"], d["continuum_scattering"]
     lop, lscat = d["line_opacity"], d["line_scattering"]
-    slinec, lsrc = d["slinec"], d["line_source"]
     ftot, fcont = d["flux_total"], d["flux_continuum"]
-    # column mass RHOX (g/cm^2) from the reference atmosphere
-    rhox = np.array([float(line.split()[0]) for line in
-                     (ROOT/"reference/atmosphere.atm").read_text().splitlines()
-                     if line[:1].isdigit() or line[:2].strip().replace('.','').isdigit()][:cabs.shape[0]])
-    if rhox.size != cabs.shape[0]:
-        a = np.load(ROOT/"reference/atmosphere.npz"); rhox = a["depth"][:cabs.shape[0]]
+    atm = np.load(ROOT / "reference/atmosphere.npz")
+    rhox = JT["rhox"].astype(np.float64)
+    bnu = planck_nu(d["wavelength"], atm["temperature"])
+    src_rel = np.max(np.abs(bnu - d["slinec"]) / np.abs(d["slinec"]))
+    print(f"inline Planck source vs diag.slinec (comparison-only): max={src_rel:.2e}")
     nw = cabs.shape[1]
     zero = np.zeros(cabs.shape[0])
-    me_t = np.empty(nw); me_c = np.empty(nw); pk_t = np.empty(nw); pk_c = np.empty(nw)
+    me_t = np.empty(nw); me_c = np.empty(nw)
     for k in range(nw):
-        me_t[k] = solve_josh(cabs[:,k], slinec[:,k], lop[:,k], lsrc[:,k], cscat[:,k], lscat[:,k], rhox)
-        me_c[k] = solve_josh(cabs[:,k], slinec[:,k], zero, slinec[:,k], cscat[:,k], zero, rhox)
-        pk_t[k] = pk_solve(cabs[:,k], slinec[:,k], lop[:,k], lsrc[:,k], cscat[:,k], lscat[:,k], rhox)
-        pk_c[k] = pk_solve(cabs[:,k], slinec[:,k], zero, slinec[:,k], cscat[:,k], zero, rhox)
+        me_t[k] = solve_josh(cabs[:,k], bnu[:,k], lop[:,k], bnu[:,k], cscat[:,k], lscat[:,k], rhox)
+        me_c[k] = solve_josh(cabs[:,k], bnu[:,k], zero, bnu[:,k], cscat[:,k], zero, rhox)
     def rel(a, b): m = np.abs(b) > 0; return np.abs(a[m]-b[m])/np.abs(b[m])
-    print(f"(A) my solve vs pk solve   total: max={rel(me_t,pk_t).max():.2e} median={np.median(rel(me_t,pk_t)):.2e}")
-    print(f"    my solve vs pk solve   cont : max={rel(me_c,pk_c).max():.2e} median={np.median(rel(me_c,pk_c)):.2e}")
     sp_me = me_t/me_c; sp_ref = ftot/fcont
     r = rel(sp_me, sp_ref)
-    print(f"(B) my normalised spectrum vs reference: max={r.max():.2e} median={np.median(r):.2e}")
+    print(f"normalised spectrum vs diag flux reference: max={r.max():.2e} median={np.median(r):.2e}")
+    assert r.max() < 5e-5
+    assert np.median(r) < 2e-7

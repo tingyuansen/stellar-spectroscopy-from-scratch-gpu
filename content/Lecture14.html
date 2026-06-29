@@ -759,8 +759,7 @@ H_MAX_LEVEL = <span class="hljs-number">6</span></code></pre>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[12]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-def linter(xold, yold, xnew):
+        <button class="copy-btn" type="button" data-code="def linter(xold, yold, xnew):
     &quot;&quot;&quot;Linear interpolation/EXTRAPOLATION (Fortran LINTER) - no clamping at the ends.&quot;&quot;&quot;
     nold, nnew = xold.size, xnew.size; ynew = np.zeros(nnew); iold = 1
     for inew in range(nnew):
@@ -774,8 +773,7 @@ def linter(xold, yold, xnew):
     return ynew" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">linter</span>(<span class="hljs-params">xold, yold, xnew</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">linter</span>(<span class="hljs-params">xold, yold, xnew</span>):
     <span class="hljs-string">&quot;&quot;&quot;Linear interpolation/EXTRAPOLATION (Fortran LINTER) - no clamping at the ends.&quot;&quot;&quot;</span>
     nold, nnew = xold.size, xnew.size; ynew = np.zeros(nnew); iold = <span class="hljs-number">1</span>
     <span class="hljs-keyword">for</span> inew <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nnew):
@@ -791,8 +789,7 @@ def linter(xold, yold, xnew):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[13]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-def xkarsas(freq, zeff_squared, n, ell):
+        <button class="copy-btn" type="button" data-code="def xkarsas(freq, zeff_squared, n, ell):
     &quot;&quot;&quot;Karsas hydrogen bf cross-section coefficient (binary search, log10(freq) linear).&quot;&quot;&quot;
     if freq &lt;= 0.0 or zeff_squared &lt;= 0.0 or n &lt;= 0: return 0.0
     if ell &lt; 0: ell = 0
@@ -831,8 +828,7 @@ def xkarsas(freq, zeff_squared, n, ell):
     return float(np.exp(XN_LOG[28, 14] * LN10) / zeff_squared)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">xkarsas</span>(<span class="hljs-params">freq, zeff_squared, n, ell</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">xkarsas</span>(<span class="hljs-params">freq, zeff_squared, n, ell</span>):
     <span class="hljs-string">&quot;&quot;&quot;Karsas hydrogen bf cross-section coefficient (binary search, log10(freq) linear).&quot;&quot;&quot;</span>
     <span class="hljs-keyword">if</span> freq &lt;= <span class="hljs-number">0.0</span> <span class="hljs-keyword">or</span> zeff_squared &lt;= <span class="hljs-number">0.0</span> <span class="hljs-keyword">or</span> n &lt;= <span class="hljs-number">0</span>: <span class="hljs-keyword">return</span> <span class="hljs-number">0.0</span>
     <span class="hljs-keyword">if</span> ell &lt; <span class="hljs-number">0</span>: ell = <span class="hljs-number">0</span>
@@ -873,8 +869,7 @@ def xkarsas(freq, zeff_squared, n, ell):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[14]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-def coulff(nz, freq, freqlg, temp, tlog):
+        <button class="copy-btn" type="button" data-code="def coulff(nz, freq, freqlg, temp, tlog):
     &quot;&quot;&quot;Coulomb free-free Gaunt factor, vectorised over layers (Fortran COULFF, bilinear).&quot;&quot;&quot;
     if nz &lt; 1 or nz &gt; 6: return np.ones_like(temp)
     z4log = COULFF_Z4LOG[nz - 1]
@@ -891,8 +886,7 @@ def coulff(nz, freq, freqlg, temp, tlog):
     return (1.0 - p) * ((1.0 - q) * a00 + q * a01) + p * ((1.0 - q) * a10 + q * a11)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">coulff</span>(<span class="hljs-params">nz, freq, freqlg, temp, tlog</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">coulff</span>(<span class="hljs-params">nz, freq, freqlg, temp, tlog</span>):
     <span class="hljs-string">&quot;&quot;&quot;Coulomb free-free Gaunt factor, vectorised over layers (Fortran COULFF, bilinear).&quot;&quot;&quot;</span>
     <span class="hljs-keyword">if</span> nz &lt; <span class="hljs-number">1</span> <span class="hljs-keyword">or</span> nz &gt; <span class="hljs-number">6</span>: <span class="hljs-keyword">return</span> np.ones_like(temp)
     z4log = COULFF_Z4LOG[nz - <span class="hljs-number">1</span>]
@@ -911,8 +905,7 @@ def coulff(nz, freq, freqlg, temp, tlog):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[15]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-def planck_nu(freq, temp):
+        <button class="copy-btn" type="button" data-code="def planck_nu(freq, temp):
     &quot;&quot;&quot;Planck B_nu(T), RJ limit for tiny hnu/kT (KAPP&#39;s internal H I bf source weight).&quot;&quot;&quot;
     const = 2.0 * H_PLANCK / C_LIGHT_CM**2
     x = H_PLANCK * freq / (K_BOLTZ * temp)
@@ -921,8 +914,7 @@ def planck_nu(freq, temp):
     return np.where(np.isfinite(bnu), bnu, 0.0)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">planck_nu</span>(<span class="hljs-params">freq, temp</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">planck_nu</span>(<span class="hljs-params">freq, temp</span>):
     <span class="hljs-string">&quot;&quot;&quot;Planck B_nu(T), RJ limit for tiny hnu/kT (KAPP&#x27;s internal H I bf source weight).&quot;&quot;&quot;</span>
     const = <span class="hljs-number">2.0</span> * H_PLANCK / C_LIGHT_CM**<span class="hljs-number">2</span>
     x = H_PLANCK * freq / (K_BOLTZ * temp)
@@ -933,8 +925,7 @@ def planck_nu(freq, temp):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[16]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-def si2op_vectorized(freq, freqlg, temp, tlog):
+        <button class="copy-btn" type="button" data-code="def si2op_vectorized(freq, freqlg, temp, tlog):
     &quot;&quot;&quot;Si II opacity (Peach tables), returns cross-section * partition per layer.&quot;&quot;&quot;
     n_layers = temp.size
     nt = np.clip((temp / 2000.0).astype(int) - 4, 1, 5)
@@ -956,8 +947,7 @@ def si2op_vectorized(freq, freqlg, temp, tlog):
     return result" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">si2op_vectorized</span>(<span class="hljs-params">freq, freqlg, temp, tlog</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">si2op_vectorized</span>(<span class="hljs-params">freq, freqlg, temp, tlog</span>):
     <span class="hljs-string">&quot;&quot;&quot;Si II opacity (Peach tables), returns cross-section * partition per layer.&quot;&quot;&quot;</span>
     n_layers = temp.size
     nt = np.clip((temp / <span class="hljs-number">2000.0</span>).astype(<span class="hljs-built_in">int</span>) - <span class="hljs-number">4</span>, <span class="hljs-number">1</span>, <span class="hljs-number">5</span>)
@@ -981,8 +971,7 @@ def si2op_vectorized(freq, freqlg, temp, tlog):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[17]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-def hydrogen_partition(temp):
+        <button class="copy-btn" type="button" data-code="def hydrogen_partition(temp):
     &quot;&quot;&quot;H partition function U(T) from the lowest H_MAX_LEVEL levels (Rayleigh ground state).&quot;&quot;&quot;
     kt = KBOLTZ_EV * temp; U = np.zeros_like(temp)
     for i in range(H_MAX_LEVEL):
@@ -990,8 +979,7 @@ def hydrogen_partition(temp):
     return U" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">hydrogen_partition</span>(<span class="hljs-params">temp</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">hydrogen_partition</span>(<span class="hljs-params">temp</span>):
     <span class="hljs-string">&quot;&quot;&quot;H partition function U(T) from the lowest H_MAX_LEVEL levels (Rayleigh ground state).&quot;&quot;&quot;</span>
     kt = KBOLTZ_EV * temp; U = np.zeros_like(temp)
     <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(H_MAX_LEVEL):
@@ -2250,9 +2238,7 @@ _EXTABF = np.exp(-np.arange(<span class="hljs-number">1001</span>, dtype=np.floa
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[24]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-def fast_ex_array(x):
+        <button class="copy-btn" type="button" data-code="def fast_ex_array(x):
     &quot;&quot;&quot;Vectorized FASTEX: exp(-x) with the same table rounding as pykurucz.&quot;&quot;&quot;
     values = np.asarray(x, dtype=np.float64)
     out = np.empty_like(values)
@@ -2277,9 +2263,7 @@ def fast_ex_array(x):
     return out" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">fast_ex_array</span>(<span class="hljs-params">x</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">fast_ex_array</span>(<span class="hljs-params">x</span>):
     <span class="hljs-string">&quot;&quot;&quot;Vectorized FASTEX: exp(-x) with the same table rounding as pykurucz.&quot;&quot;&quot;</span>
     values = np.asarray(x, dtype=np.float64)
     out = np.empty_like(values)
@@ -2306,9 +2290,7 @@ def fast_ex_array(x):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[25]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-# ── Voigt H(a,v): Kurucz Harris-table routine (voigt_jit.voigt_profile_jit) ─
+        <button class="copy-btn" type="button" data-code="# ── Voigt H(a,v): Kurucz Harris-table routine (voigt_jit.voigt_profile_jit) ─
 def voigt_profile(v, a, h0tab, h1tab, h2tab):
     &quot;&quot;&quot;Scalar Voigt H(a,v) — exact port of voigt_profile_jit.&quot;&quot;&quot;
     iv = int(abs(v) * 200.0 + 0.5)
@@ -2343,9 +2325,7 @@ def voigt_profile(v, a, h0tab, h1tab, h2tab):
         return poly_a * poly_b" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-comment"># ── Voigt H(a,v): Kurucz Harris-table routine (voigt_jit.voigt_profile_jit) ─</span>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># ── Voigt H(a,v): Kurucz Harris-table routine (voigt_jit.voigt_profile_jit) ─</span>
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">voigt_profile</span>(<span class="hljs-params">v, a, h0tab, h1tab, h2tab</span>):
     <span class="hljs-string">&quot;&quot;&quot;Scalar Voigt H(a,v) — exact port of voigt_profile_jit.&quot;&quot;&quot;</span>
     iv = <span class="hljs-built_in">int</span>(<span class="hljs-built_in">abs</span>(v) * <span class="hljs-number">200.0</span> + <span class="hljs-number">0.5</span>)
@@ -2382,9 +2362,7 @@ def voigt_profile(v, a, h0tab, h1tab, h2tab):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[26]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-def voigt_h_at_zero(adamp, h0tab, h1tab, h2tab):
+        <button class="copy-btn" type="button" data-code="def voigt_h_at_zero(adamp, h0tab, h1tab, h2tab):
     &quot;&quot;&quot;Vectorized Voigt H(a,0) used to back-solve the wing kappa0 (_voigt_h_at_zero).&quot;&quot;&quot;
     h0_0 = float(h0tab[0]); h1_0 = float(h1tab[0]); h2_0 = float(h2tab[0])
     h0v = h0_0
@@ -2411,9 +2389,7 @@ def voigt_h_at_zero(adamp, h0tab, h1tab, h2tab):
     return np.maximum(voigt_c, 1e-30)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">voigt_h_at_zero</span>(<span class="hljs-params">adamp, h0tab, h1tab, h2tab</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">voigt_h_at_zero</span>(<span class="hljs-params">adamp, h0tab, h1tab, h2tab</span>):
     <span class="hljs-string">&quot;&quot;&quot;Vectorized Voigt H(a,0) used to back-solve the wing kappa0 (_voigt_h_at_zero).&quot;&quot;&quot;</span>
     h0_0 = <span class="hljs-built_in">float</span>(h0tab[<span class="hljs-number">0</span>]); h1_0 = <span class="hljs-built_in">float</span>(h1tab[<span class="hljs-number">0</span>]); h2_0 = <span class="hljs-built_in">float</span>(h2tab[<span class="hljs-number">0</span>])
     h0v = h0_0
@@ -2442,9 +2418,7 @@ def voigt_h_at_zero(adamp, h0tab, h1tab, h2tab):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[27]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-# ── log-grid index rounding (engine/opacity._nearest_grid_indices) ─────────
+        <button class="copy-btn" type="button" data-code="# ── log-grid index rounding (engine/opacity._nearest_grid_indices) ─────────
 def nearest_grid_indices(grid, values):
     &quot;&quot;&quot;Center index: IXWL = int(log(wl)/ratiolg + 0.5); idx = IXWL - IXWLBEG.&quot;&quot;&quot;
     ratio = grid[1] / grid[0]
@@ -2457,9 +2431,7 @@ def nearest_grid_indices(grid, values):
     return indices" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-comment"># ── log-grid index rounding (engine/opacity._nearest_grid_indices) ─────────</span>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># ── log-grid index rounding (engine/opacity._nearest_grid_indices) ─────────</span>
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">nearest_grid_indices</span>(<span class="hljs-params">grid, values</span>):
     <span class="hljs-string">&quot;&quot;&quot;Center index: IXWL = int(log(wl)/ratiolg + 0.5); idx = IXWL - IXWLBEG.&quot;&quot;&quot;</span>
     ratio = grid[<span class="hljs-number">1</span>] / grid[<span class="hljs-number">0</span>]
@@ -2474,9 +2446,7 @@ def nearest_grid_indices(grid, values):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[28]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-def nearest_grid_indices_raw(grid, values, origin_start):
+        <button class="copy-btn" type="button" data-code="def nearest_grid_indices_raw(grid, values, origin_start):
     &quot;&quot;&quot;Wing index: rint(log(wl/wbegin)/ratiolg), wbegin from floor of grid origin.&quot;&quot;&quot;
     ratio = grid[1] / grid[0]
     ratiolg = np.log(ratio)
@@ -2489,9 +2459,7 @@ def nearest_grid_indices_raw(grid, values, origin_start):
     return np.rint(np.log(values / wbegin) / ratiolg).astype(np.int64)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">nearest_grid_indices_raw</span>(<span class="hljs-params">grid, values, origin_start</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">nearest_grid_indices_raw</span>(<span class="hljs-params">grid, values, origin_start</span>):
     <span class="hljs-string">&quot;&quot;&quot;Wing index: rint(log(wl/wbegin)/ratiolg), wbegin from floor of grid origin.&quot;&quot;&quot;</span>
     ratio = grid[<span class="hljs-number">1</span>] / grid[<span class="hljs-number">0</span>]
     ratiolg = np.log(ratio)
@@ -2506,9 +2474,7 @@ def nearest_grid_indices_raw(grid, values, origin_start):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[29]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-# ── one (line, depth) wing accumulation (_process_asynth_wing_pair_nb) ─────
+        <button class="copy-btn" type="button" data-code="# ── one (line, depth) wing accumulation (_process_asynth_wing_pair_nb) ─────
 def process_wing_pair(asynth_d, wavelength_grid, center_idx, kappa0, adamp,
                       doppler_width, line_wavelength, kapmin_ref, use_cutoff,
                       resolu, h0tab, h1tab, h2tab):
@@ -2616,9 +2582,7 @@ def process_wing_pair(asynth_d, wavelength_grid, center_idx, kappa0, adamp,
         offset += 1" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-comment"># ── one (line, depth) wing accumulation (_process_asynth_wing_pair_nb) ─────</span>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># ── one (line, depth) wing accumulation (_process_asynth_wing_pair_nb) ─────</span>
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">process_wing_pair</span>(<span class="hljs-params">asynth_d, wavelength_grid, center_idx, kappa0, adamp,
                       doppler_width, line_wavelength, kapmin_ref, use_cutoff,
                       resolu, h0tab, h1tab, h2tab</span>):
@@ -2750,8 +2714,7 @@ _HYD_EINF_CM = <span class="hljs-number">109678.764</span>            <span clas
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[31]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-def compute_metal_opacity(cat, atm, diag, L4):
+        <button class="copy-btn" type="button" data-code="def compute_metal_opacity(cat, atm, diag, L4):
     &quot;&quot;&quot;All metal (type-0, Z&gt;=3) lines through the ASYNTH Voigt kernel.&quot;&quot;&quot;
     wl = cat[&quot;cat_wl&quot;]
     loggf = cat[&quot;cat_loggf&quot;]
@@ -2873,8 +2836,7 @@ def compute_metal_opacity(cat, atm, diag, L4):
     return asynth" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">compute_metal_opacity</span>(<span class="hljs-params">cat, atm, diag, L4</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">compute_metal_opacity</span>(<span class="hljs-params">cat, atm, diag, L4</span>):
     <span class="hljs-string">&quot;&quot;&quot;All metal (type-0, Z&gt;=3) lines through the ASYNTH Voigt kernel.&quot;&quot;&quot;</span>
     wl = cat[<span class="hljs-string">&quot;cat_wl&quot;</span>]
     loggf = cat[<span class="hljs-string">&quot;cat_loggf&quot;</span>]
@@ -3020,9 +2982,7 @@ _E1_TABLE = _build_e1_table()</code></pre>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[33]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-def _vcse1f(x):
+        <button class="copy-btn" type="button" data-code="def _vcse1f(x):
     if x &lt;= 0.0:
         return 0.0
     if x &lt;= 0.01:
@@ -3038,9 +2998,7 @@ def _vcse1f(x):
     return numerator / denominator * np.exp(-x)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">_vcse1f</span>(<span class="hljs-params">x</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_vcse1f</span>(<span class="hljs-params">x</span>):
     <span class="hljs-keyword">if</span> x &lt;= <span class="hljs-number">0.0</span>:
         <span class="hljs-keyword">return</span> <span class="hljs-number">0.0</span>
     <span class="hljs-keyword">if</span> x &lt;= <span class="hljs-number">0.01</span>:
@@ -3058,17 +3016,13 @@ def _vcse1f(x):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[34]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-def _fast_ex(x):
+        <button class="copy-btn" type="button" data-code="def _fast_ex(x):
     if x &gt; 80.0:
         return 0.0
     return np.exp(-x)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">_fast_ex</span>(<span class="hljs-params">x</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_fast_ex</span>(<span class="hljs-params">x</span>):
     <span class="hljs-keyword">if</span> x &gt; <span class="hljs-number">80.0</span>:
         <span class="hljs-keyword">return</span> <span class="hljs-number">0.0</span>
     <span class="hljs-keyword">return</span> np.exp(-x)</code></pre>
@@ -3076,9 +3030,7 @@ def _fast_ex(x):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[35]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-def _hf_nm(n, m):
+        <button class="copy-btn" type="button" data-code="def _hf_nm(n, m):
     if m &lt;= n:
         return 0.0
     xn = float(n)
@@ -3094,9 +3046,7 @@ def _hf_nm(n, m):
     return fk * (1.0 - wt * ginf - (0.222 + gca / xm) * (1.0 - wt))" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">_hf_nm</span>(<span class="hljs-params">n, m</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_hf_nm</span>(<span class="hljs-params">n, m</span>):
     <span class="hljs-keyword">if</span> m &lt;= n:
         <span class="hljs-keyword">return</span> <span class="hljs-number">0.0</span>
     xn = <span class="hljs-built_in">float</span>(n)
@@ -3114,9 +3064,7 @@ def _hf_nm(n, m):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[36]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-def _interpolate_cutoff(delta_wn, table, start, step):
+        <button class="copy-btn" type="button" data-code="def _interpolate_cutoff(delta_wn, table, start, step):
     &quot;&quot;&quot;Returns 1e300 sentinel when delta_wn &gt; max_delta (== None in source).&quot;&quot;&quot;
     max_delta = start + step * (table.shape[0] - 1)
     if delta_wn &gt; max_delta:
@@ -3134,9 +3082,7 @@ def _interpolate_cutoff(delta_wn, table, start, step):
     return float(table[index] + (table[index + 1] - table[index]) * frac)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">_interpolate_cutoff</span>(<span class="hljs-params">delta_wn, table, start, step</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_interpolate_cutoff</span>(<span class="hljs-params">delta_wn, table, start, step</span>):
     <span class="hljs-string">&quot;&quot;&quot;Returns 1e300 sentinel when delta_wn &gt; max_delta (== None in source).&quot;&quot;&quot;</span>
     max_delta = start + step * (table.shape[<span class="hljs-number">0</span>] - <span class="hljs-number">1</span>)
     <span class="hljs-keyword">if</span> delta_wn &gt; max_delta:
@@ -3156,9 +3102,7 @@ def _interpolate_cutoff(delta_wn, table, start, step):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[37]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-def _sofbeta(beta, p, n, m, propbm, c_arr, d_arr, pp_arr, beta_arr):
+        <button class="copy-btn" type="button" data-code="def _sofbeta(beta, p, n, m, propbm, c_arr, d_arr, pp_arr, beta_arr):
     if beta &lt;= 0.0:
         return 0.0
     b2 = beta * beta
@@ -3224,9 +3168,7 @@ def _sofbeta(beta, p, n, m, propbm, c_arr, d_arr, pp_arr, beta_arr):
     return (1.5 / sb + 27.0 / b2) / b2 * corr" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">_sofbeta</span>(<span class="hljs-params">beta, p, n, m, propbm, c_arr, d_arr, pp_arr, beta_arr</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_sofbeta</span>(<span class="hljs-params">beta, p, n, m, propbm, c_arr, d_arr, pp_arr, beta_arr</span>):
     <span class="hljs-keyword">if</span> beta &lt;= <span class="hljs-number">0.0</span>:
         <span class="hljs-keyword">return</span> <span class="hljs-number">0.0</span>
     b2 = beta * beta
@@ -3294,9 +3236,7 @@ def _sofbeta(beta, p, n, m, propbm, c_arr, d_arr, pp_arr, beta_arr):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[38]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-def _lyman_alpha_lorentz(freq, freqnm, del_freq, dop, hwres, hwvdw, hwrad,
+        <button class="copy-btn" type="button" data-code="def _lyman_alpha_lorentz(freq, freqnm, del_freq, dop, hwres, hwvdw, hwrad,
                          cutoff_h2, cutoff_h2_plus, xnfph_0, xnfph_1):
     if dop &lt;= 0.0:
         return 0.0
@@ -3333,9 +3273,7 @@ def _lyman_alpha_lorentz(freq, freqnm, del_freq, dop, hwres, hwvdw, hwrad,
     return hres_term + hrad_term + hvdw_term" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">_lyman_alpha_lorentz</span>(<span class="hljs-params">freq, freqnm, del_freq, dop, hwres, hwvdw, hwrad,
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_lyman_alpha_lorentz</span>(<span class="hljs-params">freq, freqnm, del_freq, dop, hwres, hwvdw, hwrad,
                          cutoff_h2, cutoff_h2_plus, xnfph_0, xnfph_1</span>):
     <span class="hljs-keyword">if</span> dop &lt;= <span class="hljs-number">0.0</span>:
         <span class="hljs-keyword">return</span> <span class="hljs-number">0.0</span>
@@ -3374,9 +3312,7 @@ def _lyman_alpha_lorentz(freq, freqnm, del_freq, dop, hwres, hwvdw, hwrad,
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[39]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-def _lyman_quasistatic_cutoff(freq, prqs, xnfph_0, xnfph_1, fo, dbeta, dop, n, m,
+        <button class="copy-btn" type="button" data-code="def _lyman_quasistatic_cutoff(freq, prqs, xnfph_0, xnfph_1, fo, dbeta, dop, n, m,
                               cutoff_h2_plus, propbm, c_arr, d_arr, pp_arr, beta_arr, pp_val):
     if fo &lt;= 0.0:
         return 0.0
@@ -3401,9 +3337,7 @@ def _lyman_quasistatic_cutoff(freq, prqs, xnfph_0, xnfph_1, fo, dbeta, dop, n, m
     return extra" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">_lyman_quasistatic_cutoff</span>(<span class="hljs-params">freq, prqs, xnfph_0, xnfph_1, fo, dbeta, dop, n, m,
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_lyman_quasistatic_cutoff</span>(<span class="hljs-params">freq, prqs, xnfph_0, xnfph_1, fo, dbeta, dop, n, m,
                               cutoff_h2_plus, propbm, c_arr, d_arr, pp_arr, beta_arr, pp_val</span>):
     <span class="hljs-keyword">if</span> fo &lt;= <span class="hljs-number">0.0</span>:
         <span class="hljs-keyword">return</span> <span class="hljs-number">0.0</span>
@@ -3430,9 +3364,7 @@ def _lyman_quasistatic_cutoff(freq, prqs, xnfph_0, xnfph_1, fo, dbeta, dop, n, m
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[40]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-def _hydrogen_line_profile(n, m, delta_lambda_nm, hyd, tabs, fine_offsets, fine_weights, n_fine):
+        <button class="copy-btn" type="button" data-code="def _hydrogen_line_profile(n, m, delta_lambda_nm, hyd, tabs, fine_offsets, fine_weights, n_fine):
     &quot;&quot;&quot;Port of _hydrogen_line_profile_jit. `hyd` is a dict of per-depth scalars;
     `tabs` is a dict of the HPROF4 Stark tables.&quot;&quot;&quot;
     t3nhe = hyd[&quot;t3nhe&quot;]; t3nh2 = hyd[&quot;t3nh2&quot;]; fo = hyd[&quot;fo&quot;]; dopph = hyd[&quot;dopph&quot;]
@@ -3580,9 +3512,7 @@ def _hydrogen_line_profile(n, m, delta_lambda_nm, hyd, tabs, fine_offsets, fine_
     return max(core + lorentz + stark_core + stark_extra, 0.0)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">_hydrogen_line_profile</span>(<span class="hljs-params">n, m, delta_lambda_nm, hyd, tabs, fine_offsets, fine_weights, n_fine</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_hydrogen_line_profile</span>(<span class="hljs-params">n, m, delta_lambda_nm, hyd, tabs, fine_offsets, fine_weights, n_fine</span>):
     <span class="hljs-string">&quot;&quot;&quot;Port of _hydrogen_line_profile_jit. `hyd` is a dict of per-depth scalars;
     `tabs` is a dict of the HPROF4 Stark tables.&quot;&quot;&quot;</span>
     t3nhe = hyd[<span class="hljs-string">&quot;t3nhe&quot;</span>]; t3nh2 = hyd[<span class="hljs-string">&quot;t3nh2&quot;</span>]; fo = hyd[<span class="hljs-string">&quot;fo&quot;</span>]; dopph = hyd[<span class="hljs-string">&quot;dopph&quot;</span>]
@@ -3732,9 +3662,7 @@ def _hydrogen_line_profile(n, m, delta_lambda_nm, hyd, tabs, fine_offsets, fine_
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[41]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-def _accumulate_hyd_line_depth(buffer, continuum_row, stim_row, grid, center_index,
+        <button class="copy-btn" type="button" data-code="def _accumulate_hyd_line_depth(buffer, continuum_row, stim_row, grid, center_index,
                                line_wavelength, kappa0, n_lower, n_upper, wcon, wtail,
                                wlminus1, wlminus2, wlplus1, wlplus2, redcut, bluecut, cutoff,
                                hyd, tabs, fine_offsets, fine_weights, n_fine):
@@ -3838,9 +3766,7 @@ def _accumulate_hyd_line_depth(buffer, continuum_row, stim_row, grid, center_ind
         offset += 1" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">_accumulate_hyd_line_depth</span>(<span class="hljs-params">buffer, continuum_row, stim_row, grid, center_index,
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_accumulate_hyd_line_depth</span>(<span class="hljs-params">buffer, continuum_row, stim_row, grid, center_index,
                                line_wavelength, kappa0, n_lower, n_upper, wcon, wtail,
                                wlminus1, wlminus2, wlplus1, wlplus2, redcut, bluecut, cutoff,
                                hyd, tabs, fine_offsets, fine_weights, n_fine</span>):
@@ -3946,9 +3872,7 @@ def _accumulate_hyd_line_depth(buffer, continuum_row, stim_row, grid, center_ind
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[42]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-def _ehyd_cm(n):
+        <button class="copy-btn" type="button" data-code="def _ehyd_cm(n):
     if n &lt;= 0:
         return 0.0
     idx = n - 1
@@ -3957,9 +3881,7 @@ def _ehyd_cm(n):
     return _HYD_EINF_CM - _HYD_RYD_CM / float(n * n)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">_ehyd_cm</span>(<span class="hljs-params">n</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_ehyd_cm</span>(<span class="hljs-params">n</span>):
     <span class="hljs-keyword">if</span> n &lt;= <span class="hljs-number">0</span>:
         <span class="hljs-keyword">return</span> <span class="hljs-number">0.0</span>
     idx = n - <span class="hljs-number">1</span>
@@ -3970,9 +3892,7 @@ def _ehyd_cm(n):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[43]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-def compute_hydrogen_opacity(cat, atm, diag, L4):
+        <button class="copy-btn" type="button" data-code="def compute_hydrogen_opacity(cat, atm, diag, L4):
     &quot;&quot;&quot;Hydrogen line opacity (HPROF4) — full from-scratch port of the JIT engine.&quot;&quot;&quot;
     grid = diag[&quot;wavelength&quot;]
     cont = diag[&quot;continuum_absorption&quot;] + diag[&quot;continuum_scattering&quot;]
@@ -4127,9 +4047,7 @@ def compute_hydrogen_opacity(cat, atm, diag, L4):
     return ahline" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">compute_hydrogen_opacity</span>(<span class="hljs-params">cat, atm, diag, L4</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">compute_hydrogen_opacity</span>(<span class="hljs-params">cat, atm, diag, L4</span>):
     <span class="hljs-string">&quot;&quot;&quot;Hydrogen line opacity (HPROF4) — full from-scratch port of the JIT engine.&quot;&quot;&quot;</span>
     grid = diag[<span class="hljs-string">&quot;wavelength&quot;</span>]
     cont = diag[<span class="hljs-string">&quot;continuum_absorption&quot;</span>] + diag[<span class="hljs-string">&quot;continuum_scattering&quot;</span>]
@@ -4386,9 +4304,7 @@ def _hyd_he_static(d):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[46]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-def _accumulate_helium_line(wings_row, continuum_row, grid, center_index,
+        <button class="copy-btn" type="button" data-code="def _accumulate_helium_line(wings_row, continuum_row, grid, center_index,
                             line_wavelength, kappa_eff, doppler, adamp, cutoff,
                             has_wcon, wcon_val, has_wtail, wtail_val, base_wave,
                             h0tab, h1tab, h2tab):
@@ -4430,9 +4346,7 @@ def _accumulate_helium_line(wings_row, continuum_row, grid, center_index,
             wings_row[idx] += value" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">_accumulate_helium_line</span>(<span class="hljs-params">wings_row, continuum_row, grid, center_index,
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_accumulate_helium_line</span>(<span class="hljs-params">wings_row, continuum_row, grid, center_index,
                             line_wavelength, kappa_eff, doppler, adamp, cutoff,
                             has_wcon, wcon_val, has_wtail, wtail_val, base_wave,
                             h0tab, h1tab, h2tab</span>):
@@ -4476,9 +4390,7 @@ def _accumulate_helium_line(wings_row, continuum_row, grid, center_index,
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[47]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-def compute_helium_opacity(cat, atm, diag, L4):
+        <button class="copy-btn" type="button" data-code="def compute_helium_opacity(cat, atm, diag, L4):
     &quot;&quot;&quot;Helium I/II wing opacity via the pre-STIM Voigt-batch walk; STIM applied last.
 
     kappa0/adamp/doppler/center are recomputed from scratch with the standard
@@ -4573,9 +4485,7 @@ def compute_helium_opacity(cat, atm, diag, L4):
     return he_wings * stim_grid" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">compute_helium_opacity</span>(<span class="hljs-params">cat, atm, diag, L4</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">compute_helium_opacity</span>(<span class="hljs-params">cat, atm, diag, L4</span>):
     <span class="hljs-string">&quot;&quot;&quot;Helium I/II wing opacity via the pre-STIM Voigt-batch walk; STIM applied last.
 
     kappa0/adamp/doppler/center are recomputed from scratch with the standard
@@ -4799,15 +4709,13 @@ C_NM = <span class="hljs-number">2.99792458e17</span>       <span class="hljs-co
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[50]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-def molecular_dopple(T, vturb, mass):
+        <button class="copy-btn" type="button" data-code="def molecular_dopple(T, vturb, mass):
     &quot;&quot;&quot;DOPPLE = sqrt( (2kT/m)/c^2 + (vturb/c)^2 )  (fractional velocity width).&quot;&quot;&quot;
     thermal = np.sqrt(2.0 * KB * T / (mass * AMU)) / C_CMS
     return np.sqrt(thermal ** 2 + (vturb / C_CMS) ** 2)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">molecular_dopple</span>(<span class="hljs-params">T, vturb, mass</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">molecular_dopple</span>(<span class="hljs-params">T, vturb, mass</span>):
     <span class="hljs-string">&quot;&quot;&quot;DOPPLE = sqrt( (2kT/m)/c^2 + (vturb/c)^2 )  (fractional velocity width).&quot;&quot;&quot;</span>
     thermal = np.sqrt(<span class="hljs-number">2.0</span> * KB * T / (mass * AMU)) / C_CMS
     <span class="hljs-keyword">return</span> np.sqrt(thermal ** <span class="hljs-number">2</span> + (vturb / C_CMS) ** <span class="hljs-number">2</span>)</code></pre>
@@ -4815,9 +4723,7 @@ def molecular_dopple(T, vturb, mass):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[51]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-# ── Voigt H(a,v) — book L4/L5 tabulated kernel (== pykurucz voigt_profile_jit) ─
+        <button class="copy-btn" type="button" data-code="# ── Voigt H(a,v) — book L4/L5 tabulated kernel (== pykurucz voigt_profile_jit) ─
 def voigt(v, a, h0, h1, h2):
     &quot;&quot;&quot;Tabulated Voigt H(a,|v|): a&lt;0.2 small-damping; far-wing; mid-regime blend.
 
@@ -4859,9 +4765,7 @@ def voigt(v, a, h0, h1, h2):
     return out" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-comment"># ── Voigt H(a,v) — book L4/L5 tabulated kernel (== pykurucz voigt_profile_jit) ─</span>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># ── Voigt H(a,v) — book L4/L5 tabulated kernel (== pykurucz voigt_profile_jit) ─</span>
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">voigt</span>(<span class="hljs-params">v, a, h0, h1, h2</span>):
     <span class="hljs-string">&quot;&quot;&quot;Tabulated Voigt H(a,|v|): a&lt;0.2 small-damping; far-wing; mid-regime blend.
 
@@ -4905,9 +4809,7 @@ def voigt(v, a, h0, h1, h2):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[52]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-# ── (2) the molecular opacity kernel, vectorized per depth ───────────────────
+        <button class="copy-btn" type="button" data-code="# ── (2) the molecular opacity kernel, vectorized per depth ───────────────────
 def accumulate_depth(buf, cont_row, wavelength, ci, mol_wl, xnfdop, dop_val,
                      cgf, elo, gr, gs, gw, xne, txnxn, hckt, h0, h1, h2):
     &quot;&quot;&quot;Port of _accumulate_mol_fused_batch for ONE depth (vectorized over lines).
@@ -5022,9 +4924,7 @@ def accumulate_depth(buf, cont_row, wavelength, ci, mol_wl, xnfdop, dop_val,
             far_alive &amp;= ~kill" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-comment"># ── (2) the molecular opacity kernel, vectorized per depth ───────────────────</span>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># ── (2) the molecular opacity kernel, vectorized per depth ───────────────────</span>
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">accumulate_depth</span>(<span class="hljs-params">buf, cont_row, wavelength, ci, mol_wl, xnfdop, dop_val,
                      cgf, elo, gr, gs, gw, xne, txnxn, hckt, h0, h1, h2</span>):
     <span class="hljs-string">&quot;&quot;&quot;Port of _accumulate_mol_fused_batch for ONE depth (vectorized over lines).
@@ -5141,9 +5041,7 @@ def accumulate_depth(buf, cont_row, wavelength, ci, mol_wl, xnfdop, dop_val,
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[53]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-def compute_mol_opacity(npz, dt, m, L4):
+        <button class="copy-btn" type="button" data-code="def compute_mol_opacity(npz, dt, m, L4):
     &quot;&quot;&quot;Full molecular ASYNTH (with stim) over all depths and the 705-718 nm grid.&quot;&quot;&quot;
     wavelength = dt[&quot;wavelength&quot;].astype(np.float64)
     cont = (dt[&quot;continuum_absorption&quot;] + dt[&quot;continuum_scattering&quot;]).astype(np.float64)
@@ -5198,9 +5096,7 @@ def compute_mol_opacity(npz, dt, m, L4):
     return mol_asynth" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">compute_mol_opacity</span>(<span class="hljs-params">npz, dt, m, L4</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">compute_mol_opacity</span>(<span class="hljs-params">npz, dt, m, L4</span>):
     <span class="hljs-string">&quot;&quot;&quot;Full molecular ASYNTH (with stim) over all depths and the 705-718 nm grid.&quot;&quot;&quot;</span>
     wavelength = dt[<span class="hljs-string">&quot;wavelength&quot;</span>].astype(np.float64)
     cont = (dt[<span class="hljs-string">&quot;continuum_absorption&quot;</span>] + dt[<span class="hljs-string">&quot;continuum_scattering&quot;</span>]).astype(np.float64)
@@ -5276,8 +5172,7 @@ def compute_mol_opacity(npz, dt, m, L4):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[55]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-# which opacity sources a star&#39;s window contains (shipped has_* flags)
+        <button class="copy-btn" type="button" data-code="# which opacity sources a star&#39;s window contains (shipped has_* flags)
 def components(d):
     return {k[4:]: bool(d[k]) for k in d.files if k.startswith(&quot;has_&quot;)}
 
@@ -5285,8 +5180,7 @@ def components(d):
 IFOP = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0]" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-<span class="hljs-comment"># which opacity sources a star&#x27;s window contains (shipped has_* flags)</span>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># which opacity sources a star&#x27;s window contains (shipped has_* flags)</span>
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">components</span>(<span class="hljs-params">d</span>):
     <span class="hljs-keyword">return</span> {k[<span class="hljs-number">4</span>:]: <span class="hljs-built_in">bool</span>(d[k]) <span class="hljs-keyword">for</span> k <span class="hljs-keyword">in</span> d.files <span class="hljs-keyword">if</span> k.startswith(<span class="hljs-string">&quot;has_&quot;</span>)}
 
@@ -5296,8 +5190,7 @@ IFOP = [<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, 
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[56]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-def from_scratch_opacity(d, override_pop=None):
+        <button class="copy-btn" type="button" data-code="def from_scratch_opacity(d, override_pop=None):
     &quot;&quot;&quot;COMPUTE the entire (continuum + line + molecular) opacity from scratch.
 
     Returns (acont, sigmac, aline) on the wavelength grid.  `override_pop` lets the
@@ -5358,8 +5251,7 @@ def from_scratch_opacity(d, override_pop=None):
     return acont, sigmac, aline" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">from_scratch_opacity</span>(<span class="hljs-params">d, override_pop=<span class="hljs-literal">None</span></span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">from_scratch_opacity</span>(<span class="hljs-params">d, override_pop=<span class="hljs-literal">None</span></span>):
     <span class="hljs-string">&quot;&quot;&quot;COMPUTE the entire (continuum + line + molecular) opacity from scratch.
 
     Returns (acont, sigmac, aline) on the wavelength grid.  `override_pop` lets the
@@ -5456,8 +5348,7 @@ def from_scratch_opacity(d, override_pop=None):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[58]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-def synthesise(d, override_pop=None):
+        <button class="copy-btn" type="button" data-code="def synthesise(d, override_pop=None):
     &quot;&quot;&quot;The full chain: from-scratch opacity + inline Planck source -&gt; JOSH -&gt; normalised spectrum.&quot;&quot;&quot;
     # atm_depth is the column-mass (RHOX) depth scale the transfer integrates over
     rhox = d[&quot;atm_depth&quot;].astype(float)
@@ -5481,8 +5372,7 @@ def synthesise(d, override_pop=None):
     return ft / fc" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">synthesise</span>(<span class="hljs-params">d, override_pop=<span class="hljs-literal">None</span></span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">synthesise</span>(<span class="hljs-params">d, override_pop=<span class="hljs-literal">None</span></span>):
     <span class="hljs-string">&quot;&quot;&quot;The full chain: from-scratch opacity + inline Planck source -&gt; JOSH -&gt; normalised spectrum.&quot;&quot;&quot;</span>
     <span class="hljs-comment"># atm_depth is the column-mass (RHOX) depth scale the transfer integrates over</span>
     rhox = d[<span class="hljs-string">&quot;atm_depth&quot;</span>].astype(<span class="hljs-built_in">float</span>)
@@ -5724,8 +5614,7 @@ TC_CH_MAT = <span class="hljs-literal">None</span>                <span class="h
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[64]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-def tc_parcoe(f, x):
+        <button class="copy-btn" type="button" data-code="def tc_parcoe(f, x):
     &quot;&quot;&quot;Parabolic coefficients a,b,c so f ~ a + b x + c x^2 (Fortran PARCOE).&quot;&quot;&quot;
     n = f.size
     a = np.zeros(n); b = np.zeros(n); c = np.zeros(n)
@@ -5761,8 +5650,7 @@ def tc_parcoe(f, x):
     return a, b, c" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">tc_parcoe</span>(<span class="hljs-params">f, x</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">tc_parcoe</span>(<span class="hljs-params">f, x</span>):
     <span class="hljs-string">&quot;&quot;&quot;Parabolic coefficients a,b,c so f ~ a + b x + c x^2 (Fortran PARCOE).&quot;&quot;&quot;</span>
     n = f.size
     a = np.zeros(n); b = np.zeros(n); c = np.zeros(n)
@@ -5800,9 +5688,7 @@ def tc_parcoe(f, x):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[65]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-def tc_integ(x, f, start):
+        <button class="copy-btn" type="button" data-code="def tc_integ(x, f, start):
     &quot;&quot;&quot;Cumulative integral of f dx, left-point parabola per interval (Fortran INTEG).&quot;&quot;&quot;
     n = f.size
     out = np.zeros(n)
@@ -5817,9 +5703,7 @@ def tc_integ(x, f, start):
     return out" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">tc_integ</span>(<span class="hljs-params">x, f, start</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">tc_integ</span>(<span class="hljs-params">x, f, start</span>):
     <span class="hljs-string">&quot;&quot;&quot;Cumulative integral of f dx, left-point parabola per interval (Fortran INTEG).&quot;&quot;&quot;</span>
     n = f.size
     out = np.zeros(n)
@@ -5836,9 +5720,7 @@ def tc_integ(x, f, start):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[66]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-def tc_deriv(x, f):
+        <button class="copy-btn" type="button" data-code="def tc_deriv(x, f):
     &quot;&quot;&quot;Cubic-tangent derivative df/dx (Fortran DERIV).&quot;&quot;&quot;
     n = f.size
     d = np.zeros(n)
@@ -5862,9 +5744,7 @@ def tc_deriv(x, f):
     return d" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">tc_deriv</span>(<span class="hljs-params">x, f</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">tc_deriv</span>(<span class="hljs-params">x, f</span>):
     <span class="hljs-string">&quot;&quot;&quot;Cubic-tangent derivative df/dx (Fortran DERIV).&quot;&quot;&quot;</span>
     n = f.size
     d = np.zeros(n)
@@ -5890,9 +5770,7 @@ def tc_deriv(x, f):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[67]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-def tc_map1(xold, fold, xnew):
+        <button class="copy-btn" type="button" data-code="def tc_map1(xold, fold, xnew):
     &quot;&quot;&quot;Piecewise-quadratic remap matching Fortran MAP1.  Returns (fnew, ll-1).&quot;&quot;&quot;
     nold, nnew = xold.size, xnew.size
     fnew = np.zeros(nnew)
@@ -5943,9 +5821,7 @@ def tc_map1(xold, fold, xnew):
     return fnew, max(ll - 1, 0)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">tc_map1</span>(<span class="hljs-params">xold, fold, xnew</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">tc_map1</span>(<span class="hljs-params">xold, fold, xnew</span>):
     <span class="hljs-string">&quot;&quot;&quot;Piecewise-quadratic remap matching Fortran MAP1.  Returns (fnew, ll-1).&quot;&quot;&quot;</span>
     nold, nnew = xold.size, xnew.size
     fnew = np.zeros(nnew)
@@ -5997,25 +5873,19 @@ def tc_map1(xold, fold, xnew):
     </div></div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[68]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-def tc_map1_scalar(xold, fold, xnew_val):
+        <button class="copy-btn" type="button" data-code="def tc_map1_scalar(xold, fold, xnew_val):
     out, _ = tc_map1(np.asarray(xold), np.asarray(fold), np.asarray([xnew_val]))
     return float(out[0])" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">tc_map1_scalar</span>(<span class="hljs-params">xold, fold, xnew_val</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">tc_map1_scalar</span>(<span class="hljs-params">xold, fold, xnew_val</span>):
     out, _ = tc_map1(np.asarray(xold), np.asarray(fold), np.asarray([xnew_val]))
     <span class="hljs-keyword">return</span> <span class="hljs-built_in">float</span>(out[<span class="hljs-number">0</span>])</code></pre>
     </div></div><div class="prose"><p><code>tc_josh_profiles</code> — the JOSH full-depth flux solver (Lecture 8): at one frequency it forms the total extinction and the source, iterates the moment equations, and returns the intensity moments and the surface Eddington factor.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[69]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-# ===========================================================================
+        <button class="copy-btn" type="button" data-code="# ===========================================================================
 # 2. JOSH full depth-profile kernel (Lecture 8), float32 inner iteration.
 #    Returns the profiles TCORR / ROSS consume: taunu, hnu, jmins, abtot, alpha.
 #    Faithful port of atlas_py.physics.josh._josh_depth_profiles_nb (ifscat=1).
@@ -6129,9 +5999,7 @@ def tc_josh_profiles(acont, scont, aline, sline, sigmac, sigmal, rhox, bnu,
 TC_CH_MAT = None" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-comment"># ===========================================================================</span>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># ===========================================================================</span>
 <span class="hljs-comment"># 2. JOSH full depth-profile kernel (Lecture 8), float32 inner iteration.</span>
 <span class="hljs-comment">#    Returns the profiles TCORR / ROSS consume: taunu, hnu, jmins, abtot, alpha.</span>
 <span class="hljs-comment">#    Faithful port of atlas_py.physics.josh._josh_depth_profiles_nb (ifscat=1).</span>
@@ -6247,9 +6115,7 @@ TC_CH_MAT = <span class="hljs-literal">None</span></code></pre>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[70]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-# ===========================================================================
+        <button class="copy-btn" type="button" data-code="# ===========================================================================
 # 3. ROSS: Rosseland mean + optical-depth scale (Fortran ROSS).
 # ===========================================================================
 def tc_ross_finalize(acc, T, rhox):
@@ -6259,9 +6125,7 @@ def tc_ross_finalize(acc, T, rhox):
     return abross, tauros" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-comment"># ===========================================================================</span>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># ===========================================================================</span>
 <span class="hljs-comment"># 3. ROSS: Rosseland mean + optical-depth scale (Fortran ROSS).</span>
 <span class="hljs-comment"># ===========================================================================</span>
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">tc_ross_finalize</span>(<span class="hljs-params">acc, T, rhox</span>):
@@ -6273,9 +6137,7 @@ def tc_ross_finalize(acc, T, rhox):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[71]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-# ===========================================================================
+        <button class="copy-btn" type="button" data-code="# ===========================================================================
 # 4. EXPI(3, x) = E3 exponential integral (Fortran FUNCTION EXPI), used by rdiagj.
 # ===========================================================================
 def tc_expi3(x):
@@ -6309,9 +6171,7 @@ def tc_expi3(x):
     return out" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-comment"># ===========================================================================</span>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># ===========================================================================</span>
 <span class="hljs-comment"># 4. EXPI(3, x) = E3 exponential integral (Fortran FUNCTION EXPI), used by rdiagj.</span>
 <span class="hljs-comment"># ===========================================================================</span>
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">tc_expi3</span>(<span class="hljs-params">x</span>):
@@ -6347,9 +6207,7 @@ def tc_expi3(x):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[72]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-# ===========================================================================
+        <button class="copy-btn" type="button" data-code="# ===========================================================================
 # 4b. ROSSTAB: a small opacity table (log T&#39;, log P&#39;, log kappa) built from the
 #     just-finished iteration&#39;s (T, P, kappa_Ross) at every layer, then a
 #     nearest-neighbour-in-four-quadrants bilinear interpolation.  This is what
@@ -6426,9 +6284,7 @@ class TcRosstab:
         return float(10.0 ** r)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-comment"># ===========================================================================</span>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># ===========================================================================</span>
 <span class="hljs-comment"># 4b. ROSSTAB: a small opacity table (log T&#x27;, log P&#x27;, log kappa) built from the</span>
 <span class="hljs-comment">#     just-finished iteration&#x27;s (T, P, kappa_Ross) at every layer, then a</span>
 <span class="hljs-comment">#     nearest-neighbour-in-four-quadrants bilinear interpolation.  This is what</span>
@@ -6507,9 +6363,7 @@ class TcRosstab:
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[73]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-# ===========================================================================
+        <button class="copy-btn" type="button" data-code="# ===========================================================================
 # 5. TTAUP: hydrostatic re-integration (used by DRHOX in TCORR mode 3).
 #    The opacity comes from the ROSSTAB table built this iteration.
 # ===========================================================================
@@ -6555,9 +6409,7 @@ def tc_ttaup(t, tau, prad, pturb, grav, rosstab):
     return abstd, ptotal, pgas" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-comment"># ===========================================================================</span>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># ===========================================================================</span>
 <span class="hljs-comment"># 5. TTAUP: hydrostatic re-integration (used by DRHOX in TCORR mode 3).</span>
 <span class="hljs-comment">#    The opacity comes from the ROSSTAB table built this iteration.</span>
 <span class="hljs-comment"># ===========================================================================</span>
@@ -6605,17 +6457,13 @@ def tc_ttaup(t, tau, prad, pturb, grav, rosstab):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[74]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-def tc_nz_signed(x, eps=1e-300):
+        <button class="copy-btn" type="button" data-code="def tc_nz_signed(x, eps=1e-300):
     if abs(x) &gt;= eps:
         return x
     return eps if x &gt;= 0.0 else -eps" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">tc_nz_signed</span>(<span class="hljs-params">x, eps=<span class="hljs-number">1e-300</span></span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">tc_nz_signed</span>(<span class="hljs-params">x, eps=<span class="hljs-number">1e-300</span></span>):
     <span class="hljs-keyword">if</span> <span class="hljs-built_in">abs</span>(x) &gt;= eps:
         <span class="hljs-keyword">return</span> x
     <span class="hljs-keyword">return</span> eps <span class="hljs-keyword">if</span> x &gt;= <span class="hljs-number">0.0</span> <span class="hljs-keyword">else</span> -eps</code></pre>
@@ -6623,9 +6471,7 @@ def tc_nz_signed(x, eps=1e-300):
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[75]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-
-# ===========================================================================
+        <button class="copy-btn" type="button" data-code="# ===========================================================================
 # 6. TCORR mode 3: assemble T1 = dtflux + dtlamb + dtsurf, DRHOX, monotonicity.
 #    Convection OFF, iteration 1 (oldt1 = 0, damping skipped).  Faithful port of
 #    atlas_py.physics.tcorr.tcorr_step(mode=3) with cnvflx=0 throughout.
@@ -6722,9 +6568,7 @@ def tc_tcorr_mode3(T, rhox, tauros, abross, flxrad, rjmins, rdabh, rdiagj,
                 flxerr=flxerr, flxdrv=flxdrv, tnew=tnew, rhox_new=rhox_new, drhox=drhox)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-
-<span class="hljs-comment"># ===========================================================================</span>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># ===========================================================================</span>
 <span class="hljs-comment"># 6. TCORR mode 3: assemble T1 = dtflux + dtlamb + dtsurf, DRHOX, monotonicity.</span>
 <span class="hljs-comment">#    Convection OFF, iteration 1 (oldt1 = 0, damping skipped).  Faithful port of</span>
 <span class="hljs-comment">#    atlas_py.physics.tcorr.tcorr_step(mode=3) with cnvflx=0 throughout.</span>

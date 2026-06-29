@@ -1085,8 +1085,7 @@ def center_index(grid, value):
     &quot;&quot;&quot;Production IXWL index on the logarithmic wavelength grid.&quot;&quot;&quot;
     ratiolg = np.log(grid[1]/grid[0])
     ix0 = int(np.log(grid[0])/ratiolg + 0.5)
-    return int(np.log(value)/ratiolg + 0.5) - ix0
-" aria-label="Copy code">
+    return int(np.log(value)/ratiolg + 0.5) - ix0" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python">CGF_CONSTANT = <span class="hljs-number">0.026538</span> / <span class="hljs-number">1.77245</span>
@@ -1122,14 +1121,12 @@ _EXTABF = np.exp(-np.arange(<span class="hljs-number">1001</span>, dtype=np.floa
     <span class="hljs-string">&quot;&quot;&quot;Production IXWL index on the logarithmic wavelength grid.&quot;&quot;&quot;</span>
     ratiolg = np.log(grid[<span class="hljs-number">1</span>]/grid[<span class="hljs-number">0</span>])
     ix0 = <span class="hljs-built_in">int</span>(np.log(grid[<span class="hljs-number">0</span>])/ratiolg + <span class="hljs-number">0.5</span>)
-    <span class="hljs-keyword">return</span> <span class="hljs-built_in">int</span>(np.log(value)/ratiolg + <span class="hljs-number">0.5</span>) - ix0
-</code></pre>
+    <span class="hljs-keyword">return</span> <span class="hljs-built_in">int</span>(np.log(value)/ratiolg + <span class="hljs-number">0.5</span>) - ix0</code></pre>
     </div></div><div class="prose"><p>The remaining helpers implement the outward walk. <code>_run_mask</code> turns a stop condition into &quot;keep depositing until the first stop&quot; for every depth row, <code>_deposit_side</code> applies that rule to one side of the line, and <code>deposit_outward</code> handles centre, red wing, and blue wing with the neighbour/continuum-merge guards.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[18]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-def _run_mask(stop_here):
+        <button class="copy-btn" type="button" data-code="def _run_mask(stop_here):
     &quot;&quot;&quot;True up to, but not including, the first terminator in each depth row.&quot;&quot;&quot;
     stopped = torch.cumsum(stop_here.to(DTYPE), dim=1) &gt; 0.0
     return (~stopped) &amp; (~stop_here)
@@ -1198,8 +1195,7 @@ def deposit_outward(kline, value, cut, grid, ci, simple, wcon_mask,
 print(&quot;kappa0 helpers and depth-batched outward walk ready&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">_run_mask</span>(<span class="hljs-params">stop_here</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_run_mask</span>(<span class="hljs-params">stop_here</span>):
     <span class="hljs-string">&quot;&quot;&quot;True up to, but not including, the first terminator in each depth row.&quot;&quot;&quot;</span>
     stopped = torch.cumsum(stop_here.to(DTYPE), dim=<span class="hljs-number">1</span>) &gt; <span class="hljs-number">0.0</span>
     <span class="hljs-keyword">return</span> (~stopped) &amp; (~stop_here)
@@ -1457,8 +1453,7 @@ not merely an isolated profile.</p>
         deposit_outward(out, value, cut, grid, ci, simple, wcon_mask,
                         wlm1, wlp1, redcut, bluecut,
                         neighbour_red, neighbour_blue, active)
-    return out
-" aria-label="Copy code">
+    return out" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">compute_hydrogen_opacity_gpu</span>():
@@ -1566,21 +1561,18 @@ not merely an isolated profile.</p>
         deposit_outward(out, value, cut, grid, ci, simple, wcon_mask,
                         wlm1, wlp1, redcut, bluecut,
                         neighbour_red, neighbour_blue, active)
-    <span class="hljs-keyword">return</span> out
-</code></pre>
+    <span class="hljs-keyword">return</span> out</code></pre>
     </div></div><div class="prose"><p>Run the driver once and keep the full hydrogen-line opacity on the selected device. The following benchmark cell compares all outputs against the independent archived reference.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[21]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-ahline_gpu = compute_hydrogen_opacity_gpu()
+        <button class="copy-btn" type="button" data-code="ahline_gpu = compute_hydrogen_opacity_gpu()
 ahline = ahline_gpu.detach().cpu().to(torch.float64).numpy()
 print(&quot;full hydrogen-line opacity:&quot;, tuple(ahline_gpu.shape),
       f&quot;device={ahline_gpu.device.type}, max={ahline.max():.3e} cm^2/g&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-ahline_gpu = compute_hydrogen_opacity_gpu()
+      <pre class="code-body"><code class="hljs language-python">ahline_gpu = compute_hydrogen_opacity_gpu()
 ahline = ahline_gpu.detach().cpu().to(torch.float64).numpy()
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;full hydrogen-line opacity:&quot;</span>, <span class="hljs-built_in">tuple</span>(ahline_gpu.shape),
       <span class="hljs-string">f&quot;device=<span class="hljs-subst">{ahline_gpu.device.<span class="hljs-built_in">type</span>}</span>, max=<span class="hljs-subst">{ahline.<span class="hljs-built_in">max</span>():<span class="hljs-number">.3</span>e}</span> cm^2/g&quot;</span>)</code></pre>

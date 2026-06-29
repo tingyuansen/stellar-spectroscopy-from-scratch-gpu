@@ -12,7 +12,7 @@ Only prose / clarity / ordering / pedagogy.
 Usage:  python _pipeline/critic.py 1 2 3 ...   (default: all built lectures)
 Keys (GOOGLE_API_KEY, LITELLM_API_KEY) are read from ~/.env.
 """
-import os, sys, json
+import os, sys, json, signal
 from pathlib import Path
 import nbformat
 
@@ -23,6 +23,7 @@ for ln in (Path.home()/".env").read_text().splitlines():
         k, v = ln.split("=", 1); os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 GPT_MODEL, GEM_MODEL = "gpt-5.5-2026-04-24", "gemini-3.1-pro-preview"
+TIMEOUT_SEC = int(os.environ.get("CRITIC_TIMEOUT_SEC", "180"))
 
 PROMPT = """You are an expert reviewer of a graduate-level computational astrophysics textbook. \
 This lecture rebuilds part of a stellar-spectrum synthesis pipeline from scratch in plain NumPy \
@@ -75,15 +76,36 @@ def ask_gemini(body):
     g = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
     return g.models.generate_content(model=GEM_MODEL, contents=PROMPT.format(body=body)).text
 
+def with_timeout(fn, body):
+    """Run one external critic call with a hard wall-clock bound.
+
+    The critic APIs are useful but not part of the scientific parity gates; a
+    stalled network read should produce a clear report-line failure instead of
+    holding the notebook build/passdown workflow indefinitely.
+    """
+    def _raise_timeout(signum, frame):
+        raise TimeoutError(f"critic API call exceeded {TIMEOUT_SEC}s")
+
+    old = signal.signal(signal.SIGALRM, _raise_timeout)
+    signal.alarm(TIMEOUT_SEC)
+    try:
+        return fn(body)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
+
 if __name__ == "__main__":
-    ns = [int(a) for a in sys.argv[1:] if a.isdigit()] or list(range(1, 15))
+    ns = [int(a) for a in sys.argv[1:] if a.isdigit()] or list(range(1, 17))
+    failures = 0
     for n in ns:
         body = lecture_text(n)
         for tag, fn in (("gpt55", ask_gpt), ("gemini", ask_gemini)):
             try:
-                rep = fn(body)
+                rep = with_timeout(fn, body)
                 (OUT/f"Lecture{n}_{tag}.md").write_text(rep or "(empty)")
                 head = (rep or "").strip().replace("\n", " ")[:140]
-                print(f"L{n} [{tag}]  ok  {len(rep or '')} chars  | {head}")
+                print(f"L{n} [{tag}]  ok  {len(rep or '')} chars  | {head}", flush=True)
             except Exception as e:
-                print(f"L{n} [{tag}]  FAIL  {type(e).__name__}: {str(e)[:120]}")
+                failures += 1
+                print(f"L{n} [{tag}]  FAIL  {type(e).__name__}: {str(e)[:120]}", flush=True)
+    raise SystemExit(1 if failures else 0)

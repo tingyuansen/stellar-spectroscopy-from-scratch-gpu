@@ -324,8 +324,7 @@ flux = SIGMA / <span class="hljs-number">12.5664</span> * TEFF**<span class="hlj
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[4]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-def integ(x, f, start):
+        <button class="copy-btn" type="button" data-code="def integ(x, f, start):
     &quot;&quot;&quot;Exact sequential INTEG; never replace its running sum with torch.cumsum.&quot;&quot;&quot;
     sq = f.dim() == 1
     f = f.unsqueeze(0) if sq else f
@@ -345,8 +344,7 @@ def integ(x, f, start):
     return out[0] if sq else out" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">integ</span>(<span class="hljs-params">x, f, start</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">integ</span>(<span class="hljs-params">x, f, start</span>):
     <span class="hljs-string">&quot;&quot;&quot;Exact sequential INTEG; never replace its running sum with torch.cumsum.&quot;&quot;&quot;</span>
     sq = f.dim() == <span class="hljs-number">1</span>
     f = f.unsqueeze(<span class="hljs-number">0</span>) <span class="hljs-keyword">if</span> sq <span class="hljs-keyword">else</span> f

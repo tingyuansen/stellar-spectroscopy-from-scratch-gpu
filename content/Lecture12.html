@@ -772,8 +772,7 @@ PAIR_CHUNK = <span class="hljs-number">65_536</span>        <span class="hljs-co
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[16]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-def _accumulate_chunk(out, lo, hi, *, cgf_all, elo_all, gr_all, gs_all, gw_all, eidx_all,
+        <button class="copy-btn" type="button" data-code="def _accumulate_chunk(out, lo, hi, *, cgf_all, elo_all, gr_all, gs_all, gw_all, eidx_all,
                       center_all, mol_wl_all, pop_slot5, dop_slot5, rho, xne, hckt, txnxn,
                       cont, resolu_grid, h0, h1, h2) -&gt; None:
     &quot;&quot;&quot;Accumulate band opacity for lines [lo:hi] across ALL depths into out[D, n_w] (port
@@ -840,8 +839,7 @@ def _accumulate_chunk(out, lo, hi, *, cgf_all, elo_all, gr_all, gs_all, gw_all, 
 print(&quot;_accumulate_chunk ready (one line-chunk, all depths, batched scatter)&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">_accumulate_chunk</span>(<span class="hljs-params">out, lo, hi, *, cgf_all, elo_all, gr_all, gs_all, gw_all, eidx_all,
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_accumulate_chunk</span>(<span class="hljs-params">out, lo, hi, *, cgf_all, elo_all, gr_all, gs_all, gw_all, eidx_all,
                       center_all, mol_wl_all, pop_slot5, dop_slot5, rho, xne, hckt, txnxn,
                       cont, resolu_grid, h0, h1, h2</span>) -&gt; <span class="hljs-literal">None</span>:
     <span class="hljs-string">&quot;&quot;&quot;Accumulate band opacity for lines [lo:hi] across ALL depths into out[D, n_w] (port
@@ -1146,7 +1144,7 @@ status = <span class="hljs-string">&quot;PASS&quot;</span> <span class="hljs-key
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">Validating mol_band_opacity against the production molecular reference
   accumulation path = cpu/float64; 1,170,738 lines x 80 depths
 
-</pre></div><div class="out-block"><pre class="out-stream">band opacity computed in 26.0 s; shape (80, 9136), max 1.2910e+01
+</pre></div><div class="out-block"><pre class="out-stream">band opacity computed in 30.9 s; shape (80, 9136), max 1.2910e+01
 
   ref max 1.2910e+01   reproduced max 1.2910e+01
   abs diff max 2.83e-14
@@ -1263,8 +1261,7 @@ def map1(xold, fold, xnew):
             if l &gt; nold:
                 l = min(nold, l); c = 0.0; b = (fo[l]-fo[l-1])/(xo[l]-xo[l-1]); a = fo[l]-xo[l]*b; ll = l; break
         fnew[k-1] = a + (b + c*xk)*xk
-    return fnew
-" aria-label="Copy code">
+    return fnew" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">parcoe</span>(<span class="hljs-params">f, x</span>):
@@ -1323,8 +1320,7 @@ def map1(xold, fold, xnew):
             <span class="hljs-keyword">if</span> l &gt; nold:
                 l = <span class="hljs-built_in">min</span>(nold, l); c = <span class="hljs-number">0.0</span>; b = (fo[l]-fo[l-<span class="hljs-number">1</span>])/(xo[l]-xo[l-<span class="hljs-number">1</span>]); a = fo[l]-xo[l]*b; ll = l; <span class="hljs-keyword">break</span>
         fnew[k-<span class="hljs-number">1</span>] = a + (b + c*xk)*xk
-    <span class="hljs-keyword">return</span> fnew
-</code></pre>
+    <span class="hljs-keyword">return</span> fnew</code></pre>
     </div></div><div class="prose"><p>Those three scalar helpers are the compact Lecture-8 transfer toolkit for this final spectrum check. The next cell wires them into the fixed JOSH grid and defines the source iteration; it is kept separate so the physics kernel and transfer wrapper are easier to audit independently.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
@@ -1438,7 +1434,7 @@ rel_l = np.<span class="hljs-built_in">abs</span>(B_nu - DT[<span class="hljs-st
 <span class="hljs-keyword">assert</span> rel_c.<span class="hljs-built_in">max</span>() &lt; <span class="hljs-number">1e-12</span> <span class="hljs-keyword">and</span> rel_l.<span class="hljs-built_in">max</span>() &lt; <span class="hljs-number">1e-12</span></code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">inline B_nu vs reference slinec     : max rel diff = 3.60e-15
 inline B_nu vs reference line_source: max rel diff = 3.60e-15
-</pre></div><div class="out-block"><pre class="out-stream">reference line_scattering is exactly zero: True
+reference line_scattering is exactly zero: True
 </pre></div></div><div class="prose"><p>With the source verified, the last solve combines the molecules-off atomic background with the molecular opacity we computed above. The production spectrum appears only in the final ratio check, after the transfer solve has produced <code>spectrum</code>.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">

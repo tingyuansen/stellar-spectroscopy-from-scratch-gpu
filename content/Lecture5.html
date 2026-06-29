@@ -1007,8 +1007,7 @@ def metal_invariants_fp64(catalog, atmd, grid, cont, sel0_np, center_idx_np, win
         resolu, h0t, h1t, h2t)
     return dict(center_idx=center_idx, kapcen=kapcen, center_mask=center_mask, sel=sel,
                 wing_idx=wing_idx_w, kappa0_wing=kappa0_wing, adamp=adamp_w,
-                maxstep=maxstep, use_far=use_far, n10dop=n10dop, dvoigt=dvoigt, x_far=x_far)
-" aria-label="Copy code">
+                maxstep=maxstep, use_far=use_far, n10dop=n10dop, dvoigt=dvoigt, x_far=x_far)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python">CUTOFF = <span class="hljs-number">1.0e-3</span>; KAPMIN_FLOOR = <span class="hljs-number">1.0e-8</span>; CGF_CONSTANT = <span class="hljs-number">0.026538</span> / <span class="hljs-number">1.77245</span>; C_LIGHT_NM = <span class="hljs-number">2.99792458e17</span>
@@ -1083,14 +1082,12 @@ def metal_invariants_fp64(catalog, atmd, grid, cont, sel0_np, center_idx_np, win
         resolu, h0t, h1t, h2t)
     <span class="hljs-keyword">return</span> <span class="hljs-built_in">dict</span>(center_idx=center_idx, kapcen=kapcen, center_mask=center_mask, sel=sel,
                 wing_idx=wing_idx_w, kappa0_wing=kappa0_wing, adamp=adamp_w,
-                maxstep=maxstep, use_far=use_far, n10dop=n10dop, dvoigt=dvoigt, x_far=x_far)
-</code></pre>
+                maxstep=maxstep, use_far=use_far, n10dop=n10dop, dvoigt=dvoigt, x_far=x_far)</code></pre>
     </div></div><div class="prose"><p>The invariant solve returns compact <code>[depth, line]</code> tensors: center deposits, live wing-line selection, damping, reach, and far-wing anchors. The next cell is the orchestration layer. It allocates the output opacity field, scatters the center values, then hands only the live wing subset to the reach-tiered GPU walk.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[14]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-def accumulate_metal(catalog, atmd, grid, cont):
+        <button class="copy-btn" type="button" data-code="def accumulate_metal(catalog, atmd, grid, cont):
     &quot;&quot;&quot;The fully-batched metal-line scatter accumulation -&gt; kappa_metal[n_depths, n_w] (NO stim
     factor; applied once at the end). The line axis is a TENSOR BATCH axis; the deposit is one (or a
     few reach-tiered) batched [depth, line, offset] scatter(s).&quot;&quot;&quot;
@@ -1144,8 +1141,7 @@ def accumulate_metal(catalog, atmd, grid, cont):
 print(&quot;accumulate_metal ready (the batched scatter-add pipeline)&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">accumulate_metal</span>(<span class="hljs-params">catalog, atmd, grid, cont</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">accumulate_metal</span>(<span class="hljs-params">catalog, atmd, grid, cont</span>):
     <span class="hljs-string">&quot;&quot;&quot;The fully-batched metal-line scatter accumulation -&gt; kappa_metal[n_depths, n_w] (NO stim
     factor; applied once at the end). The line axis is a TENSOR BATCH axis; the deposit is one (or a
     few reach-tiered) batched [depth, line, offset] scatter(s).&quot;&quot;&quot;</span>
@@ -1987,8 +1983,7 @@ shape = (80, 12573); max Fe I contribution = 1.741e+09 cm^-3
     k_boltz = torch.as_tensor(1.380649e-16, dtype=solve_dtype, device=solve_device)
     freq_grid_t = C_LIGHT_NM / grid64
     stim_t = 1.0 - torch.exp(-freq_grid_t.view(1, -1) * (h_planck / (k_boltz * T64)).view(-1, 1))
-    return (he_raw * stim_t).to(dtype=DTYPE, device=DEVICE)
-" aria-label="Copy code">
+    return (he_raw * stim_t).to(dtype=DTYPE, device=DEVICE)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">helium_opacity_torch</span>():
@@ -2095,20 +2090,17 @@ shape = (80, 12573); max Fe I contribution = 1.741e+09 cm^-3
     k_boltz = torch.as_tensor(<span class="hljs-number">1.380649e-16</span>, dtype=solve_dtype, device=solve_device)
     freq_grid_t = C_LIGHT_NM / grid64
     stim_t = <span class="hljs-number">1.0</span> - torch.exp(-freq_grid_t.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>) * (h_planck / (k_boltz * T64)).view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>))
-    <span class="hljs-keyword">return</span> (he_raw * stim_t).to(dtype=DTYPE, device=DEVICE)
-</code></pre>
+    <span class="hljs-keyword">return</span> (he_raw * stim_t).to(dtype=DTYPE, device=DEVICE)</code></pre>
     </div></div><div class="prose"><p>Run the helium path and keep its result as a tensor on the selected device. The validation cells below compare it component-by-component against the archived helium-wing diagnostic.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[24]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-he_opacity_t = helium_opacity_torch()
+        <button class="copy-btn" type="button" data-code="he_opacity_t = helium_opacity_torch()
 print(f&quot;helium opacity tensor ready: shape={tuple(he_opacity_t.shape)}, &quot;
       f&quot;nonzero pixels={int((he_opacity_t &gt; 0).sum().detach().cpu())}&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-he_opacity_t = helium_opacity_torch()
+      <pre class="code-body"><code class="hljs language-python">he_opacity_t = helium_opacity_torch()
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;helium opacity tensor ready: shape=<span class="hljs-subst">{<span class="hljs-built_in">tuple</span>(he_opacity_t.shape)}</span>, &quot;</span>
       <span class="hljs-string">f&quot;nonzero pixels=<span class="hljs-subst">{<span class="hljs-built_in">int</span>((he_opacity_t &gt; <span class="hljs-number">0</span>).<span class="hljs-built_in">sum</span>().detach().cpu())}</span>&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">helium opacity tensor ready: shape=(80, 5941), nonzero pixels=51493
@@ -2209,7 +2201,7 @@ rel_h = np.<span class="hljs-built_in">abs</span>(he_gpu[hdom] - gt_he[hdom]) / 
 <span class="hljs-keyword">assert</span> rel_m.<span class="hljs-built_in">max</span>() &lt;= floor, <span class="hljs-string">f&quot;metal component max rel <span class="hljs-subst">{rel_m.<span class="hljs-built_in">max</span>():<span class="hljs-number">.3</span>e}</span> above <span class="hljs-subst">{floor:<span class="hljs-number">.1</span>e}</span>&quot;</span>  <span class="hljs-comment"># numpy-ref</span>
 <span class="hljs-keyword">assert</span> rel_h.<span class="hljs-built_in">max</span>() &lt;= floor, <span class="hljs-string">f&quot;helium component max rel <span class="hljs-subst">{rel_h.<span class="hljs-built_in">max</span>():<span class="hljs-number">.3</span>e}</span> above <span class="hljs-subst">{floor:<span class="hljs-number">.1</span>e}</span>&quot;</span>  <span class="hljs-comment"># numpy-ref</span>
 <span class="hljs-keyword">assert</span> rel_all.<span class="hljs-built_in">max</span>() &lt;= floor, <span class="hljs-string">f&quot;combined atomic max rel <span class="hljs-subst">{rel_all.<span class="hljs-built_in">max</span>():<span class="hljs-number">.3</span>e}</span> above <span class="hljs-subst">{floor:<span class="hljs-number">.1</span>e}</span>&quot;</span>  <span class="hljs-comment"># numpy-ref</span></code></pre>
-    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">[metals, all Z] 295990 points : max rel = 5.018e-07   median = 3.375e-08
+    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">[metals, all Z] 295990 points : max rel = 5.018e-07   median = 3.374e-08
 [helium]         51493 points : max rel = 5.939e-08   median = 2.105e-08
 [combined]                     : max ABS residual = 8.02e-05
 </pre></div></div><div class="prose"><h2>The missing piece: hydrogen</h2>
@@ -2404,8 +2396,7 @@ def autoionizing_delta_torch():
     center_mask = torch.zeros_like(out, dtype=torch.bool)
     center_mask[rec, c] = gate
     out = torch.where(center_mask, kappa0.view(-1, 1), out)
-    return out.to(device=DEVICE, dtype=DTYPE)
-" aria-label="Copy code">
+    return out.to(device=DEVICE, dtype=DTYPE)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># Comparison-reference/setup values for the torch autoionizing profile.</span>
@@ -2483,14 +2474,12 @@ auto_cut = np.empty(n_auto, dtype=np.float64)             <span class="hljs-comm
     center_mask = torch.zeros_like(out, dtype=torch.<span class="hljs-built_in">bool</span>)
     center_mask[rec, c] = gate
     out = torch.where(center_mask, kappa0.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>), out)
-    <span class="hljs-keyword">return</span> out.to(device=DEVICE, dtype=DTYPE)
-</code></pre>
+    <span class="hljs-keyword">return</span> out.to(device=DEVICE, dtype=DTYPE)</code></pre>
     </div></div><div class="prose"><p>Run the autoionizing profile and compare it on its recorded support. This cell is intentionally only a validation call plus assertions; the profile arithmetic was defined above.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[29]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-auto_gpu_t = autoionizing_delta_torch()
+        <button class="copy-btn" type="button" data-code="auto_gpu_t = autoionizing_delta_torch()
 auto_gpu = auto_gpu_t.detach().cpu().to(torch.float64).numpy()  # numpy-ref
 auto_abs = np.max(np.abs(auto_gpu[auto_valid] - auto_ref[auto_valid]))  # numpy-ref
 auto_support = auto_valid &amp; (auto_ref != 0.0)  # numpy-ref: physical profile support
@@ -2500,8 +2489,7 @@ print(f&quot;autoionizing profile: max abs = {auto_abs:.3e}, max|rel| = {auto_re
 assert auto_rel &lt;= floor, f&quot;autoionizing full-support max rel {auto_rel:.3e} above {floor:.1e}&quot;  # numpy-ref" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-auto_gpu_t = autoionizing_delta_torch()
+      <pre class="code-body"><code class="hljs language-python">auto_gpu_t = autoionizing_delta_torch()
 auto_gpu = auto_gpu_t.detach().cpu().to(torch.float64).numpy()  <span class="hljs-comment"># numpy-ref</span>
 auto_abs = np.<span class="hljs-built_in">max</span>(np.<span class="hljs-built_in">abs</span>(auto_gpu[auto_valid] - auto_ref[auto_valid]))  <span class="hljs-comment"># numpy-ref</span>
 auto_support = auto_valid &amp; (auto_ref != <span class="hljs-number">0.0</span>)  <span class="hljs-comment"># numpy-ref: physical profile support</span>
@@ -2572,8 +2560,7 @@ def merged_continuum_delta_torch():
     before_stop = torch.cumsum(stop.to(torch.int64), dim=1) == 0
     deposit = domain &amp; before_stop &amp; (~stop)
 
-    return torch.where(deposit, value, torch.zeros_like(value))
-" aria-label="Copy code">
+    return torch.where(deposit, value, torch.zeros_like(value))" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># Comparison-reference/setup values for the torch merged-continuum profile.</span>
@@ -2633,14 +2620,12 @@ cont_idx_tail = np.empty(n_cont, dtype=np.int64)          <span class="hljs-comm
     before_stop = torch.cumsum(stop.to(torch.int64), dim=<span class="hljs-number">1</span>) == <span class="hljs-number">0</span>
     deposit = domain &amp; before_stop &amp; (~stop)
 
-    <span class="hljs-keyword">return</span> torch.where(deposit, value, torch.zeros_like(value))
-</code></pre>
+    <span class="hljs-keyword">return</span> torch.where(deposit, value, torch.zeros_like(value))</code></pre>
     </div></div><div class="prose"><p>Run the merged-continuum ramp profile and assert it against the recorded support. Together with the autoionizing check, this closes the two non-Voigt leaf profiles used by special line-type records.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[31]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-cont_gpu_t = merged_continuum_delta_torch()
+        <button class="copy-btn" type="button" data-code="cont_gpu_t = merged_continuum_delta_torch()
 cont_gpu = cont_gpu_t.detach().cpu().to(torch.float64).numpy()  # numpy-ref
 cont_abs = np.max(np.abs(cont_gpu[cont_valid] - cont_ref[cont_valid]))  # numpy-ref
 cont_support = cont_valid &amp; (cont_ref != 0.0)  # numpy-ref: physical ramp support
@@ -2651,8 +2636,7 @@ assert cont_rel &lt;= floor, f&quot;merged-continuum full-support max rel {cont_
 print(f&quot;BOTH special line types reproduced at the device float floor: {max(auto_rel, cont_rel):.3e}&quot;)  # numpy-ref" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-cont_gpu_t = merged_continuum_delta_torch()
+      <pre class="code-body"><code class="hljs language-python">cont_gpu_t = merged_continuum_delta_torch()
 cont_gpu = cont_gpu_t.detach().cpu().to(torch.float64).numpy()  <span class="hljs-comment"># numpy-ref</span>
 cont_abs = np.<span class="hljs-built_in">max</span>(np.<span class="hljs-built_in">abs</span>(cont_gpu[cont_valid] - cont_ref[cont_valid]))  <span class="hljs-comment"># numpy-ref</span>
 cont_support = cont_valid &amp; (cont_ref != <span class="hljs-number">0.0</span>)  <span class="hljs-comment"># numpy-ref: physical ramp support</span>

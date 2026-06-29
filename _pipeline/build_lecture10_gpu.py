@@ -34,7 +34,7 @@ OUT = BOOK / "content" / "Lecture10.ipynb"
 
 cells = []
 def md(src): cells.append(new_markdown_cell(src))
-def code(src): cells.append(new_code_cell(src))
+def code(src): cells.append(new_code_cell(src.strip("\n")))
 
 # ── Title + front matter + objectives (one cell, so the callout lifts) ───
 md(r"""# Lecture 10 — Radiative Equilibrium & the Temperature Correction

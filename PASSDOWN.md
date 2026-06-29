@@ -52,8 +52,10 @@ say so and name the integration work needed to remove it.
   comparison-only targets, or provenance. Use it before changing L14-L16 so target arrays do not
   leak into the computed path.
 - GPU-native status is mixed, and should stay honest: lectures 1-7, 9-13, 15-16 have
-  `build_lecture<N>_gpu.py` torch/MPS builders; L8 and L14 still use non-torch builders.
-  L14 is numerically honest now, but not yet the final GPU-native capstone.
+  `build_lecture<N>_gpu.py` torch/MPS builders. L8 now has a torch-native JOSH builder under
+  `_pipeline/build_lecture8.py`, but it is not strict data-purity closure: the taught path still
+  loads precomputed `diag.npz` opacity slabs and fixed `josh_tables.npz` operator tables. L14 still
+  uses a non-torch builder and is numerically honest, but not yet the final GPU-native capstone.
 - L15/L16 are not final GPU-native or strict self-contained closures yet. L15 contains
   torch/vectorized line-record physics and now inlines its accepted scalar LINOP1 teaching-window
   recurrence in the notebook; the standalone `verify_lineblanket.py` remains a regression oracle,
@@ -65,7 +67,7 @@ say so and name the integration work needed to remove it.
   the clean-room NumPy helper modules (`eos_fromscratch.py`, `continuum_fromscratch.py`,
   `molecular_fromscratch.py`). These helpers are self-contained and do not import `kgpu`/`pykurucz`,
   but they are integration debts for the final GPU-native book.
-- A full L1-L16 API critic sweep completed on 2026-06-29:
+- A full L1-L16 API critic sweep completed earlier on 2026-06-29:
   `python _pipeline/critic.py 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16`.
   Source/rendered cleanup commits after that sweep:
   `78505ca` tightened L3/L7/L12/L14/L15/L16 prose and boundaries;
@@ -73,8 +75,11 @@ say so and name the integration work needed to remove it.
   `b6c7b62` improved L10/L12 pedagogical cell granularity;
   `2667afe` removed "GPU edition"/companion framing from the website, top-level docs, and
   visible lecture prose.
-  Remaining critic work is now mostly larger integration/GPU-native closure, not hidden
-  pass/fail wording.
+  A later targeted post-edit rerun over L8/L15/L16 completed L8 with both critics, L15 with
+  GPT-5.5, and L16 with both critics; Gemini timed out on L15 under the new bounded runner.
+  `_pipeline/critic.py` now has a hard per-call timeout and exits nonzero on any critic failure,
+  so future sweeps cannot be mistaken for clean prose closure. Remaining critic work is now mostly
+  larger integration/GPU-native closure, plus rerunning the timed-out L15 Gemini prose review.
 
 ## L14 checks just run
 
@@ -123,10 +128,11 @@ Notebook audit:
   `_pipeline/critic_reports/GPU_textbook_selfcontained_gpu_native_gpt55.md` and
   `_pipeline/critic_reports/GPU_textbook_selfcontained_gpu_native_gemini.md` both say the repo is
   honest/numerically useful but not final-passdown-ready. They flag the same open gaps recorded
-  above: L14 loads atmosphere/EOS/population/Doppler state, L8/L14 use non-torch builders, L15
-  still loads full-grid line-blanket, continuum, atmosphere, and EOS/window computed fixtures, and
-  L16 still relies on a loaded atmosphere fixture plus clean-room NumPy helper modules for
-  load-bearing EOS/continuum/molecular computation.
+  above: L14 loads atmosphere/EOS/population/Doppler state, L8 now has a torch-native code path but
+  still consumes precomputed opacity slabs and fixed JOSH operator tables, L15 still loads full-grid
+  line-blanket, continuum, atmosphere, and EOS/window computed fixtures, and L16 still relies on a
+  loaded atmosphere fixture plus clean-room NumPy helper modules
+  for load-bearing EOS/continuum/molecular computation.
 
 ## Delegation policy
 
@@ -146,9 +152,12 @@ The orchestrator must keep ownership of the hard gates:
 
 ## Next useful work
 
-- Promote L8 and L14 to true torch/MPS GPU builders. L14 should keep the same honesty gates:
-  no hidden computed spectra, no `kgpu`/`pykurucz` import, opacity computed from inputs, and
-  parity to the same floors.
+- Close L8's data-provenance boundary: pass opacity slabs from the Lecture 3-6 torch outputs and
+  derive/generate or explicitly vendor-provenance the fixed JOSH operator tables before calling it
+  strict self-contained closure.
+- Promote L14 to a true torch/MPS GPU builder. It should keep the same honesty gates: no hidden
+  computed spectra, no `kgpu`/`pykurucz` import, opacity computed from inputs, and parity to the same
+  floors.
 - Make the final L14 capstone stricter: call/inline the L15/L16 line-blanketed atmosphere path
   for the Sun instead of loading the finished solar atmosphere bundle as an input.
 - Keep using targeted API critics to audit this standard: flag any lecture that loads a completed

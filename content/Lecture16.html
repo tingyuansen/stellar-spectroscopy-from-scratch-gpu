@@ -5,17 +5,17 @@
 <li>Recompute the per-iteration line-blanketing tensors: atomic Doppler widths, <code>XNFDOP</code>, van-der-Waals perturber density <code>TXNXN</code>, and the ionization-energy heat-capacity finite-difference samples.</li>
 <li>Separate computed state from comparison-only audit bundles, especially <code>TABCONT</code>, molecular slots, and the full line-blanketed trajectory.</li>
 </ul>
-</div><div class="prose"><p>Lecture 16 builds the EOS state that the line-blanketed convergence loop consumes. The computed path is:</p>
+</div><div class="prose"><p>Lecture 16 recomputes the EOS state that the line-blanketed convergence loop consumes, conditional on a loaded atmosphere fixture. The computed path is:</p>
 <ol>
 <li>solve the multi-element PFSAHA/NELECT equation of state from the atomic data tables;</li>
 <li>pack the result into the Kurucz <code>POPSALL</code> species-slot layout;</li>
 <li>build the kGPU-style per-iteration tensors the line-blanketed loop consumes: <code>dopple</code>, <code>xnfdop</code>, <code>txnxn</code>, and the ionization-energy heat-capacity finite-difference samples;</li>
 <li>compare those computed outputs to reference arrays only after the computation.</li>
 </ol>
-<p>The scope is explicit. The full convergence trajectory and the production <code>TABCONT</code>/molecular reference files are retained as comparison/audit targets, not as computed outputs. Any residuals in those comparison-only sections are reported as limits rather than hidden behind broader language.</p>
+<p>The scope is explicit. The loaded atmosphere structure (<code>T</code>, <code>P</code>, density-depth context, radiation-pressure context) is production-derived computed data and is not regenerated here, so this is not a strict from-physical-inputs atmosphere closure. The full convergence trajectory and the production <code>TABCONT</code>/molecular reference files are retained as comparison/audit targets, not as computed outputs. Any residuals in those comparison-only sections are reported as limits rather than hidden behind broader language.</p>
 <hr>
 <h2>Setup — device, reference paths, and comparison helpers</h2>
-<p>The EOS solve itself uses the clean-room helper <code>eos_fromscratch.py</code>. The state assembly is written in torch in the same shape and dtype style as kGPU: the working device is MPS/CUDA fp32 when available, with an fp64 CPU reference for precision checks.</p>
+<p>The EOS solve itself uses the clean-room helper <code>eos_fromscratch.py</code>. <code>continuum_fromscratch.py</code> and <code>molecular_fromscratch.py</code> remain helper-backed audit boundaries for <code>TABCONT</code> and molecular slots. The state assembly is written in torch in the same shape and dtype style as kGPU: the working device is MPS/CUDA fp32 when available, with an fp64 CPU reference for precision checks.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[1]</span>Python</span>
@@ -66,12 +66,11 @@ REF64 = (torch.device(<span class="hljs-string">&quot;cpu&quot;</span>), torch.f
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;working device = <span class="hljs-subst">{DEVICE.<span class="hljs-built_in">type</span>}</span>   working dtype = <span class="hljs-subst">{<span class="hljs-built_in">str</span>(DTYPE).split(<span class="hljs-string">&#x27;.&#x27;</span>)[-<span class="hljs-number">1</span>]}</span>&quot;</span>)
 plt.rcParams.update({<span class="hljs-string">&quot;figure.figsize&quot;</span>: (<span class="hljs-number">7.2</span>, <span class="hljs-number">4.2</span>), <span class="hljs-string">&quot;figure.dpi&quot;</span>: <span class="hljs-number">120</span>, <span class="hljs-string">&quot;axes.grid&quot;</span>: <span class="hljs-literal">True</span>, <span class="hljs-string">&quot;grid.alpha&quot;</span>: <span class="hljs-number">0.25</span>})</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">working device = mps   working dtype = float32
-</pre></div></div><div class="prose"><p>The reference bundles are loaded next. <code>eos_state_ref.npz</code> and <code>lineblanket_ref.npz</code> are comparison targets; <code>pfsaha_inputs.npz</code> is atomic input data for the computation.</p>
+</pre></div></div><div class="prose"><p>The bundles are loaded next. <code>pfsaha_inputs.npz</code> is atomic input data for the EOS computation. <code>eos_state_ref.npz</code> and <code>lineblanket_ref.npz</code> contain a mixture: comparison targets plus the loaded atmosphere/radiation context this lecture consumes. Under the strict rule, those context arrays are production-derived computed fixtures, not physical input tables.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[2]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-REF = pathlib.Path(&quot;..&quot;) / &quot;reference&quot;
+        <button class="copy-btn" type="button" data-code="REF = pathlib.Path(&quot;..&quot;) / &quot;reference&quot;
 S = np.load(REF / &quot;eos_state_ref.npz&quot;, allow_pickle=True)          # comparison only
 LB = np.load(REF / &quot;lineblanket_ref.npz&quot;, allow_pickle=True)       # comparison only
 TAB = EOS.EOSTables.from_npz(REF / &quot;pfsaha_inputs.npz&quot;)            # atomic data input
@@ -84,11 +83,10 @@ vturb = S[&quot;vturb&quot;].astype(np.float64)
 atmass = S[&quot;atmass&quot;].astype(np.float64)
 n_depth = T.size
 
-print(f&quot;EOS state grid: {n_depth} layers; comparison target = eos_state_ref.npz&quot;)" aria-label="Copy code">
+print(f&quot;EOS state grid: {n_depth} layers; loaded atmosphere fixture = eos_state_ref.npz&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-REF = pathlib.Path(<span class="hljs-string">&quot;..&quot;</span>) / <span class="hljs-string">&quot;reference&quot;</span>
+      <pre class="code-body"><code class="hljs language-python">REF = pathlib.Path(<span class="hljs-string">&quot;..&quot;</span>) / <span class="hljs-string">&quot;reference&quot;</span>
 S = np.load(REF / <span class="hljs-string">&quot;eos_state_ref.npz&quot;</span>, allow_pickle=<span class="hljs-literal">True</span>)          <span class="hljs-comment"># comparison only</span>
 LB = np.load(REF / <span class="hljs-string">&quot;lineblanket_ref.npz&quot;</span>, allow_pickle=<span class="hljs-literal">True</span>)       <span class="hljs-comment"># comparison only</span>
 TAB = EOS.EOSTables.from_npz(REF / <span class="hljs-string">&quot;pfsaha_inputs.npz&quot;</span>)            <span class="hljs-comment"># atomic data input</span>
@@ -101,19 +99,31 @@ vturb = S[<span class="hljs-string">&quot;vturb&quot;</span>].astype(np.float64)
 atmass = S[<span class="hljs-string">&quot;atmass&quot;</span>].astype(np.float64)
 n_depth = T.size
 
-<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;EOS state grid: <span class="hljs-subst">{n_depth}</span> layers; comparison target = eos_state_ref.npz&quot;</span>)</code></pre>
-    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">EOS state grid: 80 layers; comparison target = eos_state_ref.npz
+<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;EOS state grid: <span class="hljs-subst">{n_depth}</span> layers; loaded atmosphere fixture = eos_state_ref.npz&quot;</span>)</code></pre>
+    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">EOS state grid: 80 layers; loaded atmosphere fixture = eos_state_ref.npz
 </pre></div></div><div class="prose"><p>Finally, define small comparison helpers. They enforce the rule used throughout this lecture: compute first, move tensors back to CPU/fp64 only at the comparison boundary, then assert the documented floor.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[3]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="
-def back(x):
+        <button class="copy-btn" type="button" data-code="def back(x):
+    &quot;&quot;&quot;Return `x` as a host NumPy float64 array for comparison boundaries.
+
+    Inputs may be torch tensors on the selected device or NumPy-like arrays. The
+    helper is used only after a quantity has been computed, so it does not move
+    reference arrays into the taught computation path.
+    &quot;&quot;&quot;
     if torch.is_tensor(x):
         return x.detach().cpu().to(torch.float64).numpy()
     return np.asarray(x, dtype=np.float64)
 
 def relmax(a, b, *, rel_floor=0.0):
+    &quot;&quot;&quot;Return the masked max relative deviation between `a` and `b`.
+
+    Inputs are computed and comparison arrays. If `rel_floor` is nonzero, only
+    entries above that fraction of the comparison array&#39;s peak magnitude are
+    included; this avoids trace-population fp32 underflow dominating meaningful
+    opacity-state checks. The output is a Python float.
+    &quot;&quot;&quot;
     a = back(a); b = back(b)
     if rel_floor and np.max(np.abs(b)) &gt; 0:
         m = np.abs(b) &gt; rel_floor * np.max(np.abs(b))
@@ -125,6 +135,13 @@ def relmax(a, b, *, rel_floor=0.0):
 
 CHECKS = {}
 def check(name, got, ref, limit, *, rel_floor=0.0):
+    &quot;&quot;&quot;Assert one named parity check and record its max relative error.
+
+    `got` is the computed quantity, `ref` is the comparison target, `limit` is
+    the accepted floor, and `rel_floor` optionally masks insignificant trace
+    entries. This verifies state parity conditional on the loaded atmosphere
+    fixture; it is not a claim that the atmosphere fixture was regenerated.
+    &quot;&quot;&quot;
     err = relmax(got, ref, rel_floor=rel_floor)
     CHECKS[name] = err
     print(f&quot;{name:34s} max|rel| = {err:.3e}   limit {limit:.1e}&quot;)
@@ -132,17 +149,34 @@ def check(name, got, ref, limit, *, rel_floor=0.0):
     return err
 
 def t(a, device=DEVICE, dtype=DTYPE):
-    return torch.as_tensor(np.asarray(a), dtype=dtype, device=device)
-" aria-label="Copy code">
+    &quot;&quot;&quot;Convert array-like `a` to a torch tensor on `device` with `dtype`.
+
+    This is a convenience wrapper for state assembly. It is used for loaded
+    fixture context as well as computed arrays, so call sites determine whether
+    data are physical input, computed state, or comparison-only.
+    &quot;&quot;&quot;
+    return torch.as_tensor(np.asarray(a), dtype=dtype, device=device)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">back</span>(<span class="hljs-params">x</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">back</span>(<span class="hljs-params">x</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Return `x` as a host NumPy float64 array for comparison boundaries.
+
+    Inputs may be torch tensors on the selected device or NumPy-like arrays. The
+    helper is used only after a quantity has been computed, so it does not move
+    reference arrays into the taught computation path.
+    &quot;&quot;&quot;</span>
     <span class="hljs-keyword">if</span> torch.is_tensor(x):
         <span class="hljs-keyword">return</span> x.detach().cpu().to(torch.float64).numpy()
     <span class="hljs-keyword">return</span> np.asarray(x, dtype=np.float64)
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">relmax</span>(<span class="hljs-params">a, b, *, rel_floor=<span class="hljs-number">0.0</span></span>):
+    <span class="hljs-string">&quot;&quot;&quot;Return the masked max relative deviation between `a` and `b`.
+
+    Inputs are computed and comparison arrays. If `rel_floor` is nonzero, only
+    entries above that fraction of the comparison array&#x27;s peak magnitude are
+    included; this avoids trace-population fp32 underflow dominating meaningful
+    opacity-state checks. The output is a Python float.
+    &quot;&quot;&quot;</span>
     a = back(a); b = back(b)
     <span class="hljs-keyword">if</span> rel_floor <span class="hljs-keyword">and</span> np.<span class="hljs-built_in">max</span>(np.<span class="hljs-built_in">abs</span>(b)) &gt; <span class="hljs-number">0</span>:
         m = np.<span class="hljs-built_in">abs</span>(b) &gt; rel_floor * np.<span class="hljs-built_in">max</span>(np.<span class="hljs-built_in">abs</span>(b))
@@ -154,6 +188,13 @@ def t(a, device=DEVICE, dtype=DTYPE):
 
 CHECKS = {}
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">check</span>(<span class="hljs-params">name, got, ref, limit, *, rel_floor=<span class="hljs-number">0.0</span></span>):
+    <span class="hljs-string">&quot;&quot;&quot;Assert one named parity check and record its max relative error.
+
+    `got` is the computed quantity, `ref` is the comparison target, `limit` is
+    the accepted floor, and `rel_floor` optionally masks insignificant trace
+    entries. This verifies state parity conditional on the loaded atmosphere
+    fixture; it is not a claim that the atmosphere fixture was regenerated.
+    &quot;&quot;&quot;</span>
     err = relmax(got, ref, rel_floor=rel_floor)
     CHECKS[name] = err
     <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;<span class="hljs-subst">{name:34s}</span> max|rel| = <span class="hljs-subst">{err:<span class="hljs-number">.3</span>e}</span>   limit <span class="hljs-subst">{limit:<span class="hljs-number">.1</span>e}</span>&quot;</span>)
@@ -161,14 +202,32 @@ CHECKS = {}
     <span class="hljs-keyword">return</span> err
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">t</span>(<span class="hljs-params">a, device=DEVICE, dtype=DTYPE</span>):
-    <span class="hljs-keyword">return</span> torch.as_tensor(np.asarray(a), dtype=dtype, device=device)
-</code></pre>
+    <span class="hljs-string">&quot;&quot;&quot;Convert array-like `a` to a torch tensor on `device` with `dtype`.
+
+    This is a convenience wrapper for state assembly. It is used for loaded
+    fixture context as well as computed arrays, so call sites determine whether
+    data are physical input, computed state, or comparison-only.
+    &quot;&quot;&quot;</span>
+    <span class="hljs-keyword">return</span> torch.as_tensor(np.asarray(a), dtype=dtype, device=device)</code></pre>
     </div></div><div class="prose"><h2>1. PFSAHA/NELECT — compute populations from atomic data, then compare</h2>
-<p>This is the load-bearing repair. The previous GPU notebook took <code>population_per_ion</code> directly from <code>eos_state_ref.npz</code>. Here the populations are recomputed from the PFSAHA atomic tables and the current <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">(</mo><mi>T</mi><mo separator="true">,</mo><mi>P</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">(T,P)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="mclose">)</span></span></span></span> structure. The reference arrays are comparison-only.</p>
+<p>This is the load-bearing repair. The previous GPU notebook took <code>population_per_ion</code> directly from <code>eos_state_ref.npz</code>. Here the populations are recomputed from the PFSAHA atomic tables and the loaded <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">(</mo><mi>T</mi><mo separator="true">,</mo><mi>P</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">(T,P)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="mclose">)</span></span></span></span> structure. The population arrays are comparison-only, but the <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">(</mo><mi>T</mi><mo separator="true">,</mo><mi>P</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">(T,P)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="mclose">)</span></span></span></span> structure itself is a fixture boundary.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[4]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="pa = EOS.popsall(T, P, xabund, tab=TAB, wtmole=wtmole)
+        <button class="copy-btn" type="button" data-code="def solve_eos_state(T_in, P_in, xabund_in, tab, wtmole_in):
+    &quot;&quot;&quot;Return PFSAHA/NELECT EOS populations from clean-room NumPy helper code.
+
+    Inputs are loaded atmosphere-fixture arrays `T_in` and `P_in`, abundance
+    vector `xabund_in`, atomic table object `tab`, and molecular weight
+    `wtmole_in`. The output is the helper&#39;s EOS state object containing electron
+    density, mass density, hydrogen/helium populations, and
+    `population_per_ion`. This removes direct use of reference population arrays,
+    but it is still helper-backed NumPy and conditional on a loaded atmosphere
+    fixture, not a strict all-torch from-physical-input closure.
+    &quot;&quot;&quot;
+    return EOS.popsall(T_in, P_in, xabund_in, tab=tab, wtmole=wtmole_in)
+
+pa = solve_eos_state(T, P, xabund, TAB, wtmole)
 print(&quot;computed PFSAHA/NELECT state from pfsaha_inputs.npz&quot;)
 print(f&quot;  n_e surface/base = {pa.xne[0]:.3e} / {pa.xne[-1]:.3e} cm^-3&quot;)
 print(f&quot;  rho surface/base = {pa.rho[0]:.3e} / {pa.rho[-1]:.3e} g cm^-3&quot;)
@@ -180,7 +239,20 @@ check(&quot;H I/H II populations&quot;, pa.xnfph, S[&quot;xnfph&quot;], 5e-12)
 check(&quot;population_per_ion&quot;, pa.population_per_ion[:, :, :99], S[&quot;population_per_ion&quot;][:, :, :99], 5e-11)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">pa = EOS.popsall(T, P, xabund, tab=TAB, wtmole=wtmole)
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">solve_eos_state</span>(<span class="hljs-params">T_in, P_in, xabund_in, tab, wtmole_in</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Return PFSAHA/NELECT EOS populations from clean-room NumPy helper code.
+
+    Inputs are loaded atmosphere-fixture arrays `T_in` and `P_in`, abundance
+    vector `xabund_in`, atomic table object `tab`, and molecular weight
+    `wtmole_in`. The output is the helper&#x27;s EOS state object containing electron
+    density, mass density, hydrogen/helium populations, and
+    `population_per_ion`. This removes direct use of reference population arrays,
+    but it is still helper-backed NumPy and conditional on a loaded atmosphere
+    fixture, not a strict all-torch from-physical-input closure.
+    &quot;&quot;&quot;</span>
+    <span class="hljs-keyword">return</span> EOS.popsall(T_in, P_in, xabund_in, tab=tab, wtmole=wtmole_in)
+
+pa = solve_eos_state(T, P, xabund, TAB, wtmole)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;computed PFSAHA/NELECT state from pfsaha_inputs.npz&quot;</span>)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;  n_e surface/base = <span class="hljs-subst">{pa.xne[<span class="hljs-number">0</span>]:<span class="hljs-number">.3</span>e}</span> / <span class="hljs-subst">{pa.xne[-<span class="hljs-number">1</span>]:<span class="hljs-number">.3</span>e}</span> cm^-3&quot;</span>)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;  rho surface/base = <span class="hljs-subst">{pa.rho[<span class="hljs-number">0</span>]:<span class="hljs-number">.3</span>e}</span> / <span class="hljs-subst">{pa.rho[-<span class="hljs-number">1</span>]:<span class="hljs-number">.3</span>e}</span> g cm^-3&quot;</span>)
@@ -204,6 +276,13 @@ population_per_ion                 max|rel| = 5.688e-14   limit 5.0e-11
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[5]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def build_nelion_maps(maxn=999):
+    &quot;&quot;&quot;Return Kurucz POPSALL slot maps from `nelion` to `(Z, ion)`.
+
+    Input `maxn` is the largest slot index to allocate. The outputs are integer
+    arrays `z_of[slot]` and `ion_of[slot]`; zero means the slot is unused. This is
+    static bookkeeping, not production-derived computed data, and is shared by
+    the POPSALL, Doppler, and XNFDOP packing routines.
+    &quot;&quot;&quot;
     mode12 = [(1.01,1),(2.02,3),(3.03,6),(4.03,10),(5.03,15),(6.05,21),(7.05,28),(8.05,36),(9.05,45),(10.05,55),(11.05,66),(12.05,78),(13.05,91),(14.05,105),(15.05,120),(16.05,136),(17.04,153),(18.04,171),(19.04,190),(20.04,210),(21.04,231),(22.04,253),(23.04,276),(24.04,300),(25.04,325),(26.04,351),(27.04,378),(28.04,406),(29.02,435),(30.02,465)]
     nn = lambda code: max(1, int((code - int(code)) * 100.0 + 1.5))
     z_of = np.zeros(maxn + 1, np.int64); ion_of = np.zeros(maxn + 1, np.int64)
@@ -221,6 +300,14 @@ Z_OF, ION_OF = build_nelion_maps()
 nslots = 1006
 
 def popsall_slots(device, dtype):
+    &quot;&quot;&quot;Pack computed per-ion populations into the flat POPSALL slot tensor.
+
+    Inputs select torch `device` and `dtype`; the function closes over
+    `pa.population_per_ion`, which was recomputed from PFSAHA/NELECT for the
+    loaded `(T, P, abundances)` atmosphere fixture. The output is
+    `popsall[depth, slot]`. Parity is checked against `eos_state_ref.npz`, but
+    this function does not regenerate the atmosphere fixture itself.
+    &quot;&quot;&quot;
     pop = torch.as_tensor(pa.population_per_ion[:, :, :99], dtype=dtype, device=device)
     z_map = torch.as_tensor(Z_OF, dtype=torch.long, device=device)
     ion_map = torch.as_tensor(ION_OF, dtype=torch.long, device=device)
@@ -249,6 +336,13 @@ fig.tight_layout()" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">build_nelion_maps</span>(<span class="hljs-params">maxn=<span class="hljs-number">999</span></span>):
+    <span class="hljs-string">&quot;&quot;&quot;Return Kurucz POPSALL slot maps from `nelion` to `(Z, ion)`.
+
+    Input `maxn` is the largest slot index to allocate. The outputs are integer
+    arrays `z_of[slot]` and `ion_of[slot]`; zero means the slot is unused. This is
+    static bookkeeping, not production-derived computed data, and is shared by
+    the POPSALL, Doppler, and XNFDOP packing routines.
+    &quot;&quot;&quot;</span>
     mode12 = [(<span class="hljs-number">1.01</span>,<span class="hljs-number">1</span>),(<span class="hljs-number">2.02</span>,<span class="hljs-number">3</span>),(<span class="hljs-number">3.03</span>,<span class="hljs-number">6</span>),(<span class="hljs-number">4.03</span>,<span class="hljs-number">10</span>),(<span class="hljs-number">5.03</span>,<span class="hljs-number">15</span>),(<span class="hljs-number">6.05</span>,<span class="hljs-number">21</span>),(<span class="hljs-number">7.05</span>,<span class="hljs-number">28</span>),(<span class="hljs-number">8.05</span>,<span class="hljs-number">36</span>),(<span class="hljs-number">9.05</span>,<span class="hljs-number">45</span>),(<span class="hljs-number">10.05</span>,<span class="hljs-number">55</span>),(<span class="hljs-number">11.05</span>,<span class="hljs-number">66</span>),(<span class="hljs-number">12.05</span>,<span class="hljs-number">78</span>),(<span class="hljs-number">13.05</span>,<span class="hljs-number">91</span>),(<span class="hljs-number">14.05</span>,<span class="hljs-number">105</span>),(<span class="hljs-number">15.05</span>,<span class="hljs-number">120</span>),(<span class="hljs-number">16.05</span>,<span class="hljs-number">136</span>),(<span class="hljs-number">17.04</span>,<span class="hljs-number">153</span>),(<span class="hljs-number">18.04</span>,<span class="hljs-number">171</span>),(<span class="hljs-number">19.04</span>,<span class="hljs-number">190</span>),(<span class="hljs-number">20.04</span>,<span class="hljs-number">210</span>),(<span class="hljs-number">21.04</span>,<span class="hljs-number">231</span>),(<span class="hljs-number">22.04</span>,<span class="hljs-number">253</span>),(<span class="hljs-number">23.04</span>,<span class="hljs-number">276</span>),(<span class="hljs-number">24.04</span>,<span class="hljs-number">300</span>),(<span class="hljs-number">25.04</span>,<span class="hljs-number">325</span>),(<span class="hljs-number">26.04</span>,<span class="hljs-number">351</span>),(<span class="hljs-number">27.04</span>,<span class="hljs-number">378</span>),(<span class="hljs-number">28.04</span>,<span class="hljs-number">406</span>),(<span class="hljs-number">29.02</span>,<span class="hljs-number">435</span>),(<span class="hljs-number">30.02</span>,<span class="hljs-number">465</span>)]
     nn = <span class="hljs-keyword">lambda</span> code: <span class="hljs-built_in">max</span>(<span class="hljs-number">1</span>, <span class="hljs-built_in">int</span>((code - <span class="hljs-built_in">int</span>(code)) * <span class="hljs-number">100.0</span> + <span class="hljs-number">1.5</span>))
     z_of = np.zeros(maxn + <span class="hljs-number">1</span>, np.int64); ion_of = np.zeros(maxn + <span class="hljs-number">1</span>, np.int64)
@@ -266,6 +360,14 @@ Z_OF, ION_OF = build_nelion_maps()
 nslots = <span class="hljs-number">1006</span>
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">popsall_slots</span>(<span class="hljs-params">device, dtype</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Pack computed per-ion populations into the flat POPSALL slot tensor.
+
+    Inputs select torch `device` and `dtype`; the function closes over
+    `pa.population_per_ion`, which was recomputed from PFSAHA/NELECT for the
+    loaded `(T, P, abundances)` atmosphere fixture. The output is
+    `popsall[depth, slot]`. Parity is checked against `eos_state_ref.npz`, but
+    this function does not regenerate the atmosphere fixture itself.
+    &quot;&quot;&quot;</span>
     pop = torch.as_tensor(pa.population_per_ion[:, :, :<span class="hljs-number">99</span>], dtype=dtype, device=device)
     z_map = torch.as_tensor(Z_OF, dtype=torch.long, device=device)
     ion_map = torch.as_tensor(ION_OF, dtype=torch.long, device=device)
@@ -303,6 +405,14 @@ AMU = 1.660e-24
 C_LIGHT = 2.99792458e10
 
 def doppler_xnfdop(device, dtype):
+    &quot;&quot;&quot;Return atomic Doppler widths and XNFDOP slot tensors.
+
+    Inputs select torch `device` and `dtype`; the function closes over loaded
+    temperature, microturbulence, atomic masses, and the recomputed EOS
+    populations/density. It returns `(dopple[depth, slot], xnfdop[depth, slot])`.
+    Significant slots should agree at the fp32 floor; unmasked XNFDOP can show
+    trace-population underflow far below opacity relevance.
+    &quot;&quot;&quot;
     Tt = t(T, device, dtype); vt = t(vturb, device, dtype); am = t(atmass, device, dtype); rh = t(pa.rho, device, dtype)
     pop = torch.as_tensor(pa.population_per_ion[:, :, :99], dtype=dtype, device=device)
     arg = 2.0 * K_BOLTZ * Tt[:, None] / (torch.clamp(am[None, :], min=1e-300) * AMU) + vt[:, None] ** 2
@@ -339,6 +449,14 @@ AMU = <span class="hljs-number">1.660e-24</span>
 C_LIGHT = <span class="hljs-number">2.99792458e10</span>
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">doppler_xnfdop</span>(<span class="hljs-params">device, dtype</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Return atomic Doppler widths and XNFDOP slot tensors.
+
+    Inputs select torch `device` and `dtype`; the function closes over loaded
+    temperature, microturbulence, atomic masses, and the recomputed EOS
+    populations/density. It returns `(dopple[depth, slot], xnfdop[depth, slot])`.
+    Significant slots should agree at the fp32 floor; unmasked XNFDOP can show
+    trace-population underflow far below opacity relevance.
+    &quot;&quot;&quot;</span>
     Tt = t(T, device, dtype); vt = t(vturb, device, dtype); am = t(atmass, device, dtype); rh = t(pa.rho, device, dtype)
     pop = torch.as_tensor(pa.population_per_ion[:, :, :<span class="hljs-number">99</span>], dtype=dtype, device=device)
     arg = <span class="hljs-number">2.0</span> * K_BOLTZ * Tt[:, <span class="hljs-literal">None</span>] / (torch.clamp(am[<span class="hljs-literal">None</span>, :], <span class="hljs-built_in">min</span>=<span class="hljs-number">1e-300</span>) * AMU) + vt[:, <span class="hljs-literal">None</span>] ** <span class="hljs-number">2</span>
@@ -381,6 +499,14 @@ unmasked xnfdop fp32/fp64 max|rel| = 1.00e+00 (trace slots underflow below fp32 
         <button class="copy-btn" type="button" data-code="KEV_FACTOR = 8.6171e-5
 
 def txnxn_torch(device, dtype):
+    &quot;&quot;&quot;Return the van-der-Waals neutral perturber density `txnxn`.
+
+    Inputs select torch `device` and `dtype`; the function uses loaded
+    temperatures and recomputed H/He populations from the EOS solve. The output
+    is `txnxn[depth]`. The H2 term uses the Kurucz-compatible closed-form
+    equilibrium and high-temperature cutoff; this is a prescription boundary and
+    is parity-checked against the fixture.
+    &quot;&quot;&quot;
     Tt = t(T, device, dtype); h = t(pa.xnf_h, device, dtype); he1 = t(pa.xnf_he1, device, dtype)
     tkev = Tt * KEV_FACTOR
     eq = torch.exp(4.478 / tkev - 4.64584e1 + (1.63660e-3 + (-4.93992e-7 + (1.11822e-10 + (-1.49567e-14 + (1.06206e-18 - 3.08720e-23 * Tt) * Tt) * Tt) * Tt) * Tt) * Tt - 1.5 * torch.log(Tt))
@@ -399,6 +525,14 @@ print(f&quot;txnxn surface/base = {float(tx_w[0].detach().cpu()):.3e} / {float(t
       <pre class="code-body"><code class="hljs language-python">KEV_FACTOR = <span class="hljs-number">8.6171e-5</span>
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">txnxn_torch</span>(<span class="hljs-params">device, dtype</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Return the van-der-Waals neutral perturber density `txnxn`.
+
+    Inputs select torch `device` and `dtype`; the function uses loaded
+    temperatures and recomputed H/He populations from the EOS solve. The output
+    is `txnxn[depth]`. The H2 term uses the Kurucz-compatible closed-form
+    equilibrium and high-temperature cutoff; this is a prescription boundary and
+    is parity-checked against the fixture.
+    &quot;&quot;&quot;</span>
     Tt = t(T, device, dtype); h = t(pa.xnf_h, device, dtype); he1 = t(pa.xnf_he1, device, dtype)
     tkev = Tt * KEV_FACTOR
     eq = torch.exp(<span class="hljs-number">4.478</span> / tkev - <span class="hljs-number">4.64584e1</span> + (<span class="hljs-number">1.63660e-3</span> + (-<span class="hljs-number">4.93992e-7</span> + (<span class="hljs-number">1.11822e-10</span> + (-<span class="hljs-number">1.49567e-14</span> + (<span class="hljs-number">1.06206e-18</span> - <span class="hljs-number">3.08720e-23</span> * Tt) * Tt) * Tt) * Tt) * Tt) * Tt - <span class="hljs-number">1.5</span> * torch.log(Tt))
@@ -420,7 +554,19 @@ txnxn surface/base = 1.887e+13 / 1.661e+17 cm^-3
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[8]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="ei1, ei2, ei3, ei4, r1, r2, r3, r4 = EOS.convec_fd_raw(T, P, xabund, wtmole, pa.xne, TAB)
+        <button class="copy-btn" type="button" data-code="def convec_fd_samples(T_in, P_in, xabund_in, wtmole_in, xne_in, tab):
+    &quot;&quot;&quot;Return EOS finite-difference samples for convective heat capacity.
+
+    Inputs are loaded atmosphere-fixture arrays `T_in` and `P_in`, abundances,
+    molecular weight, the recomputed electron density `xne_in`, and atomic tables.
+    The output is `(ei1, ei2, ei3, ei4, r1, r2, r3, r4)`: ionization-energy and
+    density samples at the four small perturbations used by the convection
+    finite difference. This is a clean-room NumPy helper boundary; the notebook
+    audits parity but does not make this an all-torch kernel.
+    &quot;&quot;&quot;
+    return EOS.convec_fd_raw(T_in, P_in, xabund_in, wtmole_in, xne_in, tab)
+
+ei1, ei2, ei3, ei4, r1, r2, r3, r4 = convec_fd_samples(T, P, xabund, wtmole, pa.xne, TAB)
 dilut = 1.0 - np.exp(-S[&quot;tauros&quot;])
 pradk = S[&quot;pradk&quot;]
 ed1 = ei1 + 3.0 * pradk / np.maximum(r1, 1e-300) * (1.0 + dilut * (1.001 ** 4 - 1.0))
@@ -436,7 +582,19 @@ print(f&quot;H cumulative ionization energy H-&gt;H+ = {ipcum[0,1]/1.602176634e-
 print(&quot;finite-difference EOS samples are computed, not read&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">ei1, ei2, ei3, ei4, r1, r2, r3, r4 = EOS.convec_fd_raw(T, P, xabund, wtmole, pa.xne, TAB)
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">convec_fd_samples</span>(<span class="hljs-params">T_in, P_in, xabund_in, wtmole_in, xne_in, tab</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Return EOS finite-difference samples for convective heat capacity.
+
+    Inputs are loaded atmosphere-fixture arrays `T_in` and `P_in`, abundances,
+    molecular weight, the recomputed electron density `xne_in`, and atomic tables.
+    The output is `(ei1, ei2, ei3, ei4, r1, r2, r3, r4)`: ionization-energy and
+    density samples at the four small perturbations used by the convection
+    finite difference. This is a clean-room NumPy helper boundary; the notebook
+    audits parity but does not make this an all-torch kernel.
+    &quot;&quot;&quot;</span>
+    <span class="hljs-keyword">return</span> EOS.convec_fd_raw(T_in, P_in, xabund_in, wtmole_in, xne_in, tab)
+
+ei1, ei2, ei3, ei4, r1, r2, r3, r4 = convec_fd_samples(T, P, xabund, wtmole, pa.xne, TAB)
 dilut = <span class="hljs-number">1.0</span> - np.exp(-S[<span class="hljs-string">&quot;tauros&quot;</span>])
 pradk = S[<span class="hljs-string">&quot;pradk&quot;</span>]
 ed1 = ei1 + <span class="hljs-number">3.0</span> * pradk / np.maximum(r1, <span class="hljs-number">1e-300</span>) * (<span class="hljs-number">1.0</span> + dilut * (<span class="hljs-number">1.001</span> ** <span class="hljs-number">4</span> - <span class="hljs-number">1.0</span>))
@@ -466,7 +624,29 @@ finite-difference EOS samples are computed, not read
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[9]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="xnfpmol, dop_mol, mol_nelion = MF.molecular_deposit_populations(T, P, pa, xabund, vturb, REF / &quot;molecules.dat&quot;)
+        <button class="copy-btn" type="button" data-code="def molecular_deposit_state(T_in, P_in, eos_state, xabund_in, vturb_in, molecules_path):
+    &quot;&quot;&quot;Return molecular line-deposit populations from the clean-room helper.
+
+    Inputs are loaded atmosphere-fixture arrays `T_in`, `P_in`, and `vturb_in`,
+    the recomputed EOS state, abundances, and the physical molecule table path.
+    The output is `(xnfpmol, dop_mol, mol_nelion)`. This computes before
+    comparison and does not import production code, but it remains a NumPy helper
+    boundary rather than a torch-native lecture cell.
+    &quot;&quot;&quot;
+    return MF.molecular_deposit_populations(T_in, P_in, eos_state, xabund_in, vturb_in, molecules_path)
+
+def continuum_cutoff_table(eos_state, T_in, rho_in, xne_in, os_start_in):
+    &quot;&quot;&quot;Return TABCONT and IWAVETAB from the clean-room continuum helper.
+
+    Inputs are the recomputed EOS state, loaded atmosphere-fixture temperature,
+    density and electron-density context, and the opacity-sampling wavelength
+    start. The output is `(tabcont, iwavetab)`. The function computes before
+    comparison, but under the strict rule it is still a helper-backed continuum
+    bridge and not a closed all-torch opacity generator.
+    &quot;&quot;&quot;
+    return CF.build_tabcont(eos_state, T_in, rho_in, xne_in, os_start_in)
+
+xnfpmol, dop_mol, mol_nelion = molecular_deposit_state(T, P, pa, xabund, vturb, REF / &quot;molecules.dat&quot;)
 mol_err = relmax(xnfpmol, S[&quot;xnfpmol&quot;])
 print(f&quot;molecular_deposit_populations shape = {xnfpmol.shape}&quot;)
 print(f&quot;xnfpmol vs reference max|rel| = {mol_err:.3e}  (documented Lecture-13 chemistry floor)&quot;)
@@ -477,7 +657,7 @@ xnfdop_mol, dopple_mol = MF.fill_molecular_slots(xnfdop_mol, dopple_mol, pa.rho,
 print(f&quot;molecular slots filled: {int(np.count_nonzero(xnfdop_mol[:,840:940].sum(axis=0)))}&quot;)
 
 os_start = float(LB[&quot;waveset_nm&quot;][0])
-tabcont, iwavetab = CF.build_tabcont(pa, T, pa.rho, pa.xne, os_start)
+tabcont, iwavetab = continuum_cutoff_table(pa, T, pa.rho, pa.xne, os_start)
 mask = LB[&quot;tabcont&quot;] != 0
 tab_rel = np.abs(tabcont.astype(float) - LB[&quot;tabcont&quot;].astype(float)) / np.maximum(np.abs(LB[&quot;tabcont&quot;]), 1e-30)
 print(f&quot;tabcont median|max relative residual = {np.median(tab_rel[mask]):.3e} | {np.max(tab_rel[mask]):.3e}&quot;)
@@ -487,7 +667,29 @@ assert np.median(tab_rel[mask]) &lt; 1e-2
 print(&quot;TABCONT residual is reported as a remaining continuum-bridge limit, not hidden as machine precision&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python">xnfpmol, dop_mol, mol_nelion = MF.molecular_deposit_populations(T, P, pa, xabund, vturb, REF / <span class="hljs-string">&quot;molecules.dat&quot;</span>)
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">molecular_deposit_state</span>(<span class="hljs-params">T_in, P_in, eos_state, xabund_in, vturb_in, molecules_path</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Return molecular line-deposit populations from the clean-room helper.
+
+    Inputs are loaded atmosphere-fixture arrays `T_in`, `P_in`, and `vturb_in`,
+    the recomputed EOS state, abundances, and the physical molecule table path.
+    The output is `(xnfpmol, dop_mol, mol_nelion)`. This computes before
+    comparison and does not import production code, but it remains a NumPy helper
+    boundary rather than a torch-native lecture cell.
+    &quot;&quot;&quot;</span>
+    <span class="hljs-keyword">return</span> MF.molecular_deposit_populations(T_in, P_in, eos_state, xabund_in, vturb_in, molecules_path)
+
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">continuum_cutoff_table</span>(<span class="hljs-params">eos_state, T_in, rho_in, xne_in, os_start_in</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Return TABCONT and IWAVETAB from the clean-room continuum helper.
+
+    Inputs are the recomputed EOS state, loaded atmosphere-fixture temperature,
+    density and electron-density context, and the opacity-sampling wavelength
+    start. The output is `(tabcont, iwavetab)`. The function computes before
+    comparison, but under the strict rule it is still a helper-backed continuum
+    bridge and not a closed all-torch opacity generator.
+    &quot;&quot;&quot;</span>
+    <span class="hljs-keyword">return</span> CF.build_tabcont(eos_state, T_in, rho_in, xne_in, os_start_in)
+
+xnfpmol, dop_mol, mol_nelion = molecular_deposit_state(T, P, pa, xabund, vturb, REF / <span class="hljs-string">&quot;molecules.dat&quot;</span>)
 mol_err = relmax(xnfpmol, S[<span class="hljs-string">&quot;xnfpmol&quot;</span>])
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;molecular_deposit_populations shape = <span class="hljs-subst">{xnfpmol.shape}</span>&quot;</span>)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;xnfpmol vs reference max|rel| = <span class="hljs-subst">{mol_err:<span class="hljs-number">.3</span>e}</span>  (documented Lecture-13 chemistry floor)&quot;</span>)
@@ -498,7 +700,7 @@ xnfdop_mol, dopple_mol = MF.fill_molecular_slots(xnfdop_mol, dopple_mol, pa.rho,
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;molecular slots filled: <span class="hljs-subst">{<span class="hljs-built_in">int</span>(np.count_nonzero(xnfdop_mol[:,<span class="hljs-number">840</span>:<span class="hljs-number">940</span>].<span class="hljs-built_in">sum</span>(axis=<span class="hljs-number">0</span>)))}</span>&quot;</span>)
 
 os_start = <span class="hljs-built_in">float</span>(LB[<span class="hljs-string">&quot;waveset_nm&quot;</span>][<span class="hljs-number">0</span>])
-tabcont, iwavetab = CF.build_tabcont(pa, T, pa.rho, pa.xne, os_start)
+tabcont, iwavetab = continuum_cutoff_table(pa, T, pa.rho, pa.xne, os_start)
 mask = LB[<span class="hljs-string">&quot;tabcont&quot;</span>] != <span class="hljs-number">0</span>
 tab_rel = np.<span class="hljs-built_in">abs</span>(tabcont.astype(<span class="hljs-built_in">float</span>) - LB[<span class="hljs-string">&quot;tabcont&quot;</span>].astype(<span class="hljs-built_in">float</span>)) / np.maximum(np.<span class="hljs-built_in">abs</span>(LB[<span class="hljs-string">&quot;tabcont&quot;</span>]), <span class="hljs-number">1e-30</span>)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;tabcont median|max relative residual = <span class="hljs-subst">{np.median(tab_rel[mask]):<span class="hljs-number">.3</span>e}</span> | <span class="hljs-subst">{np.<span class="hljs-built_in">max</span>(tab_rel[mask]):<span class="hljs-number">.3</span>e}</span>&quot;</span>)
@@ -545,7 +747,7 @@ else:
   surface T = 3690.7 K; base T = 11459.5 K; base RHOX = 12.347
   T vs sun.npz median|max rel = 7.673e-04 | 4.468e-03
 </pre></div></div><div class="prose"><h2>Final validation table</h2>
-<p>The green checks are the pieces Lecture 16 now genuinely computes in this notebook: PFSAHA/NELECT populations, species-slot packing, Doppler/xnfdop, txnxn, and the ionization-energy finite-difference heat-capacity inputs. Molecular and <code>TABCONT</code> sections are computed and audited with their stated residual limits; the full convergence trajectory is comparison-only.</p>
+<p>The green checks are the pieces Lecture 16 computes conditional on the loaded atmosphere fixture: PFSAHA/NELECT populations, species-slot packing, Doppler/xnfdop, txnxn, and the ionization-energy finite-difference heat-capacity inputs. Molecular and <code>TABCONT</code> sections are computed through clean-room NumPy helper boundaries and audited with their stated residual limits; the full convergence trajectory is comparison-only.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[11]</span>Python</span>
@@ -586,14 +788,14 @@ worst = <span class="hljs-built_in">max</span>(CHECKS.values())
 worst asserted max|rel| = 2.462e-07
 </pre></div></div><div class="prose"><h2>Summary</h2>
 <ul>
-<li>The previous L16 false scope is removed: <code>population_per_ion</code>, <code>dopple</code>, <code>xnfdop</code>, <code>txnxn</code>, and the EOS finite-difference samples are computed first, then compared.</li>
-<li>Reference files are comparison-only. The notebook no longer stages reference <code>TABCONT</code>, molecular populations, or convergence arrays as if they were generated by the GPU path.</li>
+<li>The previous L16 false scope is reduced: <code>population_per_ion</code>, <code>dopple</code>, <code>xnfdop</code>, <code>txnxn</code>, and the EOS finite-difference samples are computed first, then compared, but all are conditional on a loaded atmosphere fixture.</li>
+<li>Reference population outputs are comparison-only. The loaded atmosphere/radiation context is still a production-derived fixture; the notebook no longer stages reference <code>TABCONT</code>, molecular populations, or convergence arrays as if they were generated by the GPU path.</li>
 <li>The kGPU-style tensor state is fp32-safe on significant slots; the only documented fp32 caveat is trace <code>xnfdop</code> underflow far below opacity relevance.</li>
 <li>Residual limits are explicit: molecular populations sit at the Lecture-13 floor; <code>TABCONT</code> has a continuum-bridge residual reported separately; full convergence is summarized as a reference comparison artifact, not claimed as a notebook rerun.</li>
 </ul>
 <h2>Synthesis</h2>
-<p>Lecture 16 closes the bookkeeping gap that earlier atmosphere lectures deliberately exposed. A line-blanketed iteration is not only a temperature correction and a hydrostatic march; every iteration also needs a coherent EOS state: ion populations in <code>POPSALL</code> order, Doppler widths, population-per-Doppler opacity normalizers, neutral perturber densities, and the finite-difference heat-capacity samples used by convection. This lecture now builds that state before comparing it.</p>
-<p>The important boundary is also explicit. The tensor state that kGPU consumes is computed here and checked at the fp32 floor on significant slots. The molecular slots and continuum cutoff bridge are computed and reported with their residual limits. The full convergence trajectory remains a comparison artifact, not a hidden claim that this notebook reran the entire warm-start loop. That separation is what makes the passdown clean: the reusable torch ingredients are real, and the remaining integration target is named rather than disguised.</p>
+<p>Lecture 16 narrows the bookkeeping gap that earlier atmosphere lectures deliberately exposed. A line-blanketed iteration is not only a temperature correction and a hydrostatic march; every iteration also needs a coherent EOS state: ion populations in <code>POPSALL</code> order, Doppler widths, population-per-Doppler opacity normalizers, neutral perturber densities, and the finite-difference heat-capacity samples used by convection. This lecture now recomputes that state for the loaded atmosphere fixture before comparing it.</p>
+<p>The important boundary is also explicit. The tensor state that kGPU consumes is computed here and checked at the fp32 floor on significant slots, but the atmosphere structure it is computed on is still loaded. The molecular slots and continuum cutoff bridge are computed through clean-room NumPy helpers and reported with their residual limits. The full convergence trajectory remains a comparison artifact, not a hidden claim that this notebook reran the entire warm-start loop. That separation is what makes the passdown clean: the reusable ingredients are real, and the remaining integration targets are named rather than disguised.</p>
 <h2>Practice exercises</h2>
 <ol>
 <li><p><strong>Trace-slot underflow.</strong> The significant <code>xnfdop</code> slots pass at the fp32 floor, while the unmasked maximum is dominated by trace populations far below opacity relevance. Recompute the check with two different relevance floors and explain which slots can affect line opacity.</p>
@@ -602,7 +804,7 @@ worst asserted max|rel| = 2.462e-07
 </li>
 <li><p><strong>Finite-difference heat capacity.</strong> Repeat the EOS finite-difference sample with a <code>0.2%</code> perturbation instead of <code>0.1%</code>. Compare the asserted densities and energy samples. What part of the convection calculation would be most sensitive to this choice?</p>
 </li>
-<li><p><strong>Passdown boundary.</strong> List which arrays in this lecture are now computed inputs to kGPU and which outputs remain comparison-only. This is the checklist a production handoff needs before replacing a reference fixture with a runtime kernel.</p>
+<li><p><strong>Passdown boundary.</strong> List which arrays in this lecture are computed conditional on the loaded atmosphere fixture, which helper-backed boundaries remain, and which outputs remain comparison-only. This is the checklist a production handoff needs before replacing a reference fixture with a runtime kernel.</p>
 </li>
 </ol>
 <h2>Further reading</h2>
