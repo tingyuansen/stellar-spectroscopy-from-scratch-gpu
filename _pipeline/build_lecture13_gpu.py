@@ -521,6 +521,48 @@ code(r'''def _equation_abundance_vector(xabund_np, idequa_np, nequa, ne):
 
 print("_equation_abundance_vector ready")''')
 
+md(r"""The helper below solves one depth's coupled nonlinear system. It keeps the Newton damping, sign
+oscillation check, and positivity floor in one place; the outer driver then only has to manage the
+pressure-continuation seed from one depth to the next.""")
+
+code(r'''def _solve_density_at_depth(number_densities_j, log_formation_j, total_particle_density_j,
+                            residual_one_depth, jacobian_one_depth, nequa,
+                            solve_device, solve_dtype):
+    """Solve one depth's molecular equilibrium by damped Newton iteration."""
+    previous_step = torch.zeros(nequa, dtype=solve_dtype, device=solve_device)
+    max_iter = 200
+    tol = 1.0e-3
+
+    for _iteration in range(max_iter):   # JUSTIFIED-LOOP: Newton iteration is sequential.
+        residual = residual_one_depth(number_densities_j, log_formation_j, total_particle_density_j)
+        jacobian = jacobian_one_depth(number_densities_j, log_formation_j, total_particle_density_j)
+        newton_step = _newton_step(jacobian, residual, number_densities_j)
+
+        relative_step = (
+            newton_step.abs()
+            / number_densities_j.abs().clamp_min(torch.finfo(solve_dtype).tiny)
+        )
+        still_iterating = bool((relative_step > tol).any().detach().cpu().item())
+        oscillating_step = (
+            ((previous_step > 0.0) & (newton_step < 0.0))
+            | ((previous_step < 0.0) & (newton_step > 0.0))
+        )
+        damped_step = torch.where(oscillating_step, newton_step * 0.69, newton_step)
+        proposed_densities = number_densities_j - damped_step
+        overshot_floor = proposed_densities < (number_densities_j / 100.0)
+        number_densities_j = torch.where(
+            overshot_floor,
+            number_densities_j / 100.0,
+            proposed_densities,
+        ).detach()
+        previous_step = damped_step.detach()
+        if not still_iterating:
+            break
+    return number_densities_j.detach()
+
+print("_solve_density_at_depth ready")
+''')
+
 md(r"""The driver below is the actual warm-started depth loop: each depth solves a stiff local Newton
 problem seeded from the converged depth above, then the solved rows are stacked back into molecule
 and neutral-atom arrays.""")
@@ -556,7 +598,6 @@ code(r'''def _nmolec_driver(struct, ne, log_equilj, ed_np, xabund_np, gp_np, T_n
 
     solved_density_rows = []
     previous_converged_densities = None
-    max_iter = 200; tol = 1.0e-3
 
     # THE DEPTH LOOP -- pressure-continuation warm start for robustness (see markdown)
     for j in range(n_layers):     # JUSTIFIED-LOOP: sequential warm-start chain; depth j seeded from converged depth j-1
@@ -575,37 +616,10 @@ code(r'''def _nmolec_driver(struct, ne, log_equilj, ed_np, xabund_np, gp_np, T_n
 
         log_formation_j = log_formation_t[j]
         total_particle_density_j = total_particle_density_t[j]
-        previous_step = torch.zeros(nequa, dtype=solve_dtype, device=solve_device)
-
-        # the INNER Newton iteration -- fully vectorized over the unknowns
-        for _iteration in range(max_iter):   # JUSTIFIED-LOOP: Newton iteration is sequential; per-unknown work is vectorized (jacrev + linalg.solve)
-            residual = residual_one_depth(
-                number_densities_j, log_formation_j, total_particle_density_j)
-            jacobian = jacobian_one_depth(
-                number_densities_j, log_formation_j, total_particle_density_j)
-            newton_step = _newton_step(jacobian, residual, number_densities_j)
-
-            relative_step = (
-                newton_step.abs()
-                / number_densities_j.abs().clamp_min(torch.finfo(solve_dtype).tiny)
-            )
-            still_iterating = bool((relative_step > tol).any().detach().cpu().item())
-            oscillating_step = (
-                ((previous_step > 0.0) & (newton_step < 0.0))
-                | ((previous_step < 0.0) & (newton_step > 0.0))
-            )
-            damped_step = torch.where(oscillating_step, newton_step * 0.69, newton_step)
-            proposed_densities = number_densities_j - damped_step
-            overshot_floor = proposed_densities < (number_densities_j / 100.0)
-            number_densities_j = torch.where(
-                overshot_floor,
-                number_densities_j / 100.0,
-                proposed_densities,
-            ).detach()
-            previous_step = damped_step.detach()
-            if not still_iterating:
-                break
-        previous_converged_densities = number_densities_j.detach()
+        previous_converged_densities = _solve_density_at_depth(
+            number_densities_j, log_formation_j, total_particle_density_j,
+            residual_one_depth, jacobian_one_depth, nequa, solve_device, solve_dtype,
+        )
         solved_density_rows.append(previous_converged_densities)
 
     xn_final = torch.stack(solved_density_rows, dim=0)
