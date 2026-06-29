@@ -1616,9 +1616,68 @@ For each line we form both centre-cutoff stages, evaluate one dense branchless
 HPROF4 grid, apply the merge taper and neighbour profiles, then execute the
 outward walk with cumulative masks. This is the complete hydrogen-line opacity,
 not merely an isolated profile.</p>
+<p>The Stark profile itself runs through a deliberately tiny fp64 precision island. The broad
+hydrogen-profile arithmetic is cancellation-sensitive enough that the full-output benchmark uses the
+same fp64 profile precision as the archived reference, while the outward walk and accumulation stay
+on the selected device.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[20]</span>Python</span>
+        <button class="copy-btn" type="button" data-code="def profile_precision_island(nl, nu, line_center, off, wt, nf):
+    &quot;&quot;&quot;Evaluate HPROF4 in a tiny CPU/fp64 island, then return to the active device.
+
+    The dense outward walk and accumulation remain on MPS/CUDA. The exact island is
+    for the Stark profile arithmetic itself: fp32 reproduces the component profile
+    to its expected floor, but the full 5,941-pixel benchmark requires the fp64
+    profile precision that generated `gt_ahline`.
+    &quot;&quot;&quot;
+    global DEVICE, DTYPE
+    keep_device, keep_dtype = DEVICE, DTYPE
+    try:
+        DEVICE, DTYPE = torch.device(&quot;cpu&quot;), torch.float64
+        hyd64 = {
+            key: torch.as_tensor(np.asarray(value, dtype=np.float64)[:, None], dtype=torch.float64)
+            for key, value in hyd_np.items()
+        }
+        delta = np.broadcast_to(
+            (wavelength_nm - line_center)[None, :],
+            (n_depths, wavelength_nm.size),
+        ).copy()
+        phi64 = hydrogen_profile_grid(nl, nu, delta, hyd64, tabs, off, wt, nf)
+    finally:
+        DEVICE, DTYPE = keep_device, keep_dtype
+    return phi64.to(device=keep_device, dtype=keep_dtype)" aria-label="Copy code">
+          <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
+      </div>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">profile_precision_island</span>(<span class="hljs-params">nl, nu, line_center, off, wt, nf</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Evaluate HPROF4 in a tiny CPU/fp64 island, then return to the active device.
+
+    The dense outward walk and accumulation remain on MPS/CUDA. The exact island is
+    for the Stark profile arithmetic itself: fp32 reproduces the component profile
+    to its expected floor, but the full 5,941-pixel benchmark requires the fp64
+    profile precision that generated `gt_ahline`.
+    &quot;&quot;&quot;</span>
+    <span class="hljs-keyword">global</span> DEVICE, DTYPE
+    keep_device, keep_dtype = DEVICE, DTYPE
+    <span class="hljs-keyword">try</span>:
+        DEVICE, DTYPE = torch.device(<span class="hljs-string">&quot;cpu&quot;</span>), torch.float64
+        hyd64 = {
+            key: torch.as_tensor(np.asarray(value, dtype=np.float64)[:, <span class="hljs-literal">None</span>], dtype=torch.float64)
+            <span class="hljs-keyword">for</span> key, value <span class="hljs-keyword">in</span> hyd_np.items()
+        }
+        delta = np.broadcast_to(
+            (wavelength_nm - line_center)[<span class="hljs-literal">None</span>, :],
+            (n_depths, wavelength_nm.size),
+        ).copy()
+        phi64 = hydrogen_profile_grid(nl, nu, delta, hyd64, tabs, off, wt, nf)
+    <span class="hljs-keyword">finally</span>:
+        DEVICE, DTYPE = keep_device, keep_dtype
+    <span class="hljs-keyword">return</span> phi64.to(device=keep_device, dtype=keep_dtype)</code></pre>
+    </div></div><div class="prose"><p>The driver below is now only the Balmer-loop orchestration: load per-depth amplitudes, apply
+merge and neighbour logic, mask inactive depths, and call the cumulative outward deposit.</p>
+</div><div class="nb-cell"><div class="code-card">
+      <div class="code-top">
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[21]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def compute_hydrogen_opacity_gpu():
     &quot;&quot;&quot;Compute the full hydrogen-line opacity contribution for all depths.
 
@@ -1627,27 +1686,6 @@ not merely an isolated profile.</p>
     HPROF4 profile grid, then calls `deposit_outward` to apply the scalar walk&#39;s
     cutoff semantics across the wavelength axis.
     &quot;&quot;&quot;
-    def profile_precision_island(nl, nu, line_center, off, wt, nf):
-        &quot;&quot;&quot;Evaluate HPROF4 in a tiny CPU/fp64 island, then return to the active device.
-
-        The dense outward walk and accumulation remain on MPS. The exact island is
-        for the Stark profile arithmetic itself: MPS fp32 reproduces the profile
-        to the usual component floor, but the full 5,941-pixel production benchmark
-        requires the same fp64 profile precision that generated `gt_ahline`.
-        &quot;&quot;&quot;
-        global DEVICE, DTYPE
-        keep_device, keep_dtype = DEVICE, DTYPE
-        try:
-            DEVICE, DTYPE = torch.device(&quot;cpu&quot;), torch.float64
-            hyd64 = {k: torch.as_tensor(np.asarray(v, dtype=np.float64)[:, None],
-                                        dtype=torch.float64)
-                     for k, v in hyd_np.items()}
-            delta = np.broadcast_to((wavelength_nm-line_center)[None, :], (n_depths, wavelength_nm.size)).copy()
-            phi64 = hydrogen_profile_grid(nl, nu, delta, hyd64, tabs, off, wt, nf)
-        finally:
-            DEVICE, DTYPE = keep_device, keep_dtype
-        return phi64.to(device=keep_device, dtype=keep_dtype)
-
     grid = _to_tensor(wavelength_nm)
     grid2d = grid[None, :].expand(n_depths, -1)
     cont_t = _to_tensor(continuum_extinction)
@@ -1744,27 +1782,6 @@ not merely an isolated profile.</p>
     HPROF4 profile grid, then calls `deposit_outward` to apply the scalar walk&#x27;s
     cutoff semantics across the wavelength axis.
     &quot;&quot;&quot;</span>
-    <span class="hljs-keyword">def</span> <span class="hljs-title function_">profile_precision_island</span>(<span class="hljs-params">nl, nu, line_center, off, wt, nf</span>):
-        <span class="hljs-string">&quot;&quot;&quot;Evaluate HPROF4 in a tiny CPU/fp64 island, then return to the active device.
-
-        The dense outward walk and accumulation remain on MPS. The exact island is
-        for the Stark profile arithmetic itself: MPS fp32 reproduces the profile
-        to the usual component floor, but the full 5,941-pixel production benchmark
-        requires the same fp64 profile precision that generated `gt_ahline`.
-        &quot;&quot;&quot;</span>
-        <span class="hljs-keyword">global</span> DEVICE, DTYPE
-        keep_device, keep_dtype = DEVICE, DTYPE
-        <span class="hljs-keyword">try</span>:
-            DEVICE, DTYPE = torch.device(<span class="hljs-string">&quot;cpu&quot;</span>), torch.float64
-            hyd64 = {k: torch.as_tensor(np.asarray(v, dtype=np.float64)[:, <span class="hljs-literal">None</span>],
-                                        dtype=torch.float64)
-                     <span class="hljs-keyword">for</span> k, v <span class="hljs-keyword">in</span> hyd_np.items()}
-            delta = np.broadcast_to((wavelength_nm-line_center)[<span class="hljs-literal">None</span>, :], (n_depths, wavelength_nm.size)).copy()
-            phi64 = hydrogen_profile_grid(nl, nu, delta, hyd64, tabs, off, wt, nf)
-        <span class="hljs-keyword">finally</span>:
-            DEVICE, DTYPE = keep_device, keep_dtype
-        <span class="hljs-keyword">return</span> phi64.to(device=keep_device, dtype=keep_dtype)
-
     grid = _to_tensor(wavelength_nm)
     grid2d = grid[<span class="hljs-literal">None</span>, :].expand(n_depths, -<span class="hljs-number">1</span>)
     cont_t = _to_tensor(continuum_extinction)
@@ -1854,7 +1871,7 @@ not merely an isolated profile.</p>
     </div></div><div class="prose"><p>Run the driver once and keep the full hydrogen-line opacity on the selected device. The following benchmark cell compares all outputs against the independent archived reference.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[21]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[22]</span>Python</span>
         <button class="copy-btn" type="button" data-code="ahline_gpu = compute_hydrogen_opacity_gpu()
 ahline = ahline_gpu.detach().cpu().to(torch.float64).numpy()
 print(&quot;full hydrogen-line opacity:&quot;, tuple(ahline_gpu.shape),
@@ -1874,7 +1891,7 @@ reference nonzeros use relative error, while reference zeros use absolute
 error. Both partitions are asserted at the fp32 GPU contract of <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>6</mn></mrow></msup></mrow><annotation encoding="application/x-tex">10^{-6}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">6</span></span></span></span></span></span></span></span></span></span></span></span>.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[22]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[23]</span>Python</span>
         <button class="copy-btn" type="button" data-code="reference = np.asarray(C[&quot;gt_ahline&quot;], dtype=np.float64)
 result = np.asarray(ahline, dtype=np.float64)
 assert result.shape == reference.shape == (80, 5941)
@@ -1934,7 +1951,7 @@ pixels (<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w
 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>β</mi></mrow><annotation encoding="application/x-tex">\beta</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.05278em;">β</span></span></span></span> range. First, the scalar reference (the fp64 truth).</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[23]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[24]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# --- the scalar HPROF4 reference (the fp64 truth), copied verbatim; the parity oracle ---
 def _fast_ex(x): return 0.0 if x &gt; 80.0 else math.exp(-x)
 def _vcse1f(x):
@@ -1977,7 +1994,7 @@ print(&quot;scalar reference: _fast_ex / _vcse1f / _hf_nm ready&quot;)" aria-lab
 </pre></div></div><div class="prose"><p>The scalar <code>sofbeta</code> reference is kept separate because it is also checked directly over a wide <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>β</mi></mrow><annotation encoding="application/x-tex">\beta</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.05278em;">β</span></span></span></span> range. It mirrors the table-bracketing and three-regime analytic form used by <code>sofbeta_grid</code>.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[24]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[25]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def sofbeta(beta, p, n, m, propbm, c_arr, d_arr, pp_arr, beta_arr):
     &quot;&quot;&quot;Scalar quasi-static Stark profile S(beta), used as the grid parity oracle.
 
@@ -2048,7 +2065,7 @@ print(&quot;scalar reference: sofbeta ready&quot;)" aria-label="Copy code">
 </pre></div></div><div class="prose"><p>The final scalar reference is the point-by-point HPROF4 profile. It remains a single cohesive function so its control flow can be read against the branchless grid implementation above.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[25]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[26]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def hydrogen_line_profile(n, m, delta_lambda_nm, hyd, tabs, foff, fwt, n_fine):
     &quot;&quot;&quot;Scalar HPROF4 profile phi(Delta-lambda) — the point-by-point reference for the grid kernel.&quot;&quot;&quot;
     t3nhe, t3nh2, fo = hyd[&quot;t3nhe&quot;], hyd[&quot;t3nh2&quot;], hyd[&quot;fo&quot;]; dopph = hyd[&quot;dopph&quot;]
@@ -2177,7 +2194,7 @@ print(&quot;scalar reference: hydrogen_line_profile ready&quot;)" aria-label="Co
 </pre></div></div><div class="prose"><p>Now run the validation: evaluate the scalar reference on every pixel of the same <code>[D, n_w]</code> grid (a per-depth <code>dict</code> of plain floats, as the scalar reference expects), compare to the torch grid on the opacity-bearing pixels, and run the direct <code>sofbeta</code> check over <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>β</mi><mo>∈</mo><mo stretchy="false">[</mo><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>1</mn></mrow></msup><mo separator="true">,</mo><mn>1</mn><msup><mn>0</mn><mn>4</mn></msup><mo stretchy="false">]</mo></mrow><annotation encoding="application/x-tex">\beta \in [10^{-1}, 10^4]</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.05278em;">β</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">∈</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1.0641em;vertical-align:-0.25em;"></span><span class="mopen">[</span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">1</span></span></span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">4</span></span></span></span></span></span></span></span><span class="mclose">]</span></span></span></span> at the deepest layer. Assert below the float floor and print the verdict.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[26]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[27]</span>Python</span>
         <button class="copy-btn" type="button" data-code="print(f&quot;Validating the torch hydrogen Stark profile against the inline fp64 reference&quot;)
 print(f&quot;  device = {DEVICE.type}   dtype = {str(DTYPE).split(&#39;.&#39;)[-1]}\n&quot;)
 

@@ -932,6 +932,40 @@ HPROF4 grid, apply the merge taper and neighbour profiles, then execute the
 outward walk with cumulative masks. This is the complete hydrogen-line opacity,
 not merely an isolated profile.""")
 
+md(r"""The Stark profile itself runs through a deliberately tiny fp64 precision island. The broad
+hydrogen-profile arithmetic is cancellation-sensitive enough that the full-output benchmark uses the
+same fp64 profile precision as the archived reference, while the outward walk and accumulation stay
+on the selected device.""")
+
+code(r'''def profile_precision_island(nl, nu, line_center, off, wt, nf):
+    """Evaluate HPROF4 in a tiny CPU/fp64 island, then return to the active device.
+
+    The dense outward walk and accumulation remain on MPS/CUDA. The exact island is
+    for the Stark profile arithmetic itself: fp32 reproduces the component profile
+    to its expected floor, but the full 5,941-pixel benchmark requires the fp64
+    profile precision that generated `gt_ahline`.
+    """
+    global DEVICE, DTYPE
+    keep_device, keep_dtype = DEVICE, DTYPE
+    try:
+        DEVICE, DTYPE = torch.device("cpu"), torch.float64
+        hyd64 = {
+            key: torch.as_tensor(np.asarray(value, dtype=np.float64)[:, None], dtype=torch.float64)
+            for key, value in hyd_np.items()
+        }
+        delta = np.broadcast_to(
+            (wavelength_nm - line_center)[None, :],
+            (n_depths, wavelength_nm.size),
+        ).copy()
+        phi64 = hydrogen_profile_grid(nl, nu, delta, hyd64, tabs, off, wt, nf)
+    finally:
+        DEVICE, DTYPE = keep_device, keep_dtype
+    return phi64.to(device=keep_device, dtype=keep_dtype)
+''')
+
+md(r"""The driver below is now only the Balmer-loop orchestration: load per-depth amplitudes, apply
+merge and neighbour logic, mask inactive depths, and call the cumulative outward deposit.""")
+
 code(r'''def compute_hydrogen_opacity_gpu():
     """Compute the full hydrogen-line opacity contribution for all depths.
 
@@ -940,27 +974,6 @@ code(r'''def compute_hydrogen_opacity_gpu():
     HPROF4 profile grid, then calls `deposit_outward` to apply the scalar walk's
     cutoff semantics across the wavelength axis.
     """
-    def profile_precision_island(nl, nu, line_center, off, wt, nf):
-        """Evaluate HPROF4 in a tiny CPU/fp64 island, then return to the active device.
-
-        The dense outward walk and accumulation remain on MPS. The exact island is
-        for the Stark profile arithmetic itself: MPS fp32 reproduces the profile
-        to the usual component floor, but the full 5,941-pixel production benchmark
-        requires the same fp64 profile precision that generated `gt_ahline`.
-        """
-        global DEVICE, DTYPE
-        keep_device, keep_dtype = DEVICE, DTYPE
-        try:
-            DEVICE, DTYPE = torch.device("cpu"), torch.float64
-            hyd64 = {k: torch.as_tensor(np.asarray(v, dtype=np.float64)[:, None],
-                                        dtype=torch.float64)
-                     for k, v in hyd_np.items()}
-            delta = np.broadcast_to((wavelength_nm-line_center)[None, :], (n_depths, wavelength_nm.size)).copy()
-            phi64 = hydrogen_profile_grid(nl, nu, delta, hyd64, tabs, off, wt, nf)
-        finally:
-            DEVICE, DTYPE = keep_device, keep_dtype
-        return phi64.to(device=keep_device, dtype=keep_dtype)
-
     grid = _to_tensor(wavelength_nm)
     grid2d = grid[None, :].expand(n_depths, -1)
     cont_t = _to_tensor(continuum_extinction)
