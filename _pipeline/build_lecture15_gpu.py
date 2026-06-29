@@ -271,9 +271,14 @@ code(r'''def deposit_window(device, dtype):
                 xl[:, ip] = xl[:, ip] + torch.where(here, cv, torch.zeros_like(cv))
                 act = act & (cv >= cont)                              # deposit-then-break, per depth
                 if not bool(act.any()): break
-    return xl[:, win_pix_lo:win_pix_hi]
+    return xl[:, win_pix_lo:win_pix_hi]''')
 
-def _scalar_voigt_builder(H0, H1, H2):
+md(r"""The exact comparison path below needs a scalar Harris evaluator. Keeping this in a
+separate cell makes the tradeoff visible: this helper is deliberately scalar because the parity
+target is the original line-by-line wing-walk order, not the approximate depth-batched audit
+kernel above.""")
+
+code(r'''def _scalar_voigt_builder(H0, H1, H2):
     """Build the scalar Harris Voigt evaluator used by LINOP1 parity.
 
     Inputs are float32 Harris tables `H0`, `H1`, and `H2`. The returned callable
@@ -302,9 +307,88 @@ def _scalar_voigt_builder(H0, H1, H2):
         if v > 10.0:
             return 0.5642 * a / (v * v)
         return (H2[i] * a + H1[i]) * a + H0[i]
-    return scalar_voigt_H
+    return scalar_voigt_H''')
 
-def linop1_window_deposit(d, H0, H1, H2):
+md(r"""Two small scalar helpers complete the exact recurrence. `linop1_fastex` reproduces the
+packed exponential lookup used by the line engine, and `linop1_accwings` mutates the window opacity
+buffer in the same red-then-blue, deposit-before-break order as the original routine.""")
+
+code(r'''def linop1_fastex(x, extab, extabf):
+    """Return Kurucz FASTEX exp(-x) approximation as float32.
+
+    `x` is a scalar nonnegative exponent. `extab` and `extabf` are the packed
+    integer and millistep lookup tables. Values outside the tabulated range return
+    zero, matching the deposit recurrence's underflow behavior.
+    """
+    if not np.isfinite(x) or x < 0.0 or x >= 1001.0:
+        return np.float32(0.0)
+    i = int(x)
+    j = int((x - i) * 1000.0 + 1.5)
+    j = min(max(j, 1), 1001)
+    return np.float32(extab[i] * extabf[j - 1])
+
+def linop1_accwings(xlines_h, j0, nu0_h, wlvac, center, adamp, dopwave, tabref,
+                    waveset_h, H0, H1, H2, scalar_voigt_H):
+    """Accumulate one line's red and blue wings for one depth.
+
+    Inputs are the mutable full-window opacity buffer, depth index, line-center
+    pixel, vacuum wavelength, line-center opacity, damping, Doppler wavelength,
+    continuum cutoff, wavelength grid, Harris tables, and the scalar Voigt
+    evaluator. The function mutates `xlines_h` in float32 and returns `None`.
+    Precision caveat: mutation order is intentional and part of the parity target.
+    """
+    f32 = np.float32
+    numnu_h = waveset_h.shape[0]
+    if dopwave <= 0.0:
+        return
+    ired_max = 100
+    ired_hi = min(nu0_h + ired_max + 1, numnu_h)
+    if adamp <= 0.2:
+        for iw_h in range(nu0_h, ired_hi):
+            vv = f32(waveset_h[iw_h] - wlvac) / dopwave
+            if vv > f32(10.0):
+                cv = f32(center * f32(0.5642) * adamp / (vv * vv))
+            else:
+                iv = int(vv * f32(200.0) + f32(1.5))
+                iv = min(max(iv, 1), 2001)
+                cv = f32(center * ((H2[iv - 1] * adamp + H1[iv - 1]) * adamp + H0[iv - 1]))
+            xlines_h[j0, iw_h] += cv
+            if cv < tabref:
+                break
+        for ired in range(1, ired_max + 1):
+            iw_h = nu0_h - ired
+            if iw_h < 0:
+                break
+            vv = f32(wlvac - waveset_h[iw_h]) / dopwave
+            if vv > f32(10.0):
+                cv = f32(center * f32(0.5642) * adamp / (vv * vv))
+            else:
+                iv = int(vv * f32(200.0) + f32(1.5))
+                iv = min(max(iv, 1), 2001)
+                cv = f32(center * ((H2[iv - 1] * adamp + H1[iv - 1]) * adamp + H0[iv - 1]))
+            xlines_h[j0, iw_h] += cv
+            if cv < tabref:
+                break
+        return
+    for iw_h in range(nu0_h, ired_hi):
+        cv = f32(center * scalar_voigt_H(f32(waveset_h[iw_h] - wlvac) / dopwave, adamp))
+        xlines_h[j0, iw_h] += cv
+        if cv < tabref:
+            break
+    for ired in range(1, ired_max + 1):
+        iw_h = nu0_h - ired
+        if iw_h < 0:
+            break
+        cv = f32(center * scalar_voigt_H(f32(wlvac - waveset_h[iw_h]) / dopwave, adamp))
+        xlines_h[j0, iw_h] += cv
+        if cv < tabref:
+            break''')
+
+md(r"""`linop1_window_deposit` is the accepted teaching-window parity path. It still consumes a
+loaded window-state fixture, but the recurrence itself is now in the notebook: the 8-stride depth
+probe, FASTEX lookup, asymmetric wing walk, and float32 mutation order are all explicit.""")
+
+code(r'''def linop1_window_deposit(d, H0, H1, H2):
     """Return the exact in-notebook LINOP1 teaching-window deposit.
 
     `d` is the loaded `lineblanket_ref.npz` audit bundle; the function consumes
@@ -336,69 +420,6 @@ def linop1_window_deposit(d, H0, H1, H2):
     extab = np.exp(-np.arange(1001, dtype=np.float64)).astype(np.float32)
     extabf = np.exp(-np.arange(1001, dtype=np.float64) * 0.001).astype(np.float32)
 
-    def fastex(x):
-        """Return Kurucz FASTEX exp(-x) approximation as float32.
-
-        `x` is a scalar nonnegative exponent. Values outside the tabulated range
-        return zero, matching the deposit recurrence's underflow behavior.
-        """
-        if not np.isfinite(x) or x < 0.0 or x >= 1001.0:
-            return np.float32(0.0)
-        i = int(x); j = int((x - i) * 1000.0 + 1.5); j = min(max(j, 1), 1001)
-        return np.float32(extab[i] * extabf[j - 1])
-
-    def accwings(xlines_h, j0, nu0_h, wlvac, center, adamp, dopwave, tabref, waveset_h):
-        """Accumulate one line's red and blue wings for one depth.
-
-        Inputs are the mutable full-window opacity buffer, depth index, line-center
-        pixel, vacuum wavelength, line-center opacity, damping, Doppler wavelength,
-        continuum cutoff, and wavelength grid. The function mutates `xlines_h` in
-        float32 and returns `None`. Precision caveat: mutation order is intentional
-        and part of the parity target.
-        """
-        numnu_h = waveset_h.shape[0]
-        if dopwave <= 0.0:
-            return
-        ired_max = 100; ired_hi = min(nu0_h + ired_max + 1, numnu_h)
-        if adamp <= 0.2:
-            for iw_h in range(nu0_h, ired_hi):
-                vv = f32(waveset_h[iw_h] - wlvac) / dopwave
-                if vv > f32(10.0):
-                    cv = f32(center * f32(0.5642) * adamp / (vv * vv))
-                else:
-                    iv = int(vv * f32(200.0) + f32(1.5)); iv = min(max(iv, 1), 2001)
-                    cv = f32(center * ((H2[iv - 1] * adamp + H1[iv - 1]) * adamp + H0[iv - 1]))
-                xlines_h[j0, iw_h] += cv
-                if cv < tabref:
-                    break
-            for ired in range(1, ired_max + 1):
-                iw_h = nu0_h - ired
-                if iw_h < 0:
-                    break
-                vv = f32(wlvac - waveset_h[iw_h]) / dopwave
-                if vv > f32(10.0):
-                    cv = f32(center * f32(0.5642) * adamp / (vv * vv))
-                else:
-                    iv = int(vv * f32(200.0) + f32(1.5)); iv = min(max(iv, 1), 2001)
-                    cv = f32(center * ((H2[iv - 1] * adamp + H1[iv - 1]) * adamp + H0[iv - 1]))
-                xlines_h[j0, iw_h] += cv
-                if cv < tabref:
-                    break
-            return
-        for iw_h in range(nu0_h, ired_hi):
-            cv = f32(center * scalar_voigt_H(f32(waveset_h[iw_h] - wlvac) / dopwave, adamp))
-            xlines_h[j0, iw_h] += cv
-            if cv < tabref:
-                break
-        for ired in range(1, ired_max + 1):
-            iw_h = nu0_h - ired
-            if iw_h < 0:
-                break
-            cv = f32(center * scalar_voigt_H(f32(wlvac - waveset_h[iw_h]) / dopwave, adamp))
-            xlines_h[j0, iw_h] += cv
-            if cv < tabref:
-                break
-
     nrhox_h = hckt_h.size; numnu_h = waveset_h.size
     xlines_h = np.zeros((nrhox_h, numnu_h), dtype=np.float32)
     ifj = np.zeros(nrhox_h + 2, dtype=np.int32)
@@ -417,14 +438,17 @@ def linop1_window_deposit(d, H0, H1, H2):
         cen = cgf * xnfdop_h[j0, col]
         if cen < tabcont_h[j0, nucont0_h]:
             return False
-        cen = cen * fastex(elo * hckt_h[j0])
+        cen = cen * linop1_fastex(elo * hckt_h[j0], extab, extabf)
         if cen < tabcont_h[j0, nucont0_h]:
             return False
         dop = dopple_h[j0, col]
         if dop <= 0.0:
             return True
         adamp = (gr + gs * xne_h[j0] + gw * txnxn_h[j0]) / dop
-        accwings(xlines_h, j0, nu0_h, wl, cen, adamp, dop * wl4, tabcont_h[j0, nucont0_h], waveset_h)
+        linop1_accwings(
+            xlines_h, j0, nu0_h, wl, cen, adamp, dop * wl4,
+            tabcont_h[j0, nucont0_h], waveset_h, H0, H1, H2, scalar_voigt_H,
+        )
         return True
 
     for q in range(iwl_h.size):
@@ -461,9 +485,12 @@ def linop1_window_deposit(d, H0, H1, H2):
             for j1 in range(k1 - 7, k1):
                 deposit_one(j1 - 1, cgf, elo, gr, gs, gw, col, wl, wl4, nucont0_h)
         iwlold = iw_h
-    return xlines_h[:, pix_lo_h:pix_hi_h]
+    return xlines_h[:, pix_lo_h:pix_hi_h]''')
 
-import time
+md(r"""Run the exact deposit and keep the result on the active torch device for the downstream
+comparison and Rosseland fold cells.""")
+
+code(r'''import time
 t0 = time.perf_counter()
 # Accepted path: the in-notebook scalar LINOP1 window deposit.  It includes the 8-stride
 # depth probe/fill-in, exact asymmetric pixel walk, deposit-before-break cutoff, and float32

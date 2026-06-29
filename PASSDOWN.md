@@ -57,8 +57,8 @@ Lectures 1-16 build and render. The local and GitHub Pages sites are live.
   modules (`eos_fromscratch.py`, `continuum_fromscratch.py`, `molecular_fromscratch.py`) for some
   load-bearing physics. These helpers are not runtime `kgpu`/`pykurucz` imports, but they are not
   final all-torch lecture closure.
-- Dense pedagogical cells remain, especially in L14/L15. Break them only when the corresponding
-  parity gate is rerun.
+- Dense pedagogical cells remain in L14. Break them only when the corresponding parity gate is
+  rerun.
 
 ## L14 status
 
@@ -94,8 +94,10 @@ synthesis path.
 - Code-cell hygiene audit: `total bad=0` for leading/trailing blank code cells.
 - Function-docstring audit: `lowdoc>=20 = 0` under the current rule (functions/classes at least
   20 lines must have useful docstrings).
-- Remaining long-cell audit: five cells at `>=120` lines remain, all in L14/L15. These are
-  structural capstone/line-blanketing cells and should be split only with matching parity reruns.
+- Remaining long-cell audit: four cells at `>=120` lines remain, all in L14. L15's exact LINOP1
+  deposit has been split into scalar Voigt, FASTEX/wing, driver, and execution cells and reverified.
+  The remaining L14 cells are structural capstone cells and should be split only with matching
+  parity reruns.
 - `git diff --check`: clean.
 - `python _pipeline/verify_josh.py`: normalised spectrum max `8.94e-09`, median `1.13e-11`.
 - `python _pipeline/verify_lineblanket.py`: PASS, values listed above.

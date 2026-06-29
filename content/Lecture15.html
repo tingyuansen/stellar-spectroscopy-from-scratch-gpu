@@ -400,211 +400,7 @@ following comparison cell checks that live deposit against the shipped window re
                 xl[:, ip] = xl[:, ip] + torch.where(here, cv, torch.zeros_like(cv))
                 act = act &amp; (cv &gt;= cont)                              # deposit-then-break, per depth
                 if not bool(act.any()): break
-    return xl[:, win_pix_lo:win_pix_hi]
-
-def _scalar_voigt_builder(H0, H1, H2):
-    &quot;&quot;&quot;Build the scalar Harris Voigt evaluator used by LINOP1 parity.
-
-    Inputs are float32 Harris tables `H0`, `H1`, and `H2`. The returned callable
-    accepts scalar offset `v` and damping `a`, and returns scalar H(a, v). It is
-    intentionally scalar so `linop1_window_deposit` can preserve the production
-    recurrence and float32 wing-add order.
-    &quot;&quot;&quot;
-    def scalar_voigt_H(v, a):
-        &quot;&quot;&quot;Return scalar H(a, v) using the same Harris branch order as LINOP1.&quot;&quot;&quot;
-        iv = int(v * 200.0 + 1.5); iv = min(max(iv, 1), 2001); i = iv - 1
-        if a &gt;= 0.2:
-            if a &gt; 1.4 or a + v &gt; 3.2:
-                aa = a * a; vv = v * v; u = (aa + vv) * 1.4142; out = a * 0.79788 / u
-                if a &gt; 100.0:
-                    return out
-                aau = aa / u; vvu = vv / u; uu = u * u
-                return ((((aau - 10.0 * vvu) * aau * 3.0 + 15.0 * vvu * vvu) + 3.0 * vv - aa)
-                        / uu + 1.0) * out
-            vv = v * v
-            hh1 = H1[i] + H0[i] * 1.12838
-            hh2 = H2[i] + hh1 * 1.12838 - H0[i]
-            hh3 = (1.0 - H2[i]) * 0.37613 - hh1 * 0.66667 * vv + hh2 * 1.12838
-            hh4 = (3.0 * hh3 - hh1) * 0.37613 + H0[i] * 0.66667 * vv * vv
-            return ((((hh4 * a + hh3) * a + hh2) * a + hh1) * a + H0[i]) \
-                * (((-0.122727278 * a + 0.532770573) * a - 0.96284325) * a + 0.979895032)
-        if v &gt; 10.0:
-            return 0.5642 * a / (v * v)
-        return (H2[i] * a + H1[i]) * a + H0[i]
-    return scalar_voigt_H
-
-def linop1_window_deposit(d, H0, H1, H2):
-    &quot;&quot;&quot;Return the exact in-notebook LINOP1 teaching-window deposit.
-
-    `d` is the loaded `lineblanket_ref.npz` audit bundle; the function consumes
-    physical/static line/grid fields plus production-derived window-state fixture
-    fields (`win_xnfdop`, `win_dopple`, `win_xne`, `win_txnxn`, `win_hckt`,
-    `tabcont`, `iwavetab`). `H0`, `H1`, and `H2` are float32 Harris tables. The
-    output is `xlines[depth, window_pixel]` as float32.
-
-    This is the accepted L15 window parity path because it preserves the 8-stride
-    depth probe/fill-in, asymmetric red/blue wing-walk, deposit-before-break
-    cutoff, FASTEX lookup, and float32 wing accumulator. It closes the helper
-    import boundary for the teaching-window recurrence, but not the stricter
-    computed-data boundary: the EOS/window state remains a loaded fixture.
-    &quot;&quot;&quot;
-    scalar_voigt_H = _scalar_voigt_builder(H0, H1, H2)
-    f32 = np.float32
-    waveset_h = d[&quot;waveset_nm&quot;].astype(np.float64)
-    iwavetab_h = d[&quot;iwavetab&quot;].astype(np.int64)
-    tabcont_h = d[&quot;tabcont&quot;].astype(np.float64)
-    hckt_h = d[&quot;win_hckt&quot;].astype(np.float64); xne_h = d[&quot;win_xne&quot;].astype(np.float64)
-    txnxn_h = d[&quot;win_txnxn&quot;].astype(np.float64)
-    nelion_set_h = d[&quot;win_nelion_set&quot;].astype(np.int64)
-    xnfdop_h = d[&quot;win_xnfdop&quot;].astype(np.float64); dopple_h = d[&quot;win_dopple&quot;].astype(np.float64)
-    nelion_to_col_h = {int(z): k for k, z in enumerate(nelion_set_h)}
-    pix_lo_h, pix_hi_h = int(d[&quot;win_pix_lo&quot;]), int(d[&quot;win_pix_hi&quot;])
-    iwl_h = d[&quot;win_iwl&quot;]; ielion_h = d[&quot;win_ielion&quot;]; ielo_h = d[&quot;win_ielo&quot;]
-    igflog_h = d[&quot;win_igflog&quot;]; igr_h = d[&quot;win_igr&quot;]; igs_h = d[&quot;win_igs&quot;]; igw_h = d[&quot;win_igw&quot;]
-
-    extab = np.exp(-np.arange(1001, dtype=np.float64)).astype(np.float32)
-    extabf = np.exp(-np.arange(1001, dtype=np.float64) * 0.001).astype(np.float32)
-
-    def fastex(x):
-        &quot;&quot;&quot;Return Kurucz FASTEX exp(-x) approximation as float32.
-
-        `x` is a scalar nonnegative exponent. Values outside the tabulated range
-        return zero, matching the deposit recurrence&#39;s underflow behavior.
-        &quot;&quot;&quot;
-        if not np.isfinite(x) or x &lt; 0.0 or x &gt;= 1001.0:
-            return np.float32(0.0)
-        i = int(x); j = int((x - i) * 1000.0 + 1.5); j = min(max(j, 1), 1001)
-        return np.float32(extab[i] * extabf[j - 1])
-
-    def accwings(xlines_h, j0, nu0_h, wlvac, center, adamp, dopwave, tabref, waveset_h):
-        &quot;&quot;&quot;Accumulate one line&#39;s red and blue wings for one depth.
-
-        Inputs are the mutable full-window opacity buffer, depth index, line-center
-        pixel, vacuum wavelength, line-center opacity, damping, Doppler wavelength,
-        continuum cutoff, and wavelength grid. The function mutates `xlines_h` in
-        float32 and returns `None`. Precision caveat: mutation order is intentional
-        and part of the parity target.
-        &quot;&quot;&quot;
-        numnu_h = waveset_h.shape[0]
-        if dopwave &lt;= 0.0:
-            return
-        ired_max = 100; ired_hi = min(nu0_h + ired_max + 1, numnu_h)
-        if adamp &lt;= 0.2:
-            for iw_h in range(nu0_h, ired_hi):
-                vv = f32(waveset_h[iw_h] - wlvac) / dopwave
-                if vv &gt; f32(10.0):
-                    cv = f32(center * f32(0.5642) * adamp / (vv * vv))
-                else:
-                    iv = int(vv * f32(200.0) + f32(1.5)); iv = min(max(iv, 1), 2001)
-                    cv = f32(center * ((H2[iv - 1] * adamp + H1[iv - 1]) * adamp + H0[iv - 1]))
-                xlines_h[j0, iw_h] += cv
-                if cv &lt; tabref:
-                    break
-            for ired in range(1, ired_max + 1):
-                iw_h = nu0_h - ired
-                if iw_h &lt; 0:
-                    break
-                vv = f32(wlvac - waveset_h[iw_h]) / dopwave
-                if vv &gt; f32(10.0):
-                    cv = f32(center * f32(0.5642) * adamp / (vv * vv))
-                else:
-                    iv = int(vv * f32(200.0) + f32(1.5)); iv = min(max(iv, 1), 2001)
-                    cv = f32(center * ((H2[iv - 1] * adamp + H1[iv - 1]) * adamp + H0[iv - 1]))
-                xlines_h[j0, iw_h] += cv
-                if cv &lt; tabref:
-                    break
-            return
-        for iw_h in range(nu0_h, ired_hi):
-            cv = f32(center * scalar_voigt_H(f32(waveset_h[iw_h] - wlvac) / dopwave, adamp))
-            xlines_h[j0, iw_h] += cv
-            if cv &lt; tabref:
-                break
-        for ired in range(1, ired_max + 1):
-            iw_h = nu0_h - ired
-            if iw_h &lt; 0:
-                break
-            cv = f32(center * scalar_voigt_H(f32(wlvac - waveset_h[iw_h]) / dopwave, adamp))
-            xlines_h[j0, iw_h] += cv
-            if cv &lt; tabref:
-                break
-
-    nrhox_h = hckt_h.size; numnu_h = waveset_h.size
-    xlines_h = np.zeros((nrhox_h, numnu_h), dtype=np.float32)
-    ifj = np.zeros(nrhox_h + 2, dtype=np.int32)
-    start, stop = waveset_h[0] - 1.0, waveset_h[-1] + 1.0
-    nu0_h = 0; nucont0_h = 0; iwlold = 0
-
-    def deposit_one(j0, cgf, elo, gr, gs, gw, col, wl, wl4, nucont0_h):
-        &quot;&quot;&quot;Deposit one selected line at one depth if it passes the cutoff.
-
-        Inputs are a depth index, decoded line constants, the species-column index,
-        scalar wavelength in float64/float32 forms, and the continuum-bin index.
-        Returns `True` when the line is relevant for the 8-stride fill logic,
-        otherwise `False`. It consumes loaded window-state fixtures and mutates the
-        enclosing `xlines_h` buffer through `accwings`.
-        &quot;&quot;&quot;
-        cen = cgf * xnfdop_h[j0, col]
-        if cen &lt; tabcont_h[j0, nucont0_h]:
-            return False
-        cen = cen * fastex(elo * hckt_h[j0])
-        if cen &lt; tabcont_h[j0, nucont0_h]:
-            return False
-        dop = dopple_h[j0, col]
-        if dop &lt;= 0.0:
-            return True
-        adamp = (gr + gs * xne_h[j0] + gw * txnxn_h[j0]) / dop
-        accwings(xlines_h, j0, nu0_h, wl, cen, adamp, dop * wl4, tabcont_h[j0, nucont0_h], waveset_h)
-        return True
-
-    for q in range(iwl_h.size):
-        iw_h = int(iwl_h[q])
-        if iw_h &lt; iwlold:
-            nu0_h = 0; nucont0_h = 0
-        while nucont0_h &lt; iwavetab_h.size and iw_h &gt;= int(iwavetab_h[nucont0_h]):
-            nucont0_h += 1
-        if nucont0_h &gt;= tabcont_h.shape[1]:
-            iwlold = iw_h; continue
-        nel = abs(int(ielion_h[q])) // 10
-        if nel not in nelion_to_col_h:
-            iwlold = iw_h; continue
-        col = nelion_to_col_h[nel]
-        wl = np.exp(float(iw_h) * RATIOLG); wl4 = np.float32(wl)
-        if wl &lt; start or wl &gt; stop:
-            iwlold = iw_h; continue
-        while nu0_h &lt; numnu_h and wl &gt;= waveset_h[nu0_h]:
-            nu0_h += 1
-        if nu0_h &gt;= numnu_h:
-            iwlold = iw_h; continue
-        cgf = np.float32(CGF_SCALE) * wl4 * TABLOG[int(igflog_h[q]) - 1]
-        elo = TABLOG[int(ielo_h[q]) - 1]
-        gr = TABLOG[int(igr_h[q]) - 1] * wl4 * np.float32(GAMMA_SCALE)
-        gs = TABLOG[int(igs_h[q]) - 1] * wl4 * np.float32(GAMMA_SCALE)
-        gw = TABLOG[int(igw_h[q]) - 1] * wl4 * np.float32(GAMMA_SCALE)
-        for j1 in range(8, nrhox_h + 1, 8):
-            ifj[j1 + 1] = 0
-            if deposit_one(j1 - 1, cgf, elo, gr, gs, gw, col, wl, wl4, nucont0_h):
-                ifj[j1 + 1] = 1
-        for k1 in range(8, nrhox_h + 1, 8):
-            if ifj[k1 - 7] + ifj[k1 + 1] == 0:
-                continue
-            for j1 in range(k1 - 7, k1):
-                deposit_one(j1 - 1, cgf, elo, gr, gs, gw, col, wl, wl4, nucont0_h)
-        iwlold = iw_h
-    return xlines_h[:, pix_lo_h:pix_hi_h]
-
-import time
-t0 = time.perf_counter()
-# Accepted path: the in-notebook scalar LINOP1 window deposit.  It includes the 8-stride
-# depth probe/fill-in, exact asymmetric pixel walk, deposit-before-break cutoff, and float32
-# wing accumulator used by production.  This is computation, not reference substitution:
-# the result is compared below against xlines_window_ref over the full nonzero support.
-H0f = KT[&quot;h0tab&quot;].astype(np.float32)
-H1f = KT[&quot;h1tab&quot;].astype(np.float32)
-H2f = KT[&quot;h2tab&quot;].astype(np.float32)
-dep_work_np = linop1_window_deposit(R, H0f, H1f, H2f)
-dep_work = torch.as_tensor(dep_work_np, dtype=DTYPE, device=DEVICE)
-print(f&quot;in-notebook LINOP1 deposit: {iwl.size} lines x {n_depth} depths in &quot;
-      f&quot;{time.perf_counter()-t0:.1f}s; xlines max = {float(dep_work.max()):.3e}&quot;)" aria-label="Copy code">
+    return xl[:, win_pix_lo:win_pix_hi]" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">deposit_window</span>(<span class="hljs-params">device, dtype</span>):
@@ -656,9 +452,47 @@ print(f&quot;in-notebook LINOP1 deposit: {iwl.size} lines x {n_depth} depths in 
                 xl[:, ip] = xl[:, ip] + torch.where(here, cv, torch.zeros_like(cv))
                 act = act &amp; (cv &gt;= cont)                              <span class="hljs-comment"># deposit-then-break, per depth</span>
                 <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> <span class="hljs-built_in">bool</span>(act.<span class="hljs-built_in">any</span>()): <span class="hljs-keyword">break</span>
-    <span class="hljs-keyword">return</span> xl[:, win_pix_lo:win_pix_hi]
+    <span class="hljs-keyword">return</span> xl[:, win_pix_lo:win_pix_hi]</code></pre>
+    </div></div><div class="prose"><p>The exact comparison path below needs a scalar Harris evaluator. Keeping this in a
+separate cell makes the tradeoff visible: this helper is deliberately scalar because the parity
+target is the original line-by-line wing-walk order, not the approximate depth-batched audit
+kernel above.</p>
+</div><div class="nb-cell"><div class="code-card">
+      <div class="code-top">
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[6]</span>Python</span>
+        <button class="copy-btn" type="button" data-code="def _scalar_voigt_builder(H0, H1, H2):
+    &quot;&quot;&quot;Build the scalar Harris Voigt evaluator used by LINOP1 parity.
 
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">_scalar_voigt_builder</span>(<span class="hljs-params">H0, H1, H2</span>):
+    Inputs are float32 Harris tables `H0`, `H1`, and `H2`. The returned callable
+    accepts scalar offset `v` and damping `a`, and returns scalar H(a, v). It is
+    intentionally scalar so `linop1_window_deposit` can preserve the production
+    recurrence and float32 wing-add order.
+    &quot;&quot;&quot;
+    def scalar_voigt_H(v, a):
+        &quot;&quot;&quot;Return scalar H(a, v) using the same Harris branch order as LINOP1.&quot;&quot;&quot;
+        iv = int(v * 200.0 + 1.5); iv = min(max(iv, 1), 2001); i = iv - 1
+        if a &gt;= 0.2:
+            if a &gt; 1.4 or a + v &gt; 3.2:
+                aa = a * a; vv = v * v; u = (aa + vv) * 1.4142; out = a * 0.79788 / u
+                if a &gt; 100.0:
+                    return out
+                aau = aa / u; vvu = vv / u; uu = u * u
+                return ((((aau - 10.0 * vvu) * aau * 3.0 + 15.0 * vvu * vvu) + 3.0 * vv - aa)
+                        / uu + 1.0) * out
+            vv = v * v
+            hh1 = H1[i] + H0[i] * 1.12838
+            hh2 = H2[i] + hh1 * 1.12838 - H0[i]
+            hh3 = (1.0 - H2[i]) * 0.37613 - hh1 * 0.66667 * vv + hh2 * 1.12838
+            hh4 = (3.0 * hh3 - hh1) * 0.37613 + H0[i] * 0.66667 * vv * vv
+            return ((((hh4 * a + hh3) * a + hh2) * a + hh1) * a + H0[i]) \
+                * (((-0.122727278 * a + 0.532770573) * a - 0.96284325) * a + 0.979895032)
+        if v &gt; 10.0:
+            return 0.5642 * a / (v * v)
+        return (H2[i] * a + H1[i]) * a + H0[i]
+    return scalar_voigt_H" aria-label="Copy code">
+          <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
+      </div>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_scalar_voigt_builder</span>(<span class="hljs-params">H0, H1, H2</span>):
     <span class="hljs-string">&quot;&quot;&quot;Build the scalar Harris Voigt evaluator used by LINOP1 parity.
 
     Inputs are float32 Harris tables `H0`, `H1`, and `H2`. The returned callable
@@ -687,9 +521,262 @@ print(f&quot;in-notebook LINOP1 deposit: {iwl.size} lines x {n_depth} depths in 
         <span class="hljs-keyword">if</span> v &gt; <span class="hljs-number">10.0</span>:
             <span class="hljs-keyword">return</span> <span class="hljs-number">0.5642</span> * a / (v * v)
         <span class="hljs-keyword">return</span> (H2[i] * a + H1[i]) * a + H0[i]
-    <span class="hljs-keyword">return</span> scalar_voigt_H
+    <span class="hljs-keyword">return</span> scalar_voigt_H</code></pre>
+    </div></div><div class="prose"><p>Two small scalar helpers complete the exact recurrence. <code>linop1_fastex</code> reproduces the
+packed exponential lookup used by the line engine, and <code>linop1_accwings</code> mutates the window opacity
+buffer in the same red-then-blue, deposit-before-break order as the original routine.</p>
+</div><div class="nb-cell"><div class="code-card">
+      <div class="code-top">
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[7]</span>Python</span>
+        <button class="copy-btn" type="button" data-code="def linop1_fastex(x, extab, extabf):
+    &quot;&quot;&quot;Return Kurucz FASTEX exp(-x) approximation as float32.
 
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">linop1_window_deposit</span>(<span class="hljs-params">d, H0, H1, H2</span>):
+    `x` is a scalar nonnegative exponent. `extab` and `extabf` are the packed
+    integer and millistep lookup tables. Values outside the tabulated range return
+    zero, matching the deposit recurrence&#39;s underflow behavior.
+    &quot;&quot;&quot;
+    if not np.isfinite(x) or x &lt; 0.0 or x &gt;= 1001.0:
+        return np.float32(0.0)
+    i = int(x)
+    j = int((x - i) * 1000.0 + 1.5)
+    j = min(max(j, 1), 1001)
+    return np.float32(extab[i] * extabf[j - 1])
+
+def linop1_accwings(xlines_h, j0, nu0_h, wlvac, center, adamp, dopwave, tabref,
+                    waveset_h, H0, H1, H2, scalar_voigt_H):
+    &quot;&quot;&quot;Accumulate one line&#39;s red and blue wings for one depth.
+
+    Inputs are the mutable full-window opacity buffer, depth index, line-center
+    pixel, vacuum wavelength, line-center opacity, damping, Doppler wavelength,
+    continuum cutoff, wavelength grid, Harris tables, and the scalar Voigt
+    evaluator. The function mutates `xlines_h` in float32 and returns `None`.
+    Precision caveat: mutation order is intentional and part of the parity target.
+    &quot;&quot;&quot;
+    f32 = np.float32
+    numnu_h = waveset_h.shape[0]
+    if dopwave &lt;= 0.0:
+        return
+    ired_max = 100
+    ired_hi = min(nu0_h + ired_max + 1, numnu_h)
+    if adamp &lt;= 0.2:
+        for iw_h in range(nu0_h, ired_hi):
+            vv = f32(waveset_h[iw_h] - wlvac) / dopwave
+            if vv &gt; f32(10.0):
+                cv = f32(center * f32(0.5642) * adamp / (vv * vv))
+            else:
+                iv = int(vv * f32(200.0) + f32(1.5))
+                iv = min(max(iv, 1), 2001)
+                cv = f32(center * ((H2[iv - 1] * adamp + H1[iv - 1]) * adamp + H0[iv - 1]))
+            xlines_h[j0, iw_h] += cv
+            if cv &lt; tabref:
+                break
+        for ired in range(1, ired_max + 1):
+            iw_h = nu0_h - ired
+            if iw_h &lt; 0:
+                break
+            vv = f32(wlvac - waveset_h[iw_h]) / dopwave
+            if vv &gt; f32(10.0):
+                cv = f32(center * f32(0.5642) * adamp / (vv * vv))
+            else:
+                iv = int(vv * f32(200.0) + f32(1.5))
+                iv = min(max(iv, 1), 2001)
+                cv = f32(center * ((H2[iv - 1] * adamp + H1[iv - 1]) * adamp + H0[iv - 1]))
+            xlines_h[j0, iw_h] += cv
+            if cv &lt; tabref:
+                break
+        return
+    for iw_h in range(nu0_h, ired_hi):
+        cv = f32(center * scalar_voigt_H(f32(waveset_h[iw_h] - wlvac) / dopwave, adamp))
+        xlines_h[j0, iw_h] += cv
+        if cv &lt; tabref:
+            break
+    for ired in range(1, ired_max + 1):
+        iw_h = nu0_h - ired
+        if iw_h &lt; 0:
+            break
+        cv = f32(center * scalar_voigt_H(f32(wlvac - waveset_h[iw_h]) / dopwave, adamp))
+        xlines_h[j0, iw_h] += cv
+        if cv &lt; tabref:
+            break" aria-label="Copy code">
+          <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
+      </div>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">linop1_fastex</span>(<span class="hljs-params">x, extab, extabf</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Return Kurucz FASTEX exp(-x) approximation as float32.
+
+    `x` is a scalar nonnegative exponent. `extab` and `extabf` are the packed
+    integer and millistep lookup tables. Values outside the tabulated range return
+    zero, matching the deposit recurrence&#x27;s underflow behavior.
+    &quot;&quot;&quot;</span>
+    <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> np.isfinite(x) <span class="hljs-keyword">or</span> x &lt; <span class="hljs-number">0.0</span> <span class="hljs-keyword">or</span> x &gt;= <span class="hljs-number">1001.0</span>:
+        <span class="hljs-keyword">return</span> np.float32(<span class="hljs-number">0.0</span>)
+    i = <span class="hljs-built_in">int</span>(x)
+    j = <span class="hljs-built_in">int</span>((x - i) * <span class="hljs-number">1000.0</span> + <span class="hljs-number">1.5</span>)
+    j = <span class="hljs-built_in">min</span>(<span class="hljs-built_in">max</span>(j, <span class="hljs-number">1</span>), <span class="hljs-number">1001</span>)
+    <span class="hljs-keyword">return</span> np.float32(extab[i] * extabf[j - <span class="hljs-number">1</span>])
+
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">linop1_accwings</span>(<span class="hljs-params">xlines_h, j0, nu0_h, wlvac, center, adamp, dopwave, tabref,
+                    waveset_h, H0, H1, H2, scalar_voigt_H</span>):
+    <span class="hljs-string">&quot;&quot;&quot;Accumulate one line&#x27;s red and blue wings for one depth.
+
+    Inputs are the mutable full-window opacity buffer, depth index, line-center
+    pixel, vacuum wavelength, line-center opacity, damping, Doppler wavelength,
+    continuum cutoff, wavelength grid, Harris tables, and the scalar Voigt
+    evaluator. The function mutates `xlines_h` in float32 and returns `None`.
+    Precision caveat: mutation order is intentional and part of the parity target.
+    &quot;&quot;&quot;</span>
+    f32 = np.float32
+    numnu_h = waveset_h.shape[<span class="hljs-number">0</span>]
+    <span class="hljs-keyword">if</span> dopwave &lt;= <span class="hljs-number">0.0</span>:
+        <span class="hljs-keyword">return</span>
+    ired_max = <span class="hljs-number">100</span>
+    ired_hi = <span class="hljs-built_in">min</span>(nu0_h + ired_max + <span class="hljs-number">1</span>, numnu_h)
+    <span class="hljs-keyword">if</span> adamp &lt;= <span class="hljs-number">0.2</span>:
+        <span class="hljs-keyword">for</span> iw_h <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nu0_h, ired_hi):
+            vv = f32(waveset_h[iw_h] - wlvac) / dopwave
+            <span class="hljs-keyword">if</span> vv &gt; f32(<span class="hljs-number">10.0</span>):
+                cv = f32(center * f32(<span class="hljs-number">0.5642</span>) * adamp / (vv * vv))
+            <span class="hljs-keyword">else</span>:
+                iv = <span class="hljs-built_in">int</span>(vv * f32(<span class="hljs-number">200.0</span>) + f32(<span class="hljs-number">1.5</span>))
+                iv = <span class="hljs-built_in">min</span>(<span class="hljs-built_in">max</span>(iv, <span class="hljs-number">1</span>), <span class="hljs-number">2001</span>)
+                cv = f32(center * ((H2[iv - <span class="hljs-number">1</span>] * adamp + H1[iv - <span class="hljs-number">1</span>]) * adamp + H0[iv - <span class="hljs-number">1</span>]))
+            xlines_h[j0, iw_h] += cv
+            <span class="hljs-keyword">if</span> cv &lt; tabref:
+                <span class="hljs-keyword">break</span>
+        <span class="hljs-keyword">for</span> ired <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, ired_max + <span class="hljs-number">1</span>):
+            iw_h = nu0_h - ired
+            <span class="hljs-keyword">if</span> iw_h &lt; <span class="hljs-number">0</span>:
+                <span class="hljs-keyword">break</span>
+            vv = f32(wlvac - waveset_h[iw_h]) / dopwave
+            <span class="hljs-keyword">if</span> vv &gt; f32(<span class="hljs-number">10.0</span>):
+                cv = f32(center * f32(<span class="hljs-number">0.5642</span>) * adamp / (vv * vv))
+            <span class="hljs-keyword">else</span>:
+                iv = <span class="hljs-built_in">int</span>(vv * f32(<span class="hljs-number">200.0</span>) + f32(<span class="hljs-number">1.5</span>))
+                iv = <span class="hljs-built_in">min</span>(<span class="hljs-built_in">max</span>(iv, <span class="hljs-number">1</span>), <span class="hljs-number">2001</span>)
+                cv = f32(center * ((H2[iv - <span class="hljs-number">1</span>] * adamp + H1[iv - <span class="hljs-number">1</span>]) * adamp + H0[iv - <span class="hljs-number">1</span>]))
+            xlines_h[j0, iw_h] += cv
+            <span class="hljs-keyword">if</span> cv &lt; tabref:
+                <span class="hljs-keyword">break</span>
+        <span class="hljs-keyword">return</span>
+    <span class="hljs-keyword">for</span> iw_h <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nu0_h, ired_hi):
+        cv = f32(center * scalar_voigt_H(f32(waveset_h[iw_h] - wlvac) / dopwave, adamp))
+        xlines_h[j0, iw_h] += cv
+        <span class="hljs-keyword">if</span> cv &lt; tabref:
+            <span class="hljs-keyword">break</span>
+    <span class="hljs-keyword">for</span> ired <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, ired_max + <span class="hljs-number">1</span>):
+        iw_h = nu0_h - ired
+        <span class="hljs-keyword">if</span> iw_h &lt; <span class="hljs-number">0</span>:
+            <span class="hljs-keyword">break</span>
+        cv = f32(center * scalar_voigt_H(f32(wlvac - waveset_h[iw_h]) / dopwave, adamp))
+        xlines_h[j0, iw_h] += cv
+        <span class="hljs-keyword">if</span> cv &lt; tabref:
+            <span class="hljs-keyword">break</span></code></pre>
+    </div></div><div class="prose"><p><code>linop1_window_deposit</code> is the accepted teaching-window parity path. It still consumes a
+loaded window-state fixture, but the recurrence itself is now in the notebook: the 8-stride depth
+probe, FASTEX lookup, asymmetric wing walk, and float32 mutation order are all explicit.</p>
+</div><div class="nb-cell"><div class="code-card">
+      <div class="code-top">
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[8]</span>Python</span>
+        <button class="copy-btn" type="button" data-code="def linop1_window_deposit(d, H0, H1, H2):
+    &quot;&quot;&quot;Return the exact in-notebook LINOP1 teaching-window deposit.
+
+    `d` is the loaded `lineblanket_ref.npz` audit bundle; the function consumes
+    physical/static line/grid fields plus production-derived window-state fixture
+    fields (`win_xnfdop`, `win_dopple`, `win_xne`, `win_txnxn`, `win_hckt`,
+    `tabcont`, `iwavetab`). `H0`, `H1`, and `H2` are float32 Harris tables. The
+    output is `xlines[depth, window_pixel]` as float32.
+
+    This is the accepted L15 window parity path because it preserves the 8-stride
+    depth probe/fill-in, asymmetric red/blue wing-walk, deposit-before-break
+    cutoff, FASTEX lookup, and float32 wing accumulator. It closes the helper
+    import boundary for the teaching-window recurrence, but not the stricter
+    computed-data boundary: the EOS/window state remains a loaded fixture.
+    &quot;&quot;&quot;
+    scalar_voigt_H = _scalar_voigt_builder(H0, H1, H2)
+    f32 = np.float32
+    waveset_h = d[&quot;waveset_nm&quot;].astype(np.float64)
+    iwavetab_h = d[&quot;iwavetab&quot;].astype(np.int64)
+    tabcont_h = d[&quot;tabcont&quot;].astype(np.float64)
+    hckt_h = d[&quot;win_hckt&quot;].astype(np.float64); xne_h = d[&quot;win_xne&quot;].astype(np.float64)
+    txnxn_h = d[&quot;win_txnxn&quot;].astype(np.float64)
+    nelion_set_h = d[&quot;win_nelion_set&quot;].astype(np.int64)
+    xnfdop_h = d[&quot;win_xnfdop&quot;].astype(np.float64); dopple_h = d[&quot;win_dopple&quot;].astype(np.float64)
+    nelion_to_col_h = {int(z): k for k, z in enumerate(nelion_set_h)}
+    pix_lo_h, pix_hi_h = int(d[&quot;win_pix_lo&quot;]), int(d[&quot;win_pix_hi&quot;])
+    iwl_h = d[&quot;win_iwl&quot;]; ielion_h = d[&quot;win_ielion&quot;]; ielo_h = d[&quot;win_ielo&quot;]
+    igflog_h = d[&quot;win_igflog&quot;]; igr_h = d[&quot;win_igr&quot;]; igs_h = d[&quot;win_igs&quot;]; igw_h = d[&quot;win_igw&quot;]
+
+    extab = np.exp(-np.arange(1001, dtype=np.float64)).astype(np.float32)
+    extabf = np.exp(-np.arange(1001, dtype=np.float64) * 0.001).astype(np.float32)
+
+    nrhox_h = hckt_h.size; numnu_h = waveset_h.size
+    xlines_h = np.zeros((nrhox_h, numnu_h), dtype=np.float32)
+    ifj = np.zeros(nrhox_h + 2, dtype=np.int32)
+    start, stop = waveset_h[0] - 1.0, waveset_h[-1] + 1.0
+    nu0_h = 0; nucont0_h = 0; iwlold = 0
+
+    def deposit_one(j0, cgf, elo, gr, gs, gw, col, wl, wl4, nucont0_h):
+        &quot;&quot;&quot;Deposit one selected line at one depth if it passes the cutoff.
+
+        Inputs are a depth index, decoded line constants, the species-column index,
+        scalar wavelength in float64/float32 forms, and the continuum-bin index.
+        Returns `True` when the line is relevant for the 8-stride fill logic,
+        otherwise `False`. It consumes loaded window-state fixtures and mutates the
+        enclosing `xlines_h` buffer through `accwings`.
+        &quot;&quot;&quot;
+        cen = cgf * xnfdop_h[j0, col]
+        if cen &lt; tabcont_h[j0, nucont0_h]:
+            return False
+        cen = cen * linop1_fastex(elo * hckt_h[j0], extab, extabf)
+        if cen &lt; tabcont_h[j0, nucont0_h]:
+            return False
+        dop = dopple_h[j0, col]
+        if dop &lt;= 0.0:
+            return True
+        adamp = (gr + gs * xne_h[j0] + gw * txnxn_h[j0]) / dop
+        linop1_accwings(
+            xlines_h, j0, nu0_h, wl, cen, adamp, dop * wl4,
+            tabcont_h[j0, nucont0_h], waveset_h, H0, H1, H2, scalar_voigt_H,
+        )
+        return True
+
+    for q in range(iwl_h.size):
+        iw_h = int(iwl_h[q])
+        if iw_h &lt; iwlold:
+            nu0_h = 0; nucont0_h = 0
+        while nucont0_h &lt; iwavetab_h.size and iw_h &gt;= int(iwavetab_h[nucont0_h]):
+            nucont0_h += 1
+        if nucont0_h &gt;= tabcont_h.shape[1]:
+            iwlold = iw_h; continue
+        nel = abs(int(ielion_h[q])) // 10
+        if nel not in nelion_to_col_h:
+            iwlold = iw_h; continue
+        col = nelion_to_col_h[nel]
+        wl = np.exp(float(iw_h) * RATIOLG); wl4 = np.float32(wl)
+        if wl &lt; start or wl &gt; stop:
+            iwlold = iw_h; continue
+        while nu0_h &lt; numnu_h and wl &gt;= waveset_h[nu0_h]:
+            nu0_h += 1
+        if nu0_h &gt;= numnu_h:
+            iwlold = iw_h; continue
+        cgf = np.float32(CGF_SCALE) * wl4 * TABLOG[int(igflog_h[q]) - 1]
+        elo = TABLOG[int(ielo_h[q]) - 1]
+        gr = TABLOG[int(igr_h[q]) - 1] * wl4 * np.float32(GAMMA_SCALE)
+        gs = TABLOG[int(igs_h[q]) - 1] * wl4 * np.float32(GAMMA_SCALE)
+        gw = TABLOG[int(igw_h[q]) - 1] * wl4 * np.float32(GAMMA_SCALE)
+        for j1 in range(8, nrhox_h + 1, 8):
+            ifj[j1 + 1] = 0
+            if deposit_one(j1 - 1, cgf, elo, gr, gs, gw, col, wl, wl4, nucont0_h):
+                ifj[j1 + 1] = 1
+        for k1 in range(8, nrhox_h + 1, 8):
+            if ifj[k1 - 7] + ifj[k1 + 1] == 0:
+                continue
+            for j1 in range(k1 - 7, k1):
+                deposit_one(j1 - 1, cgf, elo, gr, gs, gw, col, wl, wl4, nucont0_h)
+        iwlold = iw_h
+    return xlines_h[:, pix_lo_h:pix_hi_h]" aria-label="Copy code">
+          <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
+      </div>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">linop1_window_deposit</span>(<span class="hljs-params">d, H0, H1, H2</span>):
     <span class="hljs-string">&quot;&quot;&quot;Return the exact in-notebook LINOP1 teaching-window deposit.
 
     `d` is the loaded `lineblanket_ref.npz` audit bundle; the function consumes
@@ -721,69 +808,6 @@ print(f&quot;in-notebook LINOP1 deposit: {iwl.size} lines x {n_depth} depths in 
     extab = np.exp(-np.arange(<span class="hljs-number">1001</span>, dtype=np.float64)).astype(np.float32)
     extabf = np.exp(-np.arange(<span class="hljs-number">1001</span>, dtype=np.float64) * <span class="hljs-number">0.001</span>).astype(np.float32)
 
-    <span class="hljs-keyword">def</span> <span class="hljs-title function_">fastex</span>(<span class="hljs-params">x</span>):
-        <span class="hljs-string">&quot;&quot;&quot;Return Kurucz FASTEX exp(-x) approximation as float32.
-
-        `x` is a scalar nonnegative exponent. Values outside the tabulated range
-        return zero, matching the deposit recurrence&#x27;s underflow behavior.
-        &quot;&quot;&quot;</span>
-        <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> np.isfinite(x) <span class="hljs-keyword">or</span> x &lt; <span class="hljs-number">0.0</span> <span class="hljs-keyword">or</span> x &gt;= <span class="hljs-number">1001.0</span>:
-            <span class="hljs-keyword">return</span> np.float32(<span class="hljs-number">0.0</span>)
-        i = <span class="hljs-built_in">int</span>(x); j = <span class="hljs-built_in">int</span>((x - i) * <span class="hljs-number">1000.0</span> + <span class="hljs-number">1.5</span>); j = <span class="hljs-built_in">min</span>(<span class="hljs-built_in">max</span>(j, <span class="hljs-number">1</span>), <span class="hljs-number">1001</span>)
-        <span class="hljs-keyword">return</span> np.float32(extab[i] * extabf[j - <span class="hljs-number">1</span>])
-
-    <span class="hljs-keyword">def</span> <span class="hljs-title function_">accwings</span>(<span class="hljs-params">xlines_h, j0, nu0_h, wlvac, center, adamp, dopwave, tabref, waveset_h</span>):
-        <span class="hljs-string">&quot;&quot;&quot;Accumulate one line&#x27;s red and blue wings for one depth.
-
-        Inputs are the mutable full-window opacity buffer, depth index, line-center
-        pixel, vacuum wavelength, line-center opacity, damping, Doppler wavelength,
-        continuum cutoff, and wavelength grid. The function mutates `xlines_h` in
-        float32 and returns `None`. Precision caveat: mutation order is intentional
-        and part of the parity target.
-        &quot;&quot;&quot;</span>
-        numnu_h = waveset_h.shape[<span class="hljs-number">0</span>]
-        <span class="hljs-keyword">if</span> dopwave &lt;= <span class="hljs-number">0.0</span>:
-            <span class="hljs-keyword">return</span>
-        ired_max = <span class="hljs-number">100</span>; ired_hi = <span class="hljs-built_in">min</span>(nu0_h + ired_max + <span class="hljs-number">1</span>, numnu_h)
-        <span class="hljs-keyword">if</span> adamp &lt;= <span class="hljs-number">0.2</span>:
-            <span class="hljs-keyword">for</span> iw_h <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nu0_h, ired_hi):
-                vv = f32(waveset_h[iw_h] - wlvac) / dopwave
-                <span class="hljs-keyword">if</span> vv &gt; f32(<span class="hljs-number">10.0</span>):
-                    cv = f32(center * f32(<span class="hljs-number">0.5642</span>) * adamp / (vv * vv))
-                <span class="hljs-keyword">else</span>:
-                    iv = <span class="hljs-built_in">int</span>(vv * f32(<span class="hljs-number">200.0</span>) + f32(<span class="hljs-number">1.5</span>)); iv = <span class="hljs-built_in">min</span>(<span class="hljs-built_in">max</span>(iv, <span class="hljs-number">1</span>), <span class="hljs-number">2001</span>)
-                    cv = f32(center * ((H2[iv - <span class="hljs-number">1</span>] * adamp + H1[iv - <span class="hljs-number">1</span>]) * adamp + H0[iv - <span class="hljs-number">1</span>]))
-                xlines_h[j0, iw_h] += cv
-                <span class="hljs-keyword">if</span> cv &lt; tabref:
-                    <span class="hljs-keyword">break</span>
-            <span class="hljs-keyword">for</span> ired <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, ired_max + <span class="hljs-number">1</span>):
-                iw_h = nu0_h - ired
-                <span class="hljs-keyword">if</span> iw_h &lt; <span class="hljs-number">0</span>:
-                    <span class="hljs-keyword">break</span>
-                vv = f32(wlvac - waveset_h[iw_h]) / dopwave
-                <span class="hljs-keyword">if</span> vv &gt; f32(<span class="hljs-number">10.0</span>):
-                    cv = f32(center * f32(<span class="hljs-number">0.5642</span>) * adamp / (vv * vv))
-                <span class="hljs-keyword">else</span>:
-                    iv = <span class="hljs-built_in">int</span>(vv * f32(<span class="hljs-number">200.0</span>) + f32(<span class="hljs-number">1.5</span>)); iv = <span class="hljs-built_in">min</span>(<span class="hljs-built_in">max</span>(iv, <span class="hljs-number">1</span>), <span class="hljs-number">2001</span>)
-                    cv = f32(center * ((H2[iv - <span class="hljs-number">1</span>] * adamp + H1[iv - <span class="hljs-number">1</span>]) * adamp + H0[iv - <span class="hljs-number">1</span>]))
-                xlines_h[j0, iw_h] += cv
-                <span class="hljs-keyword">if</span> cv &lt; tabref:
-                    <span class="hljs-keyword">break</span>
-            <span class="hljs-keyword">return</span>
-        <span class="hljs-keyword">for</span> iw_h <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nu0_h, ired_hi):
-            cv = f32(center * scalar_voigt_H(f32(waveset_h[iw_h] - wlvac) / dopwave, adamp))
-            xlines_h[j0, iw_h] += cv
-            <span class="hljs-keyword">if</span> cv &lt; tabref:
-                <span class="hljs-keyword">break</span>
-        <span class="hljs-keyword">for</span> ired <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">1</span>, ired_max + <span class="hljs-number">1</span>):
-            iw_h = nu0_h - ired
-            <span class="hljs-keyword">if</span> iw_h &lt; <span class="hljs-number">0</span>:
-                <span class="hljs-keyword">break</span>
-            cv = f32(center * scalar_voigt_H(f32(wlvac - waveset_h[iw_h]) / dopwave, adamp))
-            xlines_h[j0, iw_h] += cv
-            <span class="hljs-keyword">if</span> cv &lt; tabref:
-                <span class="hljs-keyword">break</span>
-
     nrhox_h = hckt_h.size; numnu_h = waveset_h.size
     xlines_h = np.zeros((nrhox_h, numnu_h), dtype=np.float32)
     ifj = np.zeros(nrhox_h + <span class="hljs-number">2</span>, dtype=np.int32)
@@ -802,14 +826,17 @@ print(f&quot;in-notebook LINOP1 deposit: {iwl.size} lines x {n_depth} depths in 
         cen = cgf * xnfdop_h[j0, col]
         <span class="hljs-keyword">if</span> cen &lt; tabcont_h[j0, nucont0_h]:
             <span class="hljs-keyword">return</span> <span class="hljs-literal">False</span>
-        cen = cen * fastex(elo * hckt_h[j0])
+        cen = cen * linop1_fastex(elo * hckt_h[j0], extab, extabf)
         <span class="hljs-keyword">if</span> cen &lt; tabcont_h[j0, nucont0_h]:
             <span class="hljs-keyword">return</span> <span class="hljs-literal">False</span>
         dop = dopple_h[j0, col]
         <span class="hljs-keyword">if</span> dop &lt;= <span class="hljs-number">0.0</span>:
             <span class="hljs-keyword">return</span> <span class="hljs-literal">True</span>
         adamp = (gr + gs * xne_h[j0] + gw * txnxn_h[j0]) / dop
-        accwings(xlines_h, j0, nu0_h, wl, cen, adamp, dop * wl4, tabcont_h[j0, nucont0_h], waveset_h)
+        linop1_accwings(
+            xlines_h, j0, nu0_h, wl, cen, adamp, dop * wl4,
+            tabcont_h[j0, nucont0_h], waveset_h, H0, H1, H2, scalar_voigt_H,
+        )
         <span class="hljs-keyword">return</span> <span class="hljs-literal">True</span>
 
     <span class="hljs-keyword">for</span> q <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(iwl_h.size):
@@ -846,9 +873,28 @@ print(f&quot;in-notebook LINOP1 deposit: {iwl.size} lines x {n_depth} depths in 
             <span class="hljs-keyword">for</span> j1 <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(k1 - <span class="hljs-number">7</span>, k1):
                 deposit_one(j1 - <span class="hljs-number">1</span>, cgf, elo, gr, gs, gw, col, wl, wl4, nucont0_h)
         iwlold = iw_h
-    <span class="hljs-keyword">return</span> xlines_h[:, pix_lo_h:pix_hi_h]
-
-<span class="hljs-keyword">import</span> time
+    <span class="hljs-keyword">return</span> xlines_h[:, pix_lo_h:pix_hi_h]</code></pre>
+    </div></div><div class="prose"><p>Run the exact deposit and keep the result on the active torch device for the downstream
+comparison and Rosseland fold cells.</p>
+</div><div class="nb-cell"><div class="code-card">
+      <div class="code-top">
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[9]</span>Python</span>
+        <button class="copy-btn" type="button" data-code="import time
+t0 = time.perf_counter()
+# Accepted path: the in-notebook scalar LINOP1 window deposit.  It includes the 8-stride
+# depth probe/fill-in, exact asymmetric pixel walk, deposit-before-break cutoff, and float32
+# wing accumulator used by production.  This is computation, not reference substitution:
+# the result is compared below against xlines_window_ref over the full nonzero support.
+H0f = KT[&quot;h0tab&quot;].astype(np.float32)
+H1f = KT[&quot;h1tab&quot;].astype(np.float32)
+H2f = KT[&quot;h2tab&quot;].astype(np.float32)
+dep_work_np = linop1_window_deposit(R, H0f, H1f, H2f)
+dep_work = torch.as_tensor(dep_work_np, dtype=DTYPE, device=DEVICE)
+print(f&quot;in-notebook LINOP1 deposit: {iwl.size} lines x {n_depth} depths in &quot;
+      f&quot;{time.perf_counter()-t0:.1f}s; xlines max = {float(dep_work.max()):.3e}&quot;)" aria-label="Copy code">
+          <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
+      </div>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">import</span> time
 t0 = time.perf_counter()
 <span class="hljs-comment"># Accepted path: the in-notebook scalar LINOP1 window deposit.  It includes the 8-stride</span>
 <span class="hljs-comment"># depth probe/fill-in, exact asymmetric pixel walk, deposit-before-break cutoff, and float32</span>
@@ -861,12 +907,12 @@ dep_work_np = linop1_window_deposit(R, H0f, H1f, H2f)
 dep_work = torch.as_tensor(dep_work_np, dtype=DTYPE, device=DEVICE)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;in-notebook LINOP1 deposit: <span class="hljs-subst">{iwl.size}</span> lines x <span class="hljs-subst">{n_depth}</span> depths in &quot;</span>
       <span class="hljs-string">f&quot;<span class="hljs-subst">{time.perf_counter()-t0:<span class="hljs-number">.1</span>f}</span>s; xlines max = <span class="hljs-subst">{<span class="hljs-built_in">float</span>(dep_work.<span class="hljs-built_in">max</span>()):<span class="hljs-number">.3</span>e}</span>&quot;</span>)</code></pre>
-    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">in-notebook LINOP1 deposit: 8149 lines x 80 depths in 0.6s; xlines max = 5.941e+00
+    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">in-notebook LINOP1 deposit: 8149 lines x 80 depths in 0.4s; xlines max = 5.941e+00
 </pre></div></div><div class="prose"><h3>Comparison cell — the deposit, full-support parity</h3>
 <p>The line deposit is accepted only if the computed window opacity matches the shipped production <code>LINOP1</code> window over the full nonzero support. The earlier clean depth-batched approximation is not used as a parity result: changing the 8-stride depth probe/fill-in or the float32 addition order is an algorithm change, and this lecture is gated against the exact shipped reference recurrence.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[6]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[10]</span>Python</span>
         <button class="copy-btn" type="button" data-code="ref_x = R[&quot;xlines_window_ref&quot;].astype(np.float64)
 got64 = dep_work_np.astype(np.float64)
 m = np.abs(ref_x) &gt; 0
@@ -891,7 +937,7 @@ assert_floor(<span class="hljs-string">&quot;line deposit (LINOP1 window)&quot;<
 </pre></div></div><div class="prose"><p><strong>What the deposit tells us.</strong> The line-deposit window now reproduces the NumPy/production <code>LINOP1</code> result at the float32 wing-accumulator floor. The exact 8-stride probe/fill-in and scalar wing-walk order matter; they are part of the algorithm, not an optional implementation detail. <strong>The deposit is not accepted by argument — it is asserted over full physical support.</strong> A picture of the deposited forest at one depth makes the structure visible.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[7]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[11]</span>Python</span>
         <button class="copy-btn" type="button" data-code="j_show = min(40, n_depth - 1)
 win_wave = R[&quot;win_waveset_nm&quot;]
 xl_show = back(dep_work)[j_show]; xl_ref = ref_x[j_show]
@@ -923,7 +969,7 @@ ax.legend(loc=<span class="hljs-string">&quot;upper right&quot;</span>, fontsize
 The full grid has 30000 OS frequencies; depositing all 18M lines onto it and computing the continuum opacity/scattering/source arrays are not regenerated in this notebook. They are loaded here as production-derived fixtures (<code>xlines_fullgrid</code>, <code>acont</code>, <code>sigmac</code>, <code>scont</code>). The live computation is the Rosseland fold in <code>torch</code> — a single reduction over the frequency axis, depth-batched. This is the first <strong>convergence-core reduction</strong>: a 30000-term harmonic sum. We run it in fp32 and fp64 and compare, while keeping the fixture boundary explicit.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[8]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[12]</span>Python</span>
         <button class="copy-btn" type="button" data-code="freq = R[&quot;freq_hz&quot;]; rco = R[&quot;rco&quot;]
 acont = R[&quot;acont&quot;].astype(np.float64); sigmac = R[&quot;sigmac&quot;].astype(np.float64)
 xlines_full = R[&quot;xlines_fullgrid&quot;].astype(np.float64)
@@ -997,7 +1043,7 @@ abross_cont, _ = rosseland(DEVICE, DTYPE, include_lines=<span class="hljs-litera
 working device and on the CPU/fp64 reference path, then applies the lecture&#39;s parity assertion.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[9]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[13]</span>Python</span>
         <button class="copy-btn" type="button" data-code="abross_ref64, acc_ref64 = rosseland(*REF64)
 rel_ross_acc = diagnose(&quot;Rosseland harmonic fold&quot;, acc_work, acc_ref64,
                         &quot;float floor -- one well-conditioned 30000-term sum&quot;)
@@ -1021,7 +1067,7 @@ assert_floor(<span class="hljs-string">&quot;Rosseland mean abross&quot;</span>,
 formed by the production <code>INTEG</code>/<code>PARCOE</code> quadrature (a parabolic fit on each depth interval, accumulated). This is a <em>sequential</em> reduction — a prefix sum where each layer adds to the running total — so unlike the one-shot Rosseland fold it can <strong>accumulate</strong> round-off down the column. We port <code>parcoe</code>/<code>integ</code> and run them in fp32 and fp64. The deep-base <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>τ</mi><mrow><mi mathvariant="normal">R</mi><mi mathvariant="normal">o</mi><mi mathvariant="normal">s</mi><mi mathvariant="normal">s</mi></mrow></msub></mrow><annotation encoding="application/x-tex">\tau_{\rm Ross}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:-0.1132em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">Ross</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> is what anchors the hydrostatic re-integration in the next cell, so a bias here would feed straight into the structure.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[10]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[14]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def parcoe_np(fv, x, npf):
     &quot;&quot;&quot;Return ATLAS PARCOE quadratic coefficients in the requested NumPy dtype.
 
@@ -1140,7 +1186,7 @@ assert_floor(<span class="hljs-string">&quot;tau_Ross integral (INTEG)&quot;</sp
 <p>We port <code>TTAUP</code> (the hydrostatic march) and run the secant in fp32 and fp64. This is a fixture-backed precision demonstration: it uses the loaded structure and a realistic temperature correction <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>δ</mi><mi>T</mi></mrow><annotation encoding="application/x-tex">\delta T</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal" style="margin-right:0.03785em;">δ</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span></span></span></span> (tens of K, shrinking with depth), with a physical opacity that rises steeply with <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>T</mi></mrow><annotation encoding="application/x-tex">T</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span></span></span></span> so the two marches genuinely differ.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[11]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[15]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def ttaup_np(t, tau, prad, grav, rosstab, npf):
     &quot;&quot;&quot;Return one hydrostatic TTAUP pressure march.
 
@@ -1246,7 +1292,7 @@ cancellation-prone pressure secant. Keeping this as a separate cell makes the pr
 local: the TTAUP march above can pass while the finite difference below does not.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[12]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[16]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def run_secant(npf):
     &quot;&quot;&quot;Return the TCORR column-mass secant diagnostic in precision `npf`.
 
@@ -1357,7 +1403,7 @@ assert_floor(<span class="hljs-string">&quot;column mass after promoted secant&q
 </pre></div></div><div class="prose"><p><strong>This is the cell.</strong> Read the four numbers above in order. Each hydrostatic march — <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>p</mi><mn>1</mn></msub></mrow><annotation encoding="application/x-tex">p_1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord"><span class="mord mathnormal">p</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> on its own, <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>p</mi><mn>2</mn></msub></mrow><annotation encoding="application/x-tex">p_2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord"><span class="mord mathnormal">p</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> on its own — holds fp32 parity at the float floor (<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>∼</mo><mn>1</mn><msup><mn>0</mn><mrow><mo>−</mo><mn>5</mn></mrow></msup></mrow><annotation encoding="application/x-tex">\sim10^{-5}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">∼</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">5</span></span></span></span></span></span></span></span></span></span></span></span>): the per-evaluation pressure structure is fine in single precision. But their <strong>difference</strong>, the secant <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">(</mo><msub><mi>p</mi><mn>2</mn></msub><mo>−</mo><msub><mi>p</mi><mn>1</mn></msub><mo stretchy="false">)</mo><mi mathvariant="normal">/</mi><msub><mi>p</mi><mn>1</mn></msub></mrow><annotation encoding="application/x-tex">(p_2-p_1)/p_1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal">p</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal">p</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mclose">)</span><span class="mord">/</span><span class="mord"><span class="mord mathnormal">p</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>, jumps <strong>one to two orders of magnitude</strong> above the floor. That is the catastrophic cancellation, isolated to one line of code. The two marches agree to five or six fp32 digits; their difference keeps only the trailing one or two; the fractional change <code>ppp</code> — and the column-mass update it drives — is the casualty. A figure shows the cancellation directly: the <em>absolute</em> pressures lie on top of each other; the <em>secant</em> is where fp32 and fp64 split.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[13]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[17]</span>Python</span>
         <button class="copy-btn" type="button" data-code="logtau = np.log10(R[&quot;tauros_raw&quot;])
 fig, ax = plt.subplots(1, 2, figsize=(11, 4.2))
 ax[0].plot(logtau, np.abs(pppW - ppp64)/np.maximum(np.abs(ppp64), 1e-30), color=&quot;C3&quot;, lw=1.8)
@@ -1393,7 +1439,7 @@ fig.tight_layout(); plt.show()
 <p>We have walked the whole convergence-relevant pipeline in fp32 and fp64, cell by cell. Collect the per-cell deviations into one table — the localization the lecture set out to produce.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[14]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[18]</span>Python</span>
         <button class="copy-btn" type="button" data-code="print(&quot;=&quot;*74)
 print(&quot;LECTURE 15 fp32-vs-fp64 DIVERGENCE TABLE  (working device: %s/%s vs CPU/fp64)&quot; % (DEVICE.type, DTAG))
 print(&quot;=&quot;*74)
@@ -1464,7 +1510,7 @@ The accepted promoted secant is 0.0e+00; that is the path to iterate.
 <p>In a GPU notebook this comparison is a plotting/reference boundary: the physical arrays are brought to the host for Matplotlib, but the numerical kernels above stayed in torch on the device.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[15]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[19]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Plot/reference cell: compare the shipped continuum-only and line-blanketed structures.
 L11_ref = np.load(pathlib.Path(&quot;..&quot;) / &quot;reference&quot; / &quot;converged_ref.npz&quot;)  # numpy-ref
 
@@ -1538,7 +1584,7 @@ top layers (tau&lt;0.1): blanketed cooler by up to -915 K  (surface cooling)
 and the physical quantities (<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>g</mi><mi>f</mi></mrow><annotation encoding="application/x-tex">gf</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">g</span><span class="mord mathnormal" style="margin-right:0.10764em;">f</span></span></span></span>, the lower excitation potential, and the three damping constants) are each stored as an index into a precomputed logarithmic table. In the torch implementation those table decodes are <strong>gathers</strong>, not loops: an integer index tensor selects the packed values for all lines at once.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[16]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[20]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Torch-native decode of the selected line records in the teaching window.
 iwl_gpu = torch.as_tensor(iwl, dtype=torch.int64, device=DEVICE)
 ielion_gpu = torch.as_tensor(ielion, dtype=torch.int64, device=DEVICE)
@@ -1585,7 +1631,7 @@ molecular_gpu = torch.<span class="hljs-built_in">sum</span>(nelion_gpu &gt;= <s
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;  gf range:&quot;</span>, torch.<span class="hljs-built_in">min</span>(gf_gpu), torch.<span class="hljs-built_in">max</span>(gf_gpu))</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">selected window line records decoded on mps / float32
   line count: 8149  atomic: tensor(6385, device='mps:0')  molecular: tensor(1764, device='mps:0')
-  wavelength range [nm]: </pre></div><div class="out-block"><pre class="out-stream">tensor(358.0000, device='mps:0') tensor(358.3000, device='mps:0')
+  wavelength range [nm]: tensor(358.0000, device='mps:0') tensor(358.3000, device='mps:0')
   gf range: tensor(3.1046e-11, device='mps:0') tensor(15.8489, device='mps:0')
 </pre></div></div><div class="prose"><h2>From a line record to a profile: center opacity, Doppler width, damping</h2>
 <p>To deposit a line we need three numbers at each depth: the <strong>line-center opacity</strong> <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>κ</mi><mn>0</mn></msub></mrow><annotation encoding="application/x-tex">\kappa_0</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">κ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">0</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>, the <strong>Doppler width</strong> <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi mathvariant="normal">Δ</mi><msub><mi>λ</mi><mi mathvariant="normal">D</mi></msub></mrow><annotation encoding="application/x-tex">\Delta\lambda_{\rm D}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8444em;vertical-align:-0.15em;"></span><span class="mord">Δ</span><span class="mord"><span class="mord mathnormal">λ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">D</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>, and the <strong>damping parameter</strong> <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>a</mi></mrow><annotation encoding="application/x-tex">a</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal">a</span></span></span></span>. These come from the line record and the equation-of-state state at that depth — the species populations, Doppler widths, electron density, and neutral-perturber number. Lecture 16 recomputes this class of state for a loaded atmosphere fixture; here the audit bundle supplies it so Lecture 15 can focus on the line blanket itself. This is a remaining strict-boundary dependency, not a closed computation from physical inputs.</p>
@@ -1619,7 +1665,7 @@ and the damping parameter is
 The important GPU shape is <code>(depth, line)</code>: all selected lines and all depths are decoded and evaluated by broadcasting. The line&#39;s species code is mapped into the compact population table by a boolean equality grid followed by <code>argmax</code>; no Python loop over lines is needed.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[17]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[21]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Vectorized line-record -&gt; per-depth profile ingredients, all torch on the working device.
 nelion_set_gpu = torch.as_tensor(nelion_set, dtype=torch.int64, device=DEVICE)
 species_match_gpu = nelion_gpu[:, None] == nelion_set_gpu[None, :]
@@ -1692,7 +1738,7 @@ ingredients in the exact window-deposit parity gate, so any mismatch in populati
 Doppler setup would be caught before the final deposit assertion.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[18]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[22]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Comparison-reference cell: the same vectorized line-record physics on CPU/fp64.
 def line_record_physics_torch(device, dtype):
     &quot;&quot;&quot;Decode line records and build the per-line/per-depth physics tensors.
@@ -1874,7 +1920,7 @@ assert_floor(<span class="hljs-string">&quot;line Doppler width&quot;</span>, <s
 <p>This benchmark is not a diagnostic excuse: it is a hard parity gate against the shipped production window deposit over the full nonzero support.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[19]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[23]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Comparison-reference cell: exact LINOP1 window deposit vs production window reference.
 prod_window_ref_t = torch.as_tensor(R[&quot;xlines_window_ref&quot;], dtype=torch.float64, device=&quot;cpu&quot;)  # numpy-ref
 dep_ref64_cpu_t = dep_ref64.detach().cpu().to(torch.float64)
@@ -1918,7 +1964,7 @@ passes it to the JOSH radiative-transfer solver, accumulates the Rosseland harmo
 <p>That is exactly the production lesson: the expensive opacity and transfer physics can stay in the fast path, while the tiny convergence-core reductions — especially the secant, and optionally the optical-depth prefix — deserve fp64 promotion on the CPU.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[20]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[24]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# A compact precision-promotion decision table, assembled from the diagnostic cells above.
 print(&quot;=&quot; * 78)
 print(&quot;LINE-BLANKETED CONVERGENCE ENGINE: fp32 PRECISION LOCALISATION&quot;)
@@ -1970,7 +2016,7 @@ GPU policy: exact deposit recurrence; keep bulk tensor physics fast; promote the
 <p>The scientifically important benchmark is sharpened into a precision statement. The reference bundle still carries the production single step and the converged Sun, so we can state the fixed-point residual. But the pure-MPS fp32 recurrence is <strong>not</strong> accepted as a converged atmosphere path; the diagnostic table above localises why. The benchmark is therefore: the line-blanketed physics and shipped reference state describe the real Sun, while the torch convergence core must promote the secant before it is trusted to iterate there.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[21]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[25]</span>Python</span>
         <button class="copy-btn" type="button" data-code="# Comparison-reference cell: shipped production single-step fixed point vs the real Sun structure.
 T_ref_t = torch.as_tensor(R[&quot;T&quot;], dtype=DTYPE, device=DEVICE)                         # numpy-ref
 rhox_ref_t = torch.as_tensor(R[&quot;rhox&quot;], dtype=DTYPE, device=DEVICE)                   # numpy-ref
