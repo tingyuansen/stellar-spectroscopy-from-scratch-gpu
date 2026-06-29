@@ -28,7 +28,8 @@ target. It must not masquerade as a value computed by the notebook.
 
 ## Current state
 
-Lectures 1-16 build and render. The local and GitHub Pages sites are live.
+Lectures 1-16 build and render. The local site is currently running at
+`http://localhost:8081/`; GitHub Pages is pushed.
 
 ### Mostly green
 
@@ -59,6 +60,8 @@ Lectures 1-16 build and render. The local and GitHub Pages sites are live.
   final all-torch lecture closure.
 - Dense pedagogical cells remain in L14. Break them only when the corresponding parity gate is
   rerun.
+- Naming is now an explicit quality track. `BIBLE.md` contains the shared glossary; keep raw
+  fixture/table keys stable at boundaries and translate to readable names in taught code.
 
 ## L14 status
 
@@ -84,6 +87,13 @@ guardrail against regression.
 The final L14 target is stricter: inline or call the L15/L16 line-blanketed atmosphere + EOS-state
 path so the Sun state is regenerated from stellar parameters, then feed that state into the L14
 synthesis path.
+
+L14's public title has been narrowed to **"A Spectrum from an Atmosphere, End to End"**. Do not
+restore "from stellar parameters" until the atmosphere and EOS state are actually regenerated in
+the capstone path. The preferred L14-L16 curriculum order is EOS/state first, line blanketing and
+ATLAS12 correction second, and the atmosphere-to-spectrum SYNTHE capstone last. If the capstone
+remains much longer than the other lectures, split it naturally into synthesis ingredients/opacity
+and transfer plus HR comparison.
 
 ## Checks just run
 
@@ -137,5 +147,7 @@ synthesis path.
 5. Move L16 helper-backed clean-room NumPy pieces into pedagogical torch cells where practical.
 6. Break up the densest L14/L15 code cells with interleaved markdown and docstrings, rerunning
    parity after each chunk.
-7. Use the exact-LINOP L15/L16 material to design the future `kgpu` squeeze from the 12.3-class
+7. Continue the shared naming pass: use the `BIBLE.md` glossary, avoid destructive fixture/schema
+   renames, and verify each pure readability slice with the touched lecture's builder/verifier.
+8. Use the exact-LINOP L15/L16 material to design the future `kgpu` squeeze from the 12.3-class
    coarse-deposit fixed point toward the pyk exact-LINOP `RHOX=12.1439331` target.
