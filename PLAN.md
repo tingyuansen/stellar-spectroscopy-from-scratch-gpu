@@ -32,6 +32,8 @@ Current status:
    - collect the end-to-end ATLAS12+SYNTHE topics in `BIBLE.md`/`PLAN.md`;
    - make the sequence match the kgpu build: atmosphere/EOS state, line blanket/deposit,
      continuum+line synthesis, then capstone spectrum;
+   - preferred logical order is EOS/state first, line blanketing and ATLAS12 correction second,
+     atmosphere-to-spectrum SYNTHE capstone last;
    - preserve every current NumPy/reference parity check while moving topics;
    - keep `reference/MANIFEST_L14_L16.md` synchronized whenever arrays move between loaded,
      computed, and comparison-only roles.

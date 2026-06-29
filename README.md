@@ -65,10 +65,10 @@ and recovers machine precision. The deviation is **quantified, not hidden**.
 10. **Radiative Equilibrium & Temperature Correction** — flux constancy, the Avrett–Krook/TCORR correction, the Rosseland mean, and the radiation-pressure moment.
 11. **Convection & the Converged Atmosphere** — mixing-length convection, overshoot, the EOS derivatives, and the converged *continuum-only* model (the line-blanketed finish is Part VI).
 
-**Part V — Cool stars & the spectrum end to end**
+**Part V — Cool stars & atmosphere-to-spectrum synthesis**
 12. **Molecular Equilibrium & Molecular Bands** — dissociation equilibrium and the TiO band opacity of a cool dwarf (machine precision).
 13. **Molecular Chemistry: the Coupled Equilibrium and Continuous Opacity** — the coupled NMOLEC Newton solver and the molecular continuum (CH, OH, H₂ collision-induced absorption), from scratch.
-14. **A Spectrum from Stellar Parameters, End to End** — the **synthesis half**: the lean “kurucz” assembled from every component (EOS, continuum, atomic/hydrogen/helium lines, molecular bands, JOSH transfer) and run across the HR diagram, computing every spectrum from scratch given an atmosphere. *Atmosphere in, spectrum out.*
+14. **A Spectrum from an Atmosphere, End to End** — the **synthesis half**: the lean “kurucz” assembled from every component (EOS, continuum, atomic/hydrogen/helium lines, molecular bands, JOSH transfer) and run across the HR diagram, computing every spectrum from scratch given an atmosphere. *Atmosphere in, spectrum out.*
 
 **Part VI — The line-blanketed atmosphere (the finale)**
 The other half of “end to end”: the model atmosphere itself, built genuinely from scratch.
@@ -79,7 +79,7 @@ The other half of “end to end”: the model atmosphere itself, built genuinely
 
 - **Read it front to back.** The arc is cumulative: Parts I–III build the microphysics (foundations,
   opacity, transfer) treating the atmosphere as given; Part IV builds the atmosphere's structure;
-  Part V adds cool-star chemistry and then assembles the **spectrum end to end**; Part VI is the
+  Part V adds cool-star chemistry and then assembles the **atmosphere-to-spectrum** synthesis; Part VI is the
   **finale** — the line-blanketed atmosphere from scratch.
 - **Each lecture is self-contained and stands alone.** Every notebook imports `torch`, `numpy`,
   `matplotlib`, and `pathlib`, loads its own `reference/*.npz`, runs top to bottom on the GPU, and

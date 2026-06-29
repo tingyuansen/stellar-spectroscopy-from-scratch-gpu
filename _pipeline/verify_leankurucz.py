@@ -1,9 +1,10 @@
 #!/usr/bin/env python
-"""verify_leankurucz.py — Lecture 14 (capstone) TRUE end-to-end test across the HR diagram.
+"""verify_leankurucz.py — Lecture 14 atmosphere-to-spectrum capstone across the HR diagram.
 
-This is the decisive proof that the book reproduces pykurucz end to end.  For four
-stars spanning the HR diagram it COMPUTES THE WHOLE OPACITY FROM SCRATCH (pure NumPy,
-no pykurucz import) and carries it to the surface with the book's own transfer:
+This is the decisive proof that the book reproduces pykurucz's synthesis half on matched
+atmospheres. For four stars spanning the HR diagram it COMPUTES THE WHOLE OPACITY FROM
+SCRATCH (pure NumPy, no pykurucz import) and carries it to the surface with the book's
+own transfer:
 
   1. ATMOSPHERE.  The Sun uses the line-blanketed Part-VI solar state (base
      RHOX=12.1439331, T=11425 K), not the stale continuum-only RHOX=10.5357
@@ -35,11 +36,11 @@ no pykurucz import) and carries it to the surface with the book's own transfer:
   3. TRANSFER + COMPARE.  The book's JOSH moment solver (Lecture 8: PARCOE/INTEG,
      MAP1, the float32 COEFJ scattering iteration) carries the from-scratch opacity to
      the surface, and the normalised spectrum flux_total/flux_continuum is checked
-     against pykurucz's OWN end-to-end output on the SAME atmosphere.  The line SOURCE
+     against pykurucz's OWN synthesis output on the SAME atmosphere.  The line SOURCE
      functions (slinec / line_source / line_scattering) are the LTE transfer state fed
      to JOSH — like the populations, part of the transfer setup, not the opacity answer.
 
-Documented floors: the from-scratch SPECTRUM matches the production spectrum to the
+Documented floors: the from-scratch SPECTRUM matches the production synthesis to the
 single-precision JOSH-iteration ULP (~1e-8 max, machine-exact in the bulk) — the same
 floor every from-scratch component already hit in isolation (continuum 4e-15, metals
 2.25e-15, H 8e-16, He 2.25e-15, TiO bands 4e-11, molecular continuum bit-exact), all

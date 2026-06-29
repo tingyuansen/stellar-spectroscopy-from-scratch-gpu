@@ -43,12 +43,12 @@ window.BOOK = {
       ]
     },
     {
-      name: "Part V", title: "Cool Stars & the Spectrum End to End",
+      name: "Part V", title: "Cool Stars & Atmosphere-to-Spectrum Synthesis",
       blurb: "Beyond the warm Sun: cool stars form molecules and TiO bands carve their spectra; then the synthesis half — atmosphere in, spectrum out — is assembled and run across the HR diagram.",
       chapters: [
         { n: 12, slug: "Lecture12", type: "html", title: "Molecular Equilibrium & Molecular Bands", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
         { n: 13, slug: "Lecture13", type: "html", title: "Molecular Chemistry: the Coupled Equilibrium and Continuous Opacity", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
-        { n: 14, slug: "Lecture14", type: "html", title: "A Spectrum from Stellar Parameters, End to End", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
+        { n: 14, slug: "Lecture14", type: "html", title: "A Spectrum from an Atmosphere, End to End", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }
       ]
     },
     {
