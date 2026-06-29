@@ -1,34 +1,30 @@
-# PLAN — the GPU-substitution roadmap
+# PLAN — maintenance roadmap
 
-*Stellar Spectroscopy from Scratch — GPU Edition.* This file is the working map for maintaining the
-clean **torch/MPS** companion to the NumPy edition. It states the per-lecture pattern, the current
-status of the 16-lecture GPU arc, and the open TODOs. Read `PASSDOWN.md` first for the live handoff
-state, then this file alongside `STRUCTURE.md` (the four-part arc) and `README.md` (the prose).
+*Stellar Spectroscopy from Scratch.* This file is the working map for maintaining the clean
+**torch/MPS/CUDA** textbook. It states the per-lecture pattern, the current status of the 16-lecture
+arc, and the open TODOs. Read `PASSDOWN.md` first for the live handoff state, then this file
+alongside `STRUCTURE.md` (the four-part arc) and `README.md` (the prose).
 
 ---
 
-## The two design philosophies, stacked
+## The design philosophy
 
-The NumPy edition is a **clean pedagogical reduction of pykurucz** (ATLAS12 + SYNTHE): the same
-formulas and constants, the production hardening stripped away. This edition adds a second reduction
-on the same spine:
-
-1. **GPU port = a clean pedagogical reduction of `kgpu`.** `kgpu` (`~/pykurucz_gpu`) is the
+1. **The textbook is a clean pedagogical reduction of `kgpu`.** `kgpu` (`~/pykurucz_gpu`) is the
    production torch/MPS reimplementation of ATLAS12 + SYNTHE — depth-batched, GPU-resident, with a
    22-file parity test suite. We **read** it as the reference for how each computation vectorizes on
    the GPU, then write a *clean* version for the lecture: plain readable `torch`, bite-size cells,
    no production residency bookkeeping / custom kernels / caching / CLI. `kgpu` is **read-only**; we
    never import it into a notebook and never edit it. (The notebooks also never import pykurucz.)
 
-2. **Each part is validated against its NumPy twin.** Every lecture ends with a **comparison cell**
-   that runs the GPU computation and the NumPy edition's shipped `reference/*.npz` side by side and
+2. **Each part is validated against shipped references.** Every lecture ends with a **comparison
+   cell** that runs the taught computation and the shipped `reference/*.npz` side by side, then
    reports the **maximum relative deviation**, asserting parity to the documented float floor. This
-   is the independent per-part check: the GPU code is correct iff its number matches the NumPy result
-   the NumPy edition already proved bit-for-bit against pykurucz.
+   is the independent per-part check: the code is correct iff its number matches the reference
+   produced by the offline NumPy/pykurucz validation chain.
 
-So the validation chain is: **pykurucz ⇄ NumPy edition** (machine precision, already done) and
-**NumPy edition ⇄ GPU edition** (this book, the float floor). The NumPy reference is the gold
-standard here and is never modified.
+So the validation chain is: **pykurucz/offline NumPy reference generation** establishes the shipped
+answers, and **this book** must reproduce those answers to the float floor. The references are
+validation targets, not taught code paths, and are never modified by lecture execution.
 
 ---
 
@@ -36,8 +32,9 @@ standard here and is never modified.
 
 Every ported lecture follows the same shape. The PoC (Lecture 2) is the worked example.
 
-1. **Same prose, same physics.** Keep the NumPy edition's markdown — the derivations, the
-   schematics, the learning objectives. The physics does not change; only the implementation does.
+1. **Standalone prose, same physics.** Keep the derivations, schematics, and learning objectives
+   clear enough that the book stands alone. Do not frame a lecture as a translation or companion.
+   NumPy appears only as a validation/reference target.
 2. **Device + dtype preamble (one cell).** Pick the device once: MPS if available, else CUDA, else
    CPU. On CPU the working dtype is fp64 (machine-precision reference); on MPS/CUDA it is fp32 (MPS
    has no fp64). State the precision budget plainly.
@@ -47,14 +44,14 @@ Every ported lecture follows the same shape. The PoC (Lecture 2) is the worked e
    folded into `torch.where` masks so every depth lane does the same work. This mirrors `kgpu`'s
    structure but in readable form. A short note flags where fp32 needs care (e.g. a Saha ladder run
    in log-space so the running product never overflows fp32's exponent ceiling).
-4. **The comparison cell (the per-part check).** Load the NumPy edition's `reference/*.npz`, move the
-   GPU result to CPU/NumPy, and report `max |gpu − ref| / |ref|`. Assert it is below the lecture's
+4. **The comparison cell (the per-part check).** Load the shipped `reference/*.npz`, move the
+   result to CPU/NumPy, and report `max |got − ref| / |ref|`. Assert it is below the lecture's
    documented float floor. Print the device used and the floor met.
 5. **Build + render.** `_pipeline/build_lecture<N>_gpu.py` assembles the notebook;
    `_pipeline/build.py <N>` executes it (MPS if present, else CPU) and renders the `content/*.html`
    fragment.
 
-**The float floors** (fp32 GPU vs. fp64 NumPy reference; tighter on a CPU fp64 run):
+**The float floors** (fp32 GPU vs. fp64 reference; tighter on a CPU fp64 run):
 
 | computation kind | typical fp32 floor |
 |---|---|
@@ -133,7 +130,7 @@ reference has base `RHOX=12.1439331`. L14 must never be regressed to the old con
 The PoC ports the **electron-density solve** — the pedagogical heart of the EOS lecture: the
 Boltzmann/partition setup, the Saha ratio, Debye (pressure-ionization) lowering, and the
 charge-conservation fixed point that solves for n_e at every depth — to clean depth-batched `torch`,
-and validates it against the NumPy edition's `reference/L2.npz`.
+and validates it against the shipped `reference/L2.npz`.
 
 - **What is ported:** `saha_ratio`, `ionization_fractions` (the per-element Saha ladder), and
   `solve_electron_density` (the damped charge-balance fixed point), all in `torch`, depth-batched
@@ -158,10 +155,10 @@ and validates it against the NumPy edition's `reference/L2.npz`.
 
 ## Open TODOs / decisions
 
-- **DONE — `resources/figures/` is synced with the NumPy edition for L14-L16.** This repo now
+- **DONE — `resources/figures/` includes the L14-L16 schematics.** This repo now
   carries `s14_synthesis.png`, `s15_deposit.png`, and `s16_eos.png` alongside the earlier figures.
-  Default policy remains **reuse the NumPy schematic filenames and artwork** unless a future
-  GPU-specific figure is explicitly needed; the physics illustrated is unchanged.
+  Default policy remains **reuse shipped schematic filenames and artwork** when the physics picture
+  is still accurate; regenerate any schematic whose story no longer matches the lecture.
 - **DEPENDENCY (read-only clue source):** continue reading `~/pykurucz_gpu/PASSDOWN.md` and
   `~/pykurucz_gpu/PLAN.md` before changing L14-L16. `kgpu` is stable and self-verified; this book
   should reflect its implementation pieces without importing it.

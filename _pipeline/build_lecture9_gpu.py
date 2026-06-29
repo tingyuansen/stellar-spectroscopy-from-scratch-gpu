@@ -1,15 +1,16 @@
 #!/usr/bin/env python
-"""Assemble content/Lecture9.ipynb (unexecuted) — the GPU EDITION. Execute + render via build.py.
+"""Assemble content/Lecture9.ipynb (unexecuted). Execute + render via build.py.
 
-Lecture 9 (GPU) — Hydrostatic Equilibrium & Temperature Structure, ported to clean torch/MPS.
+Lecture 9 — Hydrostatic Equilibrium & Temperature Structure, written in clean torch/MPS.
 The grey/Hopf temperature law and the ATLAS12 log-tau grid are vectorized over the 80 depth layers
 as tensor ops; the radiation pressure is an elementwise torch expression; and the Kurucz **TTAUP**
 predictor-corrector integration of hydrostatic equilibrium in log-pressure is rebuilt as the one
 genuinely-sequential depth march the lecture needs (the 4-term Adams history couples layer j to
-j-1..j-4, so it is a JUSTIFIED depth loop over a fixed 80 layers — vectorising it is impossible,
-exactly as kgpu/atlas_hydrostatic.py keeps it a depth loop; the per-layer scalar arithmetic is done
-torch-native on the device). The result — P_gas, RHOX — matches the reference to machine precision,
-sharpening Lecture 1's one-line P=g*tau from one part in 1e5 to the last bit.
+j-1..j-4, so it is a JUSTIFIED depth loop over a fixed 80 layers — not a useful target for
+the elementwise vectorization used elsewhere, and kept as a depth march in kgpu/atlas_hydrostatic.py
+too; the per-layer scalar arithmetic is still done torch-native on the device). The result —
+P_gas, RHOX — matches the reference to the documented float floor, sharpening Lecture 1's
+one-line P=g*tau from one part in 1e5 to the stored production-grid result.
 
 The clean torch is a pedagogical reduction of kgpu/atlas_hydrostatic.py's grey_temperature + ttaup
 (read-only algorithm reference); the notebook imports neither kgpu nor pykurucz. The body +
@@ -29,15 +30,15 @@ def md(src): cells.append(new_markdown_cell(src))
 def code(src): cells.append(new_code_cell(src))
 
 # ── Title + front matter + objectives (one cell, so the callout lifts) ───
-md(r"""# Lecture 9 — Hydrostatic Equilibrium & Temperature Structure *(GPU Edition)*
+md(r"""# Lecture 9 — Hydrostatic Equilibrium & Temperature Structure
 
-*Stellar Spectroscopy from Scratch — GPU Edition: the torch/MPS vectorized companion, each part validated against the NumPy edition*
+*Stellar Spectroscopy from Scratch — a torch/MPS implementation, with each part validated against reference calculations*
 
 *Yuan-Sen Ting*
 
 *Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
 
-*This is the **GPU edition** of Lecture 9. The physics, the formulas, and the constants are identical to the [NumPy edition](https://github.com/tingyuansen/stellar-spectroscopy-from-scratch); the **hydrostatic** half of the model atmosphere — the grey/Hopf temperature, the radiation pressure, and Kurucz's **TTAUP** predictor-corrector integration of $dP/d\tau = g/\kappa$ in log-pressure — is rebuilt in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). The lecture's new pedagogy is the **vectorization budget**: the temperature, the grid, and the radiation pressure are evaluated for **all 80 depth layers at once** as tensor ops; the TTAUP march, by contrast, is the one piece that **cannot** be vectorized — its 4-term Adams history couples each layer to the previous four, so it is a genuinely sequential depth loop (a JUSTIFIED loop over a fixed, small number of layers), exactly as the production `kgpu` engine keeps it a depth loop. It ends with a **comparison cell** that validates the GPU structure ($P_{\rm gas}$, $\mathrm{RHOX}$) against the reference to the documented float floor. The clean torch is a pedagogical reduction of `kgpu/atlas_hydrostatic.py`; the notebook imports neither `kgpu` nor pykurucz.*
+*The **hydrostatic** half of the model atmosphere — the grey/Hopf temperature, the radiation pressure, and Kurucz's **TTAUP** predictor-corrector integration of $dP/d\tau = g/\kappa$ in log-pressure — is rebuilt in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). The lecture's new pedagogy is the **vectorization budget**: the temperature, the grid, and the radiation pressure are evaluated for **all 80 depth layers at once** as tensor ops; the TTAUP march, by contrast, is a true recurrence — its 4-term Adams history couples each layer to the previous four, so it remains a justified loop over a fixed, small number of layers, exactly as the production `kgpu` engine keeps it a depth march. It ends with a **comparison cell** that validates the torch structure ($P_{\rm gas}$, $\mathrm{RHOX}$) against the reference to the documented float floor. The clean torch implementation is a pedagogical reduction of `kgpu/atlas_hydrostatic.py`; the notebook imports neither `kgpu` nor pykurucz.*
 
 ---
 
@@ -46,13 +47,13 @@ md(r"""# Lecture 9 — Hydrostatic Equilibrium & Temperature Structure *(GPU Edi
 - Write **hydrostatic equilibrium** in the form the codes integrate, $dP_{\rm total}/d\tau = g/\kappa$, and recover the clean identity $P_{\rm total} = g\,m$ for column mass $m$.
 - Evaluate the grey/Hopf **temperature** law and the ATLAS12 **log-$\tau$ grid** as torch tensor ops over all 80 layers at once, and carry the (tiny) **radiation pressure** $P_{\rm rad} = 2.521\times10^{-15}\max(T^4, \tfrac12 T_{\rm eff}^4)$ as an elementwise expression.
 - Explain why the cold start integrates in **log pressure** (many decades, smoothest integrand) and uses the placeholder opacity $\kappa\equiv1$.
-- Recognise that the **TTAUP predictor-corrector** is inherently sequential — the rolling log-$P$ history couples layer $j$ to $j-1\ldots j-4$ — so it is the one **justified depth loop** in the GPU edition, with the per-layer scalar arithmetic still done torch-native on the device, mirroring `kgpu`'s depth march.
-- Reproduce the production code's **evaluate-then-check** corrector ordering and its radiation-pressure subtraction, and **validate** the GPU gas pressure and column mass against the reference to machine precision (the residual Lecture 1 deferred, now closed).""")
+- Recognise that the **TTAUP predictor-corrector** is a true recurrence — the rolling log-$P$ history couples layer $j$ to $j-1\ldots j-4$ — so it remains a justified fixed-depth loop, with the per-layer scalar arithmetic still done torch-native on the device, mirroring `kgpu`'s depth march.
+- Reproduce the production code's **evaluate-then-check** corrector ordering and its radiation-pressure subtraction, and **validate** the torch gas pressure and column mass against the reference to the documented float floor (the residual Lecture 1 deferred, now closed).""")
 
-# ── Device + precision preamble (the GPU edition's opening cell) ──────────
+# ── Device + precision preamble ───────────────────────────────────────────
 md(r"""## Setup and the reference
 
-We open as every GPU-edition lecture does: pick the **compute device** once and a working **dtype** to match (MPS / CUDA $\to$ fp32, CPU $\to$ fp64), and load the **reference** grey structure we validate against — `reference/L1.npz`, which carries `grey_tau`, `grey_T`, `grey_pgas`, and `grey_rhox` (the same Sun, $T_{\rm eff}=5770\,$K, $\log g = 4.44$). The grid, the temperature, and the radiation pressure are torch tensors on the device; the TTAUP march does its per-layer scalar work on the device too; only the closing comparison moves the result to the CPU as NumPy.""")
+We begin by picking the **compute device** once and a working **dtype** to match (MPS / CUDA $\to$ fp32, CPU $\to$ fp64), and load the **reference** grey structure we validate against — `reference/L1.npz`, which carries `grey_tau`, `grey_T`, `grey_pgas`, and `grey_rhox` (the same Sun, $T_{\rm eff}=5770\,$K, $\log g = 4.44$). The grid, the temperature, and the radiation pressure are torch tensors on the device; the TTAUP march does its per-layer scalar work on the device too; only the closing comparison moves the result to the CPU as NumPy.""")
 
 code(r'''import pathlib
 import numpy as np
@@ -81,7 +82,7 @@ def t(x):
 REF = np.load(pathlib.Path("..") / "reference" / "L1.npz")
 
 def compare(name, ours, ref, tol=1e-6):
-    """Report how closely a from-scratch GPU array matches the reference; move it to CPU/NumPy first."""
+    """Report how closely a from-scratch torch array matches the reference; move it to CPU/NumPy first."""
     if isinstance(ours, torch.Tensor):
         # MPS has no float64: move to CPU FIRST, then cast (a direct .to(cpu, float64) raises on MPS)
         ours = ours.detach().cpu().to(torch.float64).numpy()
@@ -105,7 +106,7 @@ print("reference values loaded:", ", ".join(REF.files))''')
 # ── CATCH-AND-FILL: appended sections (port_worker fill) ──
 md(r"""## Introduction: building the atmosphere we have been given
 
-For eight lectures the **model atmosphere** has been a given. We took its run of temperature, gas pressure, and density with depth — the columns of a `.atm` file — and on top of it built the equation of state, the continuous and line opacities, and the radiative-transfer solver, until we reproduced the solar spectrum to machine precision. But where did that atmosphere come from? In this static, plane-parallel setup the two *structural* equilibrium constraints are **hydrostatic equilibrium**, that the gas neither collapses under its own weight nor blows away, and **radiative equilibrium**, that the energy carried outward by radiation is conserved at every depth; closing the model also requires an equation of state, opacities, a composition, boundary conditions, and a convection treatment.
+For eight lectures the **model atmosphere** has been a given. We took its run of temperature, gas pressure, and density with depth — the columns of a `.atm` file — and on top of it built the equation of state, the continuous and line opacities, and the radiative-transfer solver, until we reproduced the reference solar spectrum to the relevant numerical floor. But where did that atmosphere come from? In this static, plane-parallel setup the two *structural* equilibrium constraints are **hydrostatic equilibrium**, that the gas neither collapses under its own weight nor blows away, and **radiative equilibrium**, that the energy carried outward by radiation is conserved at every depth; closing the model also requires an equation of state, opacities, a composition, boundary conditions, and a convection treatment.
 
 This lecture builds the first structural constraint. It is the start of the **inverse half** of the course: instead of taking the structure and computing the spectrum, we compute the structure itself from the two numbers that fix the grey cold start of a star — its effective temperature $T_{\rm eff}$ and its surface gravity $\log g$. A full model also fixes the composition and microturbulence; in the simplified grey setup here, $T_{\rm eff}$ and $\log g$ are enough.
 
@@ -113,7 +114,7 @@ Lecture 1 already built most of the pieces we need here. It wrote down the **gre
 
 That one part in $10^{5}$ is worth being precise about, because it is *not* a flaw in the closed form. For $\kappa\equiv1$ and a zero-pressure top boundary, $P_{\rm total}=g\tau$ is the **exact analytic solution** of the hydrostatic equation, not an approximation to it. The residual comes from the things the one-liner left out: the production code's boundary seed, its finite-grid predictor-corrector, its radiation-pressure increment and subtraction, and the fact that the reference array is a *gas* pressure while $g\tau$ is a *total* pressure. **Reproducing that stored gas pressure to the float floor is the one genuinely new thing this lecture does.**
 
-In the GPU edition, the temperature grid and radiation-pressure terms are ordinary elementwise tensor expressions over all 80 layers. The hydrostatic march is the exception: the rolling Adams history couples layer $j$ to $j-1\ldots j-4$, so it is a real recurrence and remains a justified fixed-depth loop, with scalar torch tensors on the device.
+The temperature grid and radiation-pressure terms are ordinary elementwise tensor expressions over all 80 layers. The hydrostatic march is the exception: the rolling Adams history couples layer $j$ to $j-1\ldots j-4$, so it is a real recurrence and remains a justified fixed-depth loop, with scalar torch tensors on the device.
 
 ![From $T_{\rm eff}$ and $\log g$: the grey temperature law and the hydrostatic integration of $dP/d\tau=g/\kappa$ down the optical-depth grid give the run of temperature, pressure, and density with depth.](resources/figures/s8_hydrostatic.png)""")
 
@@ -416,11 +417,11 @@ RHOX = ptotal / torch.as_tensor(float(g_cgs), dtype=DTYPE, device=DEVICE)
 print(f"P_gas: top = {P_gas[0].detach().cpu().to(torch.float64):.4e}   bottom = {P_gas[-1].detach().cpu().to(torch.float64):.4e} dyn/cm^2")
 print(f"RHOX:  top = {RHOX[0].detach().cpu().to(torch.float64):.4e}   bottom = {RHOX[-1].detach().cpu().to(torch.float64):.4e} g/cm^2")''')
 
-md(r"""## Benchmark: machine precision
+md(r"""## Benchmark: the documented float floor
 
 This is the comparison Lecture 1 deferred. We check the two recapped arrays (`grey_tau`, `grey_T`) and the two hydrostatic outputs (`grey_pgas`, `grey_rhox`) against `reference/L1.npz`.
 
-On the CPU fallback the arithmetic is fp64 and the residual is at the last-rounding floor of the torch and NumPy elementary functions. On MPS/CUDA the working dtype is fp32, so the gate is the documented fp32 floor: the GPU lecture must reproduce the NumPy twin to float precision over the **whole** 80-layer structure, not merely in the photospheric layers.""")
+On the CPU fallback the arithmetic is fp64 and the residual is at the last-rounding floor of the torch and NumPy elementary functions. On MPS/CUDA the working dtype is fp32, so the gate is the documented fp32 floor: the torch calculation must reproduce the inline fp64 reference to float precision over the **whole** 80-layer structure, not merely in the photospheric layers.""")
  
 code(r'''# comparison-reference cell: REF[...] is the NumPy-edition parity oracle
 print("grey model atmosphere vs reference/L1.npz:")
@@ -487,7 +488,7 @@ $$
 
 equivalently $P_{\rm total}=g\,m$ for column mass $m$ up to the top-boundary convention. The grey/Hopf law supplies the temperature, and on the cold start the opacity is the crude placeholder $\kappa\equiv1$, the empty Rosseland table. Integrating the balance in **log pressure** with the Kurucz **predictor-corrector** — including the boundary seed, evaluate-then-check ordering, and radiation-pressure subtraction — gives the gas pressure and column mass to the appropriate float floor.
 
-The GPU lesson is just as important as the physics lesson. Most of the setup is naturally vectorized: the grid, the temperature, and radiation pressure are one-dimensional tensor expressions. The hydrostatic integration is not: its four-term Adams history is a true recurrence, so the fixed 80-layer march is the one justified loop in the lecture.""")
+The computational lesson is just as important as the physics lesson. Most of the setup is naturally vectorized: the grid, the temperature, and radiation pressure are one-dimensional tensor expressions. The hydrostatic integration is not: its four-term Adams history is a true recurrence, so the fixed 80-layer march is the one justified loop in the lecture.""")
  
 md(r"""## Summary
 
@@ -530,7 +531,7 @@ md(r"""## Further reading
 - **Hubeny, I. & Mihalas, D. (2014). *Theory of Stellar Atmospheres*, Princeton University Press.** A modern, detailed account of stellar-atmosphere structure equations and numerical methods.
 - **Kurucz, R. L. (1970). *ATLAS: A Computer Program for Calculating Model Stellar Atmospheres*, SAO Special Report 309.** The original ATLAS description, including the grey cold start and the hydrostatic machinery reproduced here.
 - **Kim, E. M. & Ting, Y.-S. (2026). [*pykurucz*](https://arxiv.org/abs/2603.11693).** The NumPy/Python reference implementation used to generate the parity targets for this book.
-- **The GPU-edition source notebooks.** Compare this lecture with the NumPy edition: the physics is identical, but the GPU version makes explicit which parts are vectorized tensor algebra and which parts are irreducible recurrences.""")
+- **The source notebooks.** This lecture makes explicit which parts of the hydrostatic start are vectorized tensor algebra and which parts are genuine recurrences.""")
 
 nb = new_notebook(cells=cells)
 nb.metadata.update({

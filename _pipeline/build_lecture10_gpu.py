@@ -508,7 +508,7 @@ code(r'''def expi3_batched(x: torch.Tensor) -> torch.Tensor:
 
 md(r"""### The $\Lambda$-diagonal accumulator
 
-The $\Lambda$-diagonal tracks the E3-based optical-depth steps. Deep in the atmosphere where optical steps are massive, a pure fp32 naive accumulation of $0.5 \cdot (\tau + E_3 - 0.5)/\tau - 0.5$ triggers a catastrophic cancellation losing $\sim4$ dex of precision. The GPU port employs `kgpu`'s robust form, maintaining $s2 = term2 - 0.5$ directly, thereby avoiding materializing the $1.0$ that cancels.
+The $\Lambda$-diagonal tracks the E3-based optical-depth steps. Deep in the atmosphere where optical steps are massive, a pure fp32 naive accumulation of $0.5 \cdot (\tau + E_3 - 0.5)/\tau - 0.5$ triggers a catastrophic cancellation losing $\sim4$ dex of precision. The implementation uses `kgpu`'s robust form, maintaining $s2 = term2 - 0.5$ directly, thereby avoiding materializing the $1.0$ that cancels.
 
 Because `term1 = term2_prev` intrinsically cascades down the depth axis, the `rdiagj` sequence is formed by rolling shifted tensors — totally vectorized over depths and frequencies, avoiding any loops.""")
 

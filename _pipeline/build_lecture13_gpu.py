@@ -178,6 +178,10 @@ def _as_numpy_i32(x):
 
 print("constants + index adapters ready")''')
 
+md(r"""With the constants and boundary adapters in place, `readmol` can decode the static molecule
+table into arrays: the molecule codes, the coefficient table, and the component/equation index
+structure used by both the torch solve and the independent fp64 reference.""")
+
 code(r'''def readmol(molecules_path):
     """Parse molecules.dat into the molecular-equilibrium data structures (port of READMOL).
 
@@ -472,6 +476,10 @@ code(r'''def nmolec_solve(T, gas_pressure, electron_density, xabund,
                           n_layers, nequa, nummol, solve_device, solve_dtype, jacrev, vmap)
 
 print("nmolec_solve (setup) ready")''')
+
+md(r"""The wrapper above normalizes inputs and builds the tensor incidence structure. The driver below is
+the actual warm-started depth loop: each depth solves a stiff local Newton problem seeded from the
+converged depth above, then the solved rows are stacked back into molecule and neutral-atom arrays.""")
 
 code(r'''def _nmolec_driver(struct, ne, log_equilj, ed_np, xabund_np, gp_np, T_np, idequa_np,
                    n_layers, nequa, nummol, solve_device, solve_dtype, jacrev, vmap):
@@ -1033,6 +1041,9 @@ def h2cia_np(freq_scalar, stim_col):
     return out
 
 print("fp64 reference: scalar H2-CIA helper ready")''')
+
+md(r"""Finally assemble the fp64 reference continuum over the same frequency grid. This is the comparison
+target for the torch continuum cell above; it is not fed back into the taught calculation.""")
 
 code(r'''# numpy-ref: assemble the fp64-reference reference arrays (the parity targets) over the frequency grid
 chop_ref = np.zeros((nlc, nfreq)); ohop_ref = np.zeros((nlc, nfreq)); h2cia_ref = np.zeros((nlc, nfreq))

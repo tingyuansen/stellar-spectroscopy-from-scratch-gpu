@@ -1,18 +1,18 @@
 #!/usr/bin/env python
-"""Assemble content/Lecture7.ipynb (unexecuted) — the GPU EDITION. Execute + render via build.py.
+"""Assemble content/Lecture7.ipynb (unexecuted). Execute + render via build.py.
 
-Lecture 7 (GPU) — Radiative Transfer & the Emergent Spectrum, ported to clean torch/MPS. The
+Lecture 7 — Radiative Transfer & the Emergent Spectrum, written in clean torch/MPS. The
 formal solution of plane-parallel transfer — the optical-depth scale, the LTE Planck source, the
 second exponential integral E2 kernel, and the depth integral F = 2*pi int S E2(tau) dtau — is
 rebuilt fully vectorized over the [depth, wavelength] grid: every wavelength's optical depth and
 flux integral is one tensor op, no per-wavelength Python loop. The lecture's new pedagogy is the
 GPU precision budget: the cumulative optical depth is a long fp32 accumulation that drifts in the
 photosphere, and the E2 kernel's x>1 branch is a difference exp(-x) - x*E1 of two nearly-equal
-numbers — both need the surgical fp64-promotion lesson the GPU edition teaches.
+numbers — both need the surgical fp64-promotion lesson this lecture teaches.
 
 The torch kernels below were produced + parity-gated by the external-API port worker
 (_pipeline/port_worker.py, job 'lecture7') and validated to spectrum_dev = 4.43e-7 vs the inline
-NumPy twin (< the 5e-6 fp32-MPS float floor). The clean torch port is a pedagogical reduction of
+fp64 reference (< the 5e-6 fp32-MPS float floor). The clean torch implementation is a pedagogical reduction of
 the production kgpu/josh.py formal-solution path (read-only); the notebook imports neither kgpu nor
 pykurucz.
 """
@@ -30,15 +30,15 @@ def code(s): cells.append(new_code_cell(s))
 # ════════════════════════════════════════════════════════════════════════════
 #  TITLE
 # ════════════════════════════════════════════════════════════════════════════
-md(r"""# Lecture 7 — Radiative Transfer & the Emergent Spectrum *(GPU Edition)*
+md(r"""# Lecture 7 — Radiative Transfer & the Emergent Spectrum
 
-*Stellar Spectroscopy from Scratch — GPU Edition: the torch/MPS vectorized companion, each part validated against the NumPy edition*
+*Stellar Spectroscopy from Scratch — a torch/MPS implementation, with each part validated against reference calculations*
 
 *Yuan-Sen Ting*
 
 *Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
 
-*This is the **GPU edition** of Lecture 7. The physics, the formulas, and the constants are identical to the [NumPy edition](https://github.com/tingyuansen/stellar-spectroscopy-from-scratch); the formal solution of radiative transfer is rebuilt in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). The new pedagogy is the **vectorization**: the NumPy reference already integrates over depth at every wavelength, but here the whole **`[depth, wavelength]`** grid — the optical-depth scale, the Planck source, the $E_2$ kernel, the flux integral — is built as a handful of tensor ops, with **no per-wavelength Python loop** anywhere, even for the Eddington–Barbier interpolation. It ends with a **comparison cell** that validates the GPU spectrum against an inline NumPy twin to the documented float floor (~$5\times10^{-6}$ fp32). The clean torch port is a pedagogical reduction of the production `kgpu` formal-solution path — the notebook imports neither `kgpu` nor pykurucz.*
+*The formal solution of radiative transfer is rebuilt in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). The new pedagogy is the **vectorization**: the whole **`[depth, wavelength]`** grid — the optical-depth scale, the Planck source, the $E_2$ kernel, the flux integral — is built as a handful of tensor ops, with **no per-wavelength Python loop** anywhere, even for the Eddington–Barbier interpolation. It ends with a **comparison cell** that validates the torch spectrum against an inline fp64 NumPy parity twin to the documented float floor (~$5\times10^{-6}$ fp32). The clean torch implementation is a pedagogical reduction of the production `kgpu` formal-solution path — the notebook imports neither `kgpu` nor pykurucz.*
 
 ---
 
@@ -47,8 +47,8 @@ md(r"""# Lecture 7 — Radiative Transfer & the Emergent Spectrum *(GPU Edition)
 - Write the **plane-parallel transfer equation** and its **formal solution**, and identify the LTE source function.
 - Turn an opacity into an **optical-depth scale** by a cumulative integral over column mass — and recast that depth-sequential accumulation as a single GPU **`cumsum`** over the depth axis.
 - Compute the **emergent flux** with the exponential-integral formal solution $F_\lambda = 2\pi\int S_\lambda E_2(\tau)\,d\tau$, evaluating the $E_2$ kernel **branchlessly** over the whole grid, and recover the **Eddington–Barbier** relation with a **vectorized** $\tau=2/3$ interpolation.
-- Assemble the full **solar spectrum** from $500$ to $510\ \mathrm{nm}$ and reproduce the NumPy edition to the float floor over the whole window.
-- Recognise and fix the two GPU **precision traps** here: the **long fp32 accumulation** of the optical-depth integral, and the **catastrophic cancellation** $e^{-x}-xE_1$ in the $E_2$ wing — both removed with surgical fp64-promotion, the GPU edition's recurring lesson.""")
+- Assemble the full **solar spectrum** from $500$ to $510\ \mathrm{nm}$ and reproduce the fp64 parity reference to the float floor over the whole window.
+- Recognise and fix the two GPU **precision traps** here: the **long fp32 accumulation** of the optical-depth integral, and the **catastrophic cancellation** $e^{-x}-xE_1$ in the $E_2$ wing — both removed with surgical fp64-promotion.""")
 
 # ════════════════════════════════════════════════════════════════════════════
 #  INTRODUCTION
@@ -63,7 +63,7 @@ The GPU story of this lecture is one of **shape**, not of new physics. The forma
 
 md(r"""We begin by loading the products this lecture builds on. Everything we need was saved at the end of Lecture 6 into `reference/L6.npz` (hence the name `REF`): the wavelength grid `wl`, the atmosphere's temperature and column-mass profiles (`T`, `rhox`), and — the new ingredient — the assembled opacity, split two ways. The arrays `total_abs`/`total_scat` hold the *full* opacity (continuum plus all the lines), while `cont_abs`/`cont_scat` hold the *continuum alone*; carrying both lets us form the line spectrum and the continuum it sits on from the same machinery.
 
-We then pick the **device and working dtype once**, the GPU edition's preamble: MPS (Apple) or CUDA in fp32, else CPU in fp64. The opacity slabs move onto the device as the $[\text{depth},\text{wavelength}]$ batch, and from here on every computation is a tensor op on that grid.""")
+We then pick the **device and working dtype once**: MPS (Apple) or CUDA in fp32, else CPU in fp64. The opacity slabs move onto the device as the $[\text{depth},\text{wavelength}]$ batch, and from here on every computation is a tensor op on that grid.""")
 
 code(r'''import pathlib
 import math
@@ -75,7 +75,7 @@ plt.rcParams.update({"figure.figsize": (7.2, 4.3), "figure.dpi": 120, "savefig.f
     "axes.grid": True, "grid.alpha": 0.25, "axes.axisbelow": True,
     "font.size": 11, "axes.titlesize": 12.5, "axes.labelsize": 11.5})
 
-# --- device + dtype, chosen ONCE (the GPU-edition preamble) ---------------------------------
+# --- device + dtype, chosen ONCE ------------------------------------------------------------
 if torch.backends.mps.is_available():
     DEVICE, DTYPE = torch.device("mps"), torch.float32
 elif torch.cuda.is_available():
@@ -140,7 +140,7 @@ $$
 \tau_\lambda(m) = \int_0^{m} \big[\kappa^{\rm abs}_\lambda + \kappa^{\rm scat}_\lambda\big]\,dm'.
 $$
 
-The NumPy edition built this with a trapezoid and a `np.cumsum` over depth. On the GPU the structure is identical — the per-layer trapezoid contributions form a $[\text{depth}-1, \text{wavelength}]$ tensor, and a single **`torch.cumsum` over the depth axis** turns them into the cumulative scale at every wavelength at once. The depth recursion $\tau_{i+1}=\tau_i+\Delta\tau_i$ *looks* sequential, but it is a **prefix sum**, a primitive the GPU runs in parallel; there is no Python loop over depth.
+The reference calculation builds this with a trapezoid and a cumulative sum over depth. Here the per-layer trapezoid contributions form a $[\text{depth}-1, \text{wavelength}]$ tensor, and a single **`torch.cumsum` over the depth axis** turns them into the cumulative scale at every wavelength at once. The depth recursion $\tau_{i+1}=\tau_i+\Delta\tau_i$ *looks* sequential, but it is a **prefix sum**, a primitive the GPU runs in parallel; there is no Python loop over depth.
 
 **The first precision trap.** This is a *long accumulation*: by the deep photosphere $\tau_\lambda$ has summed dozens of layers spanning many decades, and in fp32 the running total loses its trailing digits where each new increment is tiny against the accumulated sum. The drift is small but it sits right under the float floor of the assembled spectrum. The fix is surgical (bible §2.4): **promote just this cumulative reduction to fp64**. The increments and the prefix sum are a tiny $[\text{depth},\text{wavelength}]$ object, so the fp64 cost is negligible, and the bulk opacity stays fp32-resident. We compute $\tau$ on the host in fp64 and hand the conditioned scale back.""")
 
@@ -212,7 +212,7 @@ $$
 E_2(x) = e^{-x}\Big[1 - \tfrac{x^2+a_1x+a_2}{D}\Big] = e^{-x}\,\frac{(b_1-a_1)\,x + (b_2-a_2)}{x^2+b_1x+b_2},
 $$
 
-which removes the leading $x^2$ that dominated both terms — the same factor-out-the-cancellation trick the GPU edition used for the Voigt detuning in Lecture 4, here applied to the $E_2$ wing.""")
+which removes the leading $x^2$ that dominated both terms — the same factor-out-the-cancellation trick used for the Voigt detuning in Lecture 4, here applied to the $E_2$ wing.""")
 
 code(r'''_AS = (-0.57721566, 0.99999193, -0.24991055, 0.05519968, -0.00976004, 0.00107857)  # E1 5.1.53
 _A1, _A2, _B1, _B2 = 2.334733, 0.250621, 3.330657, 1.681534                         # E1 5.1.56
@@ -270,11 +270,11 @@ spectrum = flux_line / flux_cont
 print(f"emergent flux computed for {spectrum.numel()} wavelengths")''')
 
 # ── comparison cell ────────────────────────────────────────────────────────
-md(r"""### Comparison cell — the GPU spectrum vs the NumPy twin
+md(r"""### Comparison cell — the GPU spectrum vs the inline fp64 reference
 
-The per-part check. We rebuild the **NumPy edition's exact formal solution** inline (the fp64 oracle), run the GPU spectrum beside it, and report the maximum relative deviation over the whole window. We also report the median deviation against the **pykurucz reference** the NumPy edition itself matched — the GPU code is correct iff its number tracks the NumPy result the NumPy edition already proved against pykurucz. The float floor here is the fp32-MPS budget, $\sim5\times10^{-6}$.""")
+The per-part check. We rebuild an **exact fp64 reference** inline (the parity oracle), run the torch spectrum beside it, and report the maximum relative deviation over the whole window. We also report the median deviation against the **pykurucz reference** used as the production benchmark. The float floor here is the fp32-MPS budget, $\sim5\times10^{-6}$.""")
 
-code(r'''# --- the NumPy edition's exact formal solution, inline (the fp64 parity oracle) ---
+code(r'''# --- the exact fp64 NumPy formal solution, inline (the parity oracle) ---
 def _np_od(kappa):
     dt = 0.5*(kappa[1:]+kappa[:-1])*np.diff(rhox_np)[:, None]
     t = np.empty_like(kappa); t[0] = kappa[0]*rhox_np[0]; t[1:] = t[0] + np.cumsum(dt, axis=0); return t
@@ -305,23 +305,23 @@ def relmax(a, b):
     return float(np.max(np.abs(np.asarray(a, float) - b) / d))
 
 spec_gpu = _np(spectrum)
-dev_spec = relmax(spec_gpu, spec_np)                                 # GPU vs NumPy twin (the gate)
+dev_spec = relmax(spec_gpu, spec_np)                                 # GPU vs fp64 reference (the gate)
 dev_ref  = float(np.median(np.abs(spec_gpu - ref) / ref))           # GPU vs pykurucz (sanity)
 
 FLOOR = 5e-6
 print(f"device                          : {DEVICE}")
-print(f"normalised spectrum, GPU vs NumPy twin : max|rel| = {dev_spec:.2e}   "
+print(f"normalised spectrum, GPU vs fp64 reference : max|rel| = {dev_spec:.2e}   "
       f"[floor {FLOOR:.0e}]")
 print(f"normalised spectrum, GPU vs pykurucz   : median|rel| = {dev_ref:.2e}  "
-      f"(the part-in-a-thousand the NumPy edition reports)")
+      f"(the formal-solution vs production scale)")
 assert dev_spec < FLOOR, f"GPU spectrum exceeds the float floor: {dev_spec:.2e}"
-print("PASS — the GPU formal solution reproduces the NumPy twin to the float floor.")''')
+print("PASS — the GPU formal solution reproduces the inline fp64 reference to the float floor.")''')
 
-md(r"""The from-scratch GPU radiative transfer reproduces the NumPy twin to the fp32 float floor, and tracks the pykurucz reference to the same part in a thousand the NumPy edition reports. The agreement loosens only in the deepest line cores, where the source function is steepest near the surface; the next lecture (the JOSH solver) supplies the production engine that closes that gap. First, the payoff: the spectrum itself.""")
+md(r"""The from-scratch torch radiative transfer reproduces the fp64 reference to the fp32 float floor, and tracks the pykurucz reference at the expected formal-solution scale. The agreement loosens only in the deepest line cores, where the source function is steepest near the surface; the next lecture (the JOSH solver) supplies the production engine that closes that gap. First, the payoff: the spectrum itself.""")
 
 code(r'''fig, ax = plt.subplots(figsize=(11, 4.2))
 ax.plot(wl_np, ref, color="0.6", lw=1.4, label="pykurucz reference")
-ax.plot(wl_np, spec_gpu, color="C3", lw=0.6, label="from scratch (GPU)")
+ax.plot(wl_np, spec_gpu, color="C3", lw=0.6, label="computed here")
 ax.set_xlabel("wavelength  [nm]"); ax.set_ylabel("normalised flux")
 ax.set_title("The solar spectrum, 500-510 nm — built from scratch on the GPU, matched to the reference")
 ax.set_ylim(0, 1.05); ax.legend(loc="lower right")
@@ -340,7 +340,7 @@ $$
 
 This is why a spectrum is a thermometer of depth: at each wavelength we read the temperature of the layer where that wavelength's optical depth reaches $2/3$. In a line, the opacity is large, so $\tau_\lambda = 2/3$ is reached higher up in cooler gas, and the flux is lower.
 
-The NumPy edition read $T(\tau=2/3)$ with a **Python `np.interp` loop over wavelengths**. On the GPU that loop is the one thing to remove: we find, *for all wavelengths at once*, the depth bracket where $\tau_\lambda$ crosses $2/3$ with a single **`torch.sum(tau < 2/3, dim=0)`** (a vectorized searchsorted), gather the bracketing $(\tau, T)$ pairs, and linearly interpolate — one tensor expression, no loop over the 3000+ wavelengths.""")
+The scalar way to read $T(\tau=2/3)$ is a Python interpolation loop over wavelengths. Here that loop is the one thing to remove: we find, *for all wavelengths at once*, the depth bracket where $\tau_\lambda$ crosses $2/3$ with a single **`torch.sum(tau < 2/3, dim=0)`** (a vectorized searchsorted), gather the bracketing $(\tau, T)$ pairs, and linearly interpolate — one tensor expression, no loop over the 3000+ wavelengths.""")
 
 code(r'''def eddington_barbier_T(tau, T):
     """Read T where tau_lambda = 2/3 at every wavelength, fully vectorized (no per-wl loop)."""
@@ -392,7 +392,7 @@ $$
 F_\lambda = 2\pi\int S_\lambda E_2(\tau_\lambda)\,d\tau_\lambda
 $$
 
-is no approximation at all. The deep-core deviation we saw in the comparison to the production reference — a part in a thousand in the median, but larger in the very bottom of the strongest lines — comes from two distinct sources, one numerical and one physical, and it is worth being precise about which dominates here. This is also a useful place to separate two comparisons that the GPU edition keeps distinct: the **GPU vs NumPy twin** check above is a porting check and passes at the fp32 float floor; the **from-scratch formal solution vs production pykurucz** difference is the physics/numerics comparison discussed here.
+is no approximation at all. The deep-core deviation we saw in the comparison to the production reference — a part in a thousand in the median, but larger in the very bottom of the strongest lines — comes from two distinct sources, one numerical and one physical, and it is worth being precise about which dominates here. This is also a useful place to separate two comparisons: the **torch vs fp64 reference** check above is a porting check and passes at the fp32 float floor; the **from-scratch formal solution vs production pykurucz** difference is the physics/numerics comparison discussed here.
 
 **The numerical limit, which dominates.** In a deep core the line opacity lifts the formation height into the thin surface layers, where the source function $S_\lambda = B_\lambda(T)$ varies *steeply* with optical depth. Our integral evaluates this steep $S_\lambda E_2$ by the trapezoidal rule on the atmosphere's native depth grid. In tensor language, that is exactly the batched depth-axis reduction we wrote above: one `cumsum` to build $\tau_\lambda(m)$, one branchless $E_2(\tau)$ evaluation, and one trapezoid sum over depth for every wavelength at once. The production code instead maps the source onto a *fixed* optical-depth grid and integrates it with a parabolic, moment-method scheme. Where $S_\lambda$ is nearly linear in $\tau$ — almost everywhere — the two schemes agree to a part in a thousand; only in the steep, strong-line surface layers does the choice of grid and quadrature matter, and there it accounts for essentially all of the deep-core gap. The residual is therefore a sampling/quadrature difference in the formal solver, not a failure of the opacity physics and not a GPU-port error.
 
@@ -416,13 +416,13 @@ falls to roughly $10^{-4}$ there, so dropping it shifts the core by only a fract
 
 Both pieces — the exact production grid and quadrature, and the scattering source function — are supplied together by the production code's **JOSH moment solver**, a method that solves for the angular *moments* of the field, such as $J_\lambda$, on a fixed optical-depth grid. The mean intensity $J_\lambda$ is itself an integral of $S_\lambda$ over angle and depth, so source and field are coupled and must be solved self-consistently — for example by iterating a $\Lambda$ operator, or, as JOSH does, by a moment method that turns the operator into a precomputed matrix.
 
-That solver is the subject of the **next lecture**, where we rebuild it step by step in the same GPU-native style: fixed optical-depth grids become batched interpolation/gather operations, the moment matrices are applied over the wavelength batch, and the parity check is again against the NumPy twin. The formal solution here gives the physics and the spectrum to a part in a thousand against the production reference; the next lecture supplies the production transfer engine that closes the deep-core gap.""")
+That solver is the subject of the **next lecture**, where we rebuild it step by step in the same GPU-native style: fixed optical-depth grids become batched interpolation/gather operations, the moment matrices are applied over the wavelength batch, and the parity check is again against the inline fp64 reference. The formal solution here gives the physics and the spectrum to a part in a thousand against the production reference; the next lecture supplies the production transfer engine that closes the deep-core gap.""")
 
 md(r"""## Synthesis: the pipeline, complete
 
-This is the summit of the course so far. Starting from a solar model — set by $T_{\rm eff}=5770\ \mathrm{K}$ and $\log g = 4.44$, together with its composition, opacity data, and line lists — you built a grey **model atmosphere** (Lecture 1), solved its **equation of state** for the ionization and electron density (Lecture 2), computed the **continuous opacity** of H$^-$ and its companions (Lecture 3), the profile of a **single line** (Lecture 4), the **forest of lines** accumulated over the wavelength grid (Lectures 5–6), and just now solved the **radiative transfer** that lets the light out. The result is a synthetic solar spectrum: every line in its place, carved by the atomic physics you implemented by hand.
+This is the summit of the course so far. Starting from a solar model — set by $T_{\rm eff}=5770\ \mathrm{K}$ and $\log g = 4.44$, together with its composition, opacity data, and line lists — you built a grey **model atmosphere** (Lecture 1), solved its **equation of state** for the ionization and electron density (Lecture 2), computed the **continuous opacity** of H$^-$ and the other continuum sources (Lecture 3), the profile of a **single line** (Lecture 4), the **forest of lines** accumulated over the wavelength grid (Lectures 5–6), and just now solved the **radiative transfer** that lets the light out. The result is a synthetic solar spectrum: every line in its place, carved by the atomic physics you implemented by hand.
 
-The GPU edition has carried the same chain in a different computational language. Populations, opacities, line profiles, optical depths, and the formal transfer integral all became batched tensor operations. In this lecture specifically, the whole transfer calculation was expressed on the $[\text{depth},\text{wavelength}]$ grid: the optical-depth integral was a depth-axis prefix sum, the $E_2$ kernel was evaluated branchlessly, the flux was a single reduction over depth, and the Eddington–Barbier read at $\tau=2/3$ was a vectorized gather/interpolation rather than a wavelength loop. The physics is unchanged; the shape of the computation is what makes it GPU-native.
+The same chain now lives in a tensor language. Populations, opacities, line profiles, optical depths, and the formal transfer integral all become batched operations. In this lecture specifically, the whole transfer calculation was expressed on the $[\text{depth},\text{wavelength}]$ grid: the optical-depth integral was a depth-axis prefix sum, the $E_2$ kernel was evaluated branchlessly, the flux was a single reduction over depth, and the Eddington–Barbier read at $\tau=2/3$ was a vectorized gather/interpolation rather than a wavelength loop. The physics is unchanged; the shape of the computation is what makes it GPU-native.
 
 Two things remain. First, the **next lecture** rebuilds the production radiative-transfer engine — the **JOSH moment solver** — which supplies the exact production grid and quadrature, together with the scattering source function we set aside, and reproduces the production transfer path to its numerical floor. This lecture gave the physics in its clean formal-solution form; the next gives the production engine. Then we make the model itself honest: we took the grey temperature structure as given, and in Part IV we replace it, building the atmosphere self-consistently from **hydrostatic** and **radiative equilibrium** — and watch the spectrum settle onto the real Sun. Finally we add the **molecules** that bury the spectra of cool stars, and close the course.""")
 
@@ -445,9 +445,9 @@ md(r"""## Summary
   $$
   with $m$ the column mass (`RHOX`). In the GPU implementation this is a depth-axis `cumsum`, promoted just for the accumulation so the long prefix sum does not drift in fp32.
 
-- The emergent flux is a depth integral over the $[\text{depth},\text{wavelength}]$ tensor. The $E_2$ kernel is evaluated branchlessly; its $x>1$ branch is written in a cancellation-free form so the fp32 GPU path matches the NumPy twin to the documented float floor.
+- The emergent flux is a depth integral over the $[\text{depth},\text{wavelength}]$ tensor. The $E_2$ kernel is evaluated branchlessly; its $x>1$ branch is written in a cancellation-free form so the fp32 GPU path matches the inline fp64 reference to the documented float floor.
 
-- The from-scratch formal solution reproduces the NumPy twin at the fp32 floor, and reproduces the production reference to a part in a thousand over most pixels across $500$–$510\ \mathrm{nm}$.
+- The from-scratch formal solution reproduces the inline fp64 reference at the fp32 floor, and reproduces the production reference to a part in a thousand over most pixels across $500$–$510\ \mathrm{nm}$.
 
 - The **Eddington–Barbier** relation
   $$
@@ -480,7 +480,7 @@ S_\lambda =
 $$
 even with $J_\lambda \approx \tfrac12 B_\lambda$, barely moves the core. Then test the grid hypothesis: re-evaluate the flux integral on a coarser depth grid by subsampling `rhox`, and on a finer one by interpolating the source and optical depth. Which effect shifts the deep-core flux more — scattering or depth-grid/quadrature? Which explains the production-reference gap?
 
-**4. Vectorization audit.** Reproduce the Eddington–Barbier temperature read in two ways: first with an explicit wavelength loop, then with the tensor gather used in this lecture. Check that the two agree, then time them. The point is not only speed; it is to recognise the pattern that recurs throughout the GPU edition: a per-wavelength `searchsorted` becomes a mask/count plus a batched gather.""")
+**4. Vectorization audit.** Reproduce the Eddington–Barbier temperature read in two ways: first with an explicit wavelength loop, then with the tensor gather used in this lecture. Check that the two agree, then time them. The point is not only speed; it is to recognise the recurring pattern: a per-wavelength `searchsorted` becomes a mask/count plus a batched gather.""")
 
 md(r"""## Further reading
 

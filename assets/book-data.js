@@ -3,8 +3,8 @@
    planned arc lives in README.md; entries are appended as each lecture clears
    its accuracy + pedagogy audit. */
 window.BOOK = {
-  title: "Stellar Spectroscopy from Scratch — GPU Edition",
-  series: "the torch/MPS vectorized companion, validated against the NumPy edition",
+  title: "Stellar Spectroscopy from Scratch",
+  series: "self-contained torch/MPS/CUDA lectures, validated against shipped references",
   subtitle: "",
   parts: [
     {
@@ -44,7 +44,7 @@ window.BOOK = {
     },
     {
       name: "Part V", title: "Cool Stars & the Spectrum End to End",
-      blurb: "Beyond the warm Sun: cool stars form molecules and TiO bands carve their spectra; then the synthesis half — atmosphere in, spectrum out — is assembled and run end to end across the HR diagram, every spectrum computed from scratch.",
+      blurb: "Beyond the warm Sun: cool stars form molecules and TiO bands carve their spectra; then the synthesis half — atmosphere in, spectrum out — is assembled and run across the HR diagram.",
       chapters: [
         { n: 12, slug: "Lecture12", type: "html", title: "Molecular Equilibrium & Molecular Bands", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
         { n: 13, slug: "Lecture13", type: "html", title: "Molecular Chemistry: the Coupled Equilibrium and Continuous Opacity", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
@@ -53,7 +53,7 @@ window.BOOK = {
     },
     {
       name: "Part VI", title: "The Line-Blanketed Atmosphere — the Finale",
-      blurb: "The book's true finale: the other half of “end to end.” Switch on the millions of spectral lines — the predicted line list, the wing-walk deposit kernel, the line-blanketed Rosseland mean, and the convergence that reaches the real Sun's model atmosphere — then build the full multi-element equation of state and convective heat capacity from scratch, so the line-blanketed atmosphere runs with no pykurucz in the computed path. Both halves are now from scratch: the spectrum (Part V) and the atmosphere (here).",
+      blurb: "The model-atmosphere half: switch on the predicted line list, the wing-walk deposit kernel, the line-blanketed Rosseland mean, and the convergence machinery; then build the multi-element equation of state and convective heat capacity needed by the line-blanketed Sun.",
       chapters: [
         { n: 15, slug: "Lecture15", type: "html", title: "Line Blanketing: the True Model Atmosphere", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" },
         { n: 16, slug: "Lecture16", type: "html", title: "The Full Equation of State: Species Slots & the Convective Heat Capacity", lecturer: "Yuan-Sen Ting", affil: "Max Planck Institute for Astronomy & The Ohio State University" }

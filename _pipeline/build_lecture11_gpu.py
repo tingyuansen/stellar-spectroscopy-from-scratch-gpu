@@ -1,11 +1,11 @@
 #!/usr/bin/env python
-"""Assemble content/Lecture11.ipynb (unexecuted) — the GPU EDITION. Execute + render via build.py.
+"""Assemble content/Lecture11.ipynb (unexecuted). Execute + render via build.py.
 
-Lecture 11 (GPU) — Convection & the Converged Atmosphere, ported to clean depth-batched
+Lecture 11 — Convection & the Converged Atmosphere, written in clean depth-batched
 torch/MPS. Adds mixing-length convection to the deep photosphere and ITERATES the
 radiative-equilibrium temperature correction of Lecture 10 to flux constancy, producing the
 end-to-end converged continuum-only solar model (Teff=5770, logg=4.44). Validated cell-by-cell
-against the NumPy twin's reference/converged_ref.npz via the from-scratch fixed-point check.
+against the inline fp64 reference's reference/converged_ref.npz via the from-scratch fixed-point check.
 
 The precision story (bible §4): the per-evaluation physics — the frequency sweep, the Rosseland
 fold, the CONVEC mixing-length thermodynamics, the geometric height — holds fp32 parity to the
@@ -14,7 +14,7 @@ catastrophic-cancellation reduction that is fp64-promoted on the host, exactly a
 localized it. The converged from-scratch atmosphere reaches RHOX ~12.32 at the deep base (the
 documented coarse-OS deposit value; optically invisible vs the production 12.14) — presented honestly.
 
-The clean torch port is a pedagogical reduction of the production kgpu (atlas_convec.py / atlas_loop.py /
+The clean torch implementation is a pedagogical reduction of the production kgpu (atlas_convec.py / atlas_loop.py /
 atlas_tcorr.py / atlas_rosseland.py, read-only); the notebook never imports kgpu or pykurucz.
 """
 from pathlib import Path
@@ -28,15 +28,15 @@ def md(s): cells.append(new_markdown_cell(s))
 def code(s): cells.append(new_code_cell(s))
 
 # ── title + objectives ────────────────────────────────────────────────────────
-md(r"""# Lecture 11 — Convection & the Converged Atmosphere *(GPU Edition)*
+md(r"""# Lecture 11 — Convection & the Converged Atmosphere
 
-*Stellar Spectroscopy from Scratch — GPU Edition: the torch/MPS vectorized companion, each part validated against the NumPy edition*
+*Stellar Spectroscopy from Scratch — a torch/MPS implementation, with each part validated against reference calculations*
 
 *Yuan-Sen Ting*
 
 *Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
 
-*This is the **GPU edition** of Lecture 11. The physics and the formulas are identical to the [NumPy edition](https://github.com/tingyuansen/stellar-spectroscopy-from-scratch); the convection kernel and the convergence loop are rebuilt in clean, depth-batched **`torch`**. Every computation is paired with a **comparison cell** that runs the GPU result against the NumPy edition's shipped `reference/converged_ref.npz` and reports the maximum relative deviation, asserting parity to the documented float floor. The clean torch port is a pedagogical reduction of the production `kgpu` engine (read-only); the notebook imports neither `kgpu` nor pykurucz.*
+*The convection kernel and the convergence loop are rebuilt in clean, depth-batched **`torch`**. Every computation is paired with a **comparison cell** that runs the torch result against the shipped `reference/converged_ref.npz` and reports the maximum relative deviation, asserting parity to the documented float floor. The clean torch implementation is a pedagogical reduction of the production `kgpu` engine (read-only); the notebook imports neither `kgpu` nor pykurucz.*
 
 ---
 
@@ -104,6 +104,10 @@ def reldev(a, b):
 def tt(a):
     """numpy -> working-device tensor in the working dtype (the depth-batch loader)."""
     return torch.as_tensor(np.asarray(a), dtype=DTYPE, device=DEVICE)''')
+
+md(r"""Load the converged continuum-only solar reference and the fixed operator tables the lecture will
+audit. These are inputs and comparison targets; the cells below recompute the EOS perturbations,
+overshoot average, convective flux, and one-step correction from them.""")
 
 code(r'''# the converged solar model and the Lecture 8 JOSH tables are the only inputs
 REF = np.load(pathlib.Path("..") / "reference" / "converged_ref.npz")

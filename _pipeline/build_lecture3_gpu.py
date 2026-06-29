@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-"""Assemble content/Lecture3.ipynb (unexecuted) — the GPU EDITION. Execute + render via build.py.
+"""Assemble content/Lecture3.ipynb (unexecuted). Execute + render via build.py.
 
-Lecture 3 (GPU) — Continuous Opacity, ported to clean depth-AND-wavelength-batched torch/MPS.
+Lecture 3 — Continuous Opacity, implemented in clean depth-AND-wavelength-batched torch/MPS.
 The analytic continuous opacity of a cool star: the H- ion abundance from a Saha balance, its
 bound-free and free-free cross-sections (John 1988), Rayleigh scattering off neutral hydrogen and
 Thomson scattering off free electrons — every source a single tensor expression broadcast over the
@@ -10,9 +10,8 @@ ends with TWO comparison cells: against the production reference (the physics-le
 fidelity of the analytic model) and against the GPU's OWN numpy fp64 twin (the fp32 float floor,
 proving the vectorization is bit-correct).
 
-This is the GPU companion to the NumPy edition's Lecture 3, Part A (the analytic continuum). The
-exact tabulated KAPP engine (Part B of the NumPy edition) is the production path; this edition
-ports the analytic continuum the reference L3.npz validates, fully vectorized. The notebook imports
+The exact tabulated KAPP engine is the production path; this lecture first builds the
+analytic continuum the reference L3.npz validates, then the tabulated path, fully vectorized. The notebook imports
 neither kgpu nor pykurucz.
 """
 from pathlib import Path
@@ -26,15 +25,15 @@ cells = []
 def md(src): cells.append(new_markdown_cell(src))
 def code(src): cells.append(new_code_cell(src))
 
-md(r"""# Lecture 3 — Continuous Opacity *(GPU Edition)*
+md(r"""# Lecture 3 — Continuous Opacity
 
-*Stellar Spectroscopy from Scratch — GPU Edition: the torch/MPS vectorized companion, each part validated against the NumPy edition*
+*Stellar Spectroscopy from Scratch — tensor-native stellar spectroscopy, validated against reference calculations*
 
 *Yuan-Sen Ting*
 
 *Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
 
-*This is the **GPU edition** of Lecture 3. The physics, the formulas, and the constants are identical to the [NumPy edition](https://github.com/tingyuansen/stellar-spectroscopy-from-scratch); the continuous opacity is rebuilt in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). The crucial new axis here is **wavelength**: where Lecture 2 batched over the 80 atmospheric depths, the continuum is a function of depth **and** wavelength, so every opacity source is a single tensor expression broadcast over the full $(80 \times 200)$ grid — no Python loop over depths or wavelengths. The lecture ends with two comparison cells: one against the production reference `L3.npz` (the analytic model's honest few-percent physics fidelity), and one against the GPU's **own NumPy fp64 twin** (the fp32 float floor, which proves the vectorization is bit-correct). The notebook imports neither `kgpu` nor pykurucz.*
+*This lecture builds the continuous opacity in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). The crucial new axis here is **wavelength**: where Lecture 2 batched over the 80 atmospheric depths, the continuum is a function of depth **and** wavelength, so every opacity source is a single tensor expression broadcast over the full $(80 \times 200)$ grid — no Python loop over depths or wavelengths. The lecture ends with two comparison cells: one against the production reference `L3.npz` (the analytic model's honest few-percent physics fidelity), and one against a **NumPy fp64 twin** of the same formulas (the fp32 float floor, which proves the vectorization is numerically faithful). The notebook imports neither `kgpu` nor pykurucz.*
 
 ---
 
@@ -50,19 +49,19 @@ md(r"""## Introduction
 
 With the equation of state of Lecture 2 in hand — the electron density and the per-ion populations — we can finally compute an opacity. Opacity comes in two flavours, and the distinction matters for the radiative transfer later. **True absorption** couples the photon to the thermal energy reservoir of the gas; in LTE its emissivity follows the Planck function. **Scattering** merely redirects a photon without exchanging energy, so its source function depends on the radiation field itself. This lecture builds the **continuous** opacity: the smooth, slowly-varying background that sets the overall brightness of the star and the floor from which the sharp spectral lines are carved.
 
-The physics is exactly that of the NumPy edition's Lecture 3 — the analytic continuum: the H$^-$ ion dominates the cool-star continuum, so we solve its Saha abundance, evaluate its bound-free and free-free cross-sections with the standard fits of John (1988), and add Rayleigh and Thomson scattering. Against the production reference this analytic model is accurate to **a few percent** — the right level to understand *why* the continuum looks as it does (the NumPy edition's second half then closes that gap to the bit with the tabulated KAPP engine; that exact engine is the production path, ported in the `kgpu` continuum module).
+The first half is the analytic continuum: the H$^-$ ion dominates the cool-star continuum, so we solve its Saha abundance, evaluate its bound-free and free-free cross-sections with the standard fits of John (1988), and add Rayleigh and Thomson scattering. Against the production reference this analytic model is accurate to **a few percent** — the right level to understand *why* the continuum looks as it does. The second half closes that gap to the bit with the tabulated KAPP engine; that exact engine is the production path used by the `kgpu` continuum module.
 
-What changes here is the *machine*. The continuum is a function of two axes — depth and wavelength — so we make **both** the batch: a single `torch` expression evaluates an opacity source at all $80 \times 200$ grid points at once, with the depth-dependent populations broadcast against the wavelength-dependent cross-sections. There is one genuinely GPU-specific subtlety — a data-dependent threshold in the H$^-$ bound-free cross-section — which we handle branchlessly, on the advice of two code critics. At the end we validate against both the reference and the GPU's own fp64 twin.""")
+The continuum is a function of two axes — depth and wavelength — so we make **both** the batch: a single `torch` expression evaluates an opacity source at all $80 \times 200$ grid points at once, with the depth-dependent populations broadcast against the wavelength-dependent cross-sections. There is one accelerator-specific subtlety — a data-dependent threshold in the H$^-$ bound-free cross-section — which we handle branchlessly. At the end we validate against both the production reference and a fp64 reference.""")
 
-md(r"""**Setup — the device and the precision budget.** As in Lecture 2 we pick the compute device once: **MPS** on Apple Silicon, **CUDA** on an NVIDIA box, else **CPU**. MPS and CUDA have no fp64, so the GPU working dtype is **fp32** and the parity bar is the documented float floor; on CPU we use **fp64** and recover machine precision. We load the reference continuum grid `L3.npz` — the same one the NumPy edition validates against — which carries the wavelength and temperature grids, the populations from the equation of state, the depth scale, and the gold-standard continuum (`absorption`, `scattering`).""")
+md(r"""**Setup — the device and the precision budget.** As in Lecture 2 we pick the compute device once: **MPS** on Apple Silicon, **CUDA** on an NVIDIA box, else **CPU**. MPS lacks practical fp64 support, and this teaching path deliberately uses **fp32** on both MPS and CUDA so the accelerator route has one uniform precision budget; CUDA hardware can support fp64, but that is not the default path here. On the GPU the parity bar is therefore the documented float floor; on CPU we use **fp64** and recover machine precision. We load the reference continuum grid `L3.npz`, which carries the wavelength and temperature grids, the populations from the equation of state, the depth scale, and the gold-standard continuum (`absorption`, `scattering`).""")
 
 code(r'''import pathlib
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
 
-# pick the compute device ONCE; MPS (Apple) -> CUDA -> CPU. MPS/CUDA have no fp64,
-# so the GPU working dtype is fp32 (parity bar = the documented float floor);
+# pick the compute device ONCE; MPS (Apple) -> CUDA -> CPU. The accelerator teaching
+# path uses fp32 on both MPS and CUDA, so its parity bar is the documented float floor;
 # on CPU we use fp64 and recover machine precision.
 if torch.backends.mps.is_available():
     DEVICE, DTYPE = torch.device("mps"), torch.float32
@@ -265,11 +264,11 @@ md(r"""The total continuum matches the production reference to about two percent
 # ── The validation cell — the per-part GPU check ─────────────────────────
 md(r"""## The comparison cell — validating the GPU result two ways
 
-This is the per-part check that defines the GPU edition, and the continuum needs **two** comparisons that mean different things:
+This is the per-part check used throughout the book, and the continuum needs **two** comparisons that mean different things:
 
-1. **vs the production reference (`L3.npz`)** — the *physics* check. The analytic H$^-$ + Rayleigh/Thomson model reproduces the production continuum to a few percent through the spectrum-forming layers. This is a property of the *model*, identical to the NumPy edition; it does not get better on the GPU.
+1. **vs the production reference (`L3.npz`)** — the *physics* check. The analytic H$^-$ + Rayleigh/Thomson model reproduces the production continuum to a few percent through the spectrum-forming layers. This is a property of the *model*; it does not get better on the GPU.
 
-2. **vs the GPU's own NumPy fp64 twin** — the *port-correctness* check. We recompute the **exact same formulas** in fp64 NumPy and compare the GPU fp32 result to them. This isolates the single-precision round-off of the GPU vectorization from the analytic model's physics residual, and it must hold to the documented fp32 float floor. As the critics noted, the H$^-$ bound-free threshold is a zero-crossing, so we measure the relative deviation against $\max(|\text{ref}|,\ \text{floor})$ — pure relative error is meaningless where the cross-section is exactly zero.""")
+2. **vs a NumPy fp64 twin** — the *implementation* check. We recompute the **exact same formulas** in fp64 NumPy and compare the GPU fp32 result to them. This isolates the single-precision round-off of the tensor vectorization from the analytic model's physics residual, and it must hold to the documented fp32 float floor. As the critics noted, the H$^-$ bound-free threshold is a zero-crossing, so we measure the relative deviation against $\max(|\text{ref}|,\ \text{floor})$ — pure relative error is meaningless where the cross-section is exactly zero.""")
 
 code(r'''def numpy_twin():
     """Recompute the EXACT same continuum formulas in fp64 NumPy — the GPU's own twin."""
@@ -305,7 +304,7 @@ phys_scat = float(np.max(np.abs(scatn-REF["scattering"])/denom_s))
 print(f"  absorption (H-), forming layers       max|rel| = {phys_abs:.2e}   (~few-percent: the analytic fit)")
 print(f"  scattering (Rayleigh+Thomson)         max|rel| = {phys_scat:.2e}")
 
-print("\n-- (2) vs the GPU's OWN fp64 twin (the fp32 float floor: GPU port correctness) --")
+print("\n-- (2) vs the fp64 reference (the fp32 float floor: tensor implementation correctness) --")
 abs_twin, scat_twin = numpy_twin()
 # absolute floor at 1e-6 of the per-array median opacity (protects the bf zero-crossing)
 afloor = 1e-6 * np.median(np.abs(abs_twin)); sfloor = 1e-6 * np.median(np.abs(scat_twin))
@@ -320,7 +319,7 @@ print(f"documented float floor = {floor:.1e}   ->   [{status}]")
 assert max_floor < floor, f"GPU continuum deviates from its fp64 twin by {max_floor:.2e}, above {floor:.1e}"
 print("\nThe GPU continuum matches its fp64 twin to the float floor — the vectorization is bit-correct.")''')
 
-md(r"""**What the two numbers mean.** The GPU continuum reproduces its own fp64 twin to the fp32 float floor — a few $\times10^{-6}$ across the grid (the worst case sits near the H$^-$ bound-free threshold zero-crossing, where the cross-section is vanishing and the absolute floor takes over, exactly as the critics anticipated). That residual is single-precision round-off, *not* a physics difference: the formulas and constants are identical to the NumPy edition. Separately, the analytic model agrees with the *production* reference to a few percent — the honest gap between an analytic fit and the detailed cross-section tables, the same gap the NumPy edition's exact KAPP engine closes to the bit (and which the `kgpu` continuum module ports for production use).
+md(r"""**What the two numbers mean.** The tensor continuum reproduces its fp64 reference to the fp32 float floor — a few $\times10^{-6}$ across the grid (the worst case sits near the H$^-$ bound-free threshold zero-crossing, where the cross-section is vanishing and the absolute floor takes over, exactly as the critics anticipated). That residual is single-precision round-off, *not* a physics difference: the formulas and constants match the reference calculation. Separately, the analytic model agrees with the *production* reference to a few percent — the honest gap between an analytic fit and the detailed cross-section tables, the same gap the exact KAPP engine closes to the bit for production use.
 
 **Where this goes next.** With a continuous opacity on the GPU — built on Lecture 2's per-ion populations, fully vectorized over depth *and* wavelength, and validated both against the production reference and against its own fp64 twin — the next lecture carves the **spectral lines** into this continuum floor. Lines add a third axis (the line list) to the batch, and the same broadcasting discipline scales to it: depth $\times$ wavelength $\times$ line, all on the GPU.""")
 
@@ -330,13 +329,13 @@ md(r"""## The dominant absorber: the negative hydrogen ion
 
 The analytic half has already shown the physical reason the solar optical continuum is mostly H$^-$: the ion is rare, but neutral hydrogen and free electrons are abundant enough that its weakly-bound electron supplies an enormous photodetachment cross-section. The production continuum engine keeps that same physics, but it no longer uses the John (1988) closed-form fit. It reads the Kurucz/KAPP tables directly.
 
-In the GPU edition we keep the same distinction clear. The analytic tensors above remain the explanatory model. The cells below build the **tabulated KAPP engine**: table lookups on the device, vectorized over all depths and over the edge-sample frequencies that bracket the 500--510 nm synthesis window. The opacity is assembled from the computed source terms — not copied, anchored, or rescaled from the reference.""")
+We keep the same distinction clear. The analytic tensors above remain the explanatory model. The cells below build the **tabulated KAPP engine**: table lookups on the device, vectorized over all depths and over the edge-sample frequencies that bracket the 500--510 nm synthesis window. The opacity is assembled from the computed source terms — not copied, anchored, or rescaled from the reference.""")
 
 md(r"""## The exact engine: from a few percent to the bit
 
 The production engine evaluates the continuum on a small **edge-triplet frequency grid**, then reconstructs the opacity at any wavelength with a 3-point Lagrange interpolation in $\log_{10}\kappa$. This is why the analytic continuum can be physically right but still a few percent away: the reference follows the tabulated H$^-$ photodetachment table, the H$^-$ free-free table, the Karzas--Latter H I tables, the Coulomb free-free Gaunt table, Gavrila Rayleigh scattering, and the minor absorber edges.
 
-We now port that path in compact torch. A few short loops remain only over tiny, fixed heterogeneous physics tables (for example the five Mg I edges or the dozen H I levels); each iteration is a whole depth--frequency tensor operation, never a loop over layers or wavelengths.""")
+We now build that path in compact torch. A few short loops remain only over tiny, fixed heterogeneous physics tables (for example the five Mg I edges or the dozen H I levels); each iteration is a whole depth--frequency tensor operation, never a loop over layers or wavelengths.""")
 
 md(r"""## Why a tabulated engine, and what the fits miss
 
@@ -348,7 +347,7 @@ Three details close the gap between the analytic model and the reference:
 
 md(r"""## Constants and the cross-section tables
 
-Load the production atmosphere/EOS, diagnostic continuum, and KAPP cross-section tables. The constants use the same literal CGS values as the NumPy twin and the production diagnostic.
+Load the production atmosphere/EOS, diagnostic continuum, and KAPP cross-section tables. The constants use the same literal CGS values as the inline fp64 reference and the production diagnostic.
 
 **The exact engine's precision budget.** This is the one place in the book where the working dtype changes, and it is worth saying why. The analytic continuum above is a smooth few-line formula, perfectly happy in fp32 on the GPU. The **tabulated KAPP engine is different**: its hydrogen and helium bound-free terms are *differences of nearly-equal exponentials* of large quantities — $e^{-E_1 hckt} - e^{-E_2 hckt}$ with $E\sim10^5\ \mathrm{cm^{-1}}$ — and its table lookups select a cell from a *bracket* in $\log\nu$. In the deep, hot layers ($T\gtrsim10^4\,$K) that cancellation and that bracketing lose 1–2 significant digits in fp32, so a pure-fp32 engine drifts from the reference by ~$10^{-2}$ in the hottest layers — far above any float floor. This is exactly the trap the production engine `kgpu` documents: *the discrete table lookups and the per-depth opacity sums of the continuum engine run in fp64*, because a slipped bracket or a cancelled exponential there is a real error, not round-off. The engine is tiny — 80 depths $\times$ 3 sampled frequencies — so we follow the same discipline: **evaluate the entire exact engine, and its $\log_{10}\kappa$ Lagrange reconstruction, in fp64** (here on the CPU host, the parity path), then hand the result back to the GPU. The payoff is the continuum reproduced to the float floor across **every** depth, not just the photosphere — a faithful representation of the production engine, which is the whole point of this validation. (The big batched axes — depth and wavelength — are still vectorized; only the *dtype* of this one precision-critical engine is promoted, exactly the §2.4 rule.)""")
 
@@ -424,6 +423,9 @@ H_ENERGY_EV_t = dev64(KT_np["H_ENERGY_CM"]) / 8065.479
 H_STAT_WEIGHT_t = dev64(KT_np["H_STAT_WEIGHT"])
 print("scattering, COULFF, HOTOP, Si II, and partition tables loaded")''')
 
+md(r"""Before using the exact KAPP tables, check that the host-to-device transfer preserved the wavelength
+grid at the working precision. This is a setup sanity check, not a physics comparison.""")
+
 code(r'''# Comparison: table transfer to the device is exact to the working dtype.
 wlk_np_ref = D_np["wavelength"]  # numpy-ref
 wlk_rt = to_np(wlk)
@@ -451,6 +453,9 @@ freq_sel_t = freqset_t.index_select(0, sel_t.to(torch.int64))
 
 print(f"{int(n_edges_k)} edges -> {int(freqset_t.shape[0])} sample frequencies in the full grid")
 print(f"this window uses {int(used_edges_t.shape[0])} edge interval(s), {int(freq_sel_t.shape[0])} sampled frequencies")''')
+
+md(r"""The edge-triplet grid is a discrete bookkeeping object, so we validate it directly against the
+reference construction before evaluating any continuum opacity on it.""")
 
 code(r'''# Comparison: edge-triplet grid against the NumPy construction.
 frqedg_np = A_np["frqedg"]                              # numpy-ref
@@ -503,6 +508,9 @@ charge2 = (stage_hot.to(EDTYPE) ** 2)[None, :, None]
 xnf_sumqq_t = torch.sum(pop_t[:, stage_hot[:, None], elem_hot[None, :]] * charge2, dim=2)
 print("HOTOP population vectors built")''')
 
+md(r"""The HOTOP population gathers are fixed slices through the population tensor. Validate the gathered
+columns once before they feed the minor metal and hot-star continuum terms.""")
+
 code(r'''# Comparison: population gather against the NumPy oracle.
 pop_np = A_np["population_per_ion"]                                           # numpy-ref
 hot_np = np.zeros((pop_np.shape[0], 21))                                      # numpy-ref
@@ -518,7 +526,7 @@ print(f"population gather GPU vs NumPy oracle: max|rel| = {max(r1, r2):.2e}")'''
 
 md(r"""## The interpolation routines: MAP1, the linear interp, and the Karzas--Latter lookup
 
-The exact engine's table interpolation is part of the model. The full Fortran `MAP1` rule is a curvature-weighted parabolic interpolator; for the compact GPU port below we use the same local three-point parabolic reconstruction on the H$^-$ bound-free table. The linear interpolation (`linter`) is implemented with `torch.searchsorted` and `gather`, so a whole vector of frequencies or temperatures is interpolated in one call. The Karzas--Latter lookup is likewise vectorized over the selected frequencies.""")
+The exact engine's table interpolation is part of the model. The full Fortran `MAP1` rule is a curvature-weighted parabolic interpolator; for the compact tensor implementation below we use the same local three-point parabolic reconstruction on the H$^-$ bound-free table. The linear interpolation (`linter`) is implemented with `torch.searchsorted` and `gather`, so a whole vector of frequencies or temperatures is interpolated in one call. The Karzas--Latter lookup is likewise vectorized over the selected frequencies.""")
 
 code(r'''def linter_torch(xold, yold, xnew):
     """Linear interpolation/extrapolation, vectorized over xnew; xold is increasing."""
@@ -587,6 +595,9 @@ code(r'''def xkarsas_vec(freq_vec, zeff_squared, n, ell):
     val = torch.where(any_cmp, torch.exp(xval * LN10_k) / zeff_squared,
                       torch.exp(XN_LOG_t[28, 14] * LN10_k) / zeff_squared)
     return torch.where(active, val, torch.zeros_like(freq_vec))''')
+
+md(r"""A tiny interpolation check catches off-by-one errors in the `searchsorted`/`gather` helper before
+the same helper is used inside the full continuum engine.""")
 
 code(r'''# Comparison: linear interpolation helper on a small fixed grid.
 xold_np = np.array([1.0, 2.0, 4.0, 7.0], dtype=float)              # numpy-ref
@@ -1047,7 +1058,7 @@ md(r"""## Summary
 - The analytic John (1988) H$^-$ fits plus Rayleigh/Thomson scattering reproduce the reference at the few-percent physics level.
 - The exact KAPP engine replaces those fits with tables: H$^-$ bound-free/free-free, H I Karzas--Latter bound-free, Coulomb free-free Gaunt factors, Gavrila Rayleigh scattering, helium continua, and minor molecular/metal absorbers.
 - KAPP samples three frequencies per continuum edge interval and reconstructs $\log_{10}\kappa$ with a fixed 3-point Lagrange parabola.
-- The GPU port keeps the computation vectorized over depth and sampled frequency; the only loops are over short fixed physics tables, never over layers or wavelengths.
+- The implementation keeps the computation vectorized over depth and sampled frequency; the only loops are over short fixed physics tables, never over layers or wavelengths.
 - The benchmark reports the honest residual of the from-scratch GPU engine against the diagnostic reference; it is the parity gate for future improvements to the table-interpolation details.""")
 
 md(r"""## Practice exercises
@@ -1065,7 +1076,7 @@ md(r"""## Practice exercises
 md(r"""## Further reading
 
 - **John, T. L. (1988), A&A, 193, 189.** Continuous absorption by H$^-$ and the analytic fits used for the pedagogical model.
-- **Kurucz, R. L. (1970), SAO Special Report 309.** The original ATLAS continuous-opacity routines and tables.
+- **Kurucz, R. L. (1970), SAO Special Report 309.** The ATLAS continuous-opacity routines and tables.
 - **Gavrila, M. (1967), Phys. Rev., 163, 147.** The Rayleigh-scattering polarizability factor for atomic hydrogen.
 - **Karzas, W. J. & Latter, R. (1961), ApJS, 6, 167.** Hydrogenic bound-free and free-free Gaunt factors.
 - **Wildt, R. (1939), ApJ, 90, 611.** The identification of H$^-$ as the key stellar photospheric opacity source.

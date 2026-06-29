@@ -3,7 +3,7 @@
 This file tracks the concrete acceptance gates for the GPU textbook. The priority order is:
 
 1. self-contained lecture computations, with no `kgpu` or `pykurucz` imports in the taught path;
-2. parity with the NumPy textbook reference outputs to the documented CPU/GPU float floor;
+2. parity with shipped reference outputs to the documented CPU/GPU float floor;
 3. faithful pedagogical coverage of the production `kgpu` implementation pieces;
 4. optimization only after the first three are true.
 
@@ -32,9 +32,9 @@ Generated from source inspection on 2026-06-29.
 | Lectures | Status | Ship interpretation |
 |---|---|---|
 | L1-L7 | GPU builders, executed parity cells | Core microphysics/synthesis primitives are torch-based and validated against shipped NumPy references. |
-| L8 | NumPy-style builder | Self-contained JOSH lesson exists, but not final GPU-native textbook form. |
+| L8 | non-torch builder | Self-contained JOSH lesson exists, but not final GPU-native textbook form. |
 | L9-L13 | GPU builders | Atmosphere primitives, molecular equilibrium, and molecular continuum are GPU-textbook form, with reference-input boundaries named in notebooks. |
-| L14 | NumPy-style builder | Numerically honest synthesis-half capstone. It computes opacity/transfer but loads atmosphere/EOS/population/Doppler state; not final stellar-parameters-to-spectrum closure. |
+| L14 | non-torch builder | Numerically honest synthesis-half capstone. It computes opacity/transfer but loads atmosphere/EOS/population/Doppler state; not final stellar-parameters-to-spectrum closure. |
 | L15 | GPU builder with helper verifier | Line-blanketing lesson is honest and useful. Teaching-window deposit is computed; accepted heavy fidelity still uses clean-room verifier/full-grid precomputed inputs. |
 | L16 | GPU builder with clean-room helper modules | EOS-state blocker is repaired semantically: populations/state are recomputed before comparison. Load-bearing PFSAHA/continuum/molecular helpers are still clean-room NumPy modules, not final all-torch closure. |
 

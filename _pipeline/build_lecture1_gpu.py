@@ -1,12 +1,12 @@
 #!/usr/bin/env python
-"""Assemble content/Lecture1.ipynb (unexecuted) — the GPU EDITION. Execute + render via build.py.
+"""Assemble content/Lecture1.ipynb (unexecuted). Execute + render via build.py.
 
-Lecture 1 (GPU) — Overview & a First Model Atmosphere, ported to clean torch/MPS. The pipeline
+Lecture 1 — Overview & a First Model Atmosphere, implemented in clean torch/MPS. The pipeline
 overview, the Planck function, optical depth & LTE, and a grey model atmosphere built from
 (Teff, logg) — all rebuilt as torch tensor ops that run on the GPU (Apple MPS / CUDA, with a CPU
 fp64 fallback). The lecture is mostly the framing of the whole course; its computations are small
 (the overflow-safe Planck B_nu, the grey/Hopf T(tau), and the cold-start hydrostatic P = g*tau),
-so it is the gentlest first taste of the GPU edition's pattern: pick the device once, write every
+so it is the gentlest first taste of the course pattern: pick the device once, write every
 step torch-native, and end each computation with a numpy-vs-GPU comparison to the documented float
 floor.
 
@@ -27,15 +27,15 @@ def md(src): cells.append(new_markdown_cell(src))
 def code(src): cells.append(new_code_cell(src))
 
 # ── Title + front matter + objectives (one cell, so the callout lifts) ───
-md(r"""# Lecture 1 — Overview & a First Model Atmosphere *(GPU Edition)*
+md(r"""# Lecture 1 — Overview & a First Model Atmosphere
 
-*Stellar Spectroscopy from Scratch — GPU Edition: the torch/MPS vectorized companion, each part validated against the NumPy edition*
+*Stellar Spectroscopy from Scratch — tensor-native stellar spectroscopy, validated against reference calculations*
 
 *Yuan-Sen Ting*
 
 *Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
 
-*This is the **GPU edition** of Lecture 1. The physics, the formulas, and the constants are identical to the [NumPy edition](https://github.com/tingyuansen/stellar-spectroscopy-from-scratch); every computation is rebuilt in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). Lecture 1 is mostly the **map of the whole course** — the pipeline from parameters to photons — and its three small computations (the overflow-safe **Planck** function, the grey/Hopf **temperature** structure, and the cold-start **hydrostatic** pressure) are the gentlest possible first taste of the GPU edition's working rhythm: choose the device once at the top, write every step **torch-native** (even the trivial ones), and close each computation with a **numpy-vs-GPU comparison** to the documented float floor. Every result is checked against the reference values shipped in `reference/L1.npz` — computed once with [**pykurucz**](https://arxiv.org/abs/2603.11693), a pure-Python implementation of Kurucz's ATLAS12 and SYNTHE. The clean torch is a pedagogical reduction; the notebook imports neither `kgpu` nor pykurucz.*
+*This lecture builds every computation in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). Lecture 1 is mostly the **map of the whole course** — the pipeline from parameters to photons — and its three small computations (the overflow-safe **Planck** function, the grey/Hopf **temperature** structure, and the cold-start **hydrostatic** pressure) are the gentlest possible first taste of the working rhythm: choose the device once at the top, write every step **torch-native** (even the trivial ones), and close each computation with a **reference comparison** to the documented float floor. Every result is checked against the values shipped in `reference/L1.npz` — computed once with [**pykurucz**](https://arxiv.org/abs/2603.11693), a pure-Python implementation of Kurucz's ATLAS12 and SYNTHE. The notebook imports neither `kgpu` nor pykurucz.*
 
 ---
 
@@ -46,10 +46,10 @@ md(r"""# Lecture 1 — Overview & a First Model Atmosphere *(GPU Edition)*
 - Write the **Planck function** in the overflow-safe form a real synthesis code uses, as a branchless `torch` expression evaluated on the whole grid at once, and check it against the reference to the dtype floor.
 - Define the **optical depth** $\tau$ and explain why grey continuum flux is often associated with layers near $\tau \approx 2/3$, while monochromatic intensities and lines sample their own optical-depth surfaces.
 - Build a **grey model atmosphere** — the run of temperature, gas pressure, and column mass with depth — from nothing but $T_{\rm eff}$ and $\log g$, vectorized over the 80 depth layers as tensor ops, and check it against the reference layer by layer.
-- Reimplement a piece of physics in plain `torch` and verify it against precomputed reference data — the working rhythm of every GPU-edition lecture that follows.""")
+- Reimplement a piece of physics in plain `torch` and verify it against precomputed reference data — the working rhythm of every standalone lecture that follows.""")
 
-# ── Device + precision preamble (the GPU edition's opening cell) ──────────
-md(r"""**Setup — the device and the precision budget.** Before any physics, we make the one choice that defines the GPU edition: the **compute device**, picked once at the top, and a working **dtype** to match. On Apple Silicon we use **MPS**; on an NVIDIA box, **CUDA**; otherwise we fall back to **CPU**. MPS lacks practical fp64 support, and this edition deliberately uses **fp32** on both MPS and CUDA so the accelerator path has one uniform precision budget; CUDA can support fp64 on suitable hardware, but that is not the default teaching path here. On the GPU the parity bar is therefore the documented fp32 float floor (machine precision for the analytic pieces of this lecture when they are run on CPU, a few $\times 10^{-6}$ where fp32 round-off enters); on CPU we use **fp64** and recover machine precision. We carry NumPy and Matplotlib alongside `torch` — NumPy holds the reference values we validate against (and does the plotting), and the comparison at the end of each computation is done by moving the GPU result to the CPU as NumPy. Every other line of physics is **torch on the device**.""")
+# ── Device + precision preamble ──────────
+md(r"""**Setup — the device and the precision budget.** Before any physics, we make one global choice: the **compute device**, picked once at the top, and a working **dtype** to match. On Apple Silicon we use **MPS**; on an NVIDIA box, **CUDA**; otherwise we fall back to **CPU**. MPS lacks practical fp64 support, and this course deliberately uses **fp32** on both MPS and CUDA so the accelerator path has one uniform precision budget; CUDA can support fp64 on suitable hardware, but that is not the default teaching path here. On the GPU the parity bar is therefore the documented fp32 float floor (machine precision for the analytic pieces of this lecture when they are run on CPU, a few $\times 10^{-6}$ where fp32 round-off enters); on CPU we use **fp64** and recover machine precision. We carry NumPy and Matplotlib alongside `torch` — NumPy holds the reference values we validate against (and does the plotting), and the comparison at the end of each computation is done by moving the GPU result to the CPU as NumPy. Every other line of physics is **torch on the device**.""")
 
 code(r'''import pathlib
 import numpy as np
@@ -99,7 +99,7 @@ md(r"""## Introduction
 
 A stellar spectrum — the star's brightness as a function of wavelength — is the richest measurement we can make of a star we will never visit. Encoded in the depths and shapes of its absorption lines are the photosphere's temperature, its surface gravity, and the abundance of every element that leaves a fingerprint in the light. Reading those numbers off an observed spectrum is an *inverse* problem, and the only way to solve it reliably is to be able to solve the *forward* problem first: given a star's parameters, compute the spectrum it should produce.
 
-That forward calculation is what this course builds, from the ground up. Its lineage is **Kurucz's ATLAS and SYNTHE** — the model-atmosphere and spectral-synthesis codes that have underpinned quantitative stellar spectroscopy for four decades. Those codes are correct and fast, but they are also tens of thousands of lines of hardened, decades-old machinery. Our aim is to recover the *physics* inside them in code short enough to read in a sitting, while losing none of the *accuracy* — and, in this GPU edition, to express each piece as clean **batched tensor algebra** that can run on Apple MPS or CUDA. Every numerical result is checked against the NumPy/reference values; the GPU port is not an approximation to the NumPy lecture, but the same calculation in `torch`, validated to the fp32/float64 floor.
+That forward calculation is what this course builds, from the ground up. Its lineage is **Kurucz's ATLAS and SYNTHE** — the model-atmosphere and spectral-synthesis codes that have underpinned quantitative stellar spectroscopy for four decades. Those codes are correct and fast, but they are also tens of thousands of lines of hardened, decades-old machinery. Our aim is to recover the *physics* inside them in code short enough to read in a sitting, while losing none of the *accuracy* — and to express each piece as clean **batched tensor algebra** that can run on Apple MPS or CUDA. Every numerical result is checked against reference values; the `torch` calculation is validated to the fp32/float64 floor.
 
 The forward problem splits cleanly into two stages. First, a **model atmosphere**: the run of temperature, pressure, and density with depth. In a 1D LTE model this structure is fixed jointly by hydrostatic equilibrium, energy transport (radiative, or radiative-plus-convective in cool stars), the equation of state, and the opacity — the pieces we assemble over the course. Second, **spectral synthesis**: given that structure, compute how much light of each wavelength escapes the surface, by adding up the opacity of every spectral line and solving the radiative-transfer equation. We treat the atmosphere as given for the first half of the course, build the full spectrum, and then return in Part IV and construct the atmosphere itself.""")
 
@@ -130,7 +130,7 @@ Each arrow is one or two lectures:
 - **Part IV (9–10):** build the atmosphere itself, closing the loop back to the first arrow.
 - **Part V (11–12):** molecules, and the complications real stars add.
 
-We target the **Sun** over a narrow window, $500$–$510\ \mathrm{nm}$, where the spectrum is a forest of atomic absorption lines and the physics is at its cleanest. Later we widen the window and cool the star until molecules take over. Throughout, we reimplement each piece in plain tensor operations, reuse the same physical constants and data tables, and **check the result against reference values** — temperatures, pressures, opacities, and ultimately a full spectrum — precomputed once and saved beside the book. The GPU-specific discipline is simple: keep the large axes resident on the device, replace loops over depth/wavelength/line by broadcasting, and make any unavoidable host boundary explicit.
+We target the **Sun** over a narrow window, $500$–$510\ \mathrm{nm}$, where the spectrum is a forest of atomic absorption lines and the physics is at its cleanest. Later we widen the window and cool the star until molecules take over. Throughout, we implement each piece in plain tensor operations, reuse the same physical constants and data tables, and **check the result against reference values** — temperatures, pressures, opacities, and ultimately a full spectrum — precomputed once and saved beside the book. The accelerator discipline is simple: keep the large axes resident on the device, replace loops over depth/wavelength/line by broadcasting, and make any unavoidable host boundary explicit.
 
 ![The forward pipeline this course rebuilds: a handful of stellar parameters become a spectrum, one stage per lecture, each benchmarked against the reference code.](resources/figures/s1_pipeline.png)""")
 
@@ -144,7 +144,7 @@ Stellar-atmosphere physics is done in **Gaussian CGS** units — centimetres, gr
 | $c$ | speed of light | $2.99792458\times10^{10}\ \mathrm{cm\,s^{-1}}$ | relates wavelength and frequency, $\lambda\nu=c$ |
 | $k$ | Boltzmann constant | $1.380649\times10^{-16}\ \mathrm{erg\,K^{-1}}$ | sets the thermal energy scale, $kT$ |
 
-These are the 2019-SI exact values in CGS — the same literals the reference calculation uses — so that no discrepancy can ever be blamed on a constant. In the GPU edition we store them as `torch` scalars on the chosen device. They are tiny compared with the arrays in later lectures, but keeping even these simple calculations device-native makes the habit unambiguous: physics lives in `torch`; NumPy is the parity oracle and the plotting boundary.""")
+These are the 2019-SI exact values in CGS — the same literals the reference calculation uses — so that no discrepancy can ever be blamed on a constant. We store them as `torch` scalars on the chosen device. They are tiny compared with the arrays in later lectures, but keeping even these simple calculations device-native makes the habit unambiguous: physics lives in `torch`; NumPy is the parity oracle and the plotting boundary.""")
 
 code(r'''H = torch.as_tensor(6.62607015e-27, dtype=DTYPE, device=DEVICE)   # Planck constant    [erg s]
 C = torch.as_tensor(2.99792458e10,  dtype=DTYPE, device=DEVICE)   # speed of light     [cm s^-1]
@@ -300,7 +300,7 @@ $$
 
 and we adopt the identical fit so we can match the reference layer for layer. Note the bracket here is the full quantity $\tau + q(\tau)$: in this fit the Hopf function itself is $q(\tau) = 0.710 - 0.1331\,e^{-3.4488\,\tau}$, while the `q` variable in the code below stores the whole bracket $\tau + q(\tau)$. When this grey solution is used to start a real, non-grey atmosphere, its wavelength-independent $\tau$ is identified with the **Rosseland mean optical depth** $\tau_{\rm Ross}$ — the quantity the code and plots below carry.
 
-The GPU translation is direct: the 80 atmospheric layers are one tensor axis, and the exponential Hopf fit is evaluated for all layers in one branchless call.""")
+The tensor form is direct: the 80 atmospheric layers are one axis, and the exponential Hopf fit is evaluated for all layers in one branchless call.""")
 
 code(r'''def grey_temperature(teff, tau):
     """Eddington-Kurucz grey T(tau): an analytic fit to the Hopf function."""
@@ -440,12 +440,12 @@ You built the scaffolding for everything that follows. You fixed the unit system
 
 That atmosphere has one conspicuous gap: the electron density is still zero. Filling it — working out, at each depth, which atoms are ionized and how many free electrons result — is the **equation of state**, and it is where Lecture 2 begins. With $n_e$ and the level populations in hand, we can compute opacity, and the spectrum comes into view.
 
-From the GPU point of view, this lecture also set the house style. Choose `DEVICE` and `DTYPE` once; keep the physics in `torch`; broadcast over physical axes instead of looping over them; move to the CPU only at explicit boundaries — plotting and parity comparisons; and treat every printed residual as a test of the port, not a decoration.""")
+From the computational point of view, this lecture also set the house style. Choose `DEVICE` and `DTYPE` once; keep the physics in `torch`; broadcast over physical axes instead of looping over them; move to the CPU only at explicit boundaries — plotting and parity comparisons; and treat every printed residual as a test of the implementation, not a decoration.""")
 
 md(r"""## Summary
 
 - A synthetic spectrum is the forward problem $(T_{\rm eff}, \log g, \text{abundances}) \to F_\lambda$, split into a **model atmosphere** and **spectral synthesis**.
-- We work in **CGS** with the reference's constants. In the GPU edition the working dtype is fp32 on MPS/CUDA and fp64 on CPU; comparisons are interpreted against that precision budget.
+- We work in **CGS** with the reference's constants. The working dtype is fp32 on MPS/CUDA and fp64 on CPU; comparisons are interpreted against that precision budget.
 - The **Planck function** $B_\nu = (2h/c^2)\nu^3/(e^{h\nu/kT}-1)$ is the LTE thermal source function; the overflow-safe Kurucz form is a single branchless tensor expression and reproduces the reference to the float floor.
 - **Optical depth** is the depth coordinate: with $z$ increasing outward, $d\tau=-\kappa\rho\,dz$, or equivalently $d\tau=\kappa\,dm$ with column mass increasing inward. As a grey continuum flux rule of thumb the emergent flux forms near $\tau\approx2/3$, where $T\approx T_{\rm eff}$; monochromatic intensities and line cores have their own $\tau_\lambda$ sampling depths.
 - The **grey atmosphere** gives $T(\tau)=T_{\rm eff}[\tfrac34(\tau+q(\tau))]^{1/4}$ and, with the cold-start $\kappa=1\ \mathrm{cm^2\,g^{-1}}$, $P_{\rm total}=g\tau/\kappa$ and column mass $m=\tau/\kappa$ — a first pressure-temperature structure, matched to the reference.
@@ -464,9 +464,9 @@ md(r"""## Further reading
 - **Gray, D. F. (2005). *The Observation and Analysis of Stellar Photospheres*, 3rd ed., Cambridge University Press.** The standard text; Chapters 7–9 cover the grey atmosphere, optical depth, and the source function at the level of this course.
 - **Mihalas, D. (1978). *Stellar Atmospheres*, 2nd ed., Freeman.** The rigorous reference for the transfer equation, the Hopf function, and the Eddington approximation.
 - **Hubeny, I. & Mihalas, D. (2014). *Theory of Stellar Atmospheres*, Princeton University Press.** The modern comprehensive treatment, including LTE versus non-LTE.
-- **Kurucz, R. L. (1970). *ATLAS: A Computer Program for Calculating Model Stellar Atmospheres*, SAO Special Report 309.** The original ATLAS, including the grey-start temperature structure we reproduced.
+- **Kurucz, R. L. (1970). *ATLAS: A Computer Program for Calculating Model Stellar Atmospheres*, SAO Special Report 309.** ATLAS, including the grey-start temperature structure we reproduced.
 - **Kim, E. M. & Ting, Y.-S. (2026). [*pykurucz: A Pure-Python Reimplementation of Kurucz ATLAS12 and SYNTHE*](https://arxiv.org/abs/2603.11693).** The implementation our reference values are computed with.
-- **PyTorch documentation: MPS backend and tensor broadcasting.** The numerical physics in this GPU edition is ordinary stellar-atmosphere physics, but its performance comes from expressing that physics as broadcasted tensor operations and keeping the large arrays resident on the accelerator.""")
+- **PyTorch documentation: MPS backend and tensor broadcasting.** The numerical physics here is ordinary stellar-atmosphere physics, but its performance comes from expressing that physics as broadcasted tensor operations and keeping the large arrays resident on the accelerator.""")
 
 nb = new_notebook(cells=cells)
 nb.metadata.update({

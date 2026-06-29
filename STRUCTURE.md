@@ -1,18 +1,15 @@
-# STRUCTURE — the organizing map of *Stellar Spectroscopy from Scratch — GPU Edition*
+# STRUCTURE — the organizing map of *Stellar Spectroscopy from Scratch*
 
 This is the book's directory bible: the coherent, holistic view of the four-part arc, what each
 lecture builds, how the two halves of "end to end" fit together, and where the documented
-boundaries lie. It is the companion to the per-lecture notebooks and the README's "How to read this
-book" section.
+boundaries lie. It sits beside the per-lecture notebooks and the README's "How to read this book"
+section.
 
-**This is the GPU edition.** The lecture structure, the physics, and the four-part arc below are
-identical to the [NumPy edition](https://github.com/tingyuansen/stellar-spectroscopy-from-scratch);
-what changes is the implementation: each lecture's computation is a clean, depth-batched `torch`
-port (a pedagogical reduction of the production `kgpu` engine, just as the NumPy edition is a
-reduction of pykurucz) that runs on the GPU (MPS/CUDA, CPU fallback), and each lecture ends with a
-**comparison cell** validating the GPU result against the NumPy edition's `reference/*.npz` to the
-documented float floor. The substitution roadmap — which lectures are ported now vs. deferred — is
-in **[PLAN.md](PLAN.md)**.
+Each lecture's computation is a clean, depth-batched `torch` implementation, written as a
+pedagogical reduction of the production `kgpu` engine. It runs on MPS/CUDA when available, with a
+CPU fallback, and ends with a **comparison cell** validating the computed result against shipped
+reference data to the documented float floor. The roadmap — which lectures are fully torch-native
+now and which still have named integration boundaries — is in **[PLAN.md](PLAN.md)**.
 
 The README has the prose; this file has the map.
 
@@ -65,8 +62,8 @@ achievement.
 ## The four-part arc, lecture by lecture
 
 Each lecture is **self-contained**: it imports `torch`, `numpy`, `matplotlib`, and `pathlib`, loads
-its own `reference/*.npz`, runs top to bottom on the GPU, and ends by benchmarking its GPU arrays to
-the NumPy edition's shipped reference (the comparison cell). The "builds" column is what the lecture
+its own `reference/*.npz`, runs top to bottom on the selected device, and ends by benchmarking its
+computed arrays to the shipped reference (the comparison cell). The "builds" column is what the lecture
 *constructs*; the "leans on" column is the light conceptual thread to earlier work (a signpost, not a
 prerequisite you must chase).
 
@@ -162,8 +159,8 @@ These are named in the lectures, not hidden. They do not enter the benchmarks.
 ```
 content/        executed notebooks (.ipynb) + rendered fragments (.html) — the chapters
 _pipeline/      build_lecture*_gpu.py (assemble each GPU notebook), build.py (execute + render)
-reference/      benchmark data (*.npz) — copied from the NumPy edition (the gold standard)
-resources/      figures (Gemini schematics — synced from the NumPy edition)
+reference/      benchmark data (*.npz)
+resources/      figures and schematics
 assets/         render.js / style.css / book-data.js — the reader (parts + lecture manifest)
 PLAN.md         the GPU-substitution roadmap (per-lecture pattern; lectures now vs. deferred)
 README.md       overview + the lecture list + "How to read this book"

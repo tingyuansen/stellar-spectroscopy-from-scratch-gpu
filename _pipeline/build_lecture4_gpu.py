@@ -1,13 +1,13 @@
 #!/usr/bin/env python
-"""Assemble content/Lecture4.ipynb (unexecuted) — the GPU EDITION. Execute + render via build.py.
+"""Assemble content/Lecture4.ipynb (unexecuted). Execute + render via build.py.
 
-Lecture 4 (GPU) — Line Opacity I: A Single Line, ported to clean torch/MPS. The Voigt function
+Lecture 4 — Line Opacity I: A Single Line, implemented in clean torch/MPS. The Voigt function
 H(a,v) — Kurucz's three-branch Harris approximation — is rebuilt as ONE branchless tensor
 expression evaluated on the WHOLE (a,v) grid at once (every regime computed, selected by
 `torch.where`), and the single Fe I line's opacity profile is assembled on the device. Each result
-is validated against the NumPy edition's reference/L4.npz to the documented float floor (~1e-6 fp32).
+is validated against reference/L4.npz to the documented float floor (~1e-6 fp32).
 
-The clean torch port is a pedagogical reduction of the production kgpu/line_opacity.py (the
+The clean torch implementation is a pedagogical reduction of the production kgpu/line_opacity.py (the
 branchless `harris_hav` kernel, read-only); the notebook imports neither kgpu nor pykurucz. The
 torch kernels below were produced + parity-gated by the external-API port worker
 (_pipeline/port_worker.py, job 'lecture4') and validated to max|rel| = 7.85e-7 vs reference/L4.npz.
@@ -23,15 +23,15 @@ cells = []
 def md(s): cells.append(new_markdown_cell(s))
 def code(s): cells.append(new_code_cell(s))
 
-md(r"""# Lecture 4 — Line Opacity I: A Single Line *(GPU Edition)*
+md(r"""# Lecture 4 — Line Opacity I: A Single Line
 
-*Stellar Spectroscopy from Scratch — GPU Edition: the torch/MPS vectorized companion, each part validated against the NumPy edition*
+*Stellar Spectroscopy from Scratch — tensor-native stellar spectroscopy, validated against reference calculations*
 
 *Yuan-Sen Ting*
 
 *Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
 
-*This is the **GPU edition** of Lecture 4. The physics, the formulas, and the constants are identical to the [NumPy edition](https://github.com/tingyuansen/stellar-spectroscopy-from-scratch); the **Voigt function** and the single-line opacity are rebuilt in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). The lecture's new pedagogy is the **vectorization**: how Kurucz's branchy, per-point Voigt routine becomes a single **branchless** tensor expression evaluated on the whole $(a, v)$ grid at once. It ends with a **comparison cell** that validates the GPU Voigt and line opacity against the NumPy edition's `reference/L4.npz` to the documented float floor. The clean torch port is a pedagogical reduction of the production `kgpu` engine's `harris_hav` kernel — the notebook imports neither `kgpu` nor pykurucz.*
+*This lecture builds the **Voigt function** and the single-line opacity in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). The lecture's new pedagogy is the **vectorization**: how Kurucz's branchy, per-point Voigt routine becomes a single **branchless** tensor expression evaluated on the whole $(a, v)$ grid at once. It ends with a **comparison cell** that validates the Voigt and line opacity against `reference/L4.npz` to the documented float floor. The clean torch implementation is a pedagogical reduction of the production `kgpu` engine's `harris_hav` kernel — the notebook imports neither `kgpu` nor pykurucz.*
 
 ---
 
@@ -42,23 +42,23 @@ md(r"""# Lecture 4 — Line Opacity I: A Single Line *(GPU Edition)*
 - Build the **Doppler core** from thermal motion and microturbulence, and the **Lorentzian wings** from natural, Stark, and van der Waals broadening.
 - Combine the two into the **Voigt profile** — the real part of the Faddeeva function — and reproduce Kurucz's Harris-table approximation, the form the reference uses.
 - Recast Kurucz's **three-branch, per-point** Voigt routine as a single **branchless** `torch` expression that evaluates the whole damping × frequency grid at once — every regime computed, the right one selected by `torch.where` — and see why that is the GPU-native shape.
-- **Validate** the GPU Voigt and line opacity against the NumPy reference to the float floor (fp32 GPU $\leftrightarrow$ fp64 NumPy).""")
+- **Validate** the Voigt and line opacity against the NumPy reference to the float floor (fp32 GPU $\leftrightarrow$ fp64 NumPy).""")
 
 md(r"""## Introduction
 
 The continuum of Lecture 3 is the smooth canvas; a spectral **line** comes from a bound-bound transition, where a bound electron jumps between two specific energy levels. The transition has a single rest frequency, but broadening spreads the extra opacity over a band of nearby frequencies. In an LTE photosphere with temperature decreasing outward, that added opacity shifts the effective formation height upward to cooler, dimmer layers, so the feature appears in absorption. Two questions define a line. *How strong is it* — how much opacity does it add at line centre? And *what shape* does it have — how is that opacity spread over wavelength?
 
-The strength is set by the transition's **oscillator strength** and the number of atoms in the lower level; the shape, by the **Voigt profile**, the convolution of a thermal Doppler core with pressure-broadened Lorentzian wings. The physics is exactly that of the NumPy edition. What changes here is the *machine*. The Voigt routine the reference uses — Kurucz's Harris-table approximation — is written as a chain of `if/elif/else` branches that each handle a different damping regime, and inside the intermediate regime it splits *per point* on the value of $a + |v|$. That is natural on a CPU walking one $v$ at a time. On the GPU it is the wrong shape: a data-dependent branch forces lanes to diverge. So our job here is to **flatten** it — compute *all three* regimes for *every* $(a, v)$ at once and select the right one with a boolean mask. That is the lecture's added lesson, and the structure the production `kgpu` engine uses.""")
+The strength is set by the transition's **oscillator strength** and the number of atoms in the lower level; the shape, by the **Voigt profile**, the convolution of a thermal Doppler core with pressure-broadened Lorentzian wings. The Voigt routine the reference uses — Kurucz's Harris-table approximation — is written as a chain of `if/elif/else` branches that each handle a different damping regime, and inside the intermediate regime it splits *per point* on the value of $a + |v|$. That is natural on a CPU walking one $v$ at a time. On the GPU it is the wrong shape: a data-dependent branch forces lanes to diverge. So our job here is to **flatten** it — compute *all three* regimes for *every* $(a, v)$ at once and select the right one with a boolean mask. That is the lecture's added lesson, and the structure the production `kgpu` engine uses.""")
 
-md(r"""**Setup — the device and the precision budget.** We pick the compute device once: **MPS** on Apple Silicon, **CUDA** on an NVIDIA box, otherwise **CPU**. MPS and CUDA have no float64, so on the GPU the working dtype is **fp32** and the parity bar is the documented float floor (~$10^{-6}$ for the Voigt and the line opacity); on CPU we use **fp64** and recover machine precision. We carry NumPy and Matplotlib alongside `torch` — NumPy holds the reference values we validate against, and the comparison at the end is done in NumPy.""")
+md(r"""**Setup — the device and the precision budget.** We pick the compute device once: **MPS** on Apple Silicon, **CUDA** on an NVIDIA box, otherwise **CPU**. MPS lacks practical float64 support, and this teaching path deliberately uses **fp32** on both MPS and CUDA so the accelerator route has one uniform precision budget; CUDA hardware can support float64, but that is not the default path here. On the GPU the parity bar is therefore the documented float floor (~$10^{-6}$ for the Voigt and the line opacity); on CPU we use **fp64** and recover machine precision. We carry NumPy and Matplotlib alongside `torch` — NumPy holds the reference values we validate against, and the comparison at the end is done in NumPy.""")
 
 code(r'''import pathlib, math
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
 
-# pick the compute device ONCE; MPS (Apple) -> CUDA -> CPU. MPS/CUDA have no fp64,
-# so the GPU working dtype is fp32 (parity bar = the documented float floor);
+# pick the compute device ONCE; MPS (Apple) -> CUDA -> CPU. The accelerator teaching
+# path uses fp32 on both MPS and CUDA, so its parity bar is the documented float floor;
 # on CPU we use fp64 and recover machine precision.
 if torch.backends.mps.is_available():
     DEVICE, DTYPE = torch.device("mps"), torch.float32
@@ -80,7 +80,7 @@ plt.rcParams.update({"figure.figsize": (7.2, 4.3), "figure.dpi": 120, "savefig.f
     "axes.grid": True, "grid.alpha": 0.25, "axes.axisbelow": True,
     "font.size": 11, "axes.titlesize": 12.5, "axes.labelsize": 11.5})''')
 
-md(r"""Load the reference bundle — the **NumPy edition's** `reference/L4.npz`, copied here unchanged. It carries the precomputed pykurucz Voigt grid (`v`, `a`, `H`), the three Harris special-function tables (`h0tab`, `h1tab`, `h2tab`), the atmospheric structure from Lectures 1–2 (`T`, `tk`, `xne`, `rho`, `nHI`), and the iron data (`n_FeI`, `U_FeI`). We define one helper, `compare`, that moves a GPU tensor back to NumPy and reports the maximum relative deviation from the reference — the per-part check, used here exactly as the NumPy edition used it.""")
+md(r"""Load the reference bundle, `reference/L4.npz`. It carries the precomputed pykurucz Voigt grid (`v`, `a`, `H`), the three Harris special-function tables (`h0tab`, `h1tab`, `h2tab`), the atmospheric structure from Lectures 1–2 (`T`, `tk`, `xne`, `rho`, `nHI`), and the iron data (`n_FeI`, `U_FeI`). We define one helper, `compare`, that moves a GPU tensor back to NumPy and reports the maximum relative deviation from the reference — the per-part check used throughout the course.""")
 
 code(r'''REF = np.load(pathlib.Path("..") / "reference" / "L4.npz")
 
@@ -169,9 +169,9 @@ $H(a,v)$ is, mathematically, the real part of the **Faddeeva function** $w(z) = 
 - **strong damping / far wing** ($a > 1.4$, or $a + |v| > 3.2$): an asymptotic Lorentzian form;
 - **intermediate**: a polynomial blend.
 
-The NumPy edition writes this as `if a < 0.2: ... elif a > 1.4: ... else: ...`, and the intermediate branch *masks per point* on $a + |v| > 3.2$. That control flow is fine on a CPU; on the GPU it makes lanes diverge. **The GPU recasting:** compute *all three* regimes for *every* $(a, v)$ pair, then select with `torch.where`. The cost is a few extra arithmetic ops per lane — cheap on a GPU, where the ALUs are idle anyway — in exchange for a single straight-line kernel with no divergence. We also turn the table lookup `iv = clip(int(|v|·200 + 0.5), 0, 2000)` into a clamped integer **index tensor** and gather all three tables in one `index_select`. This is the exact structure of the production `kgpu` engine's `harris_hav`, reduced to readable form.
+The scalar reference writes this as `if a < 0.2: ... elif a > 1.4: ... else: ...`, and the intermediate branch *masks per point* on $a + |v| > 3.2$. That control flow is fine on a CPU; on the GPU it is the wrong shape because different lanes may want different branches. **The tensor recasting:** compute *all three* regimes for *every* $(a, v)$ pair, then select with `torch.where`. The cost is extra arithmetic, but the reward is a regular tensor expression with no Python loop and no per-point control-flow branch in the source. We also turn the table lookup `iv = clip(int(|v|·200 + 0.5), 0, 2000)` into a clamped integer **index tensor** and gather all three tables in one `index_select`. This is the exact structure of the production `kgpu` engine's `harris_hav`, reduced to readable form.
 
-We take $a$ as a 1-D tensor of damping values and $v$ as a 1-D tensor of reduced frequencies, and return the whole $H(a_i, v_j)$ **grid** at once — `A` has shape `[na, 1]`, `V` has shape `[1, nv]`, and they broadcast to `[na, nv]`. All three regimes are computed for every $(a,v)$; the `torch.where(vv > 0, ...)` and `torch.where(u > 0, ...)` guards keep the unselected lanes from dividing by zero (compute a safe denominator everywhere, let the mask discard the wrong branch); and the final two nested `torch.where` calls select weak where $a < 0.2$, far-wing where $a > 1.4$ or $a + |v| > 3.2$, intermediate otherwise. The numeric constants are Kurucz's, matched bit-for-bit with the NumPy edition.""")
+We take $a$ as a 1-D tensor of damping values and $v$ as a 1-D tensor of reduced frequencies, and return the whole $H(a_i, v_j)$ **grid** at once — `A` has shape `[na, 1]`, `V` has shape `[1, nv]`, and they broadcast to `[na, nv]`. All three regimes are computed for every $(a,v)$; the `torch.where(vv > 0, ...)` and `torch.where(u > 0, ...)` guards keep the unselected lanes from dividing by zero (compute a safe denominator everywhere, let the mask discard the wrong branch); and the final two nested `torch.where` calls select weak where $a < 0.2$, far-wing where $a > 1.4$ or $a + |v| > 3.2$, intermediate otherwise. The numeric constants are Kurucz's, matched bit-for-bit with the reference.""")
 
 code(r'''# Stack the three Harris tables once (one device tensor, one gather instead of three).
 HTAB = torch.stack([dev(REF["h0tab"]), dev(REF["h1tab"]), dev(REF["h2tab"])], dim=0)  # [3, 2001]
@@ -229,10 +229,10 @@ for row, aa in zip(H_plot, a_ref):
 plt.yscale("log"); plt.ylim(1e-4, 1.2)
 plt.xlabel(r"reduced frequency  $v = (\nu-\nu_0)/\Delta\nu_D$  [dimensionless]")
 plt.ylabel(r"Voigt function  $H(a,v)$  [dimensionless]")
-plt.title("The Voigt function: Doppler-dominated core, Lorentzian wings (one branchless GPU kernel)")
+plt.title("The Voigt function: Doppler core and Lorentzian wings (branchless tensor form)")
 plt.legend(); plt.tight_layout(); plt.show()''')
 
-md(r"""The GPU Voigt reproduces pykurucz to the float floor — and it did the entire $(a,v)$ grid in a single straight-line kernel, no loop over damping values, no per-point branch. The faint kinks in the $a=0.5$ and $a=1$ curves near $v\approx 2$–$3$ are the seams where Kurucz's piecewise approximation switches between its near-centre and asymptotic-wing branches; the true Voigt is smooth there, but we reproduce the reference exactly, seams and all — and crucially, the `torch.where` selection reproduces those seams identically to the CPU `if/elif/else`, because both pick the same branch by the same threshold.""")
+md(r"""The GPU Voigt reproduces pykurucz to the float floor — and it evaluated the entire $(a,v)$ grid as one broadcasted tensor expression, with no loop over damping values and no per-point branch in the notebook source. PyTorch may still lower that expression to several backend kernels; the pedagogical point is the regular tensor shape. The faint kinks in the $a=0.5$ and $a=1$ curves near $v\approx 2$–$3$ are the seams where Kurucz's piecewise approximation switches between its near-centre and asymptotic-wing branches; the true Voigt is smooth there, but we reproduce the reference exactly, seams and all — and crucially, the `torch.where` selection reproduces those seams identically to the CPU `if/elif/else`, because both pick the same branch by the same threshold.""")
 
 # ── assemble one line ───────────────────────────────────────────────────
 md(r"""## Assembling one iron line
@@ -290,9 +290,9 @@ plt.legend(); plt.tight_layout(); plt.show()''')
 md(r"""The line raises the opacity more than a hundredfold at its centre, falling through a Gaussian core into Lorentzian wings that merge back into the continuum a fraction of an ångström away. The levers are exposed: $\log gf$ and the Boltzmann factor scale the whole profile, while the damping $a$ controls how much of the line lives in the wings. Vary $\log gf$ (or the abundance hidden in $n(\mathrm{Fe\,I})$) and you trace the **curve of growth**.""")
 
 # ── the validation cell ──────────────────────────────────────────────────
-md(r"""## The comparison cell — validating the GPU result against the NumPy edition
+md(r"""## The comparison cell — validating the tensor result against the reference
 
-This is the per-part check that defines the GPU edition. We put **every** GPU result the lecture produced — the Voigt grid and the assembled single-line opacity — next to the NumPy edition's reference (the gold standard, proven bit-for-bit against pykurucz) and report the **maximum relative deviation**, asserting it is below the documented float floor. If this passes, the GPU port is correct.""")
+This is the per-part check used throughout the book. We put **every** tensor result the lecture produced — the Voigt grid and the assembled single-line opacity — next to the NumPy reference (the gold standard, proven bit-for-bit against pykurucz) and report the **maximum relative deviation**, asserting it is below the documented float floor. If this passes, the implementation is correct relative to that reference.""")
 
 code(r'''print(f"Validating the GPU line opacity against reference/L4.npz")
 print(f"  device = {DEVICE.type}   dtype = {str(DTYPE).split('.')[-1]}\n")
@@ -351,11 +351,11 @@ print(f"\nmax relative deviation (GPU {DEVICE.type}/{str(DTYPE).split('.')[-1]} 
 status = "PASS" if max_dev < floor else "CHECK"
 print(f"documented float floor = {floor:.1e}   ->   [{status}]")
 assert max_dev < floor, f"GPU line opacity deviates by {max_dev:.2e}, above the float floor {floor:.1e}"
-print("\nThe GPU Voigt and single-line opacity match the NumPy edition to the documented float floor.")''')
+print("\nThe Voigt and single-line opacity match the NumPy reference to the documented float floor.")''')
 
-md(r"""**What the number means.** The GPU Voigt and the single-line opacity reproduce the NumPy edition to the float floor — a few $\times 10^{-6}$ in fp32 on the GPU, machine precision in fp64 on a CPU run. That residual is single-precision round-off of the Harris series and the profile multiply, *not* a physics difference: the formulas, the constants, the Harris tables, and the branch thresholds are identical to the NumPy edition. The branchless `torch.where` selection picks the same regime as the CPU `if/elif/else` at every $(a,v)$, so even the piecewise seams match.
+md(r"""**What the number means.** The Voigt function and the single-line opacity reproduce the NumPy reference to the float floor — a few $\times 10^{-6}$ in fp32 on the GPU, machine precision in fp64 on a CPU run. That residual is single-precision round-off of the Harris series and the profile multiply, *not* a physics difference: the formulas, the constants, the Harris tables, and the branch thresholds match the reference. The branchless `torch.where` selection picks the same regime as the CPU `if/elif/else` at every $(a,v)$, so even the piecewise seams match.
 
-**The vectorization lesson.** Kurucz's Voigt routine was written as data-dependent control flow — natural for a CPU walking one frequency at a time. We flattened it: *compute every branch, select with a mask*. That trades a handful of extra arithmetic ops (idle GPU ALUs) for a single straight-line kernel with no lane divergence and no table-lookup loop. The same move — branch $\to$ mask, loop $\to$ gather — is what turns the next lecture's **million-line forest** from a Python loop into a batched scatter. This single line is the kernel; Lecture 5 reuses exactly this `voigt_H` across every line in the Kurucz list at every depth, on the GPU.""")
+**The vectorization lesson.** Kurucz's Voigt routine was written as data-dependent control flow — natural for a CPU walking one frequency at a time. We flattened it: *compute every branch, select with a mask*. That trades extra arithmetic for a regular broadcasted expression with no table-lookup loop in Python. The same move — branch $\to$ mask, loop $\to$ gather — is what turns the next lecture's **million-line forest** from a Python loop into a batched scatter. This single-line example is the kernel of the idea; Lecture 5 reuses exactly this `voigt_H` across every line in the Kurucz list at every depth, on the GPU.""")
 
 md(r"""## Summary
 

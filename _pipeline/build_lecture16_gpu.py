@@ -1,9 +1,8 @@
 #!/usr/bin/env python
-"""Assemble content/Lecture16.ipynb (unexecuted) — GPU edition repair.
+"""Assemble content/Lecture16.ipynb (unexecuted).
 
-Lecture 16 is the EOS-state counterpart to Lecture 15. This repaired builder
-removes the semantic blocker in the previous GPU notebook: reference arrays are
-not used as computed state. The notebook computes PFSAHA/NELECT populations
+Lecture 16 is the EOS-state counterpart to Lecture 15. Reference arrays are
+not used as computed state: the notebook computes PFSAHA/NELECT populations
 from the shipped atomic data, then builds the kGPU-style tensor state that the
 line-blanketed loop consumes. Reference files are comparison-only, and the
 remaining limits are reported explicitly.
@@ -18,22 +17,31 @@ cells = []
 def md(s): cells.append(new_markdown_cell(s))
 def code(s): cells.append(new_code_cell(s))
 
-md(r"""# Lecture 16 — EOS State for Line-Blanketed Convergence *(GPU Edition)*
+md(r"""# Lecture 16 — EOS State for Line-Blanketed Convergence
 
-*Stellar Spectroscopy from Scratch — GPU Edition*
+*Stellar Spectroscopy from Scratch — a self-contained torch/MPS reconstruction of stellar-atmosphere and spectrum synthesis physics*
 
-This repaired Lecture 16 fixes the previous semantic blocker: the notebook no longer presents reference-output arrays as if they were computed state. The computed path is:
+Lecture 16 builds the EOS state that the line-blanketed convergence loop consumes. The computed path is:
 
 1. solve the multi-element PFSAHA/NELECT equation of state from the atomic data tables;
 2. pack the result into the Kurucz `POPSALL` species-slot layout;
 3. build the kGPU-style per-iteration tensors the line-blanketed loop consumes: `dopple`, `xnfdop`, `txnxn`, and the ionization-energy heat-capacity finite-difference samples;
 4. compare those computed outputs to reference arrays only after the computation.
 
-The scope is also explicit. The full NumPy convergence trajectory and the production `TABCONT`/molecular reference files are retained as comparison/audit targets, not as computed outputs. Any residuals in those comparison-only sections are reported as limits rather than hidden behind broader “from scratch” language.""")
+The scope is explicit. The full convergence trajectory and the production `TABCONT`/molecular reference files are retained as comparison/audit targets, not as computed outputs. Any residuals in those comparison-only sections are reported as limits rather than hidden behind broader language.
+
+---
+
+**Learning objectives.** By the end of this lecture you will be able to:
+
+- Recompute PFSAHA/NELECT populations from atomic data and verify electron density, mass density, hydrogen populations, and the packed population tensor.
+- Explain the Kurucz `POPSALL` species-slot layout and build it with a tensor gather instead of treating the reference array as state.
+- Recompute the per-iteration line-blanketing tensors: atomic Doppler widths, `XNFDOP`, van-der-Waals perturber density `TXNXN`, and the ionization-energy heat-capacity finite-difference samples.
+- Separate computed state from comparison-only audit bundles, especially `TABCONT`, molecular slots, and the full line-blanketed trajectory.""")
 
 md(r"""## Setup — device, reference paths, and comparison helpers
 
-The EOS solve itself is the clean-room NumPy implementation used by the NumPy textbook (`eos_fromscratch.py`). The state assembly is written in torch in the same shape and dtype style as kGPU: the working device is MPS/CUDA fp32 when available, with an fp64 CPU twin for precision checks.""")
+The EOS solve itself uses the clean-room helper `eos_fromscratch.py`. The state assembly is written in torch in the same shape and dtype style as kGPU: the working device is MPS/CUDA fp32 when available, with an fp64 CPU reference for precision checks.""")
 
 code(r'''import pathlib, sys
 import numpy as np
@@ -270,7 +278,7 @@ print("TABCONT residual is reported as a remaining continuum-bridge limit, not h
 
 md(r"""## 7. Comparison-only convergence summary
 
-The full warm-start line-blanketed convergence trajectory in `converge_fromscratch_result.npz` is a NumPy textbook artifact. This GPU lecture does not claim to rerun that entire loop inside the notebook. It uses the file only to state the comparison target and residual after the EOS-state blocker is removed.""")
+The full warm-start line-blanketed convergence trajectory in `converge_fromscratch_result.npz` is a reference artifact. This lecture does not claim to rerun that entire loop inside the notebook. It uses the file only to state the comparison target and residual after the EOS-state blocker is removed.""")
 
 code(r'''conv_path = REF / "converge_fromscratch_result.npz"
 if conv_path.exists():
@@ -300,13 +308,13 @@ md(r"""## Summary
 - The previous L16 false scope is removed: `population_per_ion`, `dopple`, `xnfdop`, `txnxn`, and the EOS finite-difference samples are computed first, then compared.
 - Reference files are comparison-only. The notebook no longer stages reference `TABCONT`, molecular populations, or convergence arrays as if they were generated by the GPU path.
 - The kGPU-style tensor state is fp32-safe on significant slots; the only documented fp32 caveat is trace `xnfdop` underflow far below opacity relevance.
-- Residual limits are explicit: molecular populations sit at the Lecture-13 floor; `TABCONT` has a continuum-bridge residual reported separately; full convergence is summarized as the NumPy twin's comparison artifact, not claimed as a notebook rerun.""")
+- Residual limits are explicit: molecular populations sit at the Lecture-13 floor; `TABCONT` has a continuum-bridge residual reported separately; full convergence is summarized as a reference comparison artifact, not claimed as a notebook rerun.""")
 
 md(r"""## Synthesis
 
-Lecture 16 closes the bookkeeping gap that earlier atmosphere lectures deliberately exposed. A line-blanketed iteration is not only a temperature correction and a hydrostatic march; every iteration also needs a coherent EOS state: ion populations in `POPSALL` order, Doppler widths, population-per-Doppler opacity normalizers, neutral perturber densities, and the finite-difference heat-capacity samples used by convection. This GPU lecture now builds that state before comparing it.
+Lecture 16 closes the bookkeeping gap that earlier atmosphere lectures deliberately exposed. A line-blanketed iteration is not only a temperature correction and a hydrostatic march; every iteration also needs a coherent EOS state: ion populations in `POPSALL` order, Doppler widths, population-per-Doppler opacity normalizers, neutral perturber densities, and the finite-difference heat-capacity samples used by convection. This lecture now builds that state before comparing it.
 
-The important boundary is also explicit. The tensor state that kGPU consumes is computed here and checked at the fp32 floor on significant slots. The molecular slots and continuum cutoff bridge are computed and reported with their residual limits. The full convergence trajectory remains a comparison artifact from the NumPy twin, not a hidden claim that this notebook reran the entire warm-start loop. That separation is what makes the passdown clean: the reusable GPU ingredients are real, and the remaining integration target is named rather than disguised.""")
+The important boundary is also explicit. The tensor state that kGPU consumes is computed here and checked at the fp32 floor on significant slots. The molecular slots and continuum cutoff bridge are computed and reported with their residual limits. The full convergence trajectory remains a comparison artifact, not a hidden claim that this notebook reran the entire warm-start loop. That separation is what makes the passdown clean: the reusable torch ingredients are real, and the remaining integration target is named rather than disguised.""")
 
 md(r"""## Practice exercises
 

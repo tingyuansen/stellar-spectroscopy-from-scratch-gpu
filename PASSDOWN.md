@@ -1,29 +1,29 @@
 # GPU textbook passdown
 
-Read this before touching the GPU textbook. The goal of this repository is not merely to
-"look like" the NumPy book: it is the self-contained, GPU-native decomposition of `kgpu`
-(`~/pykurucz_gpu`). A reader should be able to reconstruct the production `kgpu` engine from
-these lectures: each lecture is a clean pedagogical torch/MPS block, validates against the
-NumPy textbook reference, and imports neither `kgpu` nor `pykurucz`.
+Read this before touching the GPU textbook. The goal of this repository is a standalone,
+self-contained torch/MPS decomposition of `kgpu` (`~/pykurucz_gpu`). A reader should be able
+to reconstruct the production `kgpu` engine from these lectures: each lecture is a clean
+pedagogical torch/MPS block, validates against shipped reference targets, and imports neither
+`kgpu` nor `pykurucz`.
 
 For the current ship-gate ledger, read `SHIP_GATES.md` after this file. It records the practical
 acceptance criteria: self-contained taught path, NumPy parity, kgpu coverage, and the named
 remaining boundaries.
 
-The final quality bar is the same as the NumPy textbook: reference files may provide physical
-data tables and comparison answers, but a lecture should not teach by loading a completed
-computed state that it claims to build. If a temporary bundle is used to keep a capstone honest,
-the passdown must say so and name the integration work needed to remove it.
+The final quality bar is standalone: reference files may provide physical data tables and
+comparison answers, but a lecture should not teach by loading a completed computed state that
+it claims to build. If a temporary bundle is used to keep a capstone honest, the passdown must
+say so and name the integration work needed to remove it.
 
 ## Standing relationship
 
 - `~/pykurucz` is the read-only production/reference implementation.
-- `~/Stellar_Spectroscopy_From_Scratch` is the read-only NumPy textbook reference. It is the
-  parity oracle for this GPU book.
+- `~/Stellar_Spectroscopy_From_Scratch` is a read-only NumPy reference implementation used as a
+  parity oracle, not the identity or framing of this book.
 - `~/pykurucz_gpu` is the production torch/MPS product. Its implementation is the source of
   useful algorithmic clues, but the textbook must not import it.
 - This repo is the GPU textbook: self-contained torch/MPS lectures, built from the same physics
-  pieces as `kgpu`, with comparison cells against the NumPy references.
+  pieces as `kgpu`, with comparison cells against shipped reference targets.
 
 ## Current state
 
@@ -52,7 +52,7 @@ the passdown must say so and name the integration work needed to remove it.
   comparison-only targets, or provenance. Use it before changing L14-L16 so target arrays do not
   leak into the computed path.
 - GPU-native status is mixed, and should stay honest: lectures 1-7, 9-13, 15-16 have
-  `build_lecture<N>_gpu.py` torch/MPS builders; L8 and L14 still use NumPy-style builders.
+  `build_lecture<N>_gpu.py` torch/MPS builders; L8 and L14 still use non-torch builders.
   L14 is numerically honest now, but not yet the final GPU-native capstone.
 - L15/L16 are not final GPU-native closures yet. L15 contains torch/vectorized line-record
   physics, but its accepted fidelity gate still uses the clean-room scalar `verify_lineblanket`
@@ -112,7 +112,7 @@ Notebook audit:
   `_pipeline/critic_reports/GPU_textbook_selfcontained_gpu_native_gpt55.md` and
   `_pipeline/critic_reports/GPU_textbook_selfcontained_gpu_native_gemini.md` both say the repo is
   honest/numerically useful but not final-passdown-ready. They flag the same open gaps recorded
-  above: L14 loads atmosphere/EOS/population/Doppler state, L8/L14 are NumPy-style builders, L15
+  above: L14 loads atmosphere/EOS/population/Doppler state, L8/L14 use non-torch builders, L15
   accepted LINOP1 fidelity still uses a clean-room scalar verifier path, and L16 still relies on
   clean-room NumPy helper modules for load-bearing EOS/continuum/molecular computation.
 
