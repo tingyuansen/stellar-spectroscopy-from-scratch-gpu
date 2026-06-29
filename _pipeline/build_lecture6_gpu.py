@@ -288,7 +288,7 @@ The heart of the linear-Stark physics is the **quasi-static profile** $S(\beta)$
 - **$25.12 < \beta \le 500$** (the wing): the asymptotic Holtsmark form $\tfrac{1}{\beta^{2}}\big(\tfrac{1.5}{\sqrt\beta}+\tfrac{27}{\beta^{2}}\big)$ times a correction $1 + d/(c+\beta^{3/2})$ from `c`,`d`.
 - **$\beta > 500$** (far wing): the bare asymptotic form, $\propto \beta^{-5/2}$ — the Holtsmark tail.
 
-**The GPU recasting.** Here `beta` arrives as a `[D, n_w]` tensor (every depth $\times$ every pixel) and `p` as a `[D,1]` column. The three regimes are **all computed for every pixel** and chosen with `torch.where`; the `searchsorted` bracket of $\beta$ becomes a vectorized count (`torch.sum(beta > beta_arr)`), and the bilinear table read becomes **flat-gather index math** — flatten the `propbm` slice, build the integer index `row*ncols + col`, and `index` into it — rather than a Python loop. Every guard (`sb_safe`, `b2_safe`, `denom_safe`) keeps the unselected lanes from dividing by zero. This is the exact structure of the production `kgpu` engine's `_sofbeta`, reduced to readable form. We build it in two cells: the table-interpolation weights first.""")
+**The GPU recasting.** Here `beta` arrives as a `[D, n_w]` tensor (every depth $\times$ every pixel) and `p` as a `[D,1]` column. The three regimes are **all computed for every pixel** and chosen with `torch.where`; the `searchsorted` bracket of $\beta$ becomes a vectorized count (`torch.sum(beta > beta_arr)`), and the bilinear table read becomes **flat-gather index math** — flatten the `propbm` slice, build the integer index `row*ncols + col`, and `index` into it — rather than a Python loop. Every guard (`sqrt_beta_safe`, `beta_sq_safe`, `beta_interval_safe`) keeps the unselected lanes from dividing by zero. This is the exact structure of the production `kgpu` engine's `_sofbeta`, reduced to readable form. We build it in two cells: the table-interpolation weights first.""")
 
 code(r'''def sofbeta_grid(beta, p, n, m, propbm, c_arr, d_arr, pp_arr, beta_arr):
     """Quasi-static linear-Stark profile S(beta) on a [D, n_w] tensor: all three beta-regimes
@@ -297,27 +297,33 @@ code(r'''def sofbeta_grid(beta, p, n, m, propbm, c_arr, d_arr, pp_arr, beta_arr)
     propbm = _to_tensor(propbm); c_arr = _to_tensor(c_arr); d_arr = _to_tensor(d_arr)
     pp_arr = _to_tensor(pp_arr); beta_arr = _to_tensor(beta_arr)
 
-    b2 = beta * beta
-    sb = torch.sqrt(torch.clamp(beta, min=0.0))
-    sb_safe = torch.where(sb > 0.0, sb, torch.ones_like(sb))     # safe denominators everywhere;
-    b2_safe = torch.where(b2 > 0.0, b2, torch.ones_like(b2))     # the mask discards the wrong branch
+    beta_sq = beta * beta
+    sqrt_beta = torch.sqrt(torch.clamp(beta, min=0.0))
+    sqrt_beta_safe = torch.where(sqrt_beta > 0.0, sqrt_beta, torch.ones_like(sqrt_beta))
+    beta_sq_safe = torch.where(beta_sq > 0.0, beta_sq, torch.ones_like(beta_sq))
 
     # the table column for this transition (a python int — n, m are fixed scalars)
-    mmn = m - n
-    indx = 2 * (n - 1) + mmn if (n <= 3 and mmn <= 2) else 7
-    indx0 = min(max(indx, 1), 7) - 1
+    upper_minus_lower = m - n
+    table_number = 2 * (n - 1) + upper_minus_lower if (n <= 3 and upper_minus_lower <= 2) else 7
+    profile_table_idx = min(max(table_number, 1), 7) - 1
 
     # bracket p in the pp grid -> two adjacent columns + a linear weight (vectorized over [D,1])
-    im = torch.clamp((5.0 * p).to(torch.int64) + 1, 1, 4); ip = im + 1
-    wtp = torch.clamp(5.0 * (p - pp_arr[im - 1]), 0.0, 1.0); wtm = 1.0 - wtp
-    return _sofbeta_select(beta, b2, sb, sb_safe, b2_safe, indx0, im, ip, wtp, wtm,
+    pressure_low_1based = torch.clamp((5.0 * p).to(torch.int64) + 1, 1, 4)
+    pressure_high_1based = pressure_low_1based + 1
+    pressure_high_weight = torch.clamp(5.0 * (p - pp_arr[pressure_low_1based - 1]), 0.0, 1.0)
+    pressure_low_weight = 1.0 - pressure_high_weight
+    return _sofbeta_select(beta, beta_sq, sqrt_beta, sqrt_beta_safe, beta_sq_safe, profile_table_idx,
+                           pressure_low_1based, pressure_high_1based,
+                           pressure_high_weight, pressure_low_weight,
                            propbm, c_arr, d_arr, beta_arr)
 
 print("sofbeta_grid (interpolation weights) ready")''')
 
 md(r"""Now the $\beta$-bracket and the three analytic forms. The `searchsorted` is `torch.sum(beta.unsqueeze(-1) > beta_arr, dim=-1)` — counting, for every pixel, how many grid nodes it exceeds — and the `propbm` read is `tab_flat[row_idx * ncols + col_idx]`, a single flat gather that replaces the scalar `propbm[indx-1, ip-1, jp]` four-index lookup. The near, wing, and far-wing forms are computed in full and selected by `torch.where(beta <= 25.12, ...)` / `torch.where(beta <= 500, ...)`, exactly mirroring the scalar `if/elif`.""")
 
-code(r'''def _sofbeta_select(beta, b2, sb, sb_safe, b2_safe, indx0, im, ip, wtp, wtm,
+code(r'''def _sofbeta_select(beta, beta_sq, sqrt_beta, sqrt_beta_safe, beta_sq_safe, profile_table_idx,
+                    pressure_low_1based, pressure_high_1based,
+                    pressure_high_weight, pressure_low_weight,
                     propbm, c_arr, d_arr, beta_arr):
     """Select the quasi-static Stark S(beta) regime for a [depth, wavelength] grid.
 
@@ -326,40 +332,60 @@ code(r'''def _sofbeta_select(beta, b2, sb, sb_safe, b2_safe, indx0, im, ip, wtp,
     evaluates the near, wing, and far-wing analytic forms, and uses tensor masks
     to choose the scalar-reference branch at every pixel.
     """
-    nb = beta_arr.numel()
+    n_beta_nodes = beta_arr.numel()
     # searchsorted, vectorized: how many beta nodes does each pixel exceed?
-    j = torch.sum(beta.unsqueeze(-1) > beta_arr.reshape(1, 1, nb), dim=-1).to(torch.int64)
-    j = torch.clamp(j, 1, nb - 1); jm = j - 1
-    denom = beta_arr[j] - beta_arr[jm]
-    denom_safe = torch.where(denom > 0.0, denom, torch.ones_like(denom))
-    wtb = torch.where(denom > 0.0, (beta - beta_arr[jm]) / denom_safe, torch.zeros_like(beta))
-    wtbm = 1.0 - wtb
+    beta_high_idx = torch.sum(beta.unsqueeze(-1) > beta_arr.reshape(1, 1, n_beta_nodes), dim=-1).to(torch.int64)
+    beta_high_idx = torch.clamp(beta_high_idx, 1, n_beta_nodes - 1)
+    beta_low_idx = beta_high_idx - 1
+    beta_interval = beta_arr[beta_high_idx] - beta_arr[beta_low_idx]
+    beta_interval_safe = torch.where(beta_interval > 0.0, beta_interval, torch.ones_like(beta_interval))
+    beta_high_weight = torch.where(beta_interval > 0.0,
+                                   (beta - beta_arr[beta_low_idx]) / beta_interval_safe,
+                                   torch.zeros_like(beta))
+    beta_low_weight = 1.0 - beta_high_weight
 
     # flat-gather the propbm correction: index = row * ncols + col, one tensor index op
-    d0, nw = beta.shape
-    ip_idx = (ip - 1).expand(d0, nw); im_idx = (im - 1).expand(d0, nw)
-    tab = propbm[indx0]; nbcols = tab.shape[1]; tab_flat = tab.reshape(-1)
-    cbp = tab_flat[ip_idx * nbcols + j] * wtp + tab_flat[im_idx * nbcols + j] * wtm
-    cbm = tab_flat[ip_idx * nbcols + jm] * wtp + tab_flat[im_idx * nbcols + jm] * wtm
-    corr_near = 1.0 + cbp * wtb + cbm * wtbm
+    n_depth_grid, n_wave_grid = beta.shape
+    pressure_high_idx0 = (pressure_high_1based - 1).expand(n_depth_grid, n_wave_grid)
+    pressure_low_idx0 = (pressure_low_1based - 1).expand(n_depth_grid, n_wave_grid)
+    correction_table = propbm[profile_table_idx]
+    n_beta_columns = correction_table.shape[1]
+    correction_flat = correction_table.reshape(-1)
+    correction_at_beta_high = (
+        correction_flat[pressure_high_idx0 * n_beta_columns + beta_high_idx] * pressure_high_weight
+        + correction_flat[pressure_low_idx0 * n_beta_columns + beta_high_idx] * pressure_low_weight
+    )
+    correction_at_beta_low = (
+        correction_flat[pressure_high_idx0 * n_beta_columns + beta_low_idx] * pressure_high_weight
+        + correction_flat[pressure_low_idx0 * n_beta_columns + beta_low_idx] * pressure_low_weight
+    )
+    corr_near = 1.0 + correction_at_beta_high * beta_high_weight + correction_at_beta_low * beta_low_weight
 
     # near/moderate (beta <= 25.12): blend near-centre and asymptotic forms with the correction
-    wt = torch.clamp(0.5 * (10.0 - beta), 0.0, 1.0)
-    pr1 = torch.where(beta <= 10.0, 8.0 / (83.0 + (2.0 + 0.95 * b2) * beta), torch.zeros_like(beta))
-    pr2 = torch.where(beta >= 8.0, (1.5 / sb_safe + 27.0 / b2_safe) / b2_safe, torch.zeros_like(beta))
-    s_near = (pr1 * wt + pr2 * (1.0 - wt)) * corr_near
+    near_blend_weight = torch.clamp(0.5 * (10.0 - beta), 0.0, 1.0)
+    near_core_term = torch.where(beta <= 10.0,
+                                 8.0 / (83.0 + (2.0 + 0.95 * beta_sq) * beta),
+                                 torch.zeros_like(beta))
+    near_tail_term = torch.where(beta >= 8.0,
+                                 (1.5 / sqrt_beta_safe + 27.0 / beta_sq_safe) / beta_sq_safe,
+                                 torch.zeros_like(beta))
+    s_near = (near_core_term * near_blend_weight + near_tail_term * (1.0 - near_blend_weight)) * corr_near
 
     # wing (25.12 < beta <= 500): asymptotic form times the c,d correction (interpolated in p)
-    cc = c_arr[im - 1, indx0] * wtp + c_arr[ip - 1, indx0] * wtm
-    dd = d_arr[im - 1, indx0] * wtp + d_arr[ip - 1, indx0] * wtm
-    denom2 = cc + beta * sb
-    denom2 = torch.where(denom2 == 0.0, torch.full_like(denom2, 1.0e-30), denom2)
-    corr_wing = 1.0 + dd / denom2
-    asymp = (1.5 / sb_safe + 27.0 / b2_safe) / b2_safe     # the bare Holtsmark beta^-5/2 tail
+    wing_correction_c = (c_arr[pressure_low_1based - 1, profile_table_idx] * pressure_high_weight
+                         + c_arr[pressure_high_1based - 1, profile_table_idx] * pressure_low_weight)
+    wing_correction_d = (d_arr[pressure_low_1based - 1, profile_table_idx] * pressure_high_weight
+                         + d_arr[pressure_high_1based - 1, profile_table_idx] * pressure_low_weight)
+    wing_denominator = wing_correction_c + beta * sqrt_beta
+    wing_denominator = torch.where(wing_denominator == 0.0, torch.full_like(wing_denominator, 1.0e-30),
+                                   wing_denominator)
+    corr_wing = 1.0 + wing_correction_d / wing_denominator
+    holtsmark_tail = (1.5 / sqrt_beta_safe + 27.0 / beta_sq_safe) / beta_sq_safe
 
-    out = torch.where(beta <= 25.12, s_near,
-                      asymp * torch.where(beta <= 500.0, corr_wing, torch.ones_like(beta)))
-    return torch.where(beta > 0.0, out, torch.zeros_like(out))   # S(beta) = 0 for beta <= 0
+    selected_profile = torch.where(beta <= 25.12, s_near,
+                                   holtsmark_tail * torch.where(beta <= 500.0, corr_wing,
+                                                                torch.ones_like(beta)))
+    return torch.where(beta > 0.0, selected_profile, torch.zeros_like(selected_profile))
 
 print("sofbeta_grid ready")''')
 
@@ -386,7 +412,7 @@ $$
 \;=\; -\,\frac{c\,(10\,\Delta\lambda_{\rm nm})}{\lambda_A\,\lambda_{nm}}.
 $$
 
-The small quantity $\Delta\lambda_{\rm nm}$ is now an **input**, carried in full fp32 precision; the two big numbers never meet. No cancellation, exact result, no fp64-promotion needed. The same factoring is applied to the **fine-structure core term**: each sub-line's offset `foff` is a frequency offset from centre, so $\nu - (\nu_{nm} + \text{foff}) = (\nu - \nu_{nm}) - \text{foff} = \text{df\_signed} - \text{foff}$ — again a difference of small numbers, never of big ones. This is the same lesson Lecture 4 taught for the reduced frequency $v$; here it generalizes to *every* detuning in the profile, and because the factoring is exact in fp32 we never leave the GPU. Watch for `df_signed = -C_LIGHT_AA * (delta_lambda_nm*10.0) / (wlA_safe * wavenm)` in the profile below — that one line is the entire fix.""")
+The small quantity $\Delta\lambda_{\rm nm}$ is now an **input**, carried in full fp32 precision; the two big numbers never meet. No cancellation, exact result, no fp64-promotion needed. The same factoring is applied to the **fine-structure core term**: each sub-line's offset `foff` is a frequency offset from centre, so $\nu - (\nu_{nm} + \text{foff}) = (\nu - \nu_{nm}) - \text{foff} = \text{signed_detuning_hz} - \text{foff}$ — again a difference of small numbers, never of big ones. This is the same lesson Lecture 4 taught for the reduced frequency $v$; here it generalizes to *every* detuning in the profile, and because the factoring is exact in fp32 we never leave the GPU. Watch for `signed_detuning_hz = -C_LIGHT_AA * (delta_lambda_nm*10.0) / (wavelength_A_safe * line_wavelength_A)` in the profile below — that one line is the entire fix.""")
 
 # ════════════════════════════════════════════════════════════════════════════
 #  THE FULL PROFILE — hydrogen_profile_grid
@@ -404,36 +430,54 @@ Now the profile itself, `hydrogen_profile_grid`. For a transition $n\to m$ it ta
 code(r'''def hydrogen_profile_grid(n, m, delta_lambda_nm, hyd, tabs, foff, fwt, n_fine):
     """HPROF4 profile phi(Delta-lambda) for transition n->m, on the whole [D, n_w] grid at once."""
     delta_lambda_nm = _to_tensor(delta_lambda_nm)
-    mmn = m - n
-    if mmn <= 0:
+    upper_minus_lower = m - n
+    if upper_minus_lower <= 0:
         return torch.zeros_like(delta_lambda_nm)
-    asum   = _to_tensor(tabs["asum"]);  y1wtm = _to_tensor(tabs["y1wtm"])
-    xknmtb = _to_tensor(tabs["xknmtb"]); propbm = _to_tensor(tabs["propbm"])
-    c_t = _to_tensor(tabs["c"]); d_t = _to_tensor(tabs["d"])
-    pp_t = _to_tensor(tabs["pp"]); beta_t = _to_tensor(tabs["beta"])
-    foff = _to_tensor(foff).reshape(-1); fwt = _to_tensor(fwt).reshape(-1)
+    radiative_sum_table = _to_tensor(tabs["asum"])
+    impact_density_weight_table = _to_tensor(tabs["y1wtm"])
+    stark_constant_table = _to_tensor(tabs["xknmtb"])
+    propbm_table = _to_tensor(tabs["propbm"])
+    wing_c_table = _to_tensor(tabs["c"])
+    wing_d_table = _to_tensor(tabs["d"])
+    pressure_grid = _to_tensor(tabs["pp"])
+    beta_grid = _to_tensor(tabs["beta"])
+    foff = _to_tensor(foff).reshape(-1)
+    fwt = _to_tensor(fwt).reshape(-1)
 
     # --- line-centre constants for this transition (python scalars, fixed n,m) ---
-    xn, xm = float(n), float(m); xn2, xm2 = xn*xn, xm*xm
-    xm2mn2 = xm2 - xn2; xmn2 = xm2*xn2; gnm = xm2mn2/xmn2
-    if n <= 4 and mmn <= 3:
-        xknm = xknmtb[n-1, mmn-1]
+    lower_n_float, upper_n_float = float(n), float(m)
+    lower_n_sq, upper_n_sq = lower_n_float*lower_n_float, upper_n_float*upper_n_float
+    level_sq_gap = upper_n_sq - lower_n_sq
+    level_sq_product = upper_n_sq * lower_n_sq
+    rydberg_level_factor = level_sq_gap / level_sq_product
+    if n <= 4 and upper_minus_lower <= 3:
+        stark_constant = stark_constant_table[n-1, upper_minus_lower-1]
     else:
-        xknm = torch.as_tensor(5.5e-5/gnm*xmn2/(1.0 + 0.13/float(mmn)), device=DEVICE, dtype=DTYPE)
-    freqnm = RYDH * gnm; wavenm = C_LIGHT_AA / freqnm
-    dbeta  = C_LIGHT_AA / (freqnm*freqnm*xknm)
-    c1con  = xknm/wavenm * gnm * xm2mn2; c2con = (xknm/wavenm)**2
-    return _hprof4_widths(n, m, mmn, delta_lambda_nm, hyd, foff, fwt, n_fine,
-                          asum, y1wtm, propbm, c_t, d_t, pp_t, beta_t,
-                          xn, xm, xn2, xm2, gnm, freqnm, wavenm, xknm, dbeta, c1con, c2con)
+        stark_constant = torch.as_tensor(
+            5.5e-5 / rydberg_level_factor * level_sq_product / (1.0 + 0.13/float(upper_minus_lower)),
+            device=DEVICE, dtype=DTYPE)
+    line_frequency = RYDH * rydberg_level_factor
+    line_wavelength_A = C_LIGHT_AA / line_frequency
+    beta_scale = C_LIGHT_AA / (line_frequency*line_frequency*stark_constant)
+    impact_c1_scale = stark_constant/line_wavelength_A * rydberg_level_factor * level_sq_gap
+    impact_c2_scale = (stark_constant/line_wavelength_A)**2
+    return _hprof4_widths(n, m, upper_minus_lower, delta_lambda_nm, hyd, foff, fwt, n_fine,
+                          radiative_sum_table, impact_density_weight_table, propbm_table,
+                          wing_c_table, wing_d_table, pressure_grid, beta_grid,
+                          lower_n_float, upper_n_float, lower_n_sq, upper_n_sq,
+                          rydberg_level_factor, line_frequency, line_wavelength_A, stark_constant,
+                          beta_scale, impact_c1_scale, impact_c2_scale)
 
 print("hydrogen_profile_grid (line-centre constants) ready")''')
 
-md(r"""The half-widths. The radiative (`radamp`), resonance (`hwres`), and van der Waals (`hwvdw`) widths build the total Lorentzian `hwlor`; the Stark half-width `hwstk` scales with $F_0$. Then the **precision-safe detuning**: `df_signed` uses the factored form (no cancellation), and `del_freq` is its absolute value. The boolean `ifcore` asks whether the pixel is within the dominant half-width of centre; `dop_dom`/`lor_ge_stk` encode the `nwid` flags — all tensors over `[D, n_w]`.""")
+md(r"""The half-widths. The radiative (`radiative_half_width`), resonance (`resonance_half_width`), and van der Waals (`vdw_half_width`) widths build the total Lorentzian `lorentz_half_width`; the Stark half-width `stark_half_width` scales with $F_0$. Then the **precision-safe detuning**: `signed_detuning_hz` uses the factored form (no cancellation), and `abs_detuning_hz` is its absolute value. The boolean `in_dominant_core` asks whether the pixel is within the dominant half-width of centre; `doppler_dominates`/`lorentz_ge_stark` encode the `nwid` flags — all tensors over `[D, n_w]`.""")
 
-code(r'''def _hprof4_widths(n, m, mmn, delta_lambda_nm, hyd, foff, fwt, n_fine,
-                   asum, y1wtm, propbm, c_t, d_t, pp_t, beta_t,
-                   xn, xm, xn2, xm2, gnm, freqnm, wavenm, xknm, dbeta, c1con, c2con):
+code(r'''def _hprof4_widths(n, m, upper_minus_lower, delta_lambda_nm, hyd, foff, fwt, n_fine,
+                   radiative_sum_table, impact_density_weight_table, propbm_table,
+                   wing_c_table, wing_d_table, pressure_grid, beta_grid,
+                   lower_n_float, upper_n_float, lower_n_sq, upper_n_sq,
+                   rydberg_level_factor, line_frequency, line_wavelength_A, stark_constant,
+                   beta_scale, impact_c1_scale, impact_c2_scale):
     """Compute HPROF4 broadening widths and precision-safe detuning.
 
     All atmospheric quantities are expanded to [depth, 1] columns, while
@@ -442,48 +486,62 @@ code(r'''def _hprof4_widths(n, m, mmn, delta_lambda_nm, hyd, foff, fwt, n_fine,
     half-width dominance masks already formed.
     """
     # --- the non-Stark half-widths (radiative, resonance/self, van der Waals) ---
-    n_a = asum.shape[0]
-    if n <= n_a and m <= n_a:   radamp = asum[n-1] + asum[m-1]
-    elif n <= n_a:              radamp = asum[n-1]
-    else:                       radamp = torch.zeros((), device=DEVICE, dtype=DTYPE)
-    radamp = radamp / 12.5664 / freqnm
-    resont = _hf_nm(1, m)/xm/(1.0 - 1.0/xm2)
-    if n != 1: resont += _hf_nm(1, n)/xn/(1.0 - 1.0/xn2)
-    resont *= 3.579e-24 / gnm
-    vdw   = 4.45e-26/gnm * (xm2*(7.0*xm2 + 5.0))**0.4
-    stark = 1.6678e-18 * freqnm * xknm                      # linear-Stark half-width scale
+    n_radiative_levels = radiative_sum_table.shape[0]
+    if n <= n_radiative_levels and m <= n_radiative_levels:
+        radiative_half_width = radiative_sum_table[n-1] + radiative_sum_table[m-1]
+    elif n <= n_radiative_levels:
+        radiative_half_width = radiative_sum_table[n-1]
+    else:
+        radiative_half_width = torch.zeros((), device=DEVICE, dtype=DTYPE)
+    radiative_half_width = radiative_half_width / 12.5664 / line_frequency
+    resonance_scale = _hf_nm(1, m)/upper_n_float/(1.0 - 1.0/upper_n_sq)
+    if n != 1:
+        resonance_scale += _hf_nm(1, n)/lower_n_float/(1.0 - 1.0/lower_n_sq)
+    resonance_scale *= 3.579e-24 / rydberg_level_factor
+    vdw_scale = 4.45e-26/rydberg_level_factor * (upper_n_sq*(7.0*upper_n_sq + 5.0))**0.4
+    stark_half_width_scale = 1.6678e-18 * line_frequency * stark_constant
 
     # per-depth state as [D,1] columns
-    t3nhe = _as_col(hyd["t3nhe"]); t3nh2 = _as_col(hyd["t3nh2"]); fo = _as_col(hyd["fo"])
-    dopph = _as_col(hyd["dopph"]); xnfph_0 = _as_col(hyd["xnfph_0"])
-    hwvdw = vdw*t3nhe + 2.0*vdw*t3nh2                       # scaled by He + H2 perturbers
-    hwres = resont * xnfph_0 * 2.0                          # resonance x neutral-H population
-    hwstk = stark * fo                                     # Stark half-width (scales with F0)
-    hwlor = hwres + hwvdw + radamp                          # total Lorentzian half-width
+    helium_perturber = _as_col(hyd["t3nhe"])
+    h2_perturber = _as_col(hyd["t3nh2"])
+    normal_field = _as_col(hyd["fo"])
+    doppler_fraction = _as_col(hyd["dopph"])
+    neutral_h_ground_population = _as_col(hyd["xnfph_0"])
+    vdw_half_width = vdw_scale*helium_perturber + 2.0*vdw_scale*h2_perturber
+    resonance_half_width = resonance_scale * neutral_h_ground_population * 2.0
+    stark_half_width = stark_half_width_scale * normal_field
+    lorentz_half_width = resonance_half_width + vdw_half_width + radiative_half_width
 
     # --- the PRECISION-SAFE detuning: factor the wavelength difference out (no fp32 cancellation) ---
-    wlA = wavenm + delta_lambda_nm * 10.0                  # this pixel's wavelength [Angstrom]
-    wlA_safe = torch.where(wlA > 0.0, wlA, torch.ones_like(wlA))
-    df_signed = -C_LIGHT_AA * (delta_lambda_nm * 10.0) / (wlA_safe * wavenm)   # = freq - freqnm, exact
-    del_freq = df_signed.abs()
+    wavelength_A = line_wavelength_A + delta_lambda_nm * 10.0
+    wavelength_A_safe = torch.where(wavelength_A > 0.0, wavelength_A, torch.ones_like(wavelength_A))
+    signed_detuning_hz = -C_LIGHT_AA * (delta_lambda_nm * 10.0) / (wavelength_A_safe * line_wavelength_A)
+    abs_detuning_hz = signed_detuning_hz.abs()
 
-    dopph_safe = torch.clamp(dopph, min=1.0e-40)
-    dop = freqnm * dopph_safe                              # Doppler width in frequency units
-    hfwidth = freqnm * torch.maximum(torch.maximum(dopph_safe, hwlor), hwstk)
-    ifcore = del_freq <= hfwidth                           # inside the dominant half-width?
-    dop_dom = (dopph_safe >= hwstk) & (dopph_safe >= hwlor)
-    lor_ge_stk = hwlor >= hwstk
-    return _hprof4_pieces(n, m, mmn, df_signed, del_freq, wlA, dop, dopph_safe, freqnm, dbeta,
-                          fo, hwlor, foff, fwt, n_fine, hyd, y1wtm, propbm, c_t, d_t, pp_t, beta_t,
-                          c1con, c2con, ifcore, dop_dom, lor_ge_stk)
+    doppler_fraction_safe = torch.clamp(doppler_fraction, min=1.0e-40)
+    doppler_width_hz = line_frequency * doppler_fraction_safe
+    dominant_half_width_hz = line_frequency * torch.maximum(
+        torch.maximum(doppler_fraction_safe, lorentz_half_width), stark_half_width)
+    in_dominant_core = abs_detuning_hz <= dominant_half_width_hz
+    doppler_dominates = (doppler_fraction_safe >= stark_half_width) & (doppler_fraction_safe >= lorentz_half_width)
+    lorentz_ge_stark = lorentz_half_width >= stark_half_width
+    return _hprof4_pieces(n, m, upper_minus_lower, signed_detuning_hz, abs_detuning_hz, wavelength_A,
+                          doppler_width_hz, doppler_fraction_safe, line_frequency, beta_scale,
+                          normal_field, lorentz_half_width, foff, fwt, n_fine, hyd,
+                          impact_density_weight_table, propbm_table, wing_c_table, wing_d_table,
+                          pressure_grid, beta_grid, impact_c1_scale, impact_c2_scale,
+                          in_dominant_core, doppler_dominates, lorentz_ge_stark)
 
 print("hydrogen_profile_grid (half-widths + safe detuning) ready")''')
 
-md(r"""The three pieces and the selection. The **Doppler core** is the broadcasted `[n_fine, D, n_w]` reduction (note `df_signed - foff` — the precision fix carried into the fine-structure term). The **Lorentzian** is a single Lorentz of width `hhw`. The **Stark** piece is `sofbeta_grid` $\times (1+\text{fns})$ plus the impact Lorentzian `f`, whose width `gamma` blends a simple analytic form with the exponential-integral form via `use_ei` (a boolean mask, replacing the scalar `if y2>1e-4 and y1>1e-5`). Finally the width-selection: in the core, `torch.where(dop_dom, core, where(lor_ge_stk, lorentz, stark))`; in the wing, the sum; chosen by `ifcore`.""")
+md(r"""The three pieces and the selection. The **Doppler core** is the broadcasted `[n_fine, D, n_w]` reduction (note `signed_detuning_hz - foff` — the precision fix carried into the fine-structure term). The **Lorentzian** is a single Lorentz of width `lorentz_width_hz`. The **Stark** piece is `sofbeta_grid` $\times (1+\text{nonstatic_correction})$ plus the impact Lorentzian `impact_lorentzian`, whose width `gamma` blends a simple analytic form with the exponential-integral form via a boolean mask replacing the scalar `if y2>1e-4 and y1>1e-5`. Finally the width-selection: in the core, `torch.where(doppler_dominates, core, where(lorentz_ge_stark, lorentz, stark))`; in the wing, the sum; chosen by `in_dominant_core`.""")
 
-code(r'''def _hprof4_pieces(n, m, mmn, df_signed, del_freq, wlA, dop, dopph_safe, freqnm, dbeta,
-                   fo, hwlor, foff, fwt, n_fine, hyd, y1wtm, propbm, c_t, d_t, pp_t, beta_t,
-                   c1con, c2con, ifcore, dop_dom, lor_ge_stk):
+code(r'''def _hprof4_pieces(n, m, upper_minus_lower, signed_detuning_hz, abs_detuning_hz, wavelength_A,
+                   doppler_width_hz, doppler_fraction_safe, line_frequency, beta_scale,
+                   normal_field, lorentz_half_width, foff, fwt, n_fine, hyd,
+                   impact_density_weight_table, propbm_table, wing_c_table, wing_d_table,
+                   pressure_grid, beta_grid, impact_c1_scale, impact_c2_scale,
+                   in_dominant_core, doppler_dominates, lorentz_ge_stark):
     """Build the Doppler, Lorentzian, and Stark setup pieces for HPROF4.
 
     The fine-structure Doppler core is reduced over a leading component axis,
@@ -491,48 +549,74 @@ code(r'''def _hprof4_pieces(n, m, mmn, df_signed, del_freq, wlA, dop, dopph_safe
     Stark terms are prepared for the gamma selector.  No profile selection is
     finalized here; this function forwards the pieces to `_hprof4_gamma`.
     """
-    xm2 = m*m
-    c1d = _as_col(hyd["c1d"]); c2d = _as_col(hyd["c2d"])
-    y1s = _as_col(hyd["y1s"]); y1b = _as_col(hyd["y1b"])
-    gcon1 = _as_col(hyd["gcon1"]); gcon2 = _as_col(hyd["gcon2"])
-    pp_val = _as_col(hyd["pp"]); ne = _as_col(hyd["ne"])
+    impact_c1_depth = _as_col(hyd["c1d"])
+    impact_c2_depth = _as_col(hyd["c2d"])
+    y1_small_density = _as_col(hyd["y1s"])
+    y1_large_density = _as_col(hyd["y1b"])
+    gamma_correction_1 = _as_col(hyd["gcon1"])
+    gamma_correction_2 = _as_col(hyd["gcon2"])
+    pressure_value = _as_col(hyd["pp"])
+    electron_density_col = _as_col(hyd["ne"])
 
     # --- (1) Doppler core: SQUEEZE the fine-structure sum into one [n_fine, D, n_w] reduction ---
-    nf = min(int(n_fine), int(foff.numel()), int(fwt.numel()))
-    if nf > 0:
-        foff_f = foff[:nf].reshape(nf, 1, 1); fwt_f = fwt[:nf].reshape(nf, 1, 1)
-        dd_f = (df_signed.unsqueeze(0) - foff_f).abs() / torch.clamp(dop, min=1.0e-30).unsqueeze(0)
-        core = torch.sum(torch.where(dd_f <= 7.0, _fast_ex_gauss(dd_f*dd_f) * fwt_f,
-                                     torch.zeros_like(dd_f)), dim=0)
+    n_components = min(int(n_fine), int(foff.numel()), int(fwt.numel()))
+    if n_components > 0:
+        component_offsets_hz = foff[:n_components].reshape(n_components, 1, 1)
+        component_weights = fwt[:n_components].reshape(n_components, 1, 1)
+        component_detuning_doppler = (
+            (signed_detuning_hz.unsqueeze(0) - component_offsets_hz).abs()
+            / torch.clamp(doppler_width_hz, min=1.0e-30).unsqueeze(0)
+        )
+        core = torch.sum(torch.where(component_detuning_doppler <= 7.0,
+                                     _fast_ex_gauss(component_detuning_doppler*component_detuning_doppler)
+                                     * component_weights,
+                                     torch.zeros_like(component_detuning_doppler)), dim=0)
     else:
-        core = torch.zeros_like(del_freq)
+        core = torch.zeros_like(abs_detuning_hz)
 
     # --- (2) Lorentzian (resonance + radiative + van der Waals), one Lorentz of width hwlor ---
-    hhw = freqnm * hwlor; df2 = del_freq*del_freq; den_lor = df2 + hhw*hhw
-    den_lor_safe = torch.where(den_lor > 0.0, den_lor, torch.ones_like(den_lor))
-    lorentz = torch.where(hhw > 0.0, hhw/math.pi/den_lor_safe * 1.77245 * dop, torch.zeros_like(del_freq))
+    lorentz_width_hz = line_frequency * lorentz_half_width
+    detuning_sq_hz = abs_detuning_hz * abs_detuning_hz
+    lorentz_denominator = detuning_sq_hz + lorentz_width_hz*lorentz_width_hz
+    lorentz_denominator_safe = torch.where(lorentz_denominator > 0.0,
+                                           lorentz_denominator,
+                                           torch.ones_like(lorentz_denominator))
+    lorentz = torch.where(lorentz_width_hz > 0.0,
+                          lorentz_width_hz/math.pi/lorentz_denominator_safe * 1.77245 * doppler_width_hz,
+                          torch.zeros_like(abs_detuning_hz))
 
     # --- (3a) electron-impact width gamma: simple form + the E_1 form, mask-selected ---
-    y1num = 320.0 if m > 3 else (550.0 if m == 2 else 380.0)
-    y1wht = torch.as_tensor(1.0e14 if mmn <= 3 else 1.0e13, device=DEVICE, dtype=DTYPE)
-    if mmn <= 2 and 1 <= n <= 2 and n <= y1wtm.shape[0] and mmn <= y1wtm.shape[1]:
-        y1wht = y1wtm[n-1, mmn-1]
-    wty1 = 1.0 / (1.0 + torch.clamp(ne, min=0.0) / torch.clamp(y1wht, min=1.0e-30))
-    y1_scal = y1num*y1s*wty1 + y1b*(1.0 - wty1)
-    c1 = c1d*c1con*y1_scal; c2 = c2d*c2con
-    beta = del_freq / torch.clamp(fo, min=1.0e-30) * dbeta
-    y1 = c1*beta; y2 = c2*beta*beta
-    return _hprof4_gamma(n, m, beta, y1, y2, c1, c2, core, lorentz, dop, dopph_safe, fo, dbeta,
-                         gcon1, gcon2, pp_val, propbm, c_t, d_t, pp_t, beta_t, wlA,
-                         ifcore, dop_dom, lor_ge_stk)
+    y1_transition_scale = 320.0 if m > 3 else (550.0 if m == 2 else 380.0)
+    y1_density_weight = torch.as_tensor(1.0e14 if upper_minus_lower <= 3 else 1.0e13,
+                                        device=DEVICE, dtype=DTYPE)
+    if (upper_minus_lower <= 2 and 1 <= n <= 2
+            and n <= impact_density_weight_table.shape[0]
+            and upper_minus_lower <= impact_density_weight_table.shape[1]):
+        y1_density_weight = impact_density_weight_table[n-1, upper_minus_lower-1]
+    y1_density_mix = 1.0 / (
+        1.0 + torch.clamp(electron_density_col, min=0.0) / torch.clamp(y1_density_weight, min=1.0e-30)
+    )
+    y1_depth_scale = y1_transition_scale*y1_small_density*y1_density_mix + y1_large_density*(1.0 - y1_density_mix)
+    impact_c1 = impact_c1_depth*impact_c1_scale*y1_depth_scale
+    impact_c2 = impact_c2_depth*impact_c2_scale
+    beta_detuning = abs_detuning_hz / torch.clamp(normal_field, min=1.0e-30) * beta_scale
+    impact_y1 = impact_c1 * beta_detuning
+    impact_y2 = impact_c2 * beta_detuning * beta_detuning
+    return _hprof4_gamma(n, m, beta_detuning, impact_y1, impact_y2, impact_c1, impact_c2,
+                         core, lorentz, doppler_width_hz, doppler_fraction_safe, normal_field,
+                         beta_scale, gamma_correction_1, gamma_correction_2, pressure_value,
+                         propbm_table, wing_c_table, wing_d_table, pressure_grid, beta_grid, wavelength_A,
+                         in_dominant_core, doppler_dominates, lorentz_ge_stark)
 
 print("hydrogen_profile_grid (core + lorentz + impact setup) ready")''')
 
-md(r"""The impact width `gamma` and the final selection. The simple analytic `gamma_simple` is always computed; the exponential-integral form `gamma_ei` (using the vectorized $E_1$ on `y1`, `y2`) is selected where `use_ei` holds. The combined Stark piece is `(prqs*(1+fns) + f)` normalised by $F_0$. The closing `torch.where(ifcore, in_core_val, wing_val)` *is* the `if ifcore`/`else` of the scalar code — one straight-line selection over the whole grid.""")
+md(r"""The impact width `gamma` and the final selection. The simple analytic `gamma_simple` is always computed; the exponential-integral form `gamma_ei` (using the vectorized $E_1$ on `impact_y1`, `impact_y2`) is selected where the scalar thresholds hold. The combined Stark piece is `(quasi_static_profile*(1+nonstatic_correction) + impact_lorentzian)` normalised by $F_0$. The closing `torch.where(in_dominant_core, core_selected_value, wing_sum_value)` *is* the scalar core/wing branch — one straight-line selection over the whole grid.""")
 
-code(r'''def _hprof4_gamma(n, m, beta, y1, y2, c1, c2, core, lorentz, dop, dopph_safe, fo, dbeta,
-                  gcon1, gcon2, pp_val, propbm, c_t, d_t, pp_t, beta_t, wlA,
-                  ifcore, dop_dom, lor_ge_stk):
+code(r'''def _hprof4_gamma(n, m, beta, impact_y1, impact_y2, impact_c1, impact_c2,
+                  core, lorentz, doppler_width_hz, doppler_fraction_safe, normal_field, beta_scale,
+                  gamma_correction_1, gamma_correction_2, pressure_value,
+                  propbm_table, wing_c_table, wing_d_table, pressure_grid, beta_grid, wavelength_A,
+                  in_dominant_core, doppler_dominates, lorentz_ge_stark):
     """Finish HPROF4 by forming the Stark impact width and selecting the piece.
 
     `gamma_simple` and the exponential-integral form are both evaluated and
@@ -540,34 +624,51 @@ code(r'''def _hprof4_gamma(n, m, beta, y1, y2, c1, c2, core, lorentz, dop, dopph
     core only the dominant broadening component is returned; outside the core
     the Doppler, Lorentzian, and Stark contributions are summed.
     """
-    g1 = 6.77 * torch.sqrt(torch.clamp(c1, min=1.0e-30))
-    ratio = torch.where((c1 > 0.0) & (c2 > 0.0),
-                        torch.sqrt(torch.clamp(c2, min=0.0)) / torch.clamp(c1, min=1.0e-30),
-                        torch.zeros_like(c1))
-    log_term = torch.where(ratio > 0.0, torch.log(torch.clamp(ratio, min=1.0e-30)),
-                           torch.zeros_like(ratio))
-    gamma_simple = (g1 * torch.clamp(0.2114 + log_term, min=0.0)
-                    * (1.0 - gcon1 - gcon2)).expand_as(beta)        # simple analytic gamma (low y1)
-    gamma_ei = (g1 * (0.5*_fast_ex_gauss(torch.clamp(y1, max=80.0)) + _vcse1f_tensor(y1)
-                      - 0.5*_vcse1f_tensor(y2))                     # exponential-integral form
-                * (1.0 - gcon1/(1.0 + (90.0*y1)**3) - gcon2/(1.0 + 2000.0*y1)))
-    gamma = torch.where((y2 > 1.0e-4) & (y1 > 1.0e-5), gamma_ei, gamma_simple)
+    gamma_prefactor = 6.77 * torch.sqrt(torch.clamp(impact_c1, min=1.0e-30))
+    gamma_log_ratio = torch.where(
+        (impact_c1 > 0.0) & (impact_c2 > 0.0),
+        torch.sqrt(torch.clamp(impact_c2, min=0.0)) / torch.clamp(impact_c1, min=1.0e-30),
+        torch.zeros_like(impact_c1)
+    )
+    gamma_log_term = torch.where(gamma_log_ratio > 0.0,
+                                 torch.log(torch.clamp(gamma_log_ratio, min=1.0e-30)),
+                                 torch.zeros_like(gamma_log_ratio))
+    gamma_simple = (gamma_prefactor * torch.clamp(0.2114 + gamma_log_term, min=0.0)
+                    * (1.0 - gamma_correction_1 - gamma_correction_2)).expand_as(beta)
+    gamma_ei = (
+        gamma_prefactor
+        * (0.5*_fast_ex_gauss(torch.clamp(impact_y1, max=80.0))
+           + _vcse1f_tensor(impact_y1) - 0.5*_vcse1f_tensor(impact_y2))
+        * (1.0 - gamma_correction_1/(1.0 + (90.0*impact_y1)**3)
+           - gamma_correction_2/(1.0 + 2000.0*impact_y1))
+    )
+    gamma = torch.where((impact_y2 > 1.0e-4) & (impact_y1 > 1.0e-5), gamma_ei, gamma_simple)
 
-    den_f = gamma*gamma + beta*beta
-    den_f_safe = torch.where(den_f > 0.0, den_f, torch.ones_like(den_f))
-    f = torch.where(gamma > 0.0, gamma/math.pi/den_f_safe, torch.zeros_like(beta))  # impact Lorentzian
+    impact_denominator = gamma*gamma + beta*beta
+    impact_denominator_safe = torch.where(impact_denominator > 0.0,
+                                          impact_denominator,
+                                          torch.ones_like(impact_denominator))
+    impact_lorentzian = torch.where(gamma > 0.0, gamma/math.pi/impact_denominator_safe,
+                                    torch.zeros_like(beta))
 
-    prqs = sofbeta_grid(beta, pp_val, n, m, propbm, c_t, d_t, pp_t, beta_t)
-    p1 = (0.9*y1)**2; fns = (p1 + 0.03*torch.sqrt(torch.clamp(y1, min=0.0))) / (p1 + 1.0)
-    stark_core = (prqs*(1.0 + fns) + f) / torch.clamp(fo, min=1.0e-30) * dbeta * 1.77245 * dop
+    quasi_static_profile = sofbeta_grid(beta, pressure_value, n, m, propbm_table, wing_c_table,
+                                        wing_d_table, pressure_grid, beta_grid)
+    nonstatic_weight_sq = (0.9*impact_y1)**2
+    nonstatic_correction = (
+        nonstatic_weight_sq + 0.03*torch.sqrt(torch.clamp(impact_y1, min=0.0))
+    ) / (nonstatic_weight_sq + 1.0)
+    stark_core = ((quasi_static_profile*(1.0 + nonstatic_correction) + impact_lorentzian)
+                  / torch.clamp(normal_field, min=1.0e-30) * beta_scale * 1.77245 * doppler_width_hz)
 
     # --- select by the dominant width: dominant piece in the core, sum in the wing (all torch.where) ---
-    core_p = torch.clamp(core, min=0.0); lor_p = torch.clamp(lorentz, min=0.0)
-    stk_p = torch.clamp(stark_core, min=0.0)
-    in_core_val = torch.where(dop_dom, core_p, torch.where(lor_ge_stk, lor_p, stk_p))
-    wing_val = torch.clamp(core + lorentz + stark_core, min=0.0)
-    out = torch.where(ifcore, in_core_val, wing_val)
-    return torch.where(wlA > 0.0, out, torch.zeros_like(out))   # phi = 0 where wlA <= 0 (scalar guard)
+    nonnegative_core = torch.clamp(core, min=0.0)
+    nonnegative_lorentz = torch.clamp(lorentz, min=0.0)
+    nonnegative_stark = torch.clamp(stark_core, min=0.0)
+    core_selected_value = torch.where(doppler_dominates, nonnegative_core,
+                                      torch.where(lorentz_ge_stark, nonnegative_lorentz, nonnegative_stark))
+    wing_sum_value = torch.clamp(core + lorentz + stark_core, min=0.0)
+    selected_profile = torch.where(in_dominant_core, core_selected_value, wing_sum_value)
+    return torch.where(wavelength_A > 0.0, selected_profile, torch.zeros_like(selected_profile))
 
 print("hydrogen_profile_grid ready")''')
 

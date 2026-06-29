@@ -486,88 +486,122 @@ print(&quot;branchless FASTEX gather ready&quot;)" aria-label="Copy code">
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[8]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="def scatter_add_2d(kline, cols, vals, mask):
+        <button class="copy-btn" type="button" data-code="def scatter_add_2d(opacity_grid, column_index, deposit_values, deposit_mask):
     &quot;&quot;&quot;Center deposit: one column per line, masked, accumulated (index_put_(accumulate=True)).&quot;&quot;&quot;
-    n_w = kline.shape[1]
-    d = torch.arange(kline.shape[0], device=kline.device).view(-1, 1)
-    cols_b = cols.view(1, -1).expand(kline.shape[0], -1)
-    flat_idx = (d * n_w + cols_b)[mask]
-    flat_val = vals[mask].to(kline.dtype)
-    kline.view(-1).index_put_((flat_idx,), flat_val, accumulate=True)
+    wavelength_count = opacity_grid.shape[1]
+    depth_index = torch.arange(opacity_grid.shape[0], device=opacity_grid.device).view(-1, 1)
+    column_index_by_depth = column_index.view(1, -1).expand(opacity_grid.shape[0], -1)
+    flat_index = (depth_index * wavelength_count + column_index_by_depth)[deposit_mask]
+    flat_value = deposit_values[deposit_mask].to(opacity_grid.dtype)
+    opacity_grid.view(-1).index_put_((flat_index,), flat_value, accumulate=True)
 
-def scatter_add_3d(kline, cols, vals, mask):
+def scatter_add_3d(opacity_grid, column_index, deposit_values, deposit_mask):
     &quot;&quot;&quot;THE HOT PATH: the [depth, line, offset] wing block deposited in ONE batched atomic scatter.&quot;&quot;&quot;
-    n_w = kline.shape[1]
-    d = torch.arange(kline.shape[0], device=kline.device).view(-1, 1, 1)
-    flat_idx = (d * n_w + torch.clamp(cols, 0, n_w - 1))[mask]
-    flat_val = vals[mask].to(kline.dtype)
-    kline.view(-1).index_put_((flat_idx,), flat_val, accumulate=True)   # accumulate=True: overlaps ADD
+    wavelength_count = opacity_grid.shape[1]
+    depth_index = torch.arange(opacity_grid.shape[0], device=opacity_grid.device).view(-1, 1, 1)
+    safe_column_index = torch.clamp(column_index, 0, wavelength_count - 1)
+    flat_index = (depth_index * wavelength_count + safe_column_index)[deposit_mask]
+    flat_value = deposit_values[deposit_mask].to(opacity_grid.dtype)
+    opacity_grid.view(-1).index_put_((flat_index,), flat_value, accumulate=True)  # overlaps ADD
 print(&quot;scatter-add primitives ready (index_put_(accumulate=True) — the hot path)&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">scatter_add_2d</span>(<span class="hljs-params">kline, cols, vals, mask</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">scatter_add_2d</span>(<span class="hljs-params">opacity_grid, column_index, deposit_values, deposit_mask</span>):
     <span class="hljs-string">&quot;&quot;&quot;Center deposit: one column per line, masked, accumulated (index_put_(accumulate=True)).&quot;&quot;&quot;</span>
-    n_w = kline.shape[<span class="hljs-number">1</span>]
-    d = torch.arange(kline.shape[<span class="hljs-number">0</span>], device=kline.device).view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>)
-    cols_b = cols.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>).expand(kline.shape[<span class="hljs-number">0</span>], -<span class="hljs-number">1</span>)
-    flat_idx = (d * n_w + cols_b)[mask]
-    flat_val = vals[mask].to(kline.dtype)
-    kline.view(-<span class="hljs-number">1</span>).index_put_((flat_idx,), flat_val, accumulate=<span class="hljs-literal">True</span>)
+    wavelength_count = opacity_grid.shape[<span class="hljs-number">1</span>]
+    depth_index = torch.arange(opacity_grid.shape[<span class="hljs-number">0</span>], device=opacity_grid.device).view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>)
+    column_index_by_depth = column_index.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>).expand(opacity_grid.shape[<span class="hljs-number">0</span>], -<span class="hljs-number">1</span>)
+    flat_index = (depth_index * wavelength_count + column_index_by_depth)[deposit_mask]
+    flat_value = deposit_values[deposit_mask].to(opacity_grid.dtype)
+    opacity_grid.view(-<span class="hljs-number">1</span>).index_put_((flat_index,), flat_value, accumulate=<span class="hljs-literal">True</span>)
 
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">scatter_add_3d</span>(<span class="hljs-params">kline, cols, vals, mask</span>):
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">scatter_add_3d</span>(<span class="hljs-params">opacity_grid, column_index, deposit_values, deposit_mask</span>):
     <span class="hljs-string">&quot;&quot;&quot;THE HOT PATH: the [depth, line, offset] wing block deposited in ONE batched atomic scatter.&quot;&quot;&quot;</span>
-    n_w = kline.shape[<span class="hljs-number">1</span>]
-    d = torch.arange(kline.shape[<span class="hljs-number">0</span>], device=kline.device).view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, <span class="hljs-number">1</span>)
-    flat_idx = (d * n_w + torch.clamp(cols, <span class="hljs-number">0</span>, n_w - <span class="hljs-number">1</span>))[mask]
-    flat_val = vals[mask].to(kline.dtype)
-    kline.view(-<span class="hljs-number">1</span>).index_put_((flat_idx,), flat_val, accumulate=<span class="hljs-literal">True</span>)   <span class="hljs-comment"># accumulate=True: overlaps ADD</span>
+    wavelength_count = opacity_grid.shape[<span class="hljs-number">1</span>]
+    depth_index = torch.arange(opacity_grid.shape[<span class="hljs-number">0</span>], device=opacity_grid.device).view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, <span class="hljs-number">1</span>)
+    safe_column_index = torch.clamp(column_index, <span class="hljs-number">0</span>, wavelength_count - <span class="hljs-number">1</span>)
+    flat_index = (depth_index * wavelength_count + safe_column_index)[deposit_mask]
+    flat_value = deposit_values[deposit_mask].to(opacity_grid.dtype)
+    opacity_grid.view(-<span class="hljs-number">1</span>).index_put_((flat_index,), flat_value, accumulate=<span class="hljs-literal">True</span>)  <span class="hljs-comment"># overlaps ADD</span>
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;scatter-add primitives ready (index_put_(accumulate=True) — the hot path)&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">scatter-add primitives ready (index_put_(accumulate=True) — the hot path)
 </pre></div></div><div class="prose"><p><strong>The near-wing Harris walk, batched.</strong> The wing evaluates the <em>cheap</em> small-<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>a</mi></mrow><annotation encoding="application/x-tex">a</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal">a</span></span></span></span> two-term form (<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>h</mi><mn>0</mn></msub><mo>+</mo><mi>a</mi><mtext> </mtext><msub><mi>h</mi><mn>1</mn></msub></mrow><annotation encoding="application/x-tex">h_0 + a\,h_1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8444em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">h</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">0</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.8444em;vertical-align:-0.15em;"></span><span class="mord mathnormal">a</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">h</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>, with <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>0.5642</mn><mtext> </mtext><mi>a</mi><mi mathvariant="normal">/</mi><msup><mi>x</mi><mn>2</mn></msup></mrow><annotation encoding="application/x-tex">0.5642\,a/x^2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1.0641em;vertical-align:-0.25em;"></span><span class="mord">0.5642</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal">a</span><span class="mord">/</span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span></span></span></span> for <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>x</mi><mo>&gt;</mo><mn>10</mn></mrow><annotation encoding="application/x-tex">x&gt;10</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5782em;vertical-align:-0.0391em;"></span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">&gt;</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">10</span></span></span></span>) where <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>a</mi><mo>&lt;</mo><mn>0.2</mn></mrow><annotation encoding="application/x-tex">a&lt;0.2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5782em;vertical-align:-0.0391em;"></span><span class="mord mathnormal">a</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">&lt;</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">0.2</span></span></span></span>, and the full <code>voigt_H_grid</code> otherwise — selected branchlessly over the whole <code>[depth, line, offset]</code> block. This <code>_harris_hav_walk</code> is the per-offset profile evaluator the reach scan and the walk core both call.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[9]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="def harris_hav_walk(x, a, h0tab, h1tab, h2tab, small, branch_oracle=None):
+        <button class="copy-btn" type="button" data-code="def harris_hav_walk(reduced_frequency, damping_a, h0tab, h1tab, h2tab,
+                    small_damping_mask, branch_oracle=None):
     &quot;&quot;&quot;Profile over the [depth, line, offset] block: cheap small-a 2-term form OR full H(a,v),
     selected branchlessly (port _harris_hav_walk).&quot;&quot;&quot;
-    av = x.abs()
-    iv = torch.clamp((av * 200.0 + 0.5).to(torch.int64), 0, h0tab.numel() - 1)
+    abs_reduced_frequency = reduced_frequency.abs()
+    harris_table_index = torch.clamp(
+        (abs_reduced_frequency * 200.0 + 0.5).to(torch.int64), 0, h0tab.numel() - 1)
     if branch_oracle is not None:
-        iv = branch_oracle[&quot;iv&quot;]
-    h0 = h0tab[iv]; h1 = h1tab[iv]
-    x2 = torch.where(x * x &gt; 0.0, x * x, torch.ones_like(x))
-    cheap_tail = 0.5642 * a / x2                                 # x&gt;10 Lorentzian tail
-    cheap_core = h0 + a * h1                                     # small-a 2-term table form
-    tail_mask = av &gt; 10.0
+        harris_table_index = branch_oracle[&quot;iv&quot;]
+    h0_values = h0tab[harris_table_index]
+    h1_values = h1tab[harris_table_index]
+    reduced_frequency_squared = torch.where(
+        reduced_frequency * reduced_frequency &gt; 0.0,
+        reduced_frequency * reduced_frequency,
+        torch.ones_like(reduced_frequency),
+    )
+    cheap_tail_profile = 0.5642 * damping_a / reduced_frequency_squared
+    cheap_table_profile = h0_values + damping_a * h1_values
+    tail_mask = abs_reduced_frequency &gt; 10.0
     if branch_oracle is not None:
         tail_mask = branch_oracle[&quot;low_tail&quot;]
-        small = branch_oracle[&quot;low&quot;]
-    cheap = torch.where(tail_mask, cheap_tail, cheap_core)
-    full = voigt_H_grid(x, a.expand_as(x) if a.shape != x.shape else a,
-                        h0tab, h1tab, h2tab, branch_oracle=branch_oracle)
-    return torch.where(small.expand_as(x) if small.shape != x.shape else small, cheap, full)
+        small_damping_mask = branch_oracle[&quot;low&quot;]
+    cheap_profile = torch.where(tail_mask, cheap_tail_profile, cheap_table_profile)
+    damping_for_full_profile = (
+        damping_a.expand_as(reduced_frequency)
+        if damping_a.shape != reduced_frequency.shape else damping_a
+    )
+    full_profile = voigt_H_grid(
+        reduced_frequency, damping_for_full_profile, h0tab, h1tab, h2tab,
+        branch_oracle=branch_oracle)
+    small_mask_for_offsets = (
+        small_damping_mask.expand_as(reduced_frequency)
+        if small_damping_mask.shape != reduced_frequency.shape else small_damping_mask
+    )
+    return torch.where(small_mask_for_offsets, cheap_profile, full_profile)
 print(&quot;batched near-wing Harris walk ready&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">harris_hav_walk</span>(<span class="hljs-params">x, a, h0tab, h1tab, h2tab, small, branch_oracle=<span class="hljs-literal">None</span></span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">harris_hav_walk</span>(<span class="hljs-params">reduced_frequency, damping_a, h0tab, h1tab, h2tab,
+                    small_damping_mask, branch_oracle=<span class="hljs-literal">None</span></span>):
     <span class="hljs-string">&quot;&quot;&quot;Profile over the [depth, line, offset] block: cheap small-a 2-term form OR full H(a,v),
     selected branchlessly (port _harris_hav_walk).&quot;&quot;&quot;</span>
-    av = x.<span class="hljs-built_in">abs</span>()
-    iv = torch.clamp((av * <span class="hljs-number">200.0</span> + <span class="hljs-number">0.5</span>).to(torch.int64), <span class="hljs-number">0</span>, h0tab.numel() - <span class="hljs-number">1</span>)
+    abs_reduced_frequency = reduced_frequency.<span class="hljs-built_in">abs</span>()
+    harris_table_index = torch.clamp(
+        (abs_reduced_frequency * <span class="hljs-number">200.0</span> + <span class="hljs-number">0.5</span>).to(torch.int64), <span class="hljs-number">0</span>, h0tab.numel() - <span class="hljs-number">1</span>)
     <span class="hljs-keyword">if</span> branch_oracle <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span>:
-        iv = branch_oracle[<span class="hljs-string">&quot;iv&quot;</span>]
-    h0 = h0tab[iv]; h1 = h1tab[iv]
-    x2 = torch.where(x * x &gt; <span class="hljs-number">0.0</span>, x * x, torch.ones_like(x))
-    cheap_tail = <span class="hljs-number">0.5642</span> * a / x2                                 <span class="hljs-comment"># x&gt;10 Lorentzian tail</span>
-    cheap_core = h0 + a * h1                                     <span class="hljs-comment"># small-a 2-term table form</span>
-    tail_mask = av &gt; <span class="hljs-number">10.0</span>
+        harris_table_index = branch_oracle[<span class="hljs-string">&quot;iv&quot;</span>]
+    h0_values = h0tab[harris_table_index]
+    h1_values = h1tab[harris_table_index]
+    reduced_frequency_squared = torch.where(
+        reduced_frequency * reduced_frequency &gt; <span class="hljs-number">0.0</span>,
+        reduced_frequency * reduced_frequency,
+        torch.ones_like(reduced_frequency),
+    )
+    cheap_tail_profile = <span class="hljs-number">0.5642</span> * damping_a / reduced_frequency_squared
+    cheap_table_profile = h0_values + damping_a * h1_values
+    tail_mask = abs_reduced_frequency &gt; <span class="hljs-number">10.0</span>
     <span class="hljs-keyword">if</span> branch_oracle <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span>:
         tail_mask = branch_oracle[<span class="hljs-string">&quot;low_tail&quot;</span>]
-        small = branch_oracle[<span class="hljs-string">&quot;low&quot;</span>]
-    cheap = torch.where(tail_mask, cheap_tail, cheap_core)
-    full = voigt_H_grid(x, a.expand_as(x) <span class="hljs-keyword">if</span> a.shape != x.shape <span class="hljs-keyword">else</span> a,
-                        h0tab, h1tab, h2tab, branch_oracle=branch_oracle)
-    <span class="hljs-keyword">return</span> torch.where(small.expand_as(x) <span class="hljs-keyword">if</span> small.shape != x.shape <span class="hljs-keyword">else</span> small, cheap, full)
+        small_damping_mask = branch_oracle[<span class="hljs-string">&quot;low&quot;</span>]
+    cheap_profile = torch.where(tail_mask, cheap_tail_profile, cheap_table_profile)
+    damping_for_full_profile = (
+        damping_a.expand_as(reduced_frequency)
+        <span class="hljs-keyword">if</span> damping_a.shape != reduced_frequency.shape <span class="hljs-keyword">else</span> damping_a
+    )
+    full_profile = voigt_H_grid(
+        reduced_frequency, damping_for_full_profile, h0tab, h1tab, h2tab,
+        branch_oracle=branch_oracle)
+    small_mask_for_offsets = (
+        small_damping_mask.expand_as(reduced_frequency)
+        <span class="hljs-keyword">if</span> small_damping_mask.shape != reduced_frequency.shape <span class="hljs-keyword">else</span> small_damping_mask
+    )
+    <span class="hljs-keyword">return</span> torch.where(small_mask_for_offsets, cheap_profile, full_profile)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;batched near-wing Harris walk ready&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">batched near-wing Harris walk ready
 </pre></div></div><div class="prose"><p><strong><code>_wing_reach_batched</code> — every pair&#39;s reach, at once.</strong> This is the tensor recasting of Stage 1 + Stage 2 of <code>process_wing_pair</code>. It computes, for the whole <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">[</mo><mtext>depth</mtext><mo separator="true">,</mo><mtext>line</mtext><mo stretchy="false">]</mo></mrow><annotation encoding="application/x-tex">[\text{depth},\text{line}]</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">[</span><span class="mord text"><span class="mord">depth</span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord text"><span class="mord">line</span></span><span class="mclose">]</span></span></span></span> batch: the fractional Doppler width and the per-step <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>v</mi></mrow><annotation encoding="application/x-tex">v</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">v</span></span></span></span> increment <code>dvoigt</code>; the last near-wing step <code>n10dop</code> (<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>10</mn><mtext> </mtext><msub><mi>v</mi><mi>D</mi></msub></mrow><annotation encoding="application/x-tex">10\,v_D</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7944em;vertical-align:-0.15em;"></span><span class="mord">10</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.03588em;">v</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:-0.0359em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.02778em;">D</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>); a batched <code>[depth, line, step]</code> scan of the cheap profile that finds where each pair first drops below the cutoff (<code>first_below</code> via <code>argmax</code> on the boolean — no per-line <code>break</code>); the far-wing anchor <code>x_far</code> and the analytic far reach; and the final per-pair <code>maxstep</code>. Transcribed from the validated implementation.</p>
@@ -580,44 +614,47 @@ print(&quot;batched near-wing Harris walk ready&quot;)" aria-label="Copy code">
 )
 MAX_PROFILE_STEPS = 1_000_000
 
-def wing_reach_batched(kappa0_wing, a_w, doppler_width, wl, kapmin_ref, wing_pairs,
-                       resolu, h0tab, h1tab, h2tab):
+def wing_reach_batched(kappa0_wing, damping_a, doppler_width, line_wavelength,
+                       wing_cutoff, wing_pair_mask, resolu, h0tab, h1tab, h2tab):
     &quot;&quot;&quot;Reach geometry for the WHOLE [depth, line] batch (port _wing_reach_batched): near-wing
     cutoff step, far-wing anchor x_far + analytic reach, per-pair maxstep. No per-line loop.&quot;&quot;&quot;
     doppler_fraction = torch.where(
-        (doppler_width &gt; 0.0) &amp; (wl.view(1, -1) &gt; 0.0),
-        doppler_width / wl.view(1, -1), torch.full_like(doppler_width, 1.0e-10))
-    active = (doppler_width &gt; 0.0) &amp; wing_pairs
+        (doppler_width &gt; 0.0) &amp; (line_wavelength.view(1, -1) &gt; 0.0),
+        doppler_width / line_wavelength.view(1, -1),
+        torch.full_like(doppler_width, 1.0e-10))
+    active_wing_pairs = (doppler_width &gt; 0.0) &amp; wing_pair_mask
     n10dop = (10.0 * doppler_fraction * resolu).to(torch.int64)
     dvoigt = torch.where(doppler_fraction &gt; 0.0, 1.0 / (doppler_fraction * resolu),
                          torch.ones_like(doppler_fraction))
-    small = a_w &lt; 0.2
+    small_damping_mask = damping_a &lt; 0.2
 
     nstep_cutoff = n10dop.clone()
-    broke = torch.zeros_like(active)
+    reached_near_cutoff = torch.zeros_like(active_wing_pairs)
     profile_at_n10dop = torch.zeros_like(doppler_fraction)
 
     # JUSTIFY: one scalar reach bound orchestrates a single batched near-wing launch.
-    max_n10 = int(n10dop[active].max().item()) if bool(active.any()) else 0
+    max_n10 = int(n10dop[active_wing_pairs].max().item()) if bool(active_wing_pairs.any()) else 0
     if max_n10 &gt;= 1:
         # batched [depth, line, step] near-wing scan (no per-line break)
         steps = torch.arange(1, max_n10 + 1, device=dvoigt.device, dtype=torch.int64)
-        x = steps.view(1, 1, -1).to(dvoigt.dtype) * dvoigt[:, :, None]
-        h = harris_hav_walk(x, a_w[:, :, None], h0tab, h1tab, h2tab, small[:, :, None])
-        pv = kappa0_wing[:, :, None] * h
+        reduced_frequency = steps.view(1, 1, -1).to(dvoigt.dtype) * dvoigt[:, :, None]
+        profile_shape = harris_hav_walk(
+            reduced_frequency, damping_a[:, :, None], h0tab, h1tab, h2tab,
+            small_damping_mask[:, :, None])
+        profile_values = kappa0_wing[:, :, None] * profile_shape
         within = steps.view(1, 1, -1) &lt;= n10dop[:, :, None]
-        below = (pv &lt; kapmin_ref[:, :, None]) &amp; within
-        any_below = below.any(dim=2)
-        first_below = torch.argmax(below.to(torch.int64), dim=2) + 1      # where it first drops
-        nstep_cutoff = torch.where(any_below, first_below, n10dop)
-        broke = any_below
+        below_cutoff = (profile_values &lt; wing_cutoff[:, :, None]) &amp; within
+        has_cutoff_hit = below_cutoff.any(dim=2)
+        first_below_cutoff = torch.argmax(below_cutoff.to(torch.int64), dim=2) + 1
+        nstep_cutoff = torch.where(has_cutoff_hit, first_below_cutoff, n10dop)
+        reached_near_cutoff = has_cutoff_hit
         n10_col = torch.clamp(n10dop - 1, min=0)
         profile_at_n10dop = torch.where(
-            n10dop &gt;= 1, pv.gather(2, n10_col[:, :, None]).squeeze(2),
+            n10dop &gt;= 1, profile_values.gather(2, n10_col[:, :, None]).squeeze(2),
             torch.zeros_like(doppler_fraction))
 
-    never = (~broke) &amp; (n10dop &gt;= 1)
-    nstep_cutoff = torch.where(never, torch.full_like(nstep_cutoff, -1), nstep_cutoff)
+    reached_far_wing = (~reached_near_cutoff) &amp; (n10dop &gt;= 1)
+    nstep_cutoff = torch.where(reached_far_wing, torch.full_like(nstep_cutoff, -1), nstep_cutoff)
     use_far = nstep_cutoff == -1
 
     # far wing: profile * n^2 is constant in 1/v^2; reach where x_far/n^2 falls below the cutoff
@@ -625,15 +662,15 @@ def wing_reach_batched(kappa0_wing, a_w, doppler_width, wl, kapmin_ref, wing_pai
         (n10dop &gt; 0) &amp; (profile_at_n10dop &gt; 0.0),
         profile_at_n10dop * n10dop.to(doppler_fraction.dtype) * n10dop.to(doppler_fraction.dtype),
         torch.zeros_like(doppler_fraction))
-    safe_kapmin = torch.where(kapmin_ref &gt; 0.0, kapmin_ref, torch.ones_like(kapmin_ref))
+    safe_wing_cutoff = torch.where(wing_cutoff &gt; 0.0, wing_cutoff, torch.ones_like(wing_cutoff))
     far_reach_pos = torch.where(
-        kapmin_ref &gt; 0.0, (torch.sqrt(x_far / safe_kapmin) + 1.0).to(torch.int64),
+        wing_cutoff &gt; 0.0, (torch.sqrt(x_far / safe_wing_cutoff) + 1.0).to(torch.int64),
         torch.full_like(n10dop, MAX_PROFILE_STEPS))
     far_reach = torch.where((n10dop &gt; 0) &amp; (x_far &gt; 0.0), far_reach_pos, torch.zeros_like(n10dop))
     far_reach = torch.clamp(far_reach, max=MAX_PROFILE_STEPS)
 
     maxstep = torch.where(use_far, far_reach, nstep_cutoff)
-    maxstep = torch.where(active, maxstep, torch.zeros_like(maxstep))
+    maxstep = torch.where(active_wing_pairs, maxstep, torch.zeros_like(maxstep))
     return maxstep, use_far, n10dop, dvoigt, x_far
 print(&quot;batched wing-reach geometry ready&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
@@ -644,44 +681,47 @@ print(&quot;batched wing-reach geometry ready&quot;)" aria-label="Copy code">
 )
 MAX_PROFILE_STEPS = <span class="hljs-number">1_000_000</span>
 
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">wing_reach_batched</span>(<span class="hljs-params">kappa0_wing, a_w, doppler_width, wl, kapmin_ref, wing_pairs,
-                       resolu, h0tab, h1tab, h2tab</span>):
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">wing_reach_batched</span>(<span class="hljs-params">kappa0_wing, damping_a, doppler_width, line_wavelength,
+                       wing_cutoff, wing_pair_mask, resolu, h0tab, h1tab, h2tab</span>):
     <span class="hljs-string">&quot;&quot;&quot;Reach geometry for the WHOLE [depth, line] batch (port _wing_reach_batched): near-wing
     cutoff step, far-wing anchor x_far + analytic reach, per-pair maxstep. No per-line loop.&quot;&quot;&quot;</span>
     doppler_fraction = torch.where(
-        (doppler_width &gt; <span class="hljs-number">0.0</span>) &amp; (wl.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>) &gt; <span class="hljs-number">0.0</span>),
-        doppler_width / wl.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>), torch.full_like(doppler_width, <span class="hljs-number">1.0e-10</span>))
-    active = (doppler_width &gt; <span class="hljs-number">0.0</span>) &amp; wing_pairs
+        (doppler_width &gt; <span class="hljs-number">0.0</span>) &amp; (line_wavelength.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>) &gt; <span class="hljs-number">0.0</span>),
+        doppler_width / line_wavelength.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>),
+        torch.full_like(doppler_width, <span class="hljs-number">1.0e-10</span>))
+    active_wing_pairs = (doppler_width &gt; <span class="hljs-number">0.0</span>) &amp; wing_pair_mask
     n10dop = (<span class="hljs-number">10.0</span> * doppler_fraction * resolu).to(torch.int64)
     dvoigt = torch.where(doppler_fraction &gt; <span class="hljs-number">0.0</span>, <span class="hljs-number">1.0</span> / (doppler_fraction * resolu),
                          torch.ones_like(doppler_fraction))
-    small = a_w &lt; <span class="hljs-number">0.2</span>
+    small_damping_mask = damping_a &lt; <span class="hljs-number">0.2</span>
 
     nstep_cutoff = n10dop.clone()
-    broke = torch.zeros_like(active)
+    reached_near_cutoff = torch.zeros_like(active_wing_pairs)
     profile_at_n10dop = torch.zeros_like(doppler_fraction)
 
     <span class="hljs-comment"># JUSTIFY: one scalar reach bound orchestrates a single batched near-wing launch.</span>
-    max_n10 = <span class="hljs-built_in">int</span>(n10dop[active].<span class="hljs-built_in">max</span>().item()) <span class="hljs-keyword">if</span> <span class="hljs-built_in">bool</span>(active.<span class="hljs-built_in">any</span>()) <span class="hljs-keyword">else</span> <span class="hljs-number">0</span>
+    max_n10 = <span class="hljs-built_in">int</span>(n10dop[active_wing_pairs].<span class="hljs-built_in">max</span>().item()) <span class="hljs-keyword">if</span> <span class="hljs-built_in">bool</span>(active_wing_pairs.<span class="hljs-built_in">any</span>()) <span class="hljs-keyword">else</span> <span class="hljs-number">0</span>
     <span class="hljs-keyword">if</span> max_n10 &gt;= <span class="hljs-number">1</span>:
         <span class="hljs-comment"># batched [depth, line, step] near-wing scan (no per-line break)</span>
         steps = torch.arange(<span class="hljs-number">1</span>, max_n10 + <span class="hljs-number">1</span>, device=dvoigt.device, dtype=torch.int64)
-        x = steps.view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>).to(dvoigt.dtype) * dvoigt[:, :, <span class="hljs-literal">None</span>]
-        h = harris_hav_walk(x, a_w[:, :, <span class="hljs-literal">None</span>], h0tab, h1tab, h2tab, small[:, :, <span class="hljs-literal">None</span>])
-        pv = kappa0_wing[:, :, <span class="hljs-literal">None</span>] * h
+        reduced_frequency = steps.view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>).to(dvoigt.dtype) * dvoigt[:, :, <span class="hljs-literal">None</span>]
+        profile_shape = harris_hav_walk(
+            reduced_frequency, damping_a[:, :, <span class="hljs-literal">None</span>], h0tab, h1tab, h2tab,
+            small_damping_mask[:, :, <span class="hljs-literal">None</span>])
+        profile_values = kappa0_wing[:, :, <span class="hljs-literal">None</span>] * profile_shape
         within = steps.view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>) &lt;= n10dop[:, :, <span class="hljs-literal">None</span>]
-        below = (pv &lt; kapmin_ref[:, :, <span class="hljs-literal">None</span>]) &amp; within
-        any_below = below.<span class="hljs-built_in">any</span>(dim=<span class="hljs-number">2</span>)
-        first_below = torch.argmax(below.to(torch.int64), dim=<span class="hljs-number">2</span>) + <span class="hljs-number">1</span>      <span class="hljs-comment"># where it first drops</span>
-        nstep_cutoff = torch.where(any_below, first_below, n10dop)
-        broke = any_below
+        below_cutoff = (profile_values &lt; wing_cutoff[:, :, <span class="hljs-literal">None</span>]) &amp; within
+        has_cutoff_hit = below_cutoff.<span class="hljs-built_in">any</span>(dim=<span class="hljs-number">2</span>)
+        first_below_cutoff = torch.argmax(below_cutoff.to(torch.int64), dim=<span class="hljs-number">2</span>) + <span class="hljs-number">1</span>
+        nstep_cutoff = torch.where(has_cutoff_hit, first_below_cutoff, n10dop)
+        reached_near_cutoff = has_cutoff_hit
         n10_col = torch.clamp(n10dop - <span class="hljs-number">1</span>, <span class="hljs-built_in">min</span>=<span class="hljs-number">0</span>)
         profile_at_n10dop = torch.where(
-            n10dop &gt;= <span class="hljs-number">1</span>, pv.gather(<span class="hljs-number">2</span>, n10_col[:, :, <span class="hljs-literal">None</span>]).squeeze(<span class="hljs-number">2</span>),
+            n10dop &gt;= <span class="hljs-number">1</span>, profile_values.gather(<span class="hljs-number">2</span>, n10_col[:, :, <span class="hljs-literal">None</span>]).squeeze(<span class="hljs-number">2</span>),
             torch.zeros_like(doppler_fraction))
 
-    never = (~broke) &amp; (n10dop &gt;= <span class="hljs-number">1</span>)
-    nstep_cutoff = torch.where(never, torch.full_like(nstep_cutoff, -<span class="hljs-number">1</span>), nstep_cutoff)
+    reached_far_wing = (~reached_near_cutoff) &amp; (n10dop &gt;= <span class="hljs-number">1</span>)
+    nstep_cutoff = torch.where(reached_far_wing, torch.full_like(nstep_cutoff, -<span class="hljs-number">1</span>), nstep_cutoff)
     use_far = nstep_cutoff == -<span class="hljs-number">1</span>
 
     <span class="hljs-comment"># far wing: profile * n^2 is constant in 1/v^2; reach where x_far/n^2 falls below the cutoff</span>
@@ -689,15 +729,15 @@ MAX_PROFILE_STEPS = <span class="hljs-number">1_000_000</span>
         (n10dop &gt; <span class="hljs-number">0</span>) &amp; (profile_at_n10dop &gt; <span class="hljs-number">0.0</span>),
         profile_at_n10dop * n10dop.to(doppler_fraction.dtype) * n10dop.to(doppler_fraction.dtype),
         torch.zeros_like(doppler_fraction))
-    safe_kapmin = torch.where(kapmin_ref &gt; <span class="hljs-number">0.0</span>, kapmin_ref, torch.ones_like(kapmin_ref))
+    safe_wing_cutoff = torch.where(wing_cutoff &gt; <span class="hljs-number">0.0</span>, wing_cutoff, torch.ones_like(wing_cutoff))
     far_reach_pos = torch.where(
-        kapmin_ref &gt; <span class="hljs-number">0.0</span>, (torch.sqrt(x_far / safe_kapmin) + <span class="hljs-number">1.0</span>).to(torch.int64),
+        wing_cutoff &gt; <span class="hljs-number">0.0</span>, (torch.sqrt(x_far / safe_wing_cutoff) + <span class="hljs-number">1.0</span>).to(torch.int64),
         torch.full_like(n10dop, MAX_PROFILE_STEPS))
     far_reach = torch.where((n10dop &gt; <span class="hljs-number">0</span>) &amp; (x_far &gt; <span class="hljs-number">0.0</span>), far_reach_pos, torch.zeros_like(n10dop))
     far_reach = torch.clamp(far_reach, <span class="hljs-built_in">max</span>=MAX_PROFILE_STEPS)
 
     maxstep = torch.where(use_far, far_reach, nstep_cutoff)
-    maxstep = torch.where(active, maxstep, torch.zeros_like(maxstep))
+    maxstep = torch.where(active_wing_pairs, maxstep, torch.zeros_like(maxstep))
     <span class="hljs-keyword">return</span> maxstep, use_far, n10dop, dvoigt, x_far
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;batched wing-reach geometry ready&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">batched wing-reach geometry ready
@@ -705,7 +745,7 @@ MAX_PROFILE_STEPS = <span class="hljs-number">1_000_000</span>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[11]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="def harris_branch_oracle(a64, dvoigt64, W, device, h0tab, h1tab, h2tab):
+        <button class="copy-btn" type="button" data-code="def harris_branch_oracle(damping_a_fp64, dvoigt_fp64, tier_width, device, h0tab, h1tab, h2tab):
     &quot;&quot;&quot;Build branch decisions for the Harris Voigt walk in CPU/fp64.
 
     The production wing walk runs in fp32 on the active device, but the Harris
@@ -714,88 +754,101 @@ MAX_PROFILE_STEPS = <span class="hljs-number">1_000_000</span>
     in fp64, then ships compact tensors back to the profile kernel.  The returned
     masks have the same broadcast shape as the offset block, [depth, line, W].
     &quot;&quot;&quot;
-    offs = torch.arange(1, W + 1, dtype=torch.float64, device=torch.device(&quot;cpu&quot;))
-    x = dvoigt64[:, :, None] * offs.view(1, 1, -1)
-    av = x.abs()
+    offsets = torch.arange(1, tier_width + 1, dtype=torch.float64, device=torch.device(&quot;cpu&quot;))
+    reduced_frequency = dvoigt_fp64[:, :, None] * offsets.view(1, 1, -1)
+    abs_reduced_frequency = reduced_frequency.abs()
     h0tab64 = h0tab.detach().cpu().to(torch.float64)
     h1tab64 = h1tab.detach().cpu().to(torch.float64)
     h2tab64 = h2tab.detach().cpu().to(torch.float64)
-    iv = torch.clamp((av * 200.0 + 0.5).to(torch.int64), 0, h0tab64.numel() - 1)
-    a3 = a64[:, :, None]
-    low = (a3 &lt; 0.2).expand_as(av)
-    far = (a3 &gt; 1.4) | ((a3 + av) &gt; 3.2)
+    harris_table_index = torch.clamp(
+        (abs_reduced_frequency * 200.0 + 0.5).to(torch.int64), 0, h0tab64.numel() - 1)
+    damping_a_block = damping_a_fp64[:, :, None]
+    low = (damping_a_block &lt; 0.2).expand_as(abs_reduced_frequency)
+    far = (damping_a_block &gt; 1.4) | ((damping_a_block + abs_reduced_frequency) &gt; 3.2)
     mid_mask = (~low) &amp; (~far)
 
     # The intermediate Harris polynomial is the only cancellation-prone branch: fp32 alone
     # reaches 1.12e-6 on isolated, single-contributor core pixels.  Evaluate just those compact
     # core points in fp64; low/far profiles and every scatter remain MPS-resident.
-    mid_value = torch.zeros_like(av)
+    mid_value = torch.zeros_like(abs_reduced_frequency)
     if bool(mid_mask.any()):
-        aa = a3.expand_as(av)[mid_mask]; vv = (x * x)[mid_mask]
-        ivm = iv[mid_mask]
-        h0 = h0tab64[ivm]; h1r = h1tab64[ivm]; h2r = h2tab64[ivm]
-        h1 = h1r + h0 * 1.12838
-        h2 = h2r + h1 * 1.12838 - h0
-        h3 = (1.0 - h2r) * 0.37613 - h1 * 0.66667 * vv + h2 * 1.12838
-        h4 = (3.0 * h3 - h1) * 0.37613 + h0 * 0.66667 * vv * vv
-        pa = (((h4 * aa + h3) * aa + h2) * aa + h1) * aa + h0
-        pb = ((-0.122727278 * aa + 0.532770573) * aa - 0.96284325) * aa + 0.979895032
-        mid_value[mid_mask] = pa * pb
+        damping_mid = damping_a_block.expand_as(abs_reduced_frequency)[mid_mask]
+        reduced_frequency_sq_mid = (reduced_frequency * reduced_frequency)[mid_mask]
+        table_index_mid = harris_table_index[mid_mask]
+        h0_mid = h0tab64[table_index_mid]
+        h1_raw_mid = h1tab64[table_index_mid]
+        h2_raw_mid = h2tab64[table_index_mid]
+        h1_mid = h1_raw_mid + h0_mid * 1.12838
+        h2_mid = h2_raw_mid + h1_mid * 1.12838 - h0_mid
+        h3_mid = ((1.0 - h2_raw_mid) * 0.37613
+                  - h1_mid * 0.66667 * reduced_frequency_sq_mid
+                  + h2_mid * 1.12838)
+        h4_mid = ((3.0 * h3_mid - h1_mid) * 0.37613
+                  + h0_mid * 0.66667 * reduced_frequency_sq_mid * reduced_frequency_sq_mid)
+        numerator_poly = (
+            (((h4_mid * damping_mid + h3_mid) * damping_mid + h2_mid) * damping_mid
+             + h1_mid) * damping_mid + h0_mid)
+        damping_blend = (
+            ((-0.122727278 * damping_mid + 0.532770573) * damping_mid - 0.96284325)
+            * damping_mid + 0.979895032)
+        mid_value[mid_mask] = numerator_poly * damping_blend
     return {
-        &quot;iv&quot;: iv.to(device=device),
-        &quot;low_tail&quot;: (av &gt; 10.0).to(device=device),
+        &quot;iv&quot;: harris_table_index.to(device=device),
+        &quot;low_tail&quot;: (abs_reduced_frequency &gt; 10.0).to(device=device),
         &quot;far&quot;: far.to(device=device),
         &quot;low&quot;: low.to(device=device),
         &quot;mid_mask&quot;: mid_mask.to(device=device),
         &quot;mid_value&quot;: mid_value.to(dtype=torch.float32, device=device),
     }
 
-def wing_walk_core(kline, ci, kappa0_wing, a_w, maxstep, use_far, n10dop, dvoigt, x_far, n_w,
-                   h0tab, h1tab, h2tab, a64=None, dvoigt64=None):
+def wing_walk_core(opacity_grid, center_columns, kappa0_wing, damping_a, maxstep, use_far,
+                   n10dop, dvoigt, x_far, wavelength_count, h0tab, h1tab, h2tab,
+                   damping_a_fp64=None, dvoigt_fp64=None):
     &quot;&quot;&quot;Deposit one reach tier of ordinary-line opacity into both wavelength wings.
 
     `maxstep` gives the per-depth/per-line outward reach for this tier.  The
     function evaluates all offsets 1..W as one [depth, line, offset] block,
     switches from the near Harris profile to the far 1/offset^2 continuation
-    where requested, and scatters the surviving red and blue pixels into `kline`.
+    where requested, and scatters the surviving red and blue pixels into `opacity_grid`.
     &quot;&quot;&quot;
-    if ci.numel() == 0:
+    if center_columns.numel() == 0:
         return
     # JUSTIFY: one scalar tier width orchestrates a batched MPS profile/scatter launch.
-    W = int(maxstep.max().item())
-    if W &lt;= 0:
+    tier_width = int(maxstep.max().item())
+    if tier_width &lt;= 0:
         return
-    offs = torch.arange(1, W + 1, device=kline.device, dtype=torch.int64)
-    within = offs.view(1, 1, -1) &lt;= maxstep[:, :, None]
+    offsets = torch.arange(1, tier_width + 1, device=opacity_grid.device, dtype=torch.int64)
+    within_reach = offsets.view(1, 1, -1) &lt;= maxstep[:, :, None]
 
-    x = offs.view(1, 1, -1).to(dvoigt.dtype) * dvoigt[:, :, None]
-    small = a_w &lt; 0.2
+    reduced_frequency = offsets.view(1, 1, -1).to(dvoigt.dtype) * dvoigt[:, :, None]
+    small_damping_mask = damping_a &lt; 0.2
     branch_oracle = None
-    if a64 is not None and dvoigt64 is not None:
+    if damping_a_fp64 is not None and dvoigt_fp64 is not None:
         branch_oracle = harris_branch_oracle(
-            a64, dvoigt64, W, kline.device, h0tab, h1tab, h2tab)
-    h = harris_hav_walk(x, a_w[:, :, None], h0tab, h1tab, h2tab, small[:, :, None],
-                        branch_oracle=branch_oracle)
-    pv_near = kappa0_wing[:, :, None] * h
+            damping_a_fp64, dvoigt_fp64, tier_width, opacity_grid.device, h0tab, h1tab, h2tab)
+    near_profile_shape = harris_hav_walk(
+        reduced_frequency, damping_a[:, :, None], h0tab, h1tab, h2tab,
+        small_damping_mask[:, :, None], branch_oracle=branch_oracle)
+    near_profile_values = kappa0_wing[:, :, None] * near_profile_shape
 
-    far_mask = use_far[:, :, None] &amp; (offs.view(1, 1, -1) &gt; n10dop[:, :, None])
-    offs_f = offs.view(1, 1, -1).to(x.dtype)
-    pv_far = x_far[:, :, None] / (offs_f * offs_f)
-    pv = torch.where(far_mask, pv_far, pv_near)
-    pv = torch.where(within, pv, torch.zeros_like(pv))
+    far_wing_mask = use_far[:, :, None] &amp; (offsets.view(1, 1, -1) &gt; n10dop[:, :, None])
+    offsets_float = offsets.view(1, 1, -1).to(reduced_frequency.dtype)
+    far_profile_values = x_far[:, :, None] / (offsets_float * offsets_float)
+    profile_values = torch.where(far_wing_mask, far_profile_values, near_profile_values)
+    profile_values = torch.where(within_reach, profile_values, torch.zeros_like(profile_values))
 
-    ci_b = ci.view(1, -1, 1)
-    red_j = (ci_b + offs.view(1, 1, -1)).expand(kline.shape[0], -1, -1)   # toward longer wavelengths
-    blue_j = (ci_b - offs.view(1, 1, -1)).expand(kline.shape[0], -1, -1)  # toward shorter wavelengths
-    red_ok = within &amp; (red_j &gt;= 0) &amp; (red_j &lt; n_w)
-    blue_ok = within &amp; (blue_j &gt;= 0) &amp; (blue_j &lt; n_w)
+    center_columns_batched = center_columns.view(1, -1, 1)
+    red_columns = (center_columns_batched + offsets.view(1, 1, -1)).expand(opacity_grid.shape[0], -1, -1)
+    blue_columns = (center_columns_batched - offsets.view(1, 1, -1)).expand(opacity_grid.shape[0], -1, -1)
+    red_deposit_mask = within_reach &amp; (red_columns &gt;= 0) &amp; (red_columns &lt; wavelength_count)
+    blue_deposit_mask = within_reach &amp; (blue_columns &gt;= 0) &amp; (blue_columns &lt; wavelength_count)
 
-    scatter_add_3d(kline, red_j, pv, red_ok)                              # ONE batched scatter, red
-    scatter_add_3d(kline, blue_j, pv, blue_ok)                            # ONE batched scatter, blue
+    scatter_add_3d(opacity_grid, red_columns, profile_values, red_deposit_mask)
+    scatter_add_3d(opacity_grid, blue_columns, profile_values, blue_deposit_mask)
 print(&quot;fixed-offset wing-walk core ready (two batched scatters)&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">harris_branch_oracle</span>(<span class="hljs-params">a64, dvoigt64, W, device, h0tab, h1tab, h2tab</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">harris_branch_oracle</span>(<span class="hljs-params">damping_a_fp64, dvoigt_fp64, tier_width, device, h0tab, h1tab, h2tab</span>):
     <span class="hljs-string">&quot;&quot;&quot;Build branch decisions for the Harris Voigt walk in CPU/fp64.
 
     The production wing walk runs in fp32 on the active device, but the Harris
@@ -804,161 +857,178 @@ print(&quot;fixed-offset wing-walk core ready (two batched scatters)&quot;)" ari
     in fp64, then ships compact tensors back to the profile kernel.  The returned
     masks have the same broadcast shape as the offset block, [depth, line, W].
     &quot;&quot;&quot;</span>
-    offs = torch.arange(<span class="hljs-number">1</span>, W + <span class="hljs-number">1</span>, dtype=torch.float64, device=torch.device(<span class="hljs-string">&quot;cpu&quot;</span>))
-    x = dvoigt64[:, :, <span class="hljs-literal">None</span>] * offs.view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)
-    av = x.<span class="hljs-built_in">abs</span>()
+    offsets = torch.arange(<span class="hljs-number">1</span>, tier_width + <span class="hljs-number">1</span>, dtype=torch.float64, device=torch.device(<span class="hljs-string">&quot;cpu&quot;</span>))
+    reduced_frequency = dvoigt_fp64[:, :, <span class="hljs-literal">None</span>] * offsets.view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)
+    abs_reduced_frequency = reduced_frequency.<span class="hljs-built_in">abs</span>()
     h0tab64 = h0tab.detach().cpu().to(torch.float64)
     h1tab64 = h1tab.detach().cpu().to(torch.float64)
     h2tab64 = h2tab.detach().cpu().to(torch.float64)
-    iv = torch.clamp((av * <span class="hljs-number">200.0</span> + <span class="hljs-number">0.5</span>).to(torch.int64), <span class="hljs-number">0</span>, h0tab64.numel() - <span class="hljs-number">1</span>)
-    a3 = a64[:, :, <span class="hljs-literal">None</span>]
-    low = (a3 &lt; <span class="hljs-number">0.2</span>).expand_as(av)
-    far = (a3 &gt; <span class="hljs-number">1.4</span>) | ((a3 + av) &gt; <span class="hljs-number">3.2</span>)
+    harris_table_index = torch.clamp(
+        (abs_reduced_frequency * <span class="hljs-number">200.0</span> + <span class="hljs-number">0.5</span>).to(torch.int64), <span class="hljs-number">0</span>, h0tab64.numel() - <span class="hljs-number">1</span>)
+    damping_a_block = damping_a_fp64[:, :, <span class="hljs-literal">None</span>]
+    low = (damping_a_block &lt; <span class="hljs-number">0.2</span>).expand_as(abs_reduced_frequency)
+    far = (damping_a_block &gt; <span class="hljs-number">1.4</span>) | ((damping_a_block + abs_reduced_frequency) &gt; <span class="hljs-number">3.2</span>)
     mid_mask = (~low) &amp; (~far)
 
     <span class="hljs-comment"># The intermediate Harris polynomial is the only cancellation-prone branch: fp32 alone</span>
     <span class="hljs-comment"># reaches 1.12e-6 on isolated, single-contributor core pixels.  Evaluate just those compact</span>
     <span class="hljs-comment"># core points in fp64; low/far profiles and every scatter remain MPS-resident.</span>
-    mid_value = torch.zeros_like(av)
+    mid_value = torch.zeros_like(abs_reduced_frequency)
     <span class="hljs-keyword">if</span> <span class="hljs-built_in">bool</span>(mid_mask.<span class="hljs-built_in">any</span>()):
-        aa = a3.expand_as(av)[mid_mask]; vv = (x * x)[mid_mask]
-        ivm = iv[mid_mask]
-        h0 = h0tab64[ivm]; h1r = h1tab64[ivm]; h2r = h2tab64[ivm]
-        h1 = h1r + h0 * <span class="hljs-number">1.12838</span>
-        h2 = h2r + h1 * <span class="hljs-number">1.12838</span> - h0
-        h3 = (<span class="hljs-number">1.0</span> - h2r) * <span class="hljs-number">0.37613</span> - h1 * <span class="hljs-number">0.66667</span> * vv + h2 * <span class="hljs-number">1.12838</span>
-        h4 = (<span class="hljs-number">3.0</span> * h3 - h1) * <span class="hljs-number">0.37613</span> + h0 * <span class="hljs-number">0.66667</span> * vv * vv
-        pa = (((h4 * aa + h3) * aa + h2) * aa + h1) * aa + h0
-        pb = ((-<span class="hljs-number">0.122727278</span> * aa + <span class="hljs-number">0.532770573</span>) * aa - <span class="hljs-number">0.96284325</span>) * aa + <span class="hljs-number">0.979895032</span>
-        mid_value[mid_mask] = pa * pb
+        damping_mid = damping_a_block.expand_as(abs_reduced_frequency)[mid_mask]
+        reduced_frequency_sq_mid = (reduced_frequency * reduced_frequency)[mid_mask]
+        table_index_mid = harris_table_index[mid_mask]
+        h0_mid = h0tab64[table_index_mid]
+        h1_raw_mid = h1tab64[table_index_mid]
+        h2_raw_mid = h2tab64[table_index_mid]
+        h1_mid = h1_raw_mid + h0_mid * <span class="hljs-number">1.12838</span>
+        h2_mid = h2_raw_mid + h1_mid * <span class="hljs-number">1.12838</span> - h0_mid
+        h3_mid = ((<span class="hljs-number">1.0</span> - h2_raw_mid) * <span class="hljs-number">0.37613</span>
+                  - h1_mid * <span class="hljs-number">0.66667</span> * reduced_frequency_sq_mid
+                  + h2_mid * <span class="hljs-number">1.12838</span>)
+        h4_mid = ((<span class="hljs-number">3.0</span> * h3_mid - h1_mid) * <span class="hljs-number">0.37613</span>
+                  + h0_mid * <span class="hljs-number">0.66667</span> * reduced_frequency_sq_mid * reduced_frequency_sq_mid)
+        numerator_poly = (
+            (((h4_mid * damping_mid + h3_mid) * damping_mid + h2_mid) * damping_mid
+             + h1_mid) * damping_mid + h0_mid)
+        damping_blend = (
+            ((-<span class="hljs-number">0.122727278</span> * damping_mid + <span class="hljs-number">0.532770573</span>) * damping_mid - <span class="hljs-number">0.96284325</span>)
+            * damping_mid + <span class="hljs-number">0.979895032</span>)
+        mid_value[mid_mask] = numerator_poly * damping_blend
     <span class="hljs-keyword">return</span> {
-        <span class="hljs-string">&quot;iv&quot;</span>: iv.to(device=device),
-        <span class="hljs-string">&quot;low_tail&quot;</span>: (av &gt; <span class="hljs-number">10.0</span>).to(device=device),
+        <span class="hljs-string">&quot;iv&quot;</span>: harris_table_index.to(device=device),
+        <span class="hljs-string">&quot;low_tail&quot;</span>: (abs_reduced_frequency &gt; <span class="hljs-number">10.0</span>).to(device=device),
         <span class="hljs-string">&quot;far&quot;</span>: far.to(device=device),
         <span class="hljs-string">&quot;low&quot;</span>: low.to(device=device),
         <span class="hljs-string">&quot;mid_mask&quot;</span>: mid_mask.to(device=device),
         <span class="hljs-string">&quot;mid_value&quot;</span>: mid_value.to(dtype=torch.float32, device=device),
     }
 
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">wing_walk_core</span>(<span class="hljs-params">kline, ci, kappa0_wing, a_w, maxstep, use_far, n10dop, dvoigt, x_far, n_w,
-                   h0tab, h1tab, h2tab, a64=<span class="hljs-literal">None</span>, dvoigt64=<span class="hljs-literal">None</span></span>):
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">wing_walk_core</span>(<span class="hljs-params">opacity_grid, center_columns, kappa0_wing, damping_a, maxstep, use_far,
+                   n10dop, dvoigt, x_far, wavelength_count, h0tab, h1tab, h2tab,
+                   damping_a_fp64=<span class="hljs-literal">None</span>, dvoigt_fp64=<span class="hljs-literal">None</span></span>):
     <span class="hljs-string">&quot;&quot;&quot;Deposit one reach tier of ordinary-line opacity into both wavelength wings.
 
     `maxstep` gives the per-depth/per-line outward reach for this tier.  The
     function evaluates all offsets 1..W as one [depth, line, offset] block,
     switches from the near Harris profile to the far 1/offset^2 continuation
-    where requested, and scatters the surviving red and blue pixels into `kline`.
+    where requested, and scatters the surviving red and blue pixels into `opacity_grid`.
     &quot;&quot;&quot;</span>
-    <span class="hljs-keyword">if</span> ci.numel() == <span class="hljs-number">0</span>:
+    <span class="hljs-keyword">if</span> center_columns.numel() == <span class="hljs-number">0</span>:
         <span class="hljs-keyword">return</span>
     <span class="hljs-comment"># JUSTIFY: one scalar tier width orchestrates a batched MPS profile/scatter launch.</span>
-    W = <span class="hljs-built_in">int</span>(maxstep.<span class="hljs-built_in">max</span>().item())
-    <span class="hljs-keyword">if</span> W &lt;= <span class="hljs-number">0</span>:
+    tier_width = <span class="hljs-built_in">int</span>(maxstep.<span class="hljs-built_in">max</span>().item())
+    <span class="hljs-keyword">if</span> tier_width &lt;= <span class="hljs-number">0</span>:
         <span class="hljs-keyword">return</span>
-    offs = torch.arange(<span class="hljs-number">1</span>, W + <span class="hljs-number">1</span>, device=kline.device, dtype=torch.int64)
-    within = offs.view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>) &lt;= maxstep[:, :, <span class="hljs-literal">None</span>]
+    offsets = torch.arange(<span class="hljs-number">1</span>, tier_width + <span class="hljs-number">1</span>, device=opacity_grid.device, dtype=torch.int64)
+    within_reach = offsets.view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>) &lt;= maxstep[:, :, <span class="hljs-literal">None</span>]
 
-    x = offs.view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>).to(dvoigt.dtype) * dvoigt[:, :, <span class="hljs-literal">None</span>]
-    small = a_w &lt; <span class="hljs-number">0.2</span>
+    reduced_frequency = offsets.view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>).to(dvoigt.dtype) * dvoigt[:, :, <span class="hljs-literal">None</span>]
+    small_damping_mask = damping_a &lt; <span class="hljs-number">0.2</span>
     branch_oracle = <span class="hljs-literal">None</span>
-    <span class="hljs-keyword">if</span> a64 <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span> <span class="hljs-keyword">and</span> dvoigt64 <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span>:
+    <span class="hljs-keyword">if</span> damping_a_fp64 <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span> <span class="hljs-keyword">and</span> dvoigt_fp64 <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span>:
         branch_oracle = harris_branch_oracle(
-            a64, dvoigt64, W, kline.device, h0tab, h1tab, h2tab)
-    h = harris_hav_walk(x, a_w[:, :, <span class="hljs-literal">None</span>], h0tab, h1tab, h2tab, small[:, :, <span class="hljs-literal">None</span>],
-                        branch_oracle=branch_oracle)
-    pv_near = kappa0_wing[:, :, <span class="hljs-literal">None</span>] * h
+            damping_a_fp64, dvoigt_fp64, tier_width, opacity_grid.device, h0tab, h1tab, h2tab)
+    near_profile_shape = harris_hav_walk(
+        reduced_frequency, damping_a[:, :, <span class="hljs-literal">None</span>], h0tab, h1tab, h2tab,
+        small_damping_mask[:, :, <span class="hljs-literal">None</span>], branch_oracle=branch_oracle)
+    near_profile_values = kappa0_wing[:, :, <span class="hljs-literal">None</span>] * near_profile_shape
 
-    far_mask = use_far[:, :, <span class="hljs-literal">None</span>] &amp; (offs.view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>) &gt; n10dop[:, :, <span class="hljs-literal">None</span>])
-    offs_f = offs.view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>).to(x.dtype)
-    pv_far = x_far[:, :, <span class="hljs-literal">None</span>] / (offs_f * offs_f)
-    pv = torch.where(far_mask, pv_far, pv_near)
-    pv = torch.where(within, pv, torch.zeros_like(pv))
+    far_wing_mask = use_far[:, :, <span class="hljs-literal">None</span>] &amp; (offsets.view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>) &gt; n10dop[:, :, <span class="hljs-literal">None</span>])
+    offsets_float = offsets.view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>).to(reduced_frequency.dtype)
+    far_profile_values = x_far[:, :, <span class="hljs-literal">None</span>] / (offsets_float * offsets_float)
+    profile_values = torch.where(far_wing_mask, far_profile_values, near_profile_values)
+    profile_values = torch.where(within_reach, profile_values, torch.zeros_like(profile_values))
 
-    ci_b = ci.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>, <span class="hljs-number">1</span>)
-    red_j = (ci_b + offs.view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)).expand(kline.shape[<span class="hljs-number">0</span>], -<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)   <span class="hljs-comment"># toward longer wavelengths</span>
-    blue_j = (ci_b - offs.view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)).expand(kline.shape[<span class="hljs-number">0</span>], -<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)  <span class="hljs-comment"># toward shorter wavelengths</span>
-    red_ok = within &amp; (red_j &gt;= <span class="hljs-number">0</span>) &amp; (red_j &lt; n_w)
-    blue_ok = within &amp; (blue_j &gt;= <span class="hljs-number">0</span>) &amp; (blue_j &lt; n_w)
+    center_columns_batched = center_columns.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>, <span class="hljs-number">1</span>)
+    red_columns = (center_columns_batched + offsets.view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)).expand(opacity_grid.shape[<span class="hljs-number">0</span>], -<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)
+    blue_columns = (center_columns_batched - offsets.view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)).expand(opacity_grid.shape[<span class="hljs-number">0</span>], -<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)
+    red_deposit_mask = within_reach &amp; (red_columns &gt;= <span class="hljs-number">0</span>) &amp; (red_columns &lt; wavelength_count)
+    blue_deposit_mask = within_reach &amp; (blue_columns &gt;= <span class="hljs-number">0</span>) &amp; (blue_columns &lt; wavelength_count)
 
-    scatter_add_3d(kline, red_j, pv, red_ok)                              <span class="hljs-comment"># ONE batched scatter, red</span>
-    scatter_add_3d(kline, blue_j, pv, blue_ok)                            <span class="hljs-comment"># ONE batched scatter, blue</span>
+    scatter_add_3d(opacity_grid, red_columns, profile_values, red_deposit_mask)
+    scatter_add_3d(opacity_grid, blue_columns, profile_values, blue_deposit_mask)
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;fixed-offset wing-walk core ready (two batched scatters)&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">fixed-offset wing-walk core ready (two batched scatters)
 </pre></div></div><div class="prose"><p><strong><code>_wing_walk_tiered</code> — reach-tiering, to avoid wasted Harris evals.</strong> A single fixed-offset sweep over <em>all</em> lines would size <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>W</mi></mrow><annotation encoding="application/x-tex">W</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">W</span></span></span></span> to the one line that reaches farthest, wasting work evaluating the profile at huge offsets for lines that stopped after a few steps. <strong>Tiering</strong> fixes this: lines are bucketed by their reach into power-of-two tiers, and each tier runs <code>_wing_walk_core</code> over only <em>its</em> offset range. A tier of weak lines (reach <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>≤</mo><mn>8</mn></mrow><annotation encoding="application/x-tex">\le 8</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7719em;vertical-align:-0.136em;"></span><span class="mrel">≤</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">8</span></span></span></span>) sweeps 8 offsets; the rare far-reaching line gets its own wide sweep. Same total scatter, far fewer wasted profile evaluations.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[12]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="def wing_walk_tiered(kline, ci, kappa0_wing, a_w, maxstep, use_far, n10dop, dvoigt, x_far, n_w,
-                     h0tab, h1tab, h2tab, a64=None, dvoigt64=None):
+        <button class="copy-btn" type="button" data-code="def wing_walk_tiered(opacity_grid, center_columns, kappa0_wing, damping_a, maxstep,
+                     use_far, n10dop, dvoigt, x_far, wavelength_count,
+                     h0tab, h1tab, h2tab, damping_a_fp64=None, dvoigt_fp64=None):
     &quot;&quot;&quot;Bucket lines by reach into power-of-two tiers; each tier sweeps only its own offset range
     (port _wing_walk_tiered) — avoids sizing the sweep to the single farthest-reaching line.&quot;&quot;&quot;
-    if ci.numel() == 0:
+    if center_columns.numel() == 0:
         return
     line_reach = maxstep.max(dim=0).values                   # the per-line reach (max over depth)
-    lo = 0
+    previous_tier_limit = 0
     tier_outputs = []
     # JUSTIFIED-LOOP: fixed 21-tier launch schedule; each body is a whole batched MPS scatter.
-    for hi in NARROW_REACH_TIERS:
-        sel = (line_reach &gt; lo) &amp; (line_reach &lt;= hi)
-        lo = hi
-        if not bool(sel.any()):
+    for tier_limit in NARROW_REACH_TIERS:
+        lines_in_tier = (line_reach &gt; previous_tier_limit) &amp; (line_reach &lt;= tier_limit)
+        previous_tier_limit = tier_limit
+        if not bool(lines_in_tier.any()):
             continue
-        idx = torch.nonzero(sel, as_tuple=False).squeeze(1)
+        tier_line_index = torch.nonzero(lines_in_tier, as_tuple=False).squeeze(1)
         # Bound atomic overlap within a scatter, then tree-reduce chunk outputs.  This retains
         # GPU scatter semantics while avoiding a long fp32 accumulation chain at crowded pixels.
         # JUSTIFIED-LOOP: bounded launch chunking limits fp32 atomic overlap; no scalar line work.
-        for start in range(0, idx.numel(), 256):
-            idx_chunk = idx[start:start + 256]
-            idx_cpu = idx_chunk.detach().cpu()
-            tier_out = torch.zeros_like(kline)
+        for chunk_start in range(0, tier_line_index.numel(), 256):
+            line_chunk = tier_line_index[chunk_start:chunk_start + 256]
+            line_chunk_cpu = line_chunk.detach().cpu()
+            tier_opacity = torch.zeros_like(opacity_grid)
             wing_walk_core(
-                tier_out, ci[idx_chunk], kappa0_wing[:, idx_chunk], a_w[:, idx_chunk],
-                maxstep[:, idx_chunk], use_far[:, idx_chunk], n10dop[:, idx_chunk],
-                dvoigt[:, idx_chunk], x_far[:, idx_chunk], n_w, h0tab, h1tab, h2tab,
-                None if a64 is None else a64[:, idx_cpu],
-                None if dvoigt64 is None else dvoigt64[:, idx_cpu])
-            tier_outputs.append(tier_out)
+                tier_opacity, center_columns[line_chunk], kappa0_wing[:, line_chunk],
+                damping_a[:, line_chunk], maxstep[:, line_chunk], use_far[:, line_chunk],
+                n10dop[:, line_chunk], dvoigt[:, line_chunk], x_far[:, line_chunk],
+                wavelength_count, h0tab, h1tab, h2tab,
+                None if damping_a_fp64 is None else damping_a_fp64[:, line_chunk_cpu],
+                None if dvoigt_fp64 is None else dvoigt_fp64[:, line_chunk_cpu])
+            tier_outputs.append(tier_opacity)
     if tier_outputs:
         # A tree reduction across reach tiers avoids repeatedly rounding the same output pixel
         # after every tier while preserving the MPS atomic scatter inside each tier.
-        kline.add_(torch.stack(tier_outputs, dim=0).sum(dim=0))
+        opacity_grid.add_(torch.stack(tier_outputs, dim=0).sum(dim=0))
 print(&quot;reach-tiered wing walk ready&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">wing_walk_tiered</span>(<span class="hljs-params">kline, ci, kappa0_wing, a_w, maxstep, use_far, n10dop, dvoigt, x_far, n_w,
-                     h0tab, h1tab, h2tab, a64=<span class="hljs-literal">None</span>, dvoigt64=<span class="hljs-literal">None</span></span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">wing_walk_tiered</span>(<span class="hljs-params">opacity_grid, center_columns, kappa0_wing, damping_a, maxstep,
+                     use_far, n10dop, dvoigt, x_far, wavelength_count,
+                     h0tab, h1tab, h2tab, damping_a_fp64=<span class="hljs-literal">None</span>, dvoigt_fp64=<span class="hljs-literal">None</span></span>):
     <span class="hljs-string">&quot;&quot;&quot;Bucket lines by reach into power-of-two tiers; each tier sweeps only its own offset range
     (port _wing_walk_tiered) — avoids sizing the sweep to the single farthest-reaching line.&quot;&quot;&quot;</span>
-    <span class="hljs-keyword">if</span> ci.numel() == <span class="hljs-number">0</span>:
+    <span class="hljs-keyword">if</span> center_columns.numel() == <span class="hljs-number">0</span>:
         <span class="hljs-keyword">return</span>
     line_reach = maxstep.<span class="hljs-built_in">max</span>(dim=<span class="hljs-number">0</span>).values                   <span class="hljs-comment"># the per-line reach (max over depth)</span>
-    lo = <span class="hljs-number">0</span>
+    previous_tier_limit = <span class="hljs-number">0</span>
     tier_outputs = []
     <span class="hljs-comment"># JUSTIFIED-LOOP: fixed 21-tier launch schedule; each body is a whole batched MPS scatter.</span>
-    <span class="hljs-keyword">for</span> hi <span class="hljs-keyword">in</span> NARROW_REACH_TIERS:
-        sel = (line_reach &gt; lo) &amp; (line_reach &lt;= hi)
-        lo = hi
-        <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> <span class="hljs-built_in">bool</span>(sel.<span class="hljs-built_in">any</span>()):
+    <span class="hljs-keyword">for</span> tier_limit <span class="hljs-keyword">in</span> NARROW_REACH_TIERS:
+        lines_in_tier = (line_reach &gt; previous_tier_limit) &amp; (line_reach &lt;= tier_limit)
+        previous_tier_limit = tier_limit
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> <span class="hljs-built_in">bool</span>(lines_in_tier.<span class="hljs-built_in">any</span>()):
             <span class="hljs-keyword">continue</span>
-        idx = torch.nonzero(sel, as_tuple=<span class="hljs-literal">False</span>).squeeze(<span class="hljs-number">1</span>)
+        tier_line_index = torch.nonzero(lines_in_tier, as_tuple=<span class="hljs-literal">False</span>).squeeze(<span class="hljs-number">1</span>)
         <span class="hljs-comment"># Bound atomic overlap within a scatter, then tree-reduce chunk outputs.  This retains</span>
         <span class="hljs-comment"># GPU scatter semantics while avoiding a long fp32 accumulation chain at crowded pixels.</span>
         <span class="hljs-comment"># JUSTIFIED-LOOP: bounded launch chunking limits fp32 atomic overlap; no scalar line work.</span>
-        <span class="hljs-keyword">for</span> start <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">0</span>, idx.numel(), <span class="hljs-number">256</span>):
-            idx_chunk = idx[start:start + <span class="hljs-number">256</span>]
-            idx_cpu = idx_chunk.detach().cpu()
-            tier_out = torch.zeros_like(kline)
+        <span class="hljs-keyword">for</span> chunk_start <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-number">0</span>, tier_line_index.numel(), <span class="hljs-number">256</span>):
+            line_chunk = tier_line_index[chunk_start:chunk_start + <span class="hljs-number">256</span>]
+            line_chunk_cpu = line_chunk.detach().cpu()
+            tier_opacity = torch.zeros_like(opacity_grid)
             wing_walk_core(
-                tier_out, ci[idx_chunk], kappa0_wing[:, idx_chunk], a_w[:, idx_chunk],
-                maxstep[:, idx_chunk], use_far[:, idx_chunk], n10dop[:, idx_chunk],
-                dvoigt[:, idx_chunk], x_far[:, idx_chunk], n_w, h0tab, h1tab, h2tab,
-                <span class="hljs-literal">None</span> <span class="hljs-keyword">if</span> a64 <span class="hljs-keyword">is</span> <span class="hljs-literal">None</span> <span class="hljs-keyword">else</span> a64[:, idx_cpu],
-                <span class="hljs-literal">None</span> <span class="hljs-keyword">if</span> dvoigt64 <span class="hljs-keyword">is</span> <span class="hljs-literal">None</span> <span class="hljs-keyword">else</span> dvoigt64[:, idx_cpu])
-            tier_outputs.append(tier_out)
+                tier_opacity, center_columns[line_chunk], kappa0_wing[:, line_chunk],
+                damping_a[:, line_chunk], maxstep[:, line_chunk], use_far[:, line_chunk],
+                n10dop[:, line_chunk], dvoigt[:, line_chunk], x_far[:, line_chunk],
+                wavelength_count, h0tab, h1tab, h2tab,
+                <span class="hljs-literal">None</span> <span class="hljs-keyword">if</span> damping_a_fp64 <span class="hljs-keyword">is</span> <span class="hljs-literal">None</span> <span class="hljs-keyword">else</span> damping_a_fp64[:, line_chunk_cpu],
+                <span class="hljs-literal">None</span> <span class="hljs-keyword">if</span> dvoigt_fp64 <span class="hljs-keyword">is</span> <span class="hljs-literal">None</span> <span class="hljs-keyword">else</span> dvoigt_fp64[:, line_chunk_cpu])
+            tier_outputs.append(tier_opacity)
     <span class="hljs-keyword">if</span> tier_outputs:
         <span class="hljs-comment"># A tree reduction across reach tiers avoids repeatedly rounding the same output pixel</span>
         <span class="hljs-comment"># after every tier while preserving the MPS atomic scatter inside each tier.</span>
-        kline.add_(torch.stack(tier_outputs, dim=<span class="hljs-number">0</span>).<span class="hljs-built_in">sum</span>(dim=<span class="hljs-number">0</span>))
+        opacity_grid.add_(torch.stack(tier_outputs, dim=<span class="hljs-number">0</span>).<span class="hljs-built_in">sum</span>(dim=<span class="hljs-number">0</span>))
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;reach-tiered wing walk ready&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">reach-tiered wing walk ready
 </pre></div></div><div class="prose"><p><strong><code>accumulate_metal</code> — the whole pipeline.</strong> This ties it together, exactly as the inline fp64 reference&#39;s <code>metal_accumulate_numpy</code> does, but with the <strong>line axis as a batch axis</strong> throughout. It selects the metal lines, gathers each line&#39;s population and Doppler width across all depths, forms <code>kappa0_pre</code> and the post-Boltzmann <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>κ</mi><mn>0</mn></msub></mrow><annotation encoding="application/x-tex">\kappa_0</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">κ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">0</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> (FASTEX), applies the two-stage cutoff, builds the damping <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>a</mi></mrow><annotation encoding="application/x-tex">a</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal">a</span></span></span></span>, computes the center contribution <code>kapcen</code> and deposits it via the 2-D scatter, back-solves the wing amplitude <code>kappa0_wing = kapcen/H(a,0)</code>, computes the reach with <code>_wing_reach_batched</code>, and deposits the wings with <code>_wing_walk_tiered</code>. <strong>No Python <code>for</code> over the twelve thousand lines</strong> — only the reach-tier loop (a handful of iterations) and the device kernels. Stimulated emission is <em>not</em> applied here; it goes on once at the very end. Transcribed from the validated implementation.</p>
@@ -967,7 +1037,8 @@ print(&quot;reach-tiered wing walk ready&quot;)" aria-label="Copy code">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[13]</span>Python</span>
         <button class="copy-btn" type="button" data-code="CUTOFF = 1.0e-3; KAPMIN_FLOOR = 1.0e-8; CGF_CONSTANT = 0.026538 / 1.77245; C_LIGHT_NM = 2.99792458e17
 
-def metal_invariants_fp64(catalog, atmd, grid, cont, sel0_np, center_idx_np, wing_idx_np, resolu):
+def metal_invariants_fp64(catalog, atmd, grid, cont, metal_line_indices,
+                          center_idx_np, wing_idx_np, resolu):
     &quot;&quot;&quot;Resolve the compact [depth,line] physics and all discontinuous walk geometry in fp64.
 
     This is a precision island, not a second opacity implementation: it never builds or deposits a
@@ -978,12 +1049,16 @@ def metal_invariants_fp64(catalog, atmd, grid, cont, sel0_np, center_idx_np, win
     t64 = lambda x: torch.as_tensor(x, dtype=f64, device=cpu)
     ti = lambda x: torch.as_tensor(x, dtype=torch.int64, device=cpu)
 
-    lam = t64(catalog[&quot;lam&quot;])[sel0_np]; gf = t64(catalog[&quot;gf&quot;])[sel0_np]
-    Elow = t64(catalog[&quot;Elow&quot;])[sel0_np]
-    grad = t64(catalog[&quot;grad&quot;])[sel0_np]; gstark = t64(catalog[&quot;gstark&quot;])[sel0_np]
-    gvdw = t64(catalog[&quot;gvdw&quot;])[sel0_np]
-    elem_idx = ti(catalog[&quot;Z&quot;])[sel0_np] - 1; ion_idx = ti(catalog[&quot;ion&quot;])[sel0_np] - 1
-    center_idx = ti(center_idx_np)[sel0_np]; wing_idx = ti(wing_idx_np)[sel0_np]
+    lam = t64(catalog[&quot;lam&quot;])[metal_line_indices]
+    gf = t64(catalog[&quot;gf&quot;])[metal_line_indices]
+    Elow = t64(catalog[&quot;Elow&quot;])[metal_line_indices]
+    grad = t64(catalog[&quot;grad&quot;])[metal_line_indices]
+    gstark = t64(catalog[&quot;gstark&quot;])[metal_line_indices]
+    gvdw = t64(catalog[&quot;gvdw&quot;])[metal_line_indices]
+    elem_idx = ti(catalog[&quot;Z&quot;])[metal_line_indices] - 1
+    ion_idx = ti(catalog[&quot;ion&quot;])[metal_line_indices] - 1
+    center_idx = ti(center_idx_np)[metal_line_indices]
+    wing_idx = ti(wing_idx_np)[metal_line_indices]
     n_w = int(torch.as_tensor(grid).numel())
 
     population_per_ion = t64(atmd[&quot;pop3&quot;])
@@ -992,7 +1067,7 @@ def metal_invariants_fp64(catalog, atmd, grid, cont, sel0_np, center_idx_np, win
     electron_density = t64(atmd[&quot;xne&quot;])
     hc_over_kT = t64(atmd[&quot;hckt&quot;])
     vdw_perturber_density = t64(atmd[&quot;txnxn&quot;])
-    cont_t = t64(cont)
+    continuum = t64(cont)
     h0t = t64(catalog[&quot;h0tab&quot;]); h1t = t64(catalog[&quot;h1tab&quot;]); h2t = t64(catalog[&quot;h2tab&quot;])
 
     population = population_per_ion[:, ion_idx, elem_idx]
@@ -1000,7 +1075,7 @@ def metal_invariants_fp64(catalog, atmd, grid, cont, sel0_np, center_idx_np, win
     cgf = CGF_CONSTANT * gf / (C_LIGHT_NM / lam)
     center_valid = (center_idx &gt;= 0) &amp; (center_idx &lt; n_w)
     wing_active = (wing_idx &gt;= -MAX_PROFILE_STEPS) &amp; (wing_idx &lt;= n_w - 1 + MAX_PROFILE_STEPS)
-    kapmin_center = cont_t[:, torch.clamp(center_idx, 0, n_w - 1)] * CUTOFF
+    center_cutoff = continuum[:, torch.clamp(center_idx, 0, n_w - 1)] * CUTOFF
 
     extab, extabf = gpu_fastex_tables(dtype=f64, device=cpu)
     boltz = gpu_fast_ex(Elow.view(1, -1) * hc_over_kT.view(-1, 1), extab, extabf)
@@ -1012,7 +1087,7 @@ def metal_invariants_fp64(catalog, atmd, grid, cont, sel0_np, center_idx_np, win
     )
     kappa0_pre = cgf.view(1, -1) * population_over_mass_doppler_width
     post = kappa0_pre * boltz
-    passcut = good &amp; (kappa0_pre &gt;= kapmin_center) &amp; (post &gt;= kapmin_center) &amp; (post &gt; 0.0)
+    passcut = good &amp; (kappa0_pre &gt;= center_cutoff) &amp; (post &gt;= center_cutoff) &amp; (post &gt; 0.0)
 
     doppler_width = doppler_fraction * lam.view(1, -1)
     doppler_fraction_for_damping = torch.where(lam.view(1, -1) &gt; 0.0, doppler_width / lam.view(1, -1),
@@ -1022,37 +1097,40 @@ def metal_invariants_fp64(catalog, atmd, grid, cont, sel0_np, center_idx_np, win
     adamp = torch.where((doppler_width &gt; 0.0) &amp; (doppler_fraction_for_damping &gt; 0.0),
                         gamma_total / doppler_fraction_for_damping,
                         torch.zeros_like(gamma_total))
-    cd = passcut &amp; (adamp &gt;= 0.0) &amp; (post &gt; 0.0)
+    center_deposit_mask = passcut &amp; (adamp &gt;= 0.0) &amp; (post &gt; 0.0)
     h0_center = gpu_voigt_h_at_zero(adamp, h0t, h1t, h2t)
     kapcen_raw = torch.where(adamp &lt; 0.2, post * (1.0 - 1.128 * adamp), post * h0_center)
-    kapcen = torch.where(cd, kapcen_raw, torch.zeros_like(kapcen_raw))
-    center_mask = cd &amp; center_valid.view(1, -1)
+    kapcen = torch.where(center_deposit_mask, kapcen_raw, torch.zeros_like(kapcen_raw))
+    center_mask = center_deposit_mask &amp; center_valid.view(1, -1)
 
-    wing_pairs = cd &amp; (kapcen &gt; 0.0) &amp; wing_active.view(1, -1)
+    wing_pairs = center_deposit_mask &amp; (kapcen &gt; 0.0) &amp; wing_active.view(1, -1)
     live_lines = wing_active &amp; wing_pairs.any(dim=0)
-    sel = torch.nonzero(live_lines, as_tuple=False).squeeze(1)
-    if sel.numel() == 0:
-        return dict(center_idx=center_idx, kapcen=kapcen, center_mask=center_mask, sel=sel)
+    live_wing_line_index = torch.nonzero(live_lines, as_tuple=False).squeeze(1)
+    if live_wing_line_index.numel() == 0:
+        return dict(center_idx=center_idx, kapcen=kapcen, center_mask=center_mask, sel=live_wing_line_index)
 
-    lam_w = lam[sel]; wing_idx_w = wing_idx[sel]
-    doppler_width_w = doppler_width[:, sel]
-    adamp_w = torch.clamp(adamp[:, sel], min=1.0e-12)
-    kapcen_w = kapcen[:, sel]; wing_pairs_w = wing_pairs[:, sel]
+    lam_w = lam[live_wing_line_index]
+    wing_idx_w = wing_idx[live_wing_line_index]
+    doppler_width_w = doppler_width[:, live_wing_line_index]
+    adamp_w = torch.clamp(adamp[:, live_wing_line_index], min=1.0e-12)
+    kapcen_w = kapcen[:, live_wing_line_index]
+    wing_pairs_w = wing_pairs[:, live_wing_line_index]
     h0_w = gpu_voigt_h_at_zero(adamp_w, h0t, h1t, h2t)
     kappa0_wing = torch.where(kapcen_w &gt; 0.0, kapcen_w / h0_w, torch.zeros_like(kapcen_w))
-    cont_ref = cont_t[:, torch.clamp(wing_idx_w, 0, n_w - 1)]
-    kapmin_ref = torch.maximum(cont_ref * CUTOFF, cont_ref * KAPMIN_FLOOR)
+    wing_continuum = continuum[:, torch.clamp(wing_idx_w, 0, n_w - 1)]
+    wing_cutoff = torch.maximum(wing_continuum * CUTOFF, wing_continuum * KAPMIN_FLOOR)
     maxstep, use_far, n10dop, dvoigt, x_far = wing_reach_batched(
-        kappa0_wing, adamp_w, doppler_width_w, lam_w, kapmin_ref, wing_pairs_w,
+        kappa0_wing, adamp_w, doppler_width_w, lam_w, wing_cutoff, wing_pairs_w,
         resolu, h0t, h1t, h2t)
-    return dict(center_idx=center_idx, kapcen=kapcen, center_mask=center_mask, sel=sel,
+    return dict(center_idx=center_idx, kapcen=kapcen, center_mask=center_mask, sel=live_wing_line_index,
                 wing_idx=wing_idx_w, kappa0_wing=kappa0_wing, adamp=adamp_w,
                 maxstep=maxstep, use_far=use_far, n10dop=n10dop, dvoigt=dvoigt, x_far=x_far)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python">CUTOFF = <span class="hljs-number">1.0e-3</span>; KAPMIN_FLOOR = <span class="hljs-number">1.0e-8</span>; CGF_CONSTANT = <span class="hljs-number">0.026538</span> / <span class="hljs-number">1.77245</span>; C_LIGHT_NM = <span class="hljs-number">2.99792458e17</span>
 
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">metal_invariants_fp64</span>(<span class="hljs-params">catalog, atmd, grid, cont, sel0_np, center_idx_np, wing_idx_np, resolu</span>):
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">metal_invariants_fp64</span>(<span class="hljs-params">catalog, atmd, grid, cont, metal_line_indices,
+                          center_idx_np, wing_idx_np, resolu</span>):
     <span class="hljs-string">&quot;&quot;&quot;Resolve the compact [depth,line] physics and all discontinuous walk geometry in fp64.
 
     This is a precision island, not a second opacity implementation: it never builds or deposits a
@@ -1063,12 +1141,16 @@ def metal_invariants_fp64(catalog, atmd, grid, cont, sel0_np, center_idx_np, win
     t64 = <span class="hljs-keyword">lambda</span> x: torch.as_tensor(x, dtype=f64, device=cpu)
     ti = <span class="hljs-keyword">lambda</span> x: torch.as_tensor(x, dtype=torch.int64, device=cpu)
 
-    lam = t64(catalog[<span class="hljs-string">&quot;lam&quot;</span>])[sel0_np]; gf = t64(catalog[<span class="hljs-string">&quot;gf&quot;</span>])[sel0_np]
-    Elow = t64(catalog[<span class="hljs-string">&quot;Elow&quot;</span>])[sel0_np]
-    grad = t64(catalog[<span class="hljs-string">&quot;grad&quot;</span>])[sel0_np]; gstark = t64(catalog[<span class="hljs-string">&quot;gstark&quot;</span>])[sel0_np]
-    gvdw = t64(catalog[<span class="hljs-string">&quot;gvdw&quot;</span>])[sel0_np]
-    elem_idx = ti(catalog[<span class="hljs-string">&quot;Z&quot;</span>])[sel0_np] - <span class="hljs-number">1</span>; ion_idx = ti(catalog[<span class="hljs-string">&quot;ion&quot;</span>])[sel0_np] - <span class="hljs-number">1</span>
-    center_idx = ti(center_idx_np)[sel0_np]; wing_idx = ti(wing_idx_np)[sel0_np]
+    lam = t64(catalog[<span class="hljs-string">&quot;lam&quot;</span>])[metal_line_indices]
+    gf = t64(catalog[<span class="hljs-string">&quot;gf&quot;</span>])[metal_line_indices]
+    Elow = t64(catalog[<span class="hljs-string">&quot;Elow&quot;</span>])[metal_line_indices]
+    grad = t64(catalog[<span class="hljs-string">&quot;grad&quot;</span>])[metal_line_indices]
+    gstark = t64(catalog[<span class="hljs-string">&quot;gstark&quot;</span>])[metal_line_indices]
+    gvdw = t64(catalog[<span class="hljs-string">&quot;gvdw&quot;</span>])[metal_line_indices]
+    elem_idx = ti(catalog[<span class="hljs-string">&quot;Z&quot;</span>])[metal_line_indices] - <span class="hljs-number">1</span>
+    ion_idx = ti(catalog[<span class="hljs-string">&quot;ion&quot;</span>])[metal_line_indices] - <span class="hljs-number">1</span>
+    center_idx = ti(center_idx_np)[metal_line_indices]
+    wing_idx = ti(wing_idx_np)[metal_line_indices]
     n_w = <span class="hljs-built_in">int</span>(torch.as_tensor(grid).numel())
 
     population_per_ion = t64(atmd[<span class="hljs-string">&quot;pop3&quot;</span>])
@@ -1077,7 +1159,7 @@ def metal_invariants_fp64(catalog, atmd, grid, cont, sel0_np, center_idx_np, win
     electron_density = t64(atmd[<span class="hljs-string">&quot;xne&quot;</span>])
     hc_over_kT = t64(atmd[<span class="hljs-string">&quot;hckt&quot;</span>])
     vdw_perturber_density = t64(atmd[<span class="hljs-string">&quot;txnxn&quot;</span>])
-    cont_t = t64(cont)
+    continuum = t64(cont)
     h0t = t64(catalog[<span class="hljs-string">&quot;h0tab&quot;</span>]); h1t = t64(catalog[<span class="hljs-string">&quot;h1tab&quot;</span>]); h2t = t64(catalog[<span class="hljs-string">&quot;h2tab&quot;</span>])
 
     population = population_per_ion[:, ion_idx, elem_idx]
@@ -1085,7 +1167,7 @@ def metal_invariants_fp64(catalog, atmd, grid, cont, sel0_np, center_idx_np, win
     cgf = CGF_CONSTANT * gf / (C_LIGHT_NM / lam)
     center_valid = (center_idx &gt;= <span class="hljs-number">0</span>) &amp; (center_idx &lt; n_w)
     wing_active = (wing_idx &gt;= -MAX_PROFILE_STEPS) &amp; (wing_idx &lt;= n_w - <span class="hljs-number">1</span> + MAX_PROFILE_STEPS)
-    kapmin_center = cont_t[:, torch.clamp(center_idx, <span class="hljs-number">0</span>, n_w - <span class="hljs-number">1</span>)] * CUTOFF
+    center_cutoff = continuum[:, torch.clamp(center_idx, <span class="hljs-number">0</span>, n_w - <span class="hljs-number">1</span>)] * CUTOFF
 
     extab, extabf = gpu_fastex_tables(dtype=f64, device=cpu)
     boltz = gpu_fast_ex(Elow.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>) * hc_over_kT.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>), extab, extabf)
@@ -1097,7 +1179,7 @@ def metal_invariants_fp64(catalog, atmd, grid, cont, sel0_np, center_idx_np, win
     )
     kappa0_pre = cgf.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>) * population_over_mass_doppler_width
     post = kappa0_pre * boltz
-    passcut = good &amp; (kappa0_pre &gt;= kapmin_center) &amp; (post &gt;= kapmin_center) &amp; (post &gt; <span class="hljs-number">0.0</span>)
+    passcut = good &amp; (kappa0_pre &gt;= center_cutoff) &amp; (post &gt;= center_cutoff) &amp; (post &gt; <span class="hljs-number">0.0</span>)
 
     doppler_width = doppler_fraction * lam.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)
     doppler_fraction_for_damping = torch.where(lam.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>) &gt; <span class="hljs-number">0.0</span>, doppler_width / lam.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>),
@@ -1107,30 +1189,32 @@ def metal_invariants_fp64(catalog, atmd, grid, cont, sel0_np, center_idx_np, win
     adamp = torch.where((doppler_width &gt; <span class="hljs-number">0.0</span>) &amp; (doppler_fraction_for_damping &gt; <span class="hljs-number">0.0</span>),
                         gamma_total / doppler_fraction_for_damping,
                         torch.zeros_like(gamma_total))
-    cd = passcut &amp; (adamp &gt;= <span class="hljs-number">0.0</span>) &amp; (post &gt; <span class="hljs-number">0.0</span>)
+    center_deposit_mask = passcut &amp; (adamp &gt;= <span class="hljs-number">0.0</span>) &amp; (post &gt; <span class="hljs-number">0.0</span>)
     h0_center = gpu_voigt_h_at_zero(adamp, h0t, h1t, h2t)
     kapcen_raw = torch.where(adamp &lt; <span class="hljs-number">0.2</span>, post * (<span class="hljs-number">1.0</span> - <span class="hljs-number">1.128</span> * adamp), post * h0_center)
-    kapcen = torch.where(cd, kapcen_raw, torch.zeros_like(kapcen_raw))
-    center_mask = cd &amp; center_valid.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)
+    kapcen = torch.where(center_deposit_mask, kapcen_raw, torch.zeros_like(kapcen_raw))
+    center_mask = center_deposit_mask &amp; center_valid.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)
 
-    wing_pairs = cd &amp; (kapcen &gt; <span class="hljs-number">0.0</span>) &amp; wing_active.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)
+    wing_pairs = center_deposit_mask &amp; (kapcen &gt; <span class="hljs-number">0.0</span>) &amp; wing_active.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)
     live_lines = wing_active &amp; wing_pairs.<span class="hljs-built_in">any</span>(dim=<span class="hljs-number">0</span>)
-    sel = torch.nonzero(live_lines, as_tuple=<span class="hljs-literal">False</span>).squeeze(<span class="hljs-number">1</span>)
-    <span class="hljs-keyword">if</span> sel.numel() == <span class="hljs-number">0</span>:
-        <span class="hljs-keyword">return</span> <span class="hljs-built_in">dict</span>(center_idx=center_idx, kapcen=kapcen, center_mask=center_mask, sel=sel)
+    live_wing_line_index = torch.nonzero(live_lines, as_tuple=<span class="hljs-literal">False</span>).squeeze(<span class="hljs-number">1</span>)
+    <span class="hljs-keyword">if</span> live_wing_line_index.numel() == <span class="hljs-number">0</span>:
+        <span class="hljs-keyword">return</span> <span class="hljs-built_in">dict</span>(center_idx=center_idx, kapcen=kapcen, center_mask=center_mask, sel=live_wing_line_index)
 
-    lam_w = lam[sel]; wing_idx_w = wing_idx[sel]
-    doppler_width_w = doppler_width[:, sel]
-    adamp_w = torch.clamp(adamp[:, sel], <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-12</span>)
-    kapcen_w = kapcen[:, sel]; wing_pairs_w = wing_pairs[:, sel]
+    lam_w = lam[live_wing_line_index]
+    wing_idx_w = wing_idx[live_wing_line_index]
+    doppler_width_w = doppler_width[:, live_wing_line_index]
+    adamp_w = torch.clamp(adamp[:, live_wing_line_index], <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-12</span>)
+    kapcen_w = kapcen[:, live_wing_line_index]
+    wing_pairs_w = wing_pairs[:, live_wing_line_index]
     h0_w = gpu_voigt_h_at_zero(adamp_w, h0t, h1t, h2t)
     kappa0_wing = torch.where(kapcen_w &gt; <span class="hljs-number">0.0</span>, kapcen_w / h0_w, torch.zeros_like(kapcen_w))
-    cont_ref = cont_t[:, torch.clamp(wing_idx_w, <span class="hljs-number">0</span>, n_w - <span class="hljs-number">1</span>)]
-    kapmin_ref = torch.maximum(cont_ref * CUTOFF, cont_ref * KAPMIN_FLOOR)
+    wing_continuum = continuum[:, torch.clamp(wing_idx_w, <span class="hljs-number">0</span>, n_w - <span class="hljs-number">1</span>)]
+    wing_cutoff = torch.maximum(wing_continuum * CUTOFF, wing_continuum * KAPMIN_FLOOR)
     maxstep, use_far, n10dop, dvoigt, x_far = wing_reach_batched(
-        kappa0_wing, adamp_w, doppler_width_w, lam_w, kapmin_ref, wing_pairs_w,
+        kappa0_wing, adamp_w, doppler_width_w, lam_w, wing_cutoff, wing_pairs_w,
         resolu, h0t, h1t, h2t)
-    <span class="hljs-keyword">return</span> <span class="hljs-built_in">dict</span>(center_idx=center_idx, kapcen=kapcen, center_mask=center_mask, sel=sel,
+    <span class="hljs-keyword">return</span> <span class="hljs-built_in">dict</span>(center_idx=center_idx, kapcen=kapcen, center_mask=center_mask, sel=live_wing_line_index,
                 wing_idx=wing_idx_w, kappa0_wing=kappa0_wing, adamp=adamp_w,
                 maxstep=maxstep, use_far=use_far, n10dop=n10dop, dvoigt=dvoigt, x_far=x_far)</code></pre>
     </div></div><div class="prose"><p>The invariant solve returns compact <code>[depth, line]</code> tensors: center deposits, live wing-line selection, damping, reach, and far-wing anchors. The next cell is the orchestration layer. It allocates the output opacity field, scatters the center values, then hands only the live wing subset to the reach-tiered GPU walk.</p>
@@ -1145,7 +1229,7 @@ def metal_invariants_fp64(catalog, atmd, grid, cont, sel0_np, center_idx_np, win
     grid_np = np.asarray(grid, dtype=np.float64); n_w = int(grid_np.size)
     pop3_np = atmd[&quot;pop3&quot;]; dop3_np = atmd[&quot;dop3&quot;]
     n_depths = int(torch.as_tensor(atmd[&quot;T&quot;]).numel())
-    out = torch.zeros((n_depths, n_w), dtype=DTYPE, device=DEVICE)
+    metal_opacity = torch.zeros((n_depths, n_w), dtype=DTYPE, device=DEVICE)
 
     lam_np = catalog[&quot;lam&quot;]
     idxwl_np = catalog[&quot;idxwl&quot;]
@@ -1163,31 +1247,32 @@ def metal_invariants_fp64(catalog, atmd, grid, cont, sel0_np, center_idx_np, win
                    &amp; (ion_idx_cpu &gt;= 0) &amp; (ion_idx_cpu &lt; n_ion_max))
     sel0_cpu = torch.nonzero(line_ok_cpu, as_tuple=False).squeeze(1)
     if sel0_cpu.numel() == 0:
-        return out
+        return metal_opacity
 
-    inv = metal_invariants_fp64(
+    metal_invariants = metal_invariants_fp64(
         catalog, atmd, grid_np, cont, sel0_cpu, center_idx_np, wing_idx_np, resolu)
-    center_idx = inv[&quot;center_idx&quot;].to(device=DEVICE)
-    kapcen = inv[&quot;kapcen&quot;].to(dtype=DTYPE, device=DEVICE)
-    center_mask = inv[&quot;center_mask&quot;].to(device=DEVICE)
+    center_idx = metal_invariants[&quot;center_idx&quot;].to(device=DEVICE)
+    kapcen = metal_invariants[&quot;kapcen&quot;].to(dtype=DTYPE, device=DEVICE)
+    center_mask = metal_invariants[&quot;center_mask&quot;].to(device=DEVICE)
     if bool(center_mask.any()):
-        scatter_add_2d(out, center_idx, kapcen, center_mask)             # center deposit
+        scatter_add_2d(metal_opacity, center_idx, kapcen, center_mask)   # center deposit
 
-    sel = inv[&quot;sel&quot;]
-    if sel.numel() == 0:
-        return out
-    wing_idx_w = inv[&quot;wing_idx&quot;].to(device=DEVICE)
-    kappa0_wing = inv[&quot;kappa0_wing&quot;].to(dtype=DTYPE, device=DEVICE)
-    adamp_w = inv[&quot;adamp&quot;].to(dtype=DTYPE, device=DEVICE)
-    maxstep = inv[&quot;maxstep&quot;].to(device=DEVICE)
-    use_far = inv[&quot;use_far&quot;].to(device=DEVICE)
-    n10dop = inv[&quot;n10dop&quot;].to(device=DEVICE)
-    dvoigt = inv[&quot;dvoigt&quot;].to(dtype=DTYPE, device=DEVICE)
-    x_far = inv[&quot;x_far&quot;].to(dtype=DTYPE, device=DEVICE)
-    wing_walk_tiered(out, wing_idx_w, kappa0_wing, adamp_w, maxstep, use_far, n10dop,
+    live_wing_line_index = metal_invariants[&quot;sel&quot;]
+    if live_wing_line_index.numel() == 0:
+        return metal_opacity
+    wing_idx_w = metal_invariants[&quot;wing_idx&quot;].to(device=DEVICE)
+    kappa0_wing = metal_invariants[&quot;kappa0_wing&quot;].to(dtype=DTYPE, device=DEVICE)
+    adamp_w = metal_invariants[&quot;adamp&quot;].to(dtype=DTYPE, device=DEVICE)
+    maxstep = metal_invariants[&quot;maxstep&quot;].to(device=DEVICE)
+    use_far = metal_invariants[&quot;use_far&quot;].to(device=DEVICE)
+    n10dop = metal_invariants[&quot;n10dop&quot;].to(device=DEVICE)
+    dvoigt = metal_invariants[&quot;dvoigt&quot;].to(dtype=DTYPE, device=DEVICE)
+    x_far = metal_invariants[&quot;x_far&quot;].to(dtype=DTYPE, device=DEVICE)
+    wing_walk_tiered(metal_opacity, wing_idx_w, kappa0_wing, adamp_w, maxstep, use_far, n10dop,
                      dvoigt, x_far, n_w, h0t, h1t, h2t,
-                     a64=inv[&quot;adamp&quot;], dvoigt64=inv[&quot;dvoigt&quot;])
-    return out
+                     damping_a_fp64=metal_invariants[&quot;adamp&quot;],
+                     dvoigt_fp64=metal_invariants[&quot;dvoigt&quot;])
+    return metal_opacity
 print(&quot;accumulate_metal ready (the batched scatter-add pipeline)&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
@@ -1199,7 +1284,7 @@ print(&quot;accumulate_metal ready (the batched scatter-add pipeline)&quot;)" ar
     grid_np = np.asarray(grid, dtype=np.float64); n_w = <span class="hljs-built_in">int</span>(grid_np.size)
     pop3_np = atmd[<span class="hljs-string">&quot;pop3&quot;</span>]; dop3_np = atmd[<span class="hljs-string">&quot;dop3&quot;</span>]
     n_depths = <span class="hljs-built_in">int</span>(torch.as_tensor(atmd[<span class="hljs-string">&quot;T&quot;</span>]).numel())
-    out = torch.zeros((n_depths, n_w), dtype=DTYPE, device=DEVICE)
+    metal_opacity = torch.zeros((n_depths, n_w), dtype=DTYPE, device=DEVICE)
 
     lam_np = catalog[<span class="hljs-string">&quot;lam&quot;</span>]
     idxwl_np = catalog[<span class="hljs-string">&quot;idxwl&quot;</span>]
@@ -1217,31 +1302,32 @@ print(&quot;accumulate_metal ready (the batched scatter-add pipeline)&quot;)" ar
                    &amp; (ion_idx_cpu &gt;= <span class="hljs-number">0</span>) &amp; (ion_idx_cpu &lt; n_ion_max))
     sel0_cpu = torch.nonzero(line_ok_cpu, as_tuple=<span class="hljs-literal">False</span>).squeeze(<span class="hljs-number">1</span>)
     <span class="hljs-keyword">if</span> sel0_cpu.numel() == <span class="hljs-number">0</span>:
-        <span class="hljs-keyword">return</span> out
+        <span class="hljs-keyword">return</span> metal_opacity
 
-    inv = metal_invariants_fp64(
+    metal_invariants = metal_invariants_fp64(
         catalog, atmd, grid_np, cont, sel0_cpu, center_idx_np, wing_idx_np, resolu)
-    center_idx = inv[<span class="hljs-string">&quot;center_idx&quot;</span>].to(device=DEVICE)
-    kapcen = inv[<span class="hljs-string">&quot;kapcen&quot;</span>].to(dtype=DTYPE, device=DEVICE)
-    center_mask = inv[<span class="hljs-string">&quot;center_mask&quot;</span>].to(device=DEVICE)
+    center_idx = metal_invariants[<span class="hljs-string">&quot;center_idx&quot;</span>].to(device=DEVICE)
+    kapcen = metal_invariants[<span class="hljs-string">&quot;kapcen&quot;</span>].to(dtype=DTYPE, device=DEVICE)
+    center_mask = metal_invariants[<span class="hljs-string">&quot;center_mask&quot;</span>].to(device=DEVICE)
     <span class="hljs-keyword">if</span> <span class="hljs-built_in">bool</span>(center_mask.<span class="hljs-built_in">any</span>()):
-        scatter_add_2d(out, center_idx, kapcen, center_mask)             <span class="hljs-comment"># center deposit</span>
+        scatter_add_2d(metal_opacity, center_idx, kapcen, center_mask)   <span class="hljs-comment"># center deposit</span>
 
-    sel = inv[<span class="hljs-string">&quot;sel&quot;</span>]
-    <span class="hljs-keyword">if</span> sel.numel() == <span class="hljs-number">0</span>:
-        <span class="hljs-keyword">return</span> out
-    wing_idx_w = inv[<span class="hljs-string">&quot;wing_idx&quot;</span>].to(device=DEVICE)
-    kappa0_wing = inv[<span class="hljs-string">&quot;kappa0_wing&quot;</span>].to(dtype=DTYPE, device=DEVICE)
-    adamp_w = inv[<span class="hljs-string">&quot;adamp&quot;</span>].to(dtype=DTYPE, device=DEVICE)
-    maxstep = inv[<span class="hljs-string">&quot;maxstep&quot;</span>].to(device=DEVICE)
-    use_far = inv[<span class="hljs-string">&quot;use_far&quot;</span>].to(device=DEVICE)
-    n10dop = inv[<span class="hljs-string">&quot;n10dop&quot;</span>].to(device=DEVICE)
-    dvoigt = inv[<span class="hljs-string">&quot;dvoigt&quot;</span>].to(dtype=DTYPE, device=DEVICE)
-    x_far = inv[<span class="hljs-string">&quot;x_far&quot;</span>].to(dtype=DTYPE, device=DEVICE)
-    wing_walk_tiered(out, wing_idx_w, kappa0_wing, adamp_w, maxstep, use_far, n10dop,
+    live_wing_line_index = metal_invariants[<span class="hljs-string">&quot;sel&quot;</span>]
+    <span class="hljs-keyword">if</span> live_wing_line_index.numel() == <span class="hljs-number">0</span>:
+        <span class="hljs-keyword">return</span> metal_opacity
+    wing_idx_w = metal_invariants[<span class="hljs-string">&quot;wing_idx&quot;</span>].to(device=DEVICE)
+    kappa0_wing = metal_invariants[<span class="hljs-string">&quot;kappa0_wing&quot;</span>].to(dtype=DTYPE, device=DEVICE)
+    adamp_w = metal_invariants[<span class="hljs-string">&quot;adamp&quot;</span>].to(dtype=DTYPE, device=DEVICE)
+    maxstep = metal_invariants[<span class="hljs-string">&quot;maxstep&quot;</span>].to(device=DEVICE)
+    use_far = metal_invariants[<span class="hljs-string">&quot;use_far&quot;</span>].to(device=DEVICE)
+    n10dop = metal_invariants[<span class="hljs-string">&quot;n10dop&quot;</span>].to(device=DEVICE)
+    dvoigt = metal_invariants[<span class="hljs-string">&quot;dvoigt&quot;</span>].to(dtype=DTYPE, device=DEVICE)
+    x_far = metal_invariants[<span class="hljs-string">&quot;x_far&quot;</span>].to(dtype=DTYPE, device=DEVICE)
+    wing_walk_tiered(metal_opacity, wing_idx_w, kappa0_wing, adamp_w, maxstep, use_far, n10dop,
                      dvoigt, x_far, n_w, h0t, h1t, h2t,
-                     a64=inv[<span class="hljs-string">&quot;adamp&quot;</span>], dvoigt64=inv[<span class="hljs-string">&quot;dvoigt&quot;</span>])
-    <span class="hljs-keyword">return</span> out
+                     damping_a_fp64=metal_invariants[<span class="hljs-string">&quot;adamp&quot;</span>],
+                     dvoigt_fp64=metal_invariants[<span class="hljs-string">&quot;dvoigt&quot;</span>])
+    <span class="hljs-keyword">return</span> metal_opacity
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;accumulate_metal ready (the batched scatter-add pipeline)&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">accumulate_metal ready (the batched scatter-add pipeline)
 </pre></div></div><div class="prose"><h2>The Metal-kernel verdict</h2>
@@ -1965,7 +2051,9 @@ shape = (80, 12573); max Fe I contribution = 1.741e+09 cm^-3
         return torch.zeros_like(cont_t)
 
     h0t = t64(h0tab); h1t = t64(h1tab); h2t = t64(h2tab)
-    wl = t64(lam)[he_sel]; gf_he = t64(gf)[he_sel]; Elow_he = t64(Elow)[he_sel]
+    helium_wavelength = t64(lam)[he_sel]
+    helium_gf = t64(gf)[he_sel]
+    helium_lower_energy = t64(Elow)[he_sel]
     grad_he = t64(grad)[he_sel]; gstark_he = t64(gstark)[he_sel]
     gvdw_he = t64(gvdw)[he_sel]
 
@@ -1976,10 +2064,11 @@ shape = (80, 12573); max Fe I contribution = 1.741e+09 cm^-3
     temperature = t64(atm[&quot;temperature&quot;])
     hc_over_kT = t64(atm[&quot;hckt&quot;])
     vdw_perturber_density = t64(txnxn)
-    grid64 = t64(grid); cont64 = t64(cont)
+    grid64 = t64(grid)
+    continuum64 = t64(cont)
     elem = torch.clamp(ti(Zc)[he_sel] - 1, 0, population_per_ion.shape[2] - 1)
     ion0 = torch.clamp(ti(ion)[he_sel] - 1, 0, population_per_ion.shape[1] - 1)
-    ci = torch.clamp(ti(center_idx_np)[he_sel], 0, grid64.numel() - 1)
+    center_columns = torch.clamp(ti(center_idx_np)[he_sel], 0, grid64.numel() - 1)
 
     he_ltc_t = ti(cat[&quot;he_ltc&quot;])
     wcon_t = t64(cat[&quot;he_wcon_2d&quot;]); wtail_t = t64(cat[&quot;he_wtail_2d&quot;])
@@ -1987,62 +2076,71 @@ shape = (80, 12573); max Fe I contribution = 1.741e+09 cm^-3
 
     population = population_per_ion[:, ion0, elem]
     doppler_fraction = doppler_fraction_per_ion[:, ion0, elem]
-    cgf_he = CGF_CONSTANT * gf_he / (C_LIGHT_NM / wl)
+    cgf_he = CGF_CONSTANT * helium_gf / (C_LIGHT_NM / helium_wavelength)
     extab64, extabf64 = gpu_fastex_tables(dtype=solve_dtype, device=solve_device)
-    boltz = gpu_fast_ex(Elow_he.view(1, -1) * hc_over_kT.view(-1, 1), extab64, extabf64)
+    boltz = gpu_fast_ex(
+        helium_lower_energy.view(1, -1) * hc_over_kT.view(-1, 1), extab64, extabf64)
 
     doppler_safe = torch.clamp(doppler_fraction, min=1.0e-40)
-    valid = (population &gt; 0.0) &amp; (doppler_fraction &gt; 0.0) &amp; (mass_density.view(-1, 1) &gt; 0.0)
+    valid_population = (
+        (population &gt; 0.0) &amp; (doppler_fraction &gt; 0.0) &amp; (mass_density.view(-1, 1) &gt; 0.0)
+    )
     population_over_mass_doppler_width = torch.where(
-        valid,
+        valid_population,
         population / (mass_density.view(-1, 1) * doppler_safe),
         torch.zeros_like(population),
     )
 
     k0pre = cgf_he.view(1, -1) * population_over_mass_doppler_width
-    kmin = cont64[:, ci] * he_cut_t
-    valid = valid &amp; (k0pre &gt;= kmin)
+    center_cutoff = continuum64[:, center_columns] * he_cut_t
+    valid_population = valid_population &amp; (k0pre &gt;= center_cutoff)
     k0 = k0pre * boltz
-    valid = valid &amp; (k0 &gt;= kmin) &amp; (k0 &gt; 0.0)
+    valid_profile = valid_population &amp; (k0 &gt;= center_cutoff) &amp; (k0 &gt; 0.0)
 
-    gtot = (grad_he.view(1, -1) + gstark_he.view(1, -1) * electron_density.view(-1, 1)
-            + gvdw_he.view(1, -1) * vdw_perturber_density.view(-1, 1))
-    adamp = torch.where(doppler_safe &gt; 0.0, gtot / doppler_safe, torch.zeros_like(gtot))
-    dopw = doppler_fraction * wl.view(1, -1)
+    gamma_total = (grad_he.view(1, -1) + gstark_he.view(1, -1) * electron_density.view(-1, 1)
+                   + gvdw_he.view(1, -1) * vdw_perturber_density.view(-1, 1))
+    adamp = torch.where(doppler_safe &gt; 0.0, gamma_total / doppler_safe, torch.zeros_like(gamma_total))
+    doppler_width = doppler_fraction * helium_wavelength.view(1, -1)
 
     isotope = (he_ltc_t.view(1, -1) == -4)
     k_eff = torch.where(isotope, k0 / 1.155, k0)
-    d_eff = torch.where(isotope, dopw * 1.155, dopw)
+    doppler_width_effective = torch.where(isotope, doppler_width * 1.155, doppler_width)
     a_eff = torch.where(isotope, adamp / 1.155, adamp)
     a_eff = torch.clamp(a_eff, min=1.0e-12)
 
-    wave = grid64.view(1, 1, -1)
-    idx = torch.arange(grid64.numel(), dtype=torch.int64, device=solve_device).view(1, 1, -1)
-    ci3 = ci.view(1, -1, 1)
+    wavelength_grid = grid64.view(1, 1, -1)
+    grid_columns = torch.arange(grid64.numel(), dtype=torch.int64, device=solve_device).view(1, 1, -1)
+    center_columns_3d = center_columns.view(1, -1, 1)
 
-    red_domain = idx &gt;= ci3
-    blue_domain = idx &lt; ci3
-    red_domain = red_domain &amp; (wl.view(1, -1, 1) &lt;= grid64[-1])
-    blue_domain = blue_domain &amp; (wl.view(1, -1, 1) &gt;= grid64[0]) &amp; (ci3 &gt; 0)
+    red_domain = grid_columns &gt;= center_columns_3d
+    blue_domain = grid_columns &lt; center_columns_3d
+    red_domain = red_domain &amp; (helium_wavelength.view(1, -1, 1) &lt;= grid64[-1])
+    blue_domain = blue_domain &amp; (helium_wavelength.view(1, -1, 1) &gt;= grid64[0]) &amp; (center_columns_3d &gt; 0)
 
-    d_safe = torch.clamp(d_eff[:, :, None], min=1.0e-30)
-    x = torch.abs(wave - wl.view(1, -1, 1)) / d_safe
-    raw = k_eff[:, :, None] * voigt_H_grid(x, a_eff[:, :, None], h0t, h1t, h2t)
+    doppler_width_safe = torch.clamp(doppler_width_effective[:, :, None], min=1.0e-30)
+    reduced_frequency = torch.abs(wavelength_grid - helium_wavelength.view(1, -1, 1)) / doppler_width_safe
+    untapered_profile = (
+        k_eff[:, :, None] * voigt_H_grid(reduced_frequency, a_eff[:, :, None], h0t, h1t, h2t)
+    )
 
     wcon = wcon_t[:, :, None]
     wtail = wtail_t[:, :, None]
     has_wcon = wcon &gt; 0.0
     has_wtail = wtail &gt; 0.0
-    can_eval = ~(has_wcon &amp; (wave &lt;= wcon))
+    can_eval = ~(has_wcon &amp; (wavelength_grid &lt;= wcon))
 
-    base = torch.where(has_wcon, wcon, wl.view(1, -1, 1))
-    denom = torch.clamp(wtail - base, min=1.0e-12)
-    taper = torch.where(has_wtail &amp; (wave &lt; wtail), (wave - base) / denom, torch.ones_like(raw))
-    value = raw * taper
+    taper_start_wavelength = torch.where(has_wcon, wcon, helium_wavelength.view(1, -1, 1))
+    taper_width = torch.clamp(wtail - taper_start_wavelength, min=1.0e-12)
+    taper = torch.where(
+        has_wtail &amp; (wavelength_grid &lt; wtail),
+        (wavelength_grid - taper_start_wavelength) / taper_width,
+        torch.ones_like(untapered_profile),
+    )
+    tapered_profile = untapered_profile * taper
 
-    cutoff_grid = cont64[:, None, :] * he_cut_t
-    stop_red = red_domain &amp; can_eval &amp; (value &lt; cutoff_grid)
-    stop_blue = blue_domain &amp; can_eval &amp; (value &lt; cutoff_grid)
+    cutoff_grid = continuum64[:, None, :] * he_cut_t
+    stop_red = red_domain &amp; can_eval &amp; (tapered_profile &lt; cutoff_grid)
+    stop_blue = blue_domain &amp; can_eval &amp; (tapered_profile &lt; cutoff_grid)
 
     red_before_stop = torch.cumsum(stop_red.to(torch.int64), dim=2) == 0
     blue_before_stop = torch.flip(
@@ -2050,11 +2148,12 @@ shape = (80, 12573); max Fe I contribution = 1.741e+09 cm^-3
         dims=(2,),
     )
 
-    deposit = valid[:, :, None] &amp; can_eval &amp; (value &gt;= cutoff_grid) &amp; (
+    deposit = valid_profile[:, :, None] &amp; can_eval &amp; (tapered_profile &gt;= cutoff_grid) &amp; (
         (red_domain &amp; red_before_stop) | (blue_domain &amp; blue_before_stop)
     )
 
-    he_raw = torch.sum(torch.where(deposit, value, torch.zeros_like(value)), dim=1)
+    helium_raw_opacity = torch.sum(
+        torch.where(deposit, tapered_profile, torch.zeros_like(tapered_profile)), dim=1)
 
     h_planck = torch.as_tensor(6.62607015e-27, dtype=solve_dtype, device=solve_device)
     k_boltz = torch.as_tensor(1.380649e-16, dtype=solve_dtype, device=solve_device)
@@ -2062,7 +2161,7 @@ shape = (80, 12573); max Fe I contribution = 1.741e+09 cm^-3
     stimulated_emission_factor = (
         1.0 - torch.exp(-freq_grid_t.view(1, -1) * (h_planck / (k_boltz * temperature)).view(-1, 1))
     )
-    return (he_raw * stimulated_emission_factor).to(dtype=DTYPE, device=DEVICE)" aria-label="Copy code">
+    return (helium_raw_opacity * stimulated_emission_factor).to(dtype=DTYPE, device=DEVICE)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">helium_opacity_torch</span>():
@@ -2083,7 +2182,9 @@ shape = (80, 12573); max Fe I contribution = 1.741e+09 cm^-3
         <span class="hljs-keyword">return</span> torch.zeros_like(cont_t)
 
     h0t = t64(h0tab); h1t = t64(h1tab); h2t = t64(h2tab)
-    wl = t64(lam)[he_sel]; gf_he = t64(gf)[he_sel]; Elow_he = t64(Elow)[he_sel]
+    helium_wavelength = t64(lam)[he_sel]
+    helium_gf = t64(gf)[he_sel]
+    helium_lower_energy = t64(Elow)[he_sel]
     grad_he = t64(grad)[he_sel]; gstark_he = t64(gstark)[he_sel]
     gvdw_he = t64(gvdw)[he_sel]
 
@@ -2094,10 +2195,11 @@ shape = (80, 12573); max Fe I contribution = 1.741e+09 cm^-3
     temperature = t64(atm[<span class="hljs-string">&quot;temperature&quot;</span>])
     hc_over_kT = t64(atm[<span class="hljs-string">&quot;hckt&quot;</span>])
     vdw_perturber_density = t64(txnxn)
-    grid64 = t64(grid); cont64 = t64(cont)
+    grid64 = t64(grid)
+    continuum64 = t64(cont)
     elem = torch.clamp(ti(Zc)[he_sel] - <span class="hljs-number">1</span>, <span class="hljs-number">0</span>, population_per_ion.shape[<span class="hljs-number">2</span>] - <span class="hljs-number">1</span>)
     ion0 = torch.clamp(ti(ion)[he_sel] - <span class="hljs-number">1</span>, <span class="hljs-number">0</span>, population_per_ion.shape[<span class="hljs-number">1</span>] - <span class="hljs-number">1</span>)
-    ci = torch.clamp(ti(center_idx_np)[he_sel], <span class="hljs-number">0</span>, grid64.numel() - <span class="hljs-number">1</span>)
+    center_columns = torch.clamp(ti(center_idx_np)[he_sel], <span class="hljs-number">0</span>, grid64.numel() - <span class="hljs-number">1</span>)
 
     he_ltc_t = ti(cat[<span class="hljs-string">&quot;he_ltc&quot;</span>])
     wcon_t = t64(cat[<span class="hljs-string">&quot;he_wcon_2d&quot;</span>]); wtail_t = t64(cat[<span class="hljs-string">&quot;he_wtail_2d&quot;</span>])
@@ -2105,62 +2207,71 @@ shape = (80, 12573); max Fe I contribution = 1.741e+09 cm^-3
 
     population = population_per_ion[:, ion0, elem]
     doppler_fraction = doppler_fraction_per_ion[:, ion0, elem]
-    cgf_he = CGF_CONSTANT * gf_he / (C_LIGHT_NM / wl)
+    cgf_he = CGF_CONSTANT * helium_gf / (C_LIGHT_NM / helium_wavelength)
     extab64, extabf64 = gpu_fastex_tables(dtype=solve_dtype, device=solve_device)
-    boltz = gpu_fast_ex(Elow_he.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>) * hc_over_kT.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>), extab64, extabf64)
+    boltz = gpu_fast_ex(
+        helium_lower_energy.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>) * hc_over_kT.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>), extab64, extabf64)
 
     doppler_safe = torch.clamp(doppler_fraction, <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-40</span>)
-    valid = (population &gt; <span class="hljs-number">0.0</span>) &amp; (doppler_fraction &gt; <span class="hljs-number">0.0</span>) &amp; (mass_density.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) &gt; <span class="hljs-number">0.0</span>)
+    valid_population = (
+        (population &gt; <span class="hljs-number">0.0</span>) &amp; (doppler_fraction &gt; <span class="hljs-number">0.0</span>) &amp; (mass_density.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) &gt; <span class="hljs-number">0.0</span>)
+    )
     population_over_mass_doppler_width = torch.where(
-        valid,
+        valid_population,
         population / (mass_density.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) * doppler_safe),
         torch.zeros_like(population),
     )
 
     k0pre = cgf_he.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>) * population_over_mass_doppler_width
-    kmin = cont64[:, ci] * he_cut_t
-    valid = valid &amp; (k0pre &gt;= kmin)
+    center_cutoff = continuum64[:, center_columns] * he_cut_t
+    valid_population = valid_population &amp; (k0pre &gt;= center_cutoff)
     k0 = k0pre * boltz
-    valid = valid &amp; (k0 &gt;= kmin) &amp; (k0 &gt; <span class="hljs-number">0.0</span>)
+    valid_profile = valid_population &amp; (k0 &gt;= center_cutoff) &amp; (k0 &gt; <span class="hljs-number">0.0</span>)
 
-    gtot = (grad_he.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>) + gstark_he.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>) * electron_density.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>)
-            + gvdw_he.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>) * vdw_perturber_density.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>))
-    adamp = torch.where(doppler_safe &gt; <span class="hljs-number">0.0</span>, gtot / doppler_safe, torch.zeros_like(gtot))
-    dopw = doppler_fraction * wl.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)
+    gamma_total = (grad_he.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>) + gstark_he.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>) * electron_density.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>)
+                   + gvdw_he.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>) * vdw_perturber_density.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>))
+    adamp = torch.where(doppler_safe &gt; <span class="hljs-number">0.0</span>, gamma_total / doppler_safe, torch.zeros_like(gamma_total))
+    doppler_width = doppler_fraction * helium_wavelength.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)
 
     isotope = (he_ltc_t.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>) == -<span class="hljs-number">4</span>)
     k_eff = torch.where(isotope, k0 / <span class="hljs-number">1.155</span>, k0)
-    d_eff = torch.where(isotope, dopw * <span class="hljs-number">1.155</span>, dopw)
+    doppler_width_effective = torch.where(isotope, doppler_width * <span class="hljs-number">1.155</span>, doppler_width)
     a_eff = torch.where(isotope, adamp / <span class="hljs-number">1.155</span>, adamp)
     a_eff = torch.clamp(a_eff, <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-12</span>)
 
-    wave = grid64.view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)
-    idx = torch.arange(grid64.numel(), dtype=torch.int64, device=solve_device).view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)
-    ci3 = ci.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>, <span class="hljs-number">1</span>)
+    wavelength_grid = grid64.view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)
+    grid_columns = torch.arange(grid64.numel(), dtype=torch.int64, device=solve_device).view(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)
+    center_columns_3d = center_columns.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>, <span class="hljs-number">1</span>)
 
-    red_domain = idx &gt;= ci3
-    blue_domain = idx &lt; ci3
-    red_domain = red_domain &amp; (wl.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) &lt;= grid64[-<span class="hljs-number">1</span>])
-    blue_domain = blue_domain &amp; (wl.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) &gt;= grid64[<span class="hljs-number">0</span>]) &amp; (ci3 &gt; <span class="hljs-number">0</span>)
+    red_domain = grid_columns &gt;= center_columns_3d
+    blue_domain = grid_columns &lt; center_columns_3d
+    red_domain = red_domain &amp; (helium_wavelength.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) &lt;= grid64[-<span class="hljs-number">1</span>])
+    blue_domain = blue_domain &amp; (helium_wavelength.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) &gt;= grid64[<span class="hljs-number">0</span>]) &amp; (center_columns_3d &gt; <span class="hljs-number">0</span>)
 
-    d_safe = torch.clamp(d_eff[:, :, <span class="hljs-literal">None</span>], <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-30</span>)
-    x = torch.<span class="hljs-built_in">abs</span>(wave - wl.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>, <span class="hljs-number">1</span>)) / d_safe
-    raw = k_eff[:, :, <span class="hljs-literal">None</span>] * voigt_H_grid(x, a_eff[:, :, <span class="hljs-literal">None</span>], h0t, h1t, h2t)
+    doppler_width_safe = torch.clamp(doppler_width_effective[:, :, <span class="hljs-literal">None</span>], <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-30</span>)
+    reduced_frequency = torch.<span class="hljs-built_in">abs</span>(wavelength_grid - helium_wavelength.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>, <span class="hljs-number">1</span>)) / doppler_width_safe
+    untapered_profile = (
+        k_eff[:, :, <span class="hljs-literal">None</span>] * voigt_H_grid(reduced_frequency, a_eff[:, :, <span class="hljs-literal">None</span>], h0t, h1t, h2t)
+    )
 
     wcon = wcon_t[:, :, <span class="hljs-literal">None</span>]
     wtail = wtail_t[:, :, <span class="hljs-literal">None</span>]
     has_wcon = wcon &gt; <span class="hljs-number">0.0</span>
     has_wtail = wtail &gt; <span class="hljs-number">0.0</span>
-    can_eval = ~(has_wcon &amp; (wave &lt;= wcon))
+    can_eval = ~(has_wcon &amp; (wavelength_grid &lt;= wcon))
 
-    base = torch.where(has_wcon, wcon, wl.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>, <span class="hljs-number">1</span>))
-    denom = torch.clamp(wtail - base, <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-12</span>)
-    taper = torch.where(has_wtail &amp; (wave &lt; wtail), (wave - base) / denom, torch.ones_like(raw))
-    value = raw * taper
+    taper_start_wavelength = torch.where(has_wcon, wcon, helium_wavelength.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>, <span class="hljs-number">1</span>))
+    taper_width = torch.clamp(wtail - taper_start_wavelength, <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-12</span>)
+    taper = torch.where(
+        has_wtail &amp; (wavelength_grid &lt; wtail),
+        (wavelength_grid - taper_start_wavelength) / taper_width,
+        torch.ones_like(untapered_profile),
+    )
+    tapered_profile = untapered_profile * taper
 
-    cutoff_grid = cont64[:, <span class="hljs-literal">None</span>, :] * he_cut_t
-    stop_red = red_domain &amp; can_eval &amp; (value &lt; cutoff_grid)
-    stop_blue = blue_domain &amp; can_eval &amp; (value &lt; cutoff_grid)
+    cutoff_grid = continuum64[:, <span class="hljs-literal">None</span>, :] * he_cut_t
+    stop_red = red_domain &amp; can_eval &amp; (tapered_profile &lt; cutoff_grid)
+    stop_blue = blue_domain &amp; can_eval &amp; (tapered_profile &lt; cutoff_grid)
 
     red_before_stop = torch.cumsum(stop_red.to(torch.int64), dim=<span class="hljs-number">2</span>) == <span class="hljs-number">0</span>
     blue_before_stop = torch.flip(
@@ -2168,11 +2279,12 @@ shape = (80, 12573); max Fe I contribution = 1.741e+09 cm^-3
         dims=(<span class="hljs-number">2</span>,),
     )
 
-    deposit = valid[:, :, <span class="hljs-literal">None</span>] &amp; can_eval &amp; (value &gt;= cutoff_grid) &amp; (
+    deposit = valid_profile[:, :, <span class="hljs-literal">None</span>] &amp; can_eval &amp; (tapered_profile &gt;= cutoff_grid) &amp; (
         (red_domain &amp; red_before_stop) | (blue_domain &amp; blue_before_stop)
     )
 
-    he_raw = torch.<span class="hljs-built_in">sum</span>(torch.where(deposit, value, torch.zeros_like(value)), dim=<span class="hljs-number">1</span>)
+    helium_raw_opacity = torch.<span class="hljs-built_in">sum</span>(
+        torch.where(deposit, tapered_profile, torch.zeros_like(tapered_profile)), dim=<span class="hljs-number">1</span>)
 
     h_planck = torch.as_tensor(<span class="hljs-number">6.62607015e-27</span>, dtype=solve_dtype, device=solve_device)
     k_boltz = torch.as_tensor(<span class="hljs-number">1.380649e-16</span>, dtype=solve_dtype, device=solve_device)
@@ -2180,7 +2292,7 @@ shape = (80, 12573); max Fe I contribution = 1.741e+09 cm^-3
     stimulated_emission_factor = (
         <span class="hljs-number">1.0</span> - torch.exp(-freq_grid_t.view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>) * (h_planck / (k_boltz * temperature)).view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>))
     )
-    <span class="hljs-keyword">return</span> (he_raw * stimulated_emission_factor).to(dtype=DTYPE, device=DEVICE)</code></pre>
+    <span class="hljs-keyword">return</span> (helium_raw_opacity * stimulated_emission_factor).to(dtype=DTYPE, device=DEVICE)</code></pre>
     </div></div><div class="prose"><p>Run the helium path and keep its result as a tensor on the selected device. The validation cells below compare it component-by-component against the archived helium-wing diagnostic.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
@@ -2250,7 +2362,7 @@ floor = <span class="hljs-number">1.0e-6</span> <span class="hljs-keyword">if</s
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;max ABSOLUTE residual everywhere: <span class="hljs-subst">{abs_resid.<span class="hljs-built_in">max</span>():<span class="hljs-number">.2</span>e}</span>&quot;</span>)  <span class="hljs-comment"># numpy-ref</span>
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;device = <span class="hljs-subst">{DEVICE.<span class="hljs-built_in">type</span>}</span>; float floor = <span class="hljs-subst">{floor:<span class="hljs-number">.1</span>e}</span>&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">reference nonzero points: 392246 / 475280
-all nonzero points     : max rel = 5.018e-07   median = 3.147e-08
+all nonzero points     : max rel = 5.018e-07   median = 3.148e-08
 atomic-dominated points: max rel = 5.018e-07   median = 3.148e-08
 max ABSOLUTE residual everywhere: 8.02e-05
 device = mps; float floor = 1.0e-06
@@ -2291,7 +2403,7 @@ rel_h = np.<span class="hljs-built_in">abs</span>(he_gpu[hdom] - gt_he[hdom]) / 
 <span class="hljs-keyword">assert</span> rel_m.<span class="hljs-built_in">max</span>() &lt;= floor, <span class="hljs-string">f&quot;metal component max rel <span class="hljs-subst">{rel_m.<span class="hljs-built_in">max</span>():<span class="hljs-number">.3</span>e}</span> above <span class="hljs-subst">{floor:<span class="hljs-number">.1</span>e}</span>&quot;</span>  <span class="hljs-comment"># numpy-ref</span>
 <span class="hljs-keyword">assert</span> rel_h.<span class="hljs-built_in">max</span>() &lt;= floor, <span class="hljs-string">f&quot;helium component max rel <span class="hljs-subst">{rel_h.<span class="hljs-built_in">max</span>():<span class="hljs-number">.3</span>e}</span> above <span class="hljs-subst">{floor:<span class="hljs-number">.1</span>e}</span>&quot;</span>  <span class="hljs-comment"># numpy-ref</span>
 <span class="hljs-keyword">assert</span> rel_all.<span class="hljs-built_in">max</span>() &lt;= floor, <span class="hljs-string">f&quot;combined atomic max rel <span class="hljs-subst">{rel_all.<span class="hljs-built_in">max</span>():<span class="hljs-number">.3</span>e}</span> above <span class="hljs-subst">{floor:<span class="hljs-number">.1</span>e}</span>&quot;</span>  <span class="hljs-comment"># numpy-ref</span></code></pre>
-    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">[metals, all Z] 295990 points : max rel = 5.018e-07   median = 3.374e-08
+    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">[metals, all Z] 295990 points : max rel = 5.018e-07   median = 3.375e-08
 [helium]         51493 points : max rel = 5.939e-08   median = 2.105e-08
 [combined]                     : max ABS residual = 8.02e-05
 </pre></div></div><div class="prose"><h2>The missing piece: hydrogen</h2>
@@ -2343,23 +2455,23 @@ n_cont = int(lt_ref[&quot;cont_n&quot;])           # numpy-ref
 print(f&quot;hot star : Teff={teff:.0f} K  logg={logg:.2f}   window {w0:.0f}-{w1:.0f} nm  R={w_res:.0f}&quot;)  # numpy-ref
 print(f&quot;records  : {n_auto} autoionizing, {n_cont} merged-continuum&quot;)  # numpy-ref
 
-def _pack_records(prefix, nrec):
+def _pack_records(prefix, record_count):
     # JUSTIFIED-LOOP: heterogeneous npz archive unpacking only; no profile arithmetic is done here.
-    lens = np.empty(nrec, dtype=np.int64)  # numpy-ref
-    for i in range(nrec):  # numpy-ref
-        lens[i] = lt_ref[f&quot;{prefix}{i}_wl_slice&quot;].size  # numpy-ref
-    L = int(lens.max())  # numpy-ref
-    wl = np.zeros((nrec, L), dtype=np.float64)           # numpy-ref
-    ct = np.zeros((nrec, L), dtype=np.float64)           # numpy-ref
-    rf = np.zeros((nrec, L), dtype=np.float64)           # numpy-ref
-    valid = np.zeros((nrec, L), dtype=bool)              # numpy-ref
-    for i in range(nrec):  # numpy-ref
-        m = lens[i]  # numpy-ref
-        wl[i, :m] = lt_ref[f&quot;{prefix}{i}_wl_slice&quot;]      # numpy-ref
-        ct[i, :m] = lt_ref[f&quot;{prefix}{i}_cont_slice&quot;]    # numpy-ref
-        rf[i, :m] = lt_ref[f&quot;{prefix}{i}_delta_vals&quot;]    # numpy-ref
-        valid[i, :m] = True                              # numpy-ref
-    return wl, ct, rf, valid, lens                       # numpy-ref
+    record_lengths = np.empty(record_count, dtype=np.int64)  # numpy-ref
+    for record_index in range(record_count):  # numpy-ref
+        record_lengths[record_index] = lt_ref[f&quot;{prefix}{record_index}_wl_slice&quot;].size  # numpy-ref
+    padded_width = int(record_lengths.max())  # numpy-ref
+    wavelength_slices = np.zeros((record_count, padded_width), dtype=np.float64)  # numpy-ref
+    continuum_slices = np.zeros((record_count, padded_width), dtype=np.float64)   # numpy-ref
+    reference_delta_slices = np.zeros((record_count, padded_width), dtype=np.float64)  # numpy-ref
+    valid_mask = np.zeros((record_count, padded_width), dtype=bool)              # numpy-ref
+    for record_index in range(record_count):  # numpy-ref
+        record_length = record_lengths[record_index]  # numpy-ref
+        wavelength_slices[record_index, :record_length] = lt_ref[f&quot;{prefix}{record_index}_wl_slice&quot;]  # numpy-ref
+        continuum_slices[record_index, :record_length] = lt_ref[f&quot;{prefix}{record_index}_cont_slice&quot;]  # numpy-ref
+        reference_delta_slices[record_index, :record_length] = lt_ref[f&quot;{prefix}{record_index}_delta_vals&quot;]  # numpy-ref
+        valid_mask[record_index, :record_length] = True  # numpy-ref
+    return wavelength_slices, continuum_slices, reference_delta_slices, valid_mask, record_lengths  # numpy-ref
 
 auto_wl, auto_cont, auto_ref, auto_valid, auto_lens = _pack_records(&quot;auto&quot;, n_auto)  # numpy-ref
 cont_wl, cont_cont, cont_ref, cont_valid, cont_lens = _pack_records(&quot;cont&quot;, n_cont)  # numpy-ref" aria-label="Copy code">
@@ -2375,23 +2487,23 @@ n_cont = <span class="hljs-built_in">int</span>(lt_ref[<span class="hljs-string"
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;hot star : Teff=<span class="hljs-subst">{teff:<span class="hljs-number">.0</span>f}</span> K  logg=<span class="hljs-subst">{logg:<span class="hljs-number">.2</span>f}</span>   window <span class="hljs-subst">{w0:<span class="hljs-number">.0</span>f}</span>-<span class="hljs-subst">{w1:<span class="hljs-number">.0</span>f}</span> nm  R=<span class="hljs-subst">{w_res:<span class="hljs-number">.0</span>f}</span>&quot;</span>)  <span class="hljs-comment"># numpy-ref</span>
 <span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;records  : <span class="hljs-subst">{n_auto}</span> autoionizing, <span class="hljs-subst">{n_cont}</span> merged-continuum&quot;</span>)  <span class="hljs-comment"># numpy-ref</span>
 
-<span class="hljs-keyword">def</span> <span class="hljs-title function_">_pack_records</span>(<span class="hljs-params">prefix, nrec</span>):
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">_pack_records</span>(<span class="hljs-params">prefix, record_count</span>):
     <span class="hljs-comment"># JUSTIFIED-LOOP: heterogeneous npz archive unpacking only; no profile arithmetic is done here.</span>
-    lens = np.empty(nrec, dtype=np.int64)  <span class="hljs-comment"># numpy-ref</span>
-    <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nrec):  <span class="hljs-comment"># numpy-ref</span>
-        lens[i] = lt_ref[<span class="hljs-string">f&quot;<span class="hljs-subst">{prefix}</span><span class="hljs-subst">{i}</span>_wl_slice&quot;</span>].size  <span class="hljs-comment"># numpy-ref</span>
-    L = <span class="hljs-built_in">int</span>(lens.<span class="hljs-built_in">max</span>())  <span class="hljs-comment"># numpy-ref</span>
-    wl = np.zeros((nrec, L), dtype=np.float64)           <span class="hljs-comment"># numpy-ref</span>
-    ct = np.zeros((nrec, L), dtype=np.float64)           <span class="hljs-comment"># numpy-ref</span>
-    rf = np.zeros((nrec, L), dtype=np.float64)           <span class="hljs-comment"># numpy-ref</span>
-    valid = np.zeros((nrec, L), dtype=<span class="hljs-built_in">bool</span>)              <span class="hljs-comment"># numpy-ref</span>
-    <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(nrec):  <span class="hljs-comment"># numpy-ref</span>
-        m = lens[i]  <span class="hljs-comment"># numpy-ref</span>
-        wl[i, :m] = lt_ref[<span class="hljs-string">f&quot;<span class="hljs-subst">{prefix}</span><span class="hljs-subst">{i}</span>_wl_slice&quot;</span>]      <span class="hljs-comment"># numpy-ref</span>
-        ct[i, :m] = lt_ref[<span class="hljs-string">f&quot;<span class="hljs-subst">{prefix}</span><span class="hljs-subst">{i}</span>_cont_slice&quot;</span>]    <span class="hljs-comment"># numpy-ref</span>
-        rf[i, :m] = lt_ref[<span class="hljs-string">f&quot;<span class="hljs-subst">{prefix}</span><span class="hljs-subst">{i}</span>_delta_vals&quot;</span>]    <span class="hljs-comment"># numpy-ref</span>
-        valid[i, :m] = <span class="hljs-literal">True</span>                              <span class="hljs-comment"># numpy-ref</span>
-    <span class="hljs-keyword">return</span> wl, ct, rf, valid, lens                       <span class="hljs-comment"># numpy-ref</span>
+    record_lengths = np.empty(record_count, dtype=np.int64)  <span class="hljs-comment"># numpy-ref</span>
+    <span class="hljs-keyword">for</span> record_index <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(record_count):  <span class="hljs-comment"># numpy-ref</span>
+        record_lengths[record_index] = lt_ref[<span class="hljs-string">f&quot;<span class="hljs-subst">{prefix}</span><span class="hljs-subst">{record_index}</span>_wl_slice&quot;</span>].size  <span class="hljs-comment"># numpy-ref</span>
+    padded_width = <span class="hljs-built_in">int</span>(record_lengths.<span class="hljs-built_in">max</span>())  <span class="hljs-comment"># numpy-ref</span>
+    wavelength_slices = np.zeros((record_count, padded_width), dtype=np.float64)  <span class="hljs-comment"># numpy-ref</span>
+    continuum_slices = np.zeros((record_count, padded_width), dtype=np.float64)   <span class="hljs-comment"># numpy-ref</span>
+    reference_delta_slices = np.zeros((record_count, padded_width), dtype=np.float64)  <span class="hljs-comment"># numpy-ref</span>
+    valid_mask = np.zeros((record_count, padded_width), dtype=<span class="hljs-built_in">bool</span>)              <span class="hljs-comment"># numpy-ref</span>
+    <span class="hljs-keyword">for</span> record_index <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(record_count):  <span class="hljs-comment"># numpy-ref</span>
+        record_length = record_lengths[record_index]  <span class="hljs-comment"># numpy-ref</span>
+        wavelength_slices[record_index, :record_length] = lt_ref[<span class="hljs-string">f&quot;<span class="hljs-subst">{prefix}</span><span class="hljs-subst">{record_index}</span>_wl_slice&quot;</span>]  <span class="hljs-comment"># numpy-ref</span>
+        continuum_slices[record_index, :record_length] = lt_ref[<span class="hljs-string">f&quot;<span class="hljs-subst">{prefix}</span><span class="hljs-subst">{record_index}</span>_cont_slice&quot;</span>]  <span class="hljs-comment"># numpy-ref</span>
+        reference_delta_slices[record_index, :record_length] = lt_ref[<span class="hljs-string">f&quot;<span class="hljs-subst">{prefix}</span><span class="hljs-subst">{record_index}</span>_delta_vals&quot;</span>]  <span class="hljs-comment"># numpy-ref</span>
+        valid_mask[record_index, :record_length] = <span class="hljs-literal">True</span>  <span class="hljs-comment"># numpy-ref</span>
+    <span class="hljs-keyword">return</span> wavelength_slices, continuum_slices, reference_delta_slices, valid_mask, record_lengths  <span class="hljs-comment"># numpy-ref</span>
 
 auto_wl, auto_cont, auto_ref, auto_valid, auto_lens = _pack_records(<span class="hljs-string">&quot;auto&quot;</span>, n_auto)  <span class="hljs-comment"># numpy-ref</span>
 cont_wl, cont_cont, cont_ref, cont_valid, cont_lens = _pack_records(<span class="hljs-string">&quot;cont&quot;</span>, n_cont)  <span class="hljs-comment"># numpy-ref</span></code></pre>
@@ -2444,15 +2556,15 @@ def autoionizing_delta_torch():
     # working device; the 12,568-line ordinary opacity remains MPS-resident.
     solve_device, solve_dtype = torch.device(&quot;cpu&quot;), torch.float64
     to64 = lambda x: torch.as_tensor(x, dtype=solve_dtype, device=solve_device)
-    wl = to64(auto_wl)
-    cnt = to64(auto_cont)
-    valid = torch.as_tensor(auto_valid, dtype=torch.bool, device=solve_device)
+    wavelength_slices = to64(auto_wl)
+    continuum_slices = to64(auto_cont)
+    valid_mask = torch.as_tensor(auto_valid, dtype=torch.bool, device=solve_device)
 
-    slice_lo = torch.as_tensor(auto_slice_lo, dtype=torch.int64, device=solve_device)
-    center_g = torch.as_tensor(auto_center, dtype=torch.int64, device=solve_device)
-    c = center_g - slice_lo
+    slice_start_index = torch.as_tensor(auto_slice_lo, dtype=torch.int64, device=solve_device)
+    center_index_global = torch.as_tensor(auto_center, dtype=torch.int64, device=solve_device)
+    center_index_local = center_index_global - slice_start_index
 
-    line_wl = to64(auto_line_wl)
+    line_wavelength = to64(auto_line_wl)
     kappa0 = to64(auto_kappa0)
     gamma = torch.clamp(torch.abs(to64(auto_grad)), min=1.0e-300)
     ashore = to64(auto_gstark)
@@ -2461,39 +2573,55 @@ def autoionizing_delta_torch():
                          torch.copysign(torch.full_like(bshore_raw, 1.0e-300), bshore_raw))
     cutoff = to64(auto_cut)
 
-    rec = torch.arange(wl.shape[0], dtype=torch.int64, device=solve_device)
-    cont_center = cnt[rec, c]
-    gate = (kappa0 &gt;= cont_center * cutoff) &amp; (kappa0 &gt; 0.0)
+    record_index = torch.arange(wavelength_slices.shape[0], dtype=torch.int64, device=solve_device)
+    continuum_at_center = continuum_slices[record_index, center_index_local]
+    line_passes_cutoff = (kappa0 &gt;= continuum_at_center * cutoff) &amp; (kappa0 &gt; 0.0)
 
     # Stable detuning: avoid subtracting two ~1e15 Hz fp32 frequencies.  The
     # algebraic form c*(lambda0-lambda)/(lambda*lambda0) preserves the small
     # frequency difference that selects the Shore-profile sign and cutoff.
-    C_LIGHT_NM_t = torch.as_tensor(2.99792458e17, dtype=solve_dtype, device=solve_device)
-    wl0 = line_wl.view(-1, 1)
-    wl_safe = torch.where(valid, torch.clamp(wl, min=1.0e-30), wl0)
-    dfreq = C_LIGHT_NM_t * (wl0 - wl_safe) / (wl_safe * wl0)
-    eps = 2.0 * dfreq / gamma.view(-1, 1)
-    value = kappa0.view(-1, 1) * (ashore.view(-1, 1) * eps + bshore.view(-1, 1)) / ((eps * eps + 1.0) * bshore.view(-1, 1))
+    speed_of_light_nm = torch.as_tensor(2.99792458e17, dtype=solve_dtype, device=solve_device)
+    line_wavelength_column = line_wavelength.view(-1, 1)
+    safe_wavelength = torch.where(
+        valid_mask, torch.clamp(wavelength_slices, min=1.0e-30), line_wavelength_column)
+    frequency_detuning = (
+        speed_of_light_nm * (line_wavelength_column - safe_wavelength)
+        / (safe_wavelength * line_wavelength_column)
+    )
+    shore_epsilon = 2.0 * frequency_detuning / gamma.view(-1, 1)
+    profile_value = (
+        kappa0.view(-1, 1) * (ashore.view(-1, 1) * shore_epsilon + bshore.view(-1, 1))
+        / ((shore_epsilon * shore_epsilon + 1.0) * bshore.view(-1, 1))
+    )
 
-    j = torch.arange(wl.shape[1], dtype=torch.int64, device=solve_device).view(1, -1)
-    c2 = c.view(-1, 1)
+    local_column_index = torch.arange(
+        wavelength_slices.shape[1], dtype=torch.int64, device=solve_device).view(1, -1)
+    center_column = center_index_local.view(-1, 1)
 
-    red = j &gt; c2
-    blue = j &lt; c2
-    bad = (~valid) | (value &lt;= 0.0) | (value &lt; cnt * cutoff.view(-1, 1))
+    red_side = local_column_index &gt; center_column
+    blue_side = local_column_index &lt; center_column
+    invalid_or_stopped = (
+        (~valid_mask) | (profile_value &lt;= 0.0)
+        | (profile_value &lt; continuum_slices * cutoff.view(-1, 1))
+    )
 
-    stop_red = red &amp; valid &amp; bad
-    stop_blue = blue &amp; valid &amp; bad
-    red_before = torch.cumsum(stop_red.to(torch.int64), dim=1) == 0
-    blue_before = torch.flip(torch.cumsum(torch.flip(stop_blue.to(torch.int64), dims=(1,)), dim=1) == 0, dims=(1,))
+    red_stop = red_side &amp; valid_mask &amp; invalid_or_stopped
+    blue_stop = blue_side &amp; valid_mask &amp; invalid_or_stopped
+    red_before_stop = torch.cumsum(red_stop.to(torch.int64), dim=1) == 0
+    blue_before_stop = torch.flip(
+        torch.cumsum(torch.flip(blue_stop.to(torch.int64), dims=(1,)), dim=1) == 0,
+        dims=(1,))
 
-    wing_deposit = gate.view(-1, 1) &amp; valid &amp; (~bad) &amp; ((red &amp; red_before) | (blue &amp; blue_before))
-    out = torch.where(wing_deposit, value, torch.zeros_like(value))
+    wing_deposit_mask = (
+        line_passes_cutoff.view(-1, 1) &amp; valid_mask &amp; (~invalid_or_stopped)
+        &amp; ((red_side &amp; red_before_stop) | (blue_side &amp; blue_before_stop))
+    )
+    profile_delta = torch.where(wing_deposit_mask, profile_value, torch.zeros_like(profile_value))
 
-    center_mask = torch.zeros_like(out, dtype=torch.bool)
-    center_mask[rec, c] = gate
-    out = torch.where(center_mask, kappa0.view(-1, 1), out)
-    return out.to(device=DEVICE, dtype=DTYPE)" aria-label="Copy code">
+    center_deposit_mask = torch.zeros_like(profile_delta, dtype=torch.bool)
+    center_deposit_mask[record_index, center_index_local] = line_passes_cutoff
+    profile_delta = torch.where(center_deposit_mask, kappa0.view(-1, 1), profile_delta)
+    return profile_delta.to(device=DEVICE, dtype=DTYPE)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># Comparison-reference/setup values for the torch autoionizing profile.</span>
@@ -2529,15 +2657,15 @@ auto_cut = np.empty(n_auto, dtype=np.float64)             <span class="hljs-comm
     <span class="hljs-comment"># working device; the 12,568-line ordinary opacity remains MPS-resident.</span>
     solve_device, solve_dtype = torch.device(<span class="hljs-string">&quot;cpu&quot;</span>), torch.float64
     to64 = <span class="hljs-keyword">lambda</span> x: torch.as_tensor(x, dtype=solve_dtype, device=solve_device)
-    wl = to64(auto_wl)
-    cnt = to64(auto_cont)
-    valid = torch.as_tensor(auto_valid, dtype=torch.<span class="hljs-built_in">bool</span>, device=solve_device)
+    wavelength_slices = to64(auto_wl)
+    continuum_slices = to64(auto_cont)
+    valid_mask = torch.as_tensor(auto_valid, dtype=torch.<span class="hljs-built_in">bool</span>, device=solve_device)
 
-    slice_lo = torch.as_tensor(auto_slice_lo, dtype=torch.int64, device=solve_device)
-    center_g = torch.as_tensor(auto_center, dtype=torch.int64, device=solve_device)
-    c = center_g - slice_lo
+    slice_start_index = torch.as_tensor(auto_slice_lo, dtype=torch.int64, device=solve_device)
+    center_index_global = torch.as_tensor(auto_center, dtype=torch.int64, device=solve_device)
+    center_index_local = center_index_global - slice_start_index
 
-    line_wl = to64(auto_line_wl)
+    line_wavelength = to64(auto_line_wl)
     kappa0 = to64(auto_kappa0)
     gamma = torch.clamp(torch.<span class="hljs-built_in">abs</span>(to64(auto_grad)), <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-300</span>)
     ashore = to64(auto_gstark)
@@ -2546,39 +2674,55 @@ auto_cut = np.empty(n_auto, dtype=np.float64)             <span class="hljs-comm
                          torch.copysign(torch.full_like(bshore_raw, <span class="hljs-number">1.0e-300</span>), bshore_raw))
     cutoff = to64(auto_cut)
 
-    rec = torch.arange(wl.shape[<span class="hljs-number">0</span>], dtype=torch.int64, device=solve_device)
-    cont_center = cnt[rec, c]
-    gate = (kappa0 &gt;= cont_center * cutoff) &amp; (kappa0 &gt; <span class="hljs-number">0.0</span>)
+    record_index = torch.arange(wavelength_slices.shape[<span class="hljs-number">0</span>], dtype=torch.int64, device=solve_device)
+    continuum_at_center = continuum_slices[record_index, center_index_local]
+    line_passes_cutoff = (kappa0 &gt;= continuum_at_center * cutoff) &amp; (kappa0 &gt; <span class="hljs-number">0.0</span>)
 
     <span class="hljs-comment"># Stable detuning: avoid subtracting two ~1e15 Hz fp32 frequencies.  The</span>
     <span class="hljs-comment"># algebraic form c*(lambda0-lambda)/(lambda*lambda0) preserves the small</span>
     <span class="hljs-comment"># frequency difference that selects the Shore-profile sign and cutoff.</span>
-    C_LIGHT_NM_t = torch.as_tensor(<span class="hljs-number">2.99792458e17</span>, dtype=solve_dtype, device=solve_device)
-    wl0 = line_wl.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>)
-    wl_safe = torch.where(valid, torch.clamp(wl, <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-30</span>), wl0)
-    dfreq = C_LIGHT_NM_t * (wl0 - wl_safe) / (wl_safe * wl0)
-    eps = <span class="hljs-number">2.0</span> * dfreq / gamma.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>)
-    value = kappa0.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) * (ashore.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) * eps + bshore.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>)) / ((eps * eps + <span class="hljs-number">1.0</span>) * bshore.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>))
+    speed_of_light_nm = torch.as_tensor(<span class="hljs-number">2.99792458e17</span>, dtype=solve_dtype, device=solve_device)
+    line_wavelength_column = line_wavelength.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>)
+    safe_wavelength = torch.where(
+        valid_mask, torch.clamp(wavelength_slices, <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-30</span>), line_wavelength_column)
+    frequency_detuning = (
+        speed_of_light_nm * (line_wavelength_column - safe_wavelength)
+        / (safe_wavelength * line_wavelength_column)
+    )
+    shore_epsilon = <span class="hljs-number">2.0</span> * frequency_detuning / gamma.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>)
+    profile_value = (
+        kappa0.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) * (ashore.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) * shore_epsilon + bshore.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>))
+        / ((shore_epsilon * shore_epsilon + <span class="hljs-number">1.0</span>) * bshore.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>))
+    )
 
-    j = torch.arange(wl.shape[<span class="hljs-number">1</span>], dtype=torch.int64, device=solve_device).view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)
-    c2 = c.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>)
+    local_column_index = torch.arange(
+        wavelength_slices.shape[<span class="hljs-number">1</span>], dtype=torch.int64, device=solve_device).view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)
+    center_column = center_index_local.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>)
 
-    red = j &gt; c2
-    blue = j &lt; c2
-    bad = (~valid) | (value &lt;= <span class="hljs-number">0.0</span>) | (value &lt; cnt * cutoff.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>))
+    red_side = local_column_index &gt; center_column
+    blue_side = local_column_index &lt; center_column
+    invalid_or_stopped = (
+        (~valid_mask) | (profile_value &lt;= <span class="hljs-number">0.0</span>)
+        | (profile_value &lt; continuum_slices * cutoff.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>))
+    )
 
-    stop_red = red &amp; valid &amp; bad
-    stop_blue = blue &amp; valid &amp; bad
-    red_before = torch.cumsum(stop_red.to(torch.int64), dim=<span class="hljs-number">1</span>) == <span class="hljs-number">0</span>
-    blue_before = torch.flip(torch.cumsum(torch.flip(stop_blue.to(torch.int64), dims=(<span class="hljs-number">1</span>,)), dim=<span class="hljs-number">1</span>) == <span class="hljs-number">0</span>, dims=(<span class="hljs-number">1</span>,))
+    red_stop = red_side &amp; valid_mask &amp; invalid_or_stopped
+    blue_stop = blue_side &amp; valid_mask &amp; invalid_or_stopped
+    red_before_stop = torch.cumsum(red_stop.to(torch.int64), dim=<span class="hljs-number">1</span>) == <span class="hljs-number">0</span>
+    blue_before_stop = torch.flip(
+        torch.cumsum(torch.flip(blue_stop.to(torch.int64), dims=(<span class="hljs-number">1</span>,)), dim=<span class="hljs-number">1</span>) == <span class="hljs-number">0</span>,
+        dims=(<span class="hljs-number">1</span>,))
 
-    wing_deposit = gate.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) &amp; valid &amp; (~bad) &amp; ((red &amp; red_before) | (blue &amp; blue_before))
-    out = torch.where(wing_deposit, value, torch.zeros_like(value))
+    wing_deposit_mask = (
+        line_passes_cutoff.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) &amp; valid_mask &amp; (~invalid_or_stopped)
+        &amp; ((red_side &amp; red_before_stop) | (blue_side &amp; blue_before_stop))
+    )
+    profile_delta = torch.where(wing_deposit_mask, profile_value, torch.zeros_like(profile_value))
 
-    center_mask = torch.zeros_like(out, dtype=torch.<span class="hljs-built_in">bool</span>)
-    center_mask[rec, c] = gate
-    out = torch.where(center_mask, kappa0.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>), out)
-    <span class="hljs-keyword">return</span> out.to(device=DEVICE, dtype=DTYPE)</code></pre>
+    center_deposit_mask = torch.zeros_like(profile_delta, dtype=torch.<span class="hljs-built_in">bool</span>)
+    center_deposit_mask[record_index, center_index_local] = line_passes_cutoff
+    profile_delta = torch.where(center_deposit_mask, kappa0.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>), profile_delta)
+    <span class="hljs-keyword">return</span> profile_delta.to(device=DEVICE, dtype=DTYPE)</code></pre>
     </div></div><div class="prose"><p>Run the autoionizing profile and compare it on its recorded support. This cell is intentionally only a validation call plus assertions; the profile arithmetic was defined above.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
@@ -2632,45 +2776,47 @@ def merged_continuum_delta_torch():
     linear falloff toward the tail index.  The scalar walk&#39;s first-below-cutoff
     stop condition is represented by a cumulative mask along the local slice.
     &quot;&quot;&quot;
-    wl = dev(cont_wl)
-    cnt = dev(cont_cont)
-    valid = torch.as_tensor(cont_valid, dtype=torch.bool, device=DEVICE)
+    wavelength_slices = dev(cont_wl)
+    continuum_slices = dev(cont_cont)
+    valid_mask = torch.as_tensor(cont_valid, dtype=torch.bool, device=DEVICE)
 
-    slice_lo = torch.as_tensor(cont_slice_lo, dtype=torch.int64, device=DEVICE)
+    slice_start_index = torch.as_tensor(cont_slice_lo, dtype=torch.int64, device=DEVICE)
     idx_start = torch.as_tensor(cont_idx_start, dtype=torch.int64, device=DEVICE)
     idx_merge = torch.as_tensor(cont_idx_merge, dtype=torch.int64, device=DEVICE)
     idx_tail = torch.as_tensor(cont_idx_tail, dtype=torch.int64, device=DEVICE)
 
-    line_wl = dev(cont_line_wl)
+    line_wavelength = dev(cont_line_wl)
     kappa = dev(cont_kappa)
     cutoff = dev(cont_cut)
 
-    loc = torch.arange(wl.shape[1], dtype=torch.int64, device=DEVICE).view(1, -1)
-    idx_g = slice_lo.view(-1, 1) + loc
+    local_column_index = torch.arange(
+        wavelength_slices.shape[1], dtype=torch.int64, device=DEVICE).view(1, -1)
+    global_column_index = slice_start_index.view(-1, 1) + local_column_index
 
-    denom_i = torch.clamp(idx_tail - torch.maximum(idx_merge, idx_start), min=1)
+    ramp_denominator = torch.clamp(idx_tail - torch.maximum(idx_merge, idx_start), min=1)
     ramp = torch.where(
-        idx_g &gt;= idx_merge.view(-1, 1),
-        (idx_tail.view(-1, 1) - idx_g).to(DTYPE) / denom_i.view(-1, 1).to(DTYPE),
-        torch.ones_like(wl),
+        global_column_index &gt;= idx_merge.view(-1, 1),
+        ((idx_tail.view(-1, 1) - global_column_index).to(DTYPE)
+         / ramp_denominator.view(-1, 1).to(DTYPE)),
+        torch.ones_like(wavelength_slices),
     )
     ramp = torch.clamp(ramp, min=0.0)
 
-    value = kappa.view(-1, 1) * ramp
+    ramped_value = kappa.view(-1, 1) * ramp
     domain = (
-        valid &amp;
+        valid_mask &amp;
         (kappa.view(-1, 1) &gt; 0.0) &amp;
         (idx_tail.view(-1, 1) &gt; idx_start.view(-1, 1)) &amp;
-        (idx_g &gt;= idx_start.view(-1, 1)) &amp;
-        (idx_g &lt; idx_tail.view(-1, 1)) &amp;
-        (wl &gt;= line_wl.view(-1, 1))
+        (global_column_index &gt;= idx_start.view(-1, 1)) &amp;
+        (global_column_index &lt; idx_tail.view(-1, 1)) &amp;
+        (wavelength_slices &gt;= line_wavelength.view(-1, 1))
     )
 
-    stop = domain &amp; (value &lt; cnt * cutoff.view(-1, 1))
-    before_stop = torch.cumsum(stop.to(torch.int64), dim=1) == 0
-    deposit = domain &amp; before_stop &amp; (~stop)
+    stop_mask = domain &amp; (ramped_value &lt; continuum_slices * cutoff.view(-1, 1))
+    before_stop_mask = torch.cumsum(stop_mask.to(torch.int64), dim=1) == 0
+    deposit_mask = domain &amp; before_stop_mask &amp; (~stop_mask)
 
-    return torch.where(deposit, value, torch.zeros_like(value))" aria-label="Copy code">
+    return torch.where(deposit_mask, ramped_value, torch.zeros_like(ramped_value))" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
       <pre class="code-body"><code class="hljs language-python"><span class="hljs-comment"># Comparison-reference/setup values for the torch merged-continuum profile.</span>
@@ -2698,45 +2844,47 @@ cont_idx_tail = np.empty(n_cont, dtype=np.int64)          <span class="hljs-comm
     linear falloff toward the tail index.  The scalar walk&#x27;s first-below-cutoff
     stop condition is represented by a cumulative mask along the local slice.
     &quot;&quot;&quot;</span>
-    wl = dev(cont_wl)
-    cnt = dev(cont_cont)
-    valid = torch.as_tensor(cont_valid, dtype=torch.<span class="hljs-built_in">bool</span>, device=DEVICE)
+    wavelength_slices = dev(cont_wl)
+    continuum_slices = dev(cont_cont)
+    valid_mask = torch.as_tensor(cont_valid, dtype=torch.<span class="hljs-built_in">bool</span>, device=DEVICE)
 
-    slice_lo = torch.as_tensor(cont_slice_lo, dtype=torch.int64, device=DEVICE)
+    slice_start_index = torch.as_tensor(cont_slice_lo, dtype=torch.int64, device=DEVICE)
     idx_start = torch.as_tensor(cont_idx_start, dtype=torch.int64, device=DEVICE)
     idx_merge = torch.as_tensor(cont_idx_merge, dtype=torch.int64, device=DEVICE)
     idx_tail = torch.as_tensor(cont_idx_tail, dtype=torch.int64, device=DEVICE)
 
-    line_wl = dev(cont_line_wl)
+    line_wavelength = dev(cont_line_wl)
     kappa = dev(cont_kappa)
     cutoff = dev(cont_cut)
 
-    loc = torch.arange(wl.shape[<span class="hljs-number">1</span>], dtype=torch.int64, device=DEVICE).view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)
-    idx_g = slice_lo.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) + loc
+    local_column_index = torch.arange(
+        wavelength_slices.shape[<span class="hljs-number">1</span>], dtype=torch.int64, device=DEVICE).view(<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>)
+    global_column_index = slice_start_index.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) + local_column_index
 
-    denom_i = torch.clamp(idx_tail - torch.maximum(idx_merge, idx_start), <span class="hljs-built_in">min</span>=<span class="hljs-number">1</span>)
+    ramp_denominator = torch.clamp(idx_tail - torch.maximum(idx_merge, idx_start), <span class="hljs-built_in">min</span>=<span class="hljs-number">1</span>)
     ramp = torch.where(
-        idx_g &gt;= idx_merge.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>),
-        (idx_tail.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) - idx_g).to(DTYPE) / denom_i.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>).to(DTYPE),
-        torch.ones_like(wl),
+        global_column_index &gt;= idx_merge.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>),
+        ((idx_tail.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) - global_column_index).to(DTYPE)
+         / ramp_denominator.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>).to(DTYPE)),
+        torch.ones_like(wavelength_slices),
     )
     ramp = torch.clamp(ramp, <span class="hljs-built_in">min</span>=<span class="hljs-number">0.0</span>)
 
-    value = kappa.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) * ramp
+    ramped_value = kappa.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) * ramp
     domain = (
-        valid &amp;
+        valid_mask &amp;
         (kappa.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) &gt; <span class="hljs-number">0.0</span>) &amp;
         (idx_tail.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>) &gt; idx_start.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>)) &amp;
-        (idx_g &gt;= idx_start.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>)) &amp;
-        (idx_g &lt; idx_tail.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>)) &amp;
-        (wl &gt;= line_wl.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>))
+        (global_column_index &gt;= idx_start.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>)) &amp;
+        (global_column_index &lt; idx_tail.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>)) &amp;
+        (wavelength_slices &gt;= line_wavelength.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>))
     )
 
-    stop = domain &amp; (value &lt; cnt * cutoff.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>))
-    before_stop = torch.cumsum(stop.to(torch.int64), dim=<span class="hljs-number">1</span>) == <span class="hljs-number">0</span>
-    deposit = domain &amp; before_stop &amp; (~stop)
+    stop_mask = domain &amp; (ramped_value &lt; continuum_slices * cutoff.view(-<span class="hljs-number">1</span>, <span class="hljs-number">1</span>))
+    before_stop_mask = torch.cumsum(stop_mask.to(torch.int64), dim=<span class="hljs-number">1</span>) == <span class="hljs-number">0</span>
+    deposit_mask = domain &amp; before_stop_mask &amp; (~stop_mask)
 
-    <span class="hljs-keyword">return</span> torch.where(deposit, value, torch.zeros_like(value))</code></pre>
+    <span class="hljs-keyword">return</span> torch.where(deposit_mask, ramped_value, torch.zeros_like(ramped_value))</code></pre>
     </div></div><div class="prose"><p>Run the merged-continuum ramp profile and assert it against the recorded support. Together with the autoionizing check, this closes the two non-Voigt leaf profiles used by special line-type records.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">

@@ -330,45 +330,62 @@ The scalar reference writes this as a `for` over lines, each calling `process_wi
 
 md(r"""**The scatter primitives.** Two helpers wrap `index_put_(accumulate=True)`: a 2-D one for the center deposit (one column per line) and a 3-D one for the wing block (`[depth, line, offset]`). Both build a flat index `depth*n_w + column`, mask it, and accumulate — the `accumulate=True` flag is what makes overlapping deposits (two line wings landing on the same pixel) **add** rather than overwrite. *This single `index_put_` is the GPU recasting of the NumPy per-line `+=` walk* — the deposit the whole lecture builds toward.""")
 
-code(r'''def scatter_add_2d(kline, cols, vals, mask):
+code(r'''def scatter_add_2d(opacity_grid, column_index, deposit_values, deposit_mask):
     """Center deposit: one column per line, masked, accumulated (index_put_(accumulate=True))."""
-    n_w = kline.shape[1]
-    d = torch.arange(kline.shape[0], device=kline.device).view(-1, 1)
-    cols_b = cols.view(1, -1).expand(kline.shape[0], -1)
-    flat_idx = (d * n_w + cols_b)[mask]
-    flat_val = vals[mask].to(kline.dtype)
-    kline.view(-1).index_put_((flat_idx,), flat_val, accumulate=True)
+    wavelength_count = opacity_grid.shape[1]
+    depth_index = torch.arange(opacity_grid.shape[0], device=opacity_grid.device).view(-1, 1)
+    column_index_by_depth = column_index.view(1, -1).expand(opacity_grid.shape[0], -1)
+    flat_index = (depth_index * wavelength_count + column_index_by_depth)[deposit_mask]
+    flat_value = deposit_values[deposit_mask].to(opacity_grid.dtype)
+    opacity_grid.view(-1).index_put_((flat_index,), flat_value, accumulate=True)
 
-def scatter_add_3d(kline, cols, vals, mask):
+def scatter_add_3d(opacity_grid, column_index, deposit_values, deposit_mask):
     """THE HOT PATH: the [depth, line, offset] wing block deposited in ONE batched atomic scatter."""
-    n_w = kline.shape[1]
-    d = torch.arange(kline.shape[0], device=kline.device).view(-1, 1, 1)
-    flat_idx = (d * n_w + torch.clamp(cols, 0, n_w - 1))[mask]
-    flat_val = vals[mask].to(kline.dtype)
-    kline.view(-1).index_put_((flat_idx,), flat_val, accumulate=True)   # accumulate=True: overlaps ADD
+    wavelength_count = opacity_grid.shape[1]
+    depth_index = torch.arange(opacity_grid.shape[0], device=opacity_grid.device).view(-1, 1, 1)
+    safe_column_index = torch.clamp(column_index, 0, wavelength_count - 1)
+    flat_index = (depth_index * wavelength_count + safe_column_index)[deposit_mask]
+    flat_value = deposit_values[deposit_mask].to(opacity_grid.dtype)
+    opacity_grid.view(-1).index_put_((flat_index,), flat_value, accumulate=True)  # overlaps ADD
 print("scatter-add primitives ready (index_put_(accumulate=True) — the hot path)")''')
 
 md(r"""**The near-wing Harris walk, batched.** The wing evaluates the *cheap* small-$a$ two-term form ($h_0 + a\,h_1$, with $0.5642\,a/x^2$ for $x>10$) where $a<0.2$, and the full `voigt_H_grid` otherwise — selected branchlessly over the whole `[depth, line, offset]` block. This `_harris_hav_walk` is the per-offset profile evaluator the reach scan and the walk core both call.""")
 
-code(r'''def harris_hav_walk(x, a, h0tab, h1tab, h2tab, small, branch_oracle=None):
+code(r'''def harris_hav_walk(reduced_frequency, damping_a, h0tab, h1tab, h2tab,
+                    small_damping_mask, branch_oracle=None):
     """Profile over the [depth, line, offset] block: cheap small-a 2-term form OR full H(a,v),
     selected branchlessly (port _harris_hav_walk)."""
-    av = x.abs()
-    iv = torch.clamp((av * 200.0 + 0.5).to(torch.int64), 0, h0tab.numel() - 1)
+    abs_reduced_frequency = reduced_frequency.abs()
+    harris_table_index = torch.clamp(
+        (abs_reduced_frequency * 200.0 + 0.5).to(torch.int64), 0, h0tab.numel() - 1)
     if branch_oracle is not None:
-        iv = branch_oracle["iv"]
-    h0 = h0tab[iv]; h1 = h1tab[iv]
-    x2 = torch.where(x * x > 0.0, x * x, torch.ones_like(x))
-    cheap_tail = 0.5642 * a / x2                                 # x>10 Lorentzian tail
-    cheap_core = h0 + a * h1                                     # small-a 2-term table form
-    tail_mask = av > 10.0
+        harris_table_index = branch_oracle["iv"]
+    h0_values = h0tab[harris_table_index]
+    h1_values = h1tab[harris_table_index]
+    reduced_frequency_squared = torch.where(
+        reduced_frequency * reduced_frequency > 0.0,
+        reduced_frequency * reduced_frequency,
+        torch.ones_like(reduced_frequency),
+    )
+    cheap_tail_profile = 0.5642 * damping_a / reduced_frequency_squared
+    cheap_table_profile = h0_values + damping_a * h1_values
+    tail_mask = abs_reduced_frequency > 10.0
     if branch_oracle is not None:
         tail_mask = branch_oracle["low_tail"]
-        small = branch_oracle["low"]
-    cheap = torch.where(tail_mask, cheap_tail, cheap_core)
-    full = voigt_H_grid(x, a.expand_as(x) if a.shape != x.shape else a,
-                        h0tab, h1tab, h2tab, branch_oracle=branch_oracle)
-    return torch.where(small.expand_as(x) if small.shape != x.shape else small, cheap, full)
+        small_damping_mask = branch_oracle["low"]
+    cheap_profile = torch.where(tail_mask, cheap_tail_profile, cheap_table_profile)
+    damping_for_full_profile = (
+        damping_a.expand_as(reduced_frequency)
+        if damping_a.shape != reduced_frequency.shape else damping_a
+    )
+    full_profile = voigt_H_grid(
+        reduced_frequency, damping_for_full_profile, h0tab, h1tab, h2tab,
+        branch_oracle=branch_oracle)
+    small_mask_for_offsets = (
+        small_damping_mask.expand_as(reduced_frequency)
+        if small_damping_mask.shape != reduced_frequency.shape else small_damping_mask
+    )
+    return torch.where(small_mask_for_offsets, cheap_profile, full_profile)
 print("batched near-wing Harris walk ready")''')
 
 md(r"""**`_wing_reach_batched` — every pair's reach, at once.** This is the tensor recasting of Stage 1 + Stage 2 of `process_wing_pair`. It computes, for the whole $[\text{depth},\text{line}]$ batch: the fractional Doppler width and the per-step $v$ increment `dvoigt`; the last near-wing step `n10dop` ($10\,v_D$); a batched `[depth, line, step]` scan of the cheap profile that finds where each pair first drops below the cutoff (`first_below` via `argmax` on the boolean — no per-line `break`); the far-wing anchor `x_far` and the analytic far reach; and the final per-pair `maxstep`. Transcribed from the validated implementation.""")
@@ -379,44 +396,47 @@ code(r'''NARROW_REACH_TIERS = (
 )
 MAX_PROFILE_STEPS = 1_000_000
 
-def wing_reach_batched(kappa0_wing, a_w, doppler_width, wl, kapmin_ref, wing_pairs,
-                       resolu, h0tab, h1tab, h2tab):
+def wing_reach_batched(kappa0_wing, damping_a, doppler_width, line_wavelength,
+                       wing_cutoff, wing_pair_mask, resolu, h0tab, h1tab, h2tab):
     """Reach geometry for the WHOLE [depth, line] batch (port _wing_reach_batched): near-wing
     cutoff step, far-wing anchor x_far + analytic reach, per-pair maxstep. No per-line loop."""
     doppler_fraction = torch.where(
-        (doppler_width > 0.0) & (wl.view(1, -1) > 0.0),
-        doppler_width / wl.view(1, -1), torch.full_like(doppler_width, 1.0e-10))
-    active = (doppler_width > 0.0) & wing_pairs
+        (doppler_width > 0.0) & (line_wavelength.view(1, -1) > 0.0),
+        doppler_width / line_wavelength.view(1, -1),
+        torch.full_like(doppler_width, 1.0e-10))
+    active_wing_pairs = (doppler_width > 0.0) & wing_pair_mask
     n10dop = (10.0 * doppler_fraction * resolu).to(torch.int64)
     dvoigt = torch.where(doppler_fraction > 0.0, 1.0 / (doppler_fraction * resolu),
                          torch.ones_like(doppler_fraction))
-    small = a_w < 0.2
+    small_damping_mask = damping_a < 0.2
 
     nstep_cutoff = n10dop.clone()
-    broke = torch.zeros_like(active)
+    reached_near_cutoff = torch.zeros_like(active_wing_pairs)
     profile_at_n10dop = torch.zeros_like(doppler_fraction)
 
     # JUSTIFY: one scalar reach bound orchestrates a single batched near-wing launch.
-    max_n10 = int(n10dop[active].max().item()) if bool(active.any()) else 0
+    max_n10 = int(n10dop[active_wing_pairs].max().item()) if bool(active_wing_pairs.any()) else 0
     if max_n10 >= 1:
         # batched [depth, line, step] near-wing scan (no per-line break)
         steps = torch.arange(1, max_n10 + 1, device=dvoigt.device, dtype=torch.int64)
-        x = steps.view(1, 1, -1).to(dvoigt.dtype) * dvoigt[:, :, None]
-        h = harris_hav_walk(x, a_w[:, :, None], h0tab, h1tab, h2tab, small[:, :, None])
-        pv = kappa0_wing[:, :, None] * h
+        reduced_frequency = steps.view(1, 1, -1).to(dvoigt.dtype) * dvoigt[:, :, None]
+        profile_shape = harris_hav_walk(
+            reduced_frequency, damping_a[:, :, None], h0tab, h1tab, h2tab,
+            small_damping_mask[:, :, None])
+        profile_values = kappa0_wing[:, :, None] * profile_shape
         within = steps.view(1, 1, -1) <= n10dop[:, :, None]
-        below = (pv < kapmin_ref[:, :, None]) & within
-        any_below = below.any(dim=2)
-        first_below = torch.argmax(below.to(torch.int64), dim=2) + 1      # where it first drops
-        nstep_cutoff = torch.where(any_below, first_below, n10dop)
-        broke = any_below
+        below_cutoff = (profile_values < wing_cutoff[:, :, None]) & within
+        has_cutoff_hit = below_cutoff.any(dim=2)
+        first_below_cutoff = torch.argmax(below_cutoff.to(torch.int64), dim=2) + 1
+        nstep_cutoff = torch.where(has_cutoff_hit, first_below_cutoff, n10dop)
+        reached_near_cutoff = has_cutoff_hit
         n10_col = torch.clamp(n10dop - 1, min=0)
         profile_at_n10dop = torch.where(
-            n10dop >= 1, pv.gather(2, n10_col[:, :, None]).squeeze(2),
+            n10dop >= 1, profile_values.gather(2, n10_col[:, :, None]).squeeze(2),
             torch.zeros_like(doppler_fraction))
 
-    never = (~broke) & (n10dop >= 1)
-    nstep_cutoff = torch.where(never, torch.full_like(nstep_cutoff, -1), nstep_cutoff)
+    reached_far_wing = (~reached_near_cutoff) & (n10dop >= 1)
+    nstep_cutoff = torch.where(reached_far_wing, torch.full_like(nstep_cutoff, -1), nstep_cutoff)
     use_far = nstep_cutoff == -1
 
     # far wing: profile * n^2 is constant in 1/v^2; reach where x_far/n^2 falls below the cutoff
@@ -424,21 +444,21 @@ def wing_reach_batched(kappa0_wing, a_w, doppler_width, wl, kapmin_ref, wing_pai
         (n10dop > 0) & (profile_at_n10dop > 0.0),
         profile_at_n10dop * n10dop.to(doppler_fraction.dtype) * n10dop.to(doppler_fraction.dtype),
         torch.zeros_like(doppler_fraction))
-    safe_kapmin = torch.where(kapmin_ref > 0.0, kapmin_ref, torch.ones_like(kapmin_ref))
+    safe_wing_cutoff = torch.where(wing_cutoff > 0.0, wing_cutoff, torch.ones_like(wing_cutoff))
     far_reach_pos = torch.where(
-        kapmin_ref > 0.0, (torch.sqrt(x_far / safe_kapmin) + 1.0).to(torch.int64),
+        wing_cutoff > 0.0, (torch.sqrt(x_far / safe_wing_cutoff) + 1.0).to(torch.int64),
         torch.full_like(n10dop, MAX_PROFILE_STEPS))
     far_reach = torch.where((n10dop > 0) & (x_far > 0.0), far_reach_pos, torch.zeros_like(n10dop))
     far_reach = torch.clamp(far_reach, max=MAX_PROFILE_STEPS)
 
     maxstep = torch.where(use_far, far_reach, nstep_cutoff)
-    maxstep = torch.where(active, maxstep, torch.zeros_like(maxstep))
+    maxstep = torch.where(active_wing_pairs, maxstep, torch.zeros_like(maxstep))
     return maxstep, use_far, n10dop, dvoigt, x_far
 print("batched wing-reach geometry ready")''')
 
 md(r"""**`_wing_walk_core` — the fixed-offset sweep + the batched deposit.** Given the reach, this sweeps offsets $1\ldots W$ (the widest reach in the *given* batch), evaluates the near-wing Harris profile and the far-wing $x_{\rm far}/\mathrm{offset}^2$ for the whole `[depth, line, offset]` block, masks each offset against its pair's `maxstep` and the red/blue array edges, and deposits the **red** block and the **blue** block each with one `_scatter_add_3d`. *Two batched scatters replace the scalar reference's entire per-line `while` loop.*""")
 
-code(r'''def harris_branch_oracle(a64, dvoigt64, W, device, h0tab, h1tab, h2tab):
+code(r'''def harris_branch_oracle(damping_a_fp64, dvoigt_fp64, tier_width, device, h0tab, h1tab, h2tab):
     """Build branch decisions for the Harris Voigt walk in CPU/fp64.
 
     The production wing walk runs in fp32 on the active device, but the Harris
@@ -447,129 +467,145 @@ code(r'''def harris_branch_oracle(a64, dvoigt64, W, device, h0tab, h1tab, h2tab)
     in fp64, then ships compact tensors back to the profile kernel.  The returned
     masks have the same broadcast shape as the offset block, [depth, line, W].
     """
-    offs = torch.arange(1, W + 1, dtype=torch.float64, device=torch.device("cpu"))
-    x = dvoigt64[:, :, None] * offs.view(1, 1, -1)
-    av = x.abs()
+    offsets = torch.arange(1, tier_width + 1, dtype=torch.float64, device=torch.device("cpu"))
+    reduced_frequency = dvoigt_fp64[:, :, None] * offsets.view(1, 1, -1)
+    abs_reduced_frequency = reduced_frequency.abs()
     h0tab64 = h0tab.detach().cpu().to(torch.float64)
     h1tab64 = h1tab.detach().cpu().to(torch.float64)
     h2tab64 = h2tab.detach().cpu().to(torch.float64)
-    iv = torch.clamp((av * 200.0 + 0.5).to(torch.int64), 0, h0tab64.numel() - 1)
-    a3 = a64[:, :, None]
-    low = (a3 < 0.2).expand_as(av)
-    far = (a3 > 1.4) | ((a3 + av) > 3.2)
+    harris_table_index = torch.clamp(
+        (abs_reduced_frequency * 200.0 + 0.5).to(torch.int64), 0, h0tab64.numel() - 1)
+    damping_a_block = damping_a_fp64[:, :, None]
+    low = (damping_a_block < 0.2).expand_as(abs_reduced_frequency)
+    far = (damping_a_block > 1.4) | ((damping_a_block + abs_reduced_frequency) > 3.2)
     mid_mask = (~low) & (~far)
 
     # The intermediate Harris polynomial is the only cancellation-prone branch: fp32 alone
     # reaches 1.12e-6 on isolated, single-contributor core pixels.  Evaluate just those compact
     # core points in fp64; low/far profiles and every scatter remain MPS-resident.
-    mid_value = torch.zeros_like(av)
+    mid_value = torch.zeros_like(abs_reduced_frequency)
     if bool(mid_mask.any()):
-        aa = a3.expand_as(av)[mid_mask]; vv = (x * x)[mid_mask]
-        ivm = iv[mid_mask]
-        h0 = h0tab64[ivm]; h1r = h1tab64[ivm]; h2r = h2tab64[ivm]
-        h1 = h1r + h0 * 1.12838
-        h2 = h2r + h1 * 1.12838 - h0
-        h3 = (1.0 - h2r) * 0.37613 - h1 * 0.66667 * vv + h2 * 1.12838
-        h4 = (3.0 * h3 - h1) * 0.37613 + h0 * 0.66667 * vv * vv
-        pa = (((h4 * aa + h3) * aa + h2) * aa + h1) * aa + h0
-        pb = ((-0.122727278 * aa + 0.532770573) * aa - 0.96284325) * aa + 0.979895032
-        mid_value[mid_mask] = pa * pb
+        damping_mid = damping_a_block.expand_as(abs_reduced_frequency)[mid_mask]
+        reduced_frequency_sq_mid = (reduced_frequency * reduced_frequency)[mid_mask]
+        table_index_mid = harris_table_index[mid_mask]
+        h0_mid = h0tab64[table_index_mid]
+        h1_raw_mid = h1tab64[table_index_mid]
+        h2_raw_mid = h2tab64[table_index_mid]
+        h1_mid = h1_raw_mid + h0_mid * 1.12838
+        h2_mid = h2_raw_mid + h1_mid * 1.12838 - h0_mid
+        h3_mid = ((1.0 - h2_raw_mid) * 0.37613
+                  - h1_mid * 0.66667 * reduced_frequency_sq_mid
+                  + h2_mid * 1.12838)
+        h4_mid = ((3.0 * h3_mid - h1_mid) * 0.37613
+                  + h0_mid * 0.66667 * reduced_frequency_sq_mid * reduced_frequency_sq_mid)
+        numerator_poly = (
+            (((h4_mid * damping_mid + h3_mid) * damping_mid + h2_mid) * damping_mid
+             + h1_mid) * damping_mid + h0_mid)
+        damping_blend = (
+            ((-0.122727278 * damping_mid + 0.532770573) * damping_mid - 0.96284325)
+            * damping_mid + 0.979895032)
+        mid_value[mid_mask] = numerator_poly * damping_blend
     return {
-        "iv": iv.to(device=device),
-        "low_tail": (av > 10.0).to(device=device),
+        "iv": harris_table_index.to(device=device),
+        "low_tail": (abs_reduced_frequency > 10.0).to(device=device),
         "far": far.to(device=device),
         "low": low.to(device=device),
         "mid_mask": mid_mask.to(device=device),
         "mid_value": mid_value.to(dtype=torch.float32, device=device),
     }
 
-def wing_walk_core(kline, ci, kappa0_wing, a_w, maxstep, use_far, n10dop, dvoigt, x_far, n_w,
-                   h0tab, h1tab, h2tab, a64=None, dvoigt64=None):
+def wing_walk_core(opacity_grid, center_columns, kappa0_wing, damping_a, maxstep, use_far,
+                   n10dop, dvoigt, x_far, wavelength_count, h0tab, h1tab, h2tab,
+                   damping_a_fp64=None, dvoigt_fp64=None):
     """Deposit one reach tier of ordinary-line opacity into both wavelength wings.
 
     `maxstep` gives the per-depth/per-line outward reach for this tier.  The
     function evaluates all offsets 1..W as one [depth, line, offset] block,
     switches from the near Harris profile to the far 1/offset^2 continuation
-    where requested, and scatters the surviving red and blue pixels into `kline`.
+    where requested, and scatters the surviving red and blue pixels into `opacity_grid`.
     """
-    if ci.numel() == 0:
+    if center_columns.numel() == 0:
         return
     # JUSTIFY: one scalar tier width orchestrates a batched MPS profile/scatter launch.
-    W = int(maxstep.max().item())
-    if W <= 0:
+    tier_width = int(maxstep.max().item())
+    if tier_width <= 0:
         return
-    offs = torch.arange(1, W + 1, device=kline.device, dtype=torch.int64)
-    within = offs.view(1, 1, -1) <= maxstep[:, :, None]
+    offsets = torch.arange(1, tier_width + 1, device=opacity_grid.device, dtype=torch.int64)
+    within_reach = offsets.view(1, 1, -1) <= maxstep[:, :, None]
 
-    x = offs.view(1, 1, -1).to(dvoigt.dtype) * dvoigt[:, :, None]
-    small = a_w < 0.2
+    reduced_frequency = offsets.view(1, 1, -1).to(dvoigt.dtype) * dvoigt[:, :, None]
+    small_damping_mask = damping_a < 0.2
     branch_oracle = None
-    if a64 is not None and dvoigt64 is not None:
+    if damping_a_fp64 is not None and dvoigt_fp64 is not None:
         branch_oracle = harris_branch_oracle(
-            a64, dvoigt64, W, kline.device, h0tab, h1tab, h2tab)
-    h = harris_hav_walk(x, a_w[:, :, None], h0tab, h1tab, h2tab, small[:, :, None],
-                        branch_oracle=branch_oracle)
-    pv_near = kappa0_wing[:, :, None] * h
+            damping_a_fp64, dvoigt_fp64, tier_width, opacity_grid.device, h0tab, h1tab, h2tab)
+    near_profile_shape = harris_hav_walk(
+        reduced_frequency, damping_a[:, :, None], h0tab, h1tab, h2tab,
+        small_damping_mask[:, :, None], branch_oracle=branch_oracle)
+    near_profile_values = kappa0_wing[:, :, None] * near_profile_shape
 
-    far_mask = use_far[:, :, None] & (offs.view(1, 1, -1) > n10dop[:, :, None])
-    offs_f = offs.view(1, 1, -1).to(x.dtype)
-    pv_far = x_far[:, :, None] / (offs_f * offs_f)
-    pv = torch.where(far_mask, pv_far, pv_near)
-    pv = torch.where(within, pv, torch.zeros_like(pv))
+    far_wing_mask = use_far[:, :, None] & (offsets.view(1, 1, -1) > n10dop[:, :, None])
+    offsets_float = offsets.view(1, 1, -1).to(reduced_frequency.dtype)
+    far_profile_values = x_far[:, :, None] / (offsets_float * offsets_float)
+    profile_values = torch.where(far_wing_mask, far_profile_values, near_profile_values)
+    profile_values = torch.where(within_reach, profile_values, torch.zeros_like(profile_values))
 
-    ci_b = ci.view(1, -1, 1)
-    red_j = (ci_b + offs.view(1, 1, -1)).expand(kline.shape[0], -1, -1)   # toward longer wavelengths
-    blue_j = (ci_b - offs.view(1, 1, -1)).expand(kline.shape[0], -1, -1)  # toward shorter wavelengths
-    red_ok = within & (red_j >= 0) & (red_j < n_w)
-    blue_ok = within & (blue_j >= 0) & (blue_j < n_w)
+    center_columns_batched = center_columns.view(1, -1, 1)
+    red_columns = (center_columns_batched + offsets.view(1, 1, -1)).expand(opacity_grid.shape[0], -1, -1)
+    blue_columns = (center_columns_batched - offsets.view(1, 1, -1)).expand(opacity_grid.shape[0], -1, -1)
+    red_deposit_mask = within_reach & (red_columns >= 0) & (red_columns < wavelength_count)
+    blue_deposit_mask = within_reach & (blue_columns >= 0) & (blue_columns < wavelength_count)
 
-    scatter_add_3d(kline, red_j, pv, red_ok)                              # ONE batched scatter, red
-    scatter_add_3d(kline, blue_j, pv, blue_ok)                            # ONE batched scatter, blue
+    scatter_add_3d(opacity_grid, red_columns, profile_values, red_deposit_mask)
+    scatter_add_3d(opacity_grid, blue_columns, profile_values, blue_deposit_mask)
 print("fixed-offset wing-walk core ready (two batched scatters)")''')
 
 md(r"""**`_wing_walk_tiered` — reach-tiering, to avoid wasted Harris evals.** A single fixed-offset sweep over *all* lines would size $W$ to the one line that reaches farthest, wasting work evaluating the profile at huge offsets for lines that stopped after a few steps. **Tiering** fixes this: lines are bucketed by their reach into power-of-two tiers, and each tier runs `_wing_walk_core` over only *its* offset range. A tier of weak lines (reach $\le 8$) sweeps 8 offsets; the rare far-reaching line gets its own wide sweep. Same total scatter, far fewer wasted profile evaluations.""")
 
-code(r'''def wing_walk_tiered(kline, ci, kappa0_wing, a_w, maxstep, use_far, n10dop, dvoigt, x_far, n_w,
-                     h0tab, h1tab, h2tab, a64=None, dvoigt64=None):
+code(r'''def wing_walk_tiered(opacity_grid, center_columns, kappa0_wing, damping_a, maxstep,
+                     use_far, n10dop, dvoigt, x_far, wavelength_count,
+                     h0tab, h1tab, h2tab, damping_a_fp64=None, dvoigt_fp64=None):
     """Bucket lines by reach into power-of-two tiers; each tier sweeps only its own offset range
     (port _wing_walk_tiered) — avoids sizing the sweep to the single farthest-reaching line."""
-    if ci.numel() == 0:
+    if center_columns.numel() == 0:
         return
     line_reach = maxstep.max(dim=0).values                   # the per-line reach (max over depth)
-    lo = 0
+    previous_tier_limit = 0
     tier_outputs = []
     # JUSTIFIED-LOOP: fixed 21-tier launch schedule; each body is a whole batched MPS scatter.
-    for hi in NARROW_REACH_TIERS:
-        sel = (line_reach > lo) & (line_reach <= hi)
-        lo = hi
-        if not bool(sel.any()):
+    for tier_limit in NARROW_REACH_TIERS:
+        lines_in_tier = (line_reach > previous_tier_limit) & (line_reach <= tier_limit)
+        previous_tier_limit = tier_limit
+        if not bool(lines_in_tier.any()):
             continue
-        idx = torch.nonzero(sel, as_tuple=False).squeeze(1)
+        tier_line_index = torch.nonzero(lines_in_tier, as_tuple=False).squeeze(1)
         # Bound atomic overlap within a scatter, then tree-reduce chunk outputs.  This retains
         # GPU scatter semantics while avoiding a long fp32 accumulation chain at crowded pixels.
         # JUSTIFIED-LOOP: bounded launch chunking limits fp32 atomic overlap; no scalar line work.
-        for start in range(0, idx.numel(), 256):
-            idx_chunk = idx[start:start + 256]
-            idx_cpu = idx_chunk.detach().cpu()
-            tier_out = torch.zeros_like(kline)
+        for chunk_start in range(0, tier_line_index.numel(), 256):
+            line_chunk = tier_line_index[chunk_start:chunk_start + 256]
+            line_chunk_cpu = line_chunk.detach().cpu()
+            tier_opacity = torch.zeros_like(opacity_grid)
             wing_walk_core(
-                tier_out, ci[idx_chunk], kappa0_wing[:, idx_chunk], a_w[:, idx_chunk],
-                maxstep[:, idx_chunk], use_far[:, idx_chunk], n10dop[:, idx_chunk],
-                dvoigt[:, idx_chunk], x_far[:, idx_chunk], n_w, h0tab, h1tab, h2tab,
-                None if a64 is None else a64[:, idx_cpu],
-                None if dvoigt64 is None else dvoigt64[:, idx_cpu])
-            tier_outputs.append(tier_out)
+                tier_opacity, center_columns[line_chunk], kappa0_wing[:, line_chunk],
+                damping_a[:, line_chunk], maxstep[:, line_chunk], use_far[:, line_chunk],
+                n10dop[:, line_chunk], dvoigt[:, line_chunk], x_far[:, line_chunk],
+                wavelength_count, h0tab, h1tab, h2tab,
+                None if damping_a_fp64 is None else damping_a_fp64[:, line_chunk_cpu],
+                None if dvoigt_fp64 is None else dvoigt_fp64[:, line_chunk_cpu])
+            tier_outputs.append(tier_opacity)
     if tier_outputs:
         # A tree reduction across reach tiers avoids repeatedly rounding the same output pixel
         # after every tier while preserving the MPS atomic scatter inside each tier.
-        kline.add_(torch.stack(tier_outputs, dim=0).sum(dim=0))
+        opacity_grid.add_(torch.stack(tier_outputs, dim=0).sum(dim=0))
 print("reach-tiered wing walk ready")''')
 
 md(r"""**`accumulate_metal` — the whole pipeline.** This ties it together, exactly as the inline fp64 reference's `metal_accumulate_numpy` does, but with the **line axis as a batch axis** throughout. It selects the metal lines, gathers each line's population and Doppler width across all depths, forms `kappa0_pre` and the post-Boltzmann $\kappa_0$ (FASTEX), applies the two-stage cutoff, builds the damping $a$, computes the center contribution `kapcen` and deposits it via the 2-D scatter, back-solves the wing amplitude `kappa0_wing = kapcen/H(a,0)`, computes the reach with `_wing_reach_batched`, and deposits the wings with `_wing_walk_tiered`. **No Python `for` over the twelve thousand lines** — only the reach-tier loop (a handful of iterations) and the device kernels. Stimulated emission is *not* applied here; it goes on once at the very end. Transcribed from the validated implementation.""")
 
 code(r'''CUTOFF = 1.0e-3; KAPMIN_FLOOR = 1.0e-8; CGF_CONSTANT = 0.026538 / 1.77245; C_LIGHT_NM = 2.99792458e17
 
-def metal_invariants_fp64(catalog, atmd, grid, cont, sel0_np, center_idx_np, wing_idx_np, resolu):
+def metal_invariants_fp64(catalog, atmd, grid, cont, metal_line_indices,
+                          center_idx_np, wing_idx_np, resolu):
     """Resolve the compact [depth,line] physics and all discontinuous walk geometry in fp64.
 
     This is a precision island, not a second opacity implementation: it never builds or deposits a
@@ -580,12 +616,16 @@ def metal_invariants_fp64(catalog, atmd, grid, cont, sel0_np, center_idx_np, win
     t64 = lambda x: torch.as_tensor(x, dtype=f64, device=cpu)
     ti = lambda x: torch.as_tensor(x, dtype=torch.int64, device=cpu)
 
-    lam = t64(catalog["lam"])[sel0_np]; gf = t64(catalog["gf"])[sel0_np]
-    Elow = t64(catalog["Elow"])[sel0_np]
-    grad = t64(catalog["grad"])[sel0_np]; gstark = t64(catalog["gstark"])[sel0_np]
-    gvdw = t64(catalog["gvdw"])[sel0_np]
-    elem_idx = ti(catalog["Z"])[sel0_np] - 1; ion_idx = ti(catalog["ion"])[sel0_np] - 1
-    center_idx = ti(center_idx_np)[sel0_np]; wing_idx = ti(wing_idx_np)[sel0_np]
+    lam = t64(catalog["lam"])[metal_line_indices]
+    gf = t64(catalog["gf"])[metal_line_indices]
+    Elow = t64(catalog["Elow"])[metal_line_indices]
+    grad = t64(catalog["grad"])[metal_line_indices]
+    gstark = t64(catalog["gstark"])[metal_line_indices]
+    gvdw = t64(catalog["gvdw"])[metal_line_indices]
+    elem_idx = ti(catalog["Z"])[metal_line_indices] - 1
+    ion_idx = ti(catalog["ion"])[metal_line_indices] - 1
+    center_idx = ti(center_idx_np)[metal_line_indices]
+    wing_idx = ti(wing_idx_np)[metal_line_indices]
     n_w = int(torch.as_tensor(grid).numel())
 
     population_per_ion = t64(atmd["pop3"])
@@ -594,7 +634,7 @@ def metal_invariants_fp64(catalog, atmd, grid, cont, sel0_np, center_idx_np, win
     electron_density = t64(atmd["xne"])
     hc_over_kT = t64(atmd["hckt"])
     vdw_perturber_density = t64(atmd["txnxn"])
-    cont_t = t64(cont)
+    continuum = t64(cont)
     h0t = t64(catalog["h0tab"]); h1t = t64(catalog["h1tab"]); h2t = t64(catalog["h2tab"])
 
     population = population_per_ion[:, ion_idx, elem_idx]
@@ -602,7 +642,7 @@ def metal_invariants_fp64(catalog, atmd, grid, cont, sel0_np, center_idx_np, win
     cgf = CGF_CONSTANT * gf / (C_LIGHT_NM / lam)
     center_valid = (center_idx >= 0) & (center_idx < n_w)
     wing_active = (wing_idx >= -MAX_PROFILE_STEPS) & (wing_idx <= n_w - 1 + MAX_PROFILE_STEPS)
-    kapmin_center = cont_t[:, torch.clamp(center_idx, 0, n_w - 1)] * CUTOFF
+    center_cutoff = continuum[:, torch.clamp(center_idx, 0, n_w - 1)] * CUTOFF
 
     extab, extabf = gpu_fastex_tables(dtype=f64, device=cpu)
     boltz = gpu_fast_ex(Elow.view(1, -1) * hc_over_kT.view(-1, 1), extab, extabf)
@@ -614,7 +654,7 @@ def metal_invariants_fp64(catalog, atmd, grid, cont, sel0_np, center_idx_np, win
     )
     kappa0_pre = cgf.view(1, -1) * population_over_mass_doppler_width
     post = kappa0_pre * boltz
-    passcut = good & (kappa0_pre >= kapmin_center) & (post >= kapmin_center) & (post > 0.0)
+    passcut = good & (kappa0_pre >= center_cutoff) & (post >= center_cutoff) & (post > 0.0)
 
     doppler_width = doppler_fraction * lam.view(1, -1)
     doppler_fraction_for_damping = torch.where(lam.view(1, -1) > 0.0, doppler_width / lam.view(1, -1),
@@ -624,30 +664,32 @@ def metal_invariants_fp64(catalog, atmd, grid, cont, sel0_np, center_idx_np, win
     adamp = torch.where((doppler_width > 0.0) & (doppler_fraction_for_damping > 0.0),
                         gamma_total / doppler_fraction_for_damping,
                         torch.zeros_like(gamma_total))
-    cd = passcut & (adamp >= 0.0) & (post > 0.0)
+    center_deposit_mask = passcut & (adamp >= 0.0) & (post > 0.0)
     h0_center = gpu_voigt_h_at_zero(adamp, h0t, h1t, h2t)
     kapcen_raw = torch.where(adamp < 0.2, post * (1.0 - 1.128 * adamp), post * h0_center)
-    kapcen = torch.where(cd, kapcen_raw, torch.zeros_like(kapcen_raw))
-    center_mask = cd & center_valid.view(1, -1)
+    kapcen = torch.where(center_deposit_mask, kapcen_raw, torch.zeros_like(kapcen_raw))
+    center_mask = center_deposit_mask & center_valid.view(1, -1)
 
-    wing_pairs = cd & (kapcen > 0.0) & wing_active.view(1, -1)
+    wing_pairs = center_deposit_mask & (kapcen > 0.0) & wing_active.view(1, -1)
     live_lines = wing_active & wing_pairs.any(dim=0)
-    sel = torch.nonzero(live_lines, as_tuple=False).squeeze(1)
-    if sel.numel() == 0:
-        return dict(center_idx=center_idx, kapcen=kapcen, center_mask=center_mask, sel=sel)
+    live_wing_line_index = torch.nonzero(live_lines, as_tuple=False).squeeze(1)
+    if live_wing_line_index.numel() == 0:
+        return dict(center_idx=center_idx, kapcen=kapcen, center_mask=center_mask, sel=live_wing_line_index)
 
-    lam_w = lam[sel]; wing_idx_w = wing_idx[sel]
-    doppler_width_w = doppler_width[:, sel]
-    adamp_w = torch.clamp(adamp[:, sel], min=1.0e-12)
-    kapcen_w = kapcen[:, sel]; wing_pairs_w = wing_pairs[:, sel]
+    lam_w = lam[live_wing_line_index]
+    wing_idx_w = wing_idx[live_wing_line_index]
+    doppler_width_w = doppler_width[:, live_wing_line_index]
+    adamp_w = torch.clamp(adamp[:, live_wing_line_index], min=1.0e-12)
+    kapcen_w = kapcen[:, live_wing_line_index]
+    wing_pairs_w = wing_pairs[:, live_wing_line_index]
     h0_w = gpu_voigt_h_at_zero(adamp_w, h0t, h1t, h2t)
     kappa0_wing = torch.where(kapcen_w > 0.0, kapcen_w / h0_w, torch.zeros_like(kapcen_w))
-    cont_ref = cont_t[:, torch.clamp(wing_idx_w, 0, n_w - 1)]
-    kapmin_ref = torch.maximum(cont_ref * CUTOFF, cont_ref * KAPMIN_FLOOR)
+    wing_continuum = continuum[:, torch.clamp(wing_idx_w, 0, n_w - 1)]
+    wing_cutoff = torch.maximum(wing_continuum * CUTOFF, wing_continuum * KAPMIN_FLOOR)
     maxstep, use_far, n10dop, dvoigt, x_far = wing_reach_batched(
-        kappa0_wing, adamp_w, doppler_width_w, lam_w, kapmin_ref, wing_pairs_w,
+        kappa0_wing, adamp_w, doppler_width_w, lam_w, wing_cutoff, wing_pairs_w,
         resolu, h0t, h1t, h2t)
-    return dict(center_idx=center_idx, kapcen=kapcen, center_mask=center_mask, sel=sel,
+    return dict(center_idx=center_idx, kapcen=kapcen, center_mask=center_mask, sel=live_wing_line_index,
                 wing_idx=wing_idx_w, kappa0_wing=kappa0_wing, adamp=adamp_w,
                 maxstep=maxstep, use_far=use_far, n10dop=n10dop, dvoigt=dvoigt, x_far=x_far)
 ''')
@@ -663,7 +705,7 @@ def accumulate_metal(catalog, atmd, grid, cont):
     grid_np = np.asarray(grid, dtype=np.float64); n_w = int(grid_np.size)
     pop3_np = atmd["pop3"]; dop3_np = atmd["dop3"]
     n_depths = int(torch.as_tensor(atmd["T"]).numel())
-    out = torch.zeros((n_depths, n_w), dtype=DTYPE, device=DEVICE)
+    metal_opacity = torch.zeros((n_depths, n_w), dtype=DTYPE, device=DEVICE)
 
     lam_np = catalog["lam"]
     idxwl_np = catalog["idxwl"]
@@ -681,31 +723,32 @@ def accumulate_metal(catalog, atmd, grid, cont):
                    & (ion_idx_cpu >= 0) & (ion_idx_cpu < n_ion_max))
     sel0_cpu = torch.nonzero(line_ok_cpu, as_tuple=False).squeeze(1)
     if sel0_cpu.numel() == 0:
-        return out
+        return metal_opacity
 
-    inv = metal_invariants_fp64(
+    metal_invariants = metal_invariants_fp64(
         catalog, atmd, grid_np, cont, sel0_cpu, center_idx_np, wing_idx_np, resolu)
-    center_idx = inv["center_idx"].to(device=DEVICE)
-    kapcen = inv["kapcen"].to(dtype=DTYPE, device=DEVICE)
-    center_mask = inv["center_mask"].to(device=DEVICE)
+    center_idx = metal_invariants["center_idx"].to(device=DEVICE)
+    kapcen = metal_invariants["kapcen"].to(dtype=DTYPE, device=DEVICE)
+    center_mask = metal_invariants["center_mask"].to(device=DEVICE)
     if bool(center_mask.any()):
-        scatter_add_2d(out, center_idx, kapcen, center_mask)             # center deposit
+        scatter_add_2d(metal_opacity, center_idx, kapcen, center_mask)   # center deposit
 
-    sel = inv["sel"]
-    if sel.numel() == 0:
-        return out
-    wing_idx_w = inv["wing_idx"].to(device=DEVICE)
-    kappa0_wing = inv["kappa0_wing"].to(dtype=DTYPE, device=DEVICE)
-    adamp_w = inv["adamp"].to(dtype=DTYPE, device=DEVICE)
-    maxstep = inv["maxstep"].to(device=DEVICE)
-    use_far = inv["use_far"].to(device=DEVICE)
-    n10dop = inv["n10dop"].to(device=DEVICE)
-    dvoigt = inv["dvoigt"].to(dtype=DTYPE, device=DEVICE)
-    x_far = inv["x_far"].to(dtype=DTYPE, device=DEVICE)
-    wing_walk_tiered(out, wing_idx_w, kappa0_wing, adamp_w, maxstep, use_far, n10dop,
+    live_wing_line_index = metal_invariants["sel"]
+    if live_wing_line_index.numel() == 0:
+        return metal_opacity
+    wing_idx_w = metal_invariants["wing_idx"].to(device=DEVICE)
+    kappa0_wing = metal_invariants["kappa0_wing"].to(dtype=DTYPE, device=DEVICE)
+    adamp_w = metal_invariants["adamp"].to(dtype=DTYPE, device=DEVICE)
+    maxstep = metal_invariants["maxstep"].to(device=DEVICE)
+    use_far = metal_invariants["use_far"].to(device=DEVICE)
+    n10dop = metal_invariants["n10dop"].to(device=DEVICE)
+    dvoigt = metal_invariants["dvoigt"].to(dtype=DTYPE, device=DEVICE)
+    x_far = metal_invariants["x_far"].to(dtype=DTYPE, device=DEVICE)
+    wing_walk_tiered(metal_opacity, wing_idx_w, kappa0_wing, adamp_w, maxstep, use_far, n10dop,
                      dvoigt, x_far, n_w, h0t, h1t, h2t,
-                     a64=inv["adamp"], dvoigt64=inv["dvoigt"])
-    return out
+                     damping_a_fp64=metal_invariants["adamp"],
+                     dvoigt_fp64=metal_invariants["dvoigt"])
+    return metal_opacity
 print("accumulate_metal ready (the batched scatter-add pipeline)")''')
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1134,7 +1177,9 @@ code(r'''def helium_opacity_torch():
         return torch.zeros_like(cont_t)
 
     h0t = t64(h0tab); h1t = t64(h1tab); h2t = t64(h2tab)
-    wl = t64(lam)[he_sel]; gf_he = t64(gf)[he_sel]; Elow_he = t64(Elow)[he_sel]
+    helium_wavelength = t64(lam)[he_sel]
+    helium_gf = t64(gf)[he_sel]
+    helium_lower_energy = t64(Elow)[he_sel]
     grad_he = t64(grad)[he_sel]; gstark_he = t64(gstark)[he_sel]
     gvdw_he = t64(gvdw)[he_sel]
 
@@ -1145,10 +1190,11 @@ code(r'''def helium_opacity_torch():
     temperature = t64(atm["temperature"])
     hc_over_kT = t64(atm["hckt"])
     vdw_perturber_density = t64(txnxn)
-    grid64 = t64(grid); cont64 = t64(cont)
+    grid64 = t64(grid)
+    continuum64 = t64(cont)
     elem = torch.clamp(ti(Zc)[he_sel] - 1, 0, population_per_ion.shape[2] - 1)
     ion0 = torch.clamp(ti(ion)[he_sel] - 1, 0, population_per_ion.shape[1] - 1)
-    ci = torch.clamp(ti(center_idx_np)[he_sel], 0, grid64.numel() - 1)
+    center_columns = torch.clamp(ti(center_idx_np)[he_sel], 0, grid64.numel() - 1)
 
     he_ltc_t = ti(cat["he_ltc"])
     wcon_t = t64(cat["he_wcon_2d"]); wtail_t = t64(cat["he_wtail_2d"])
@@ -1156,62 +1202,71 @@ code(r'''def helium_opacity_torch():
 
     population = population_per_ion[:, ion0, elem]
     doppler_fraction = doppler_fraction_per_ion[:, ion0, elem]
-    cgf_he = CGF_CONSTANT * gf_he / (C_LIGHT_NM / wl)
+    cgf_he = CGF_CONSTANT * helium_gf / (C_LIGHT_NM / helium_wavelength)
     extab64, extabf64 = gpu_fastex_tables(dtype=solve_dtype, device=solve_device)
-    boltz = gpu_fast_ex(Elow_he.view(1, -1) * hc_over_kT.view(-1, 1), extab64, extabf64)
+    boltz = gpu_fast_ex(
+        helium_lower_energy.view(1, -1) * hc_over_kT.view(-1, 1), extab64, extabf64)
 
     doppler_safe = torch.clamp(doppler_fraction, min=1.0e-40)
-    valid = (population > 0.0) & (doppler_fraction > 0.0) & (mass_density.view(-1, 1) > 0.0)
+    valid_population = (
+        (population > 0.0) & (doppler_fraction > 0.0) & (mass_density.view(-1, 1) > 0.0)
+    )
     population_over_mass_doppler_width = torch.where(
-        valid,
+        valid_population,
         population / (mass_density.view(-1, 1) * doppler_safe),
         torch.zeros_like(population),
     )
 
     k0pre = cgf_he.view(1, -1) * population_over_mass_doppler_width
-    kmin = cont64[:, ci] * he_cut_t
-    valid = valid & (k0pre >= kmin)
+    center_cutoff = continuum64[:, center_columns] * he_cut_t
+    valid_population = valid_population & (k0pre >= center_cutoff)
     k0 = k0pre * boltz
-    valid = valid & (k0 >= kmin) & (k0 > 0.0)
+    valid_profile = valid_population & (k0 >= center_cutoff) & (k0 > 0.0)
 
-    gtot = (grad_he.view(1, -1) + gstark_he.view(1, -1) * electron_density.view(-1, 1)
-            + gvdw_he.view(1, -1) * vdw_perturber_density.view(-1, 1))
-    adamp = torch.where(doppler_safe > 0.0, gtot / doppler_safe, torch.zeros_like(gtot))
-    dopw = doppler_fraction * wl.view(1, -1)
+    gamma_total = (grad_he.view(1, -1) + gstark_he.view(1, -1) * electron_density.view(-1, 1)
+                   + gvdw_he.view(1, -1) * vdw_perturber_density.view(-1, 1))
+    adamp = torch.where(doppler_safe > 0.0, gamma_total / doppler_safe, torch.zeros_like(gamma_total))
+    doppler_width = doppler_fraction * helium_wavelength.view(1, -1)
 
     isotope = (he_ltc_t.view(1, -1) == -4)
     k_eff = torch.where(isotope, k0 / 1.155, k0)
-    d_eff = torch.where(isotope, dopw * 1.155, dopw)
+    doppler_width_effective = torch.where(isotope, doppler_width * 1.155, doppler_width)
     a_eff = torch.where(isotope, adamp / 1.155, adamp)
     a_eff = torch.clamp(a_eff, min=1.0e-12)
 
-    wave = grid64.view(1, 1, -1)
-    idx = torch.arange(grid64.numel(), dtype=torch.int64, device=solve_device).view(1, 1, -1)
-    ci3 = ci.view(1, -1, 1)
+    wavelength_grid = grid64.view(1, 1, -1)
+    grid_columns = torch.arange(grid64.numel(), dtype=torch.int64, device=solve_device).view(1, 1, -1)
+    center_columns_3d = center_columns.view(1, -1, 1)
 
-    red_domain = idx >= ci3
-    blue_domain = idx < ci3
-    red_domain = red_domain & (wl.view(1, -1, 1) <= grid64[-1])
-    blue_domain = blue_domain & (wl.view(1, -1, 1) >= grid64[0]) & (ci3 > 0)
+    red_domain = grid_columns >= center_columns_3d
+    blue_domain = grid_columns < center_columns_3d
+    red_domain = red_domain & (helium_wavelength.view(1, -1, 1) <= grid64[-1])
+    blue_domain = blue_domain & (helium_wavelength.view(1, -1, 1) >= grid64[0]) & (center_columns_3d > 0)
 
-    d_safe = torch.clamp(d_eff[:, :, None], min=1.0e-30)
-    x = torch.abs(wave - wl.view(1, -1, 1)) / d_safe
-    raw = k_eff[:, :, None] * voigt_H_grid(x, a_eff[:, :, None], h0t, h1t, h2t)
+    doppler_width_safe = torch.clamp(doppler_width_effective[:, :, None], min=1.0e-30)
+    reduced_frequency = torch.abs(wavelength_grid - helium_wavelength.view(1, -1, 1)) / doppler_width_safe
+    untapered_profile = (
+        k_eff[:, :, None] * voigt_H_grid(reduced_frequency, a_eff[:, :, None], h0t, h1t, h2t)
+    )
 
     wcon = wcon_t[:, :, None]
     wtail = wtail_t[:, :, None]
     has_wcon = wcon > 0.0
     has_wtail = wtail > 0.0
-    can_eval = ~(has_wcon & (wave <= wcon))
+    can_eval = ~(has_wcon & (wavelength_grid <= wcon))
 
-    base = torch.where(has_wcon, wcon, wl.view(1, -1, 1))
-    denom = torch.clamp(wtail - base, min=1.0e-12)
-    taper = torch.where(has_wtail & (wave < wtail), (wave - base) / denom, torch.ones_like(raw))
-    value = raw * taper
+    taper_start_wavelength = torch.where(has_wcon, wcon, helium_wavelength.view(1, -1, 1))
+    taper_width = torch.clamp(wtail - taper_start_wavelength, min=1.0e-12)
+    taper = torch.where(
+        has_wtail & (wavelength_grid < wtail),
+        (wavelength_grid - taper_start_wavelength) / taper_width,
+        torch.ones_like(untapered_profile),
+    )
+    tapered_profile = untapered_profile * taper
 
-    cutoff_grid = cont64[:, None, :] * he_cut_t
-    stop_red = red_domain & can_eval & (value < cutoff_grid)
-    stop_blue = blue_domain & can_eval & (value < cutoff_grid)
+    cutoff_grid = continuum64[:, None, :] * he_cut_t
+    stop_red = red_domain & can_eval & (tapered_profile < cutoff_grid)
+    stop_blue = blue_domain & can_eval & (tapered_profile < cutoff_grid)
 
     red_before_stop = torch.cumsum(stop_red.to(torch.int64), dim=2) == 0
     blue_before_stop = torch.flip(
@@ -1219,11 +1274,12 @@ code(r'''def helium_opacity_torch():
         dims=(2,),
     )
 
-    deposit = valid[:, :, None] & can_eval & (value >= cutoff_grid) & (
+    deposit = valid_profile[:, :, None] & can_eval & (tapered_profile >= cutoff_grid) & (
         (red_domain & red_before_stop) | (blue_domain & blue_before_stop)
     )
 
-    he_raw = torch.sum(torch.where(deposit, value, torch.zeros_like(value)), dim=1)
+    helium_raw_opacity = torch.sum(
+        torch.where(deposit, tapered_profile, torch.zeros_like(tapered_profile)), dim=1)
 
     h_planck = torch.as_tensor(6.62607015e-27, dtype=solve_dtype, device=solve_device)
     k_boltz = torch.as_tensor(1.380649e-16, dtype=solve_dtype, device=solve_device)
@@ -1231,7 +1287,7 @@ code(r'''def helium_opacity_torch():
     stimulated_emission_factor = (
         1.0 - torch.exp(-freq_grid_t.view(1, -1) * (h_planck / (k_boltz * temperature)).view(-1, 1))
     )
-    return (he_raw * stimulated_emission_factor).to(dtype=DTYPE, device=DEVICE)
+    return (helium_raw_opacity * stimulated_emission_factor).to(dtype=DTYPE, device=DEVICE)
 ''')
 
 md(r"""Run the helium path and keep its result as a tensor on the selected device. The validation cells below compare it component-by-component against the archived helium-wing diagnostic.""")
@@ -1336,23 +1392,23 @@ n_cont = int(lt_ref["cont_n"])           # numpy-ref
 print(f"hot star : Teff={teff:.0f} K  logg={logg:.2f}   window {w0:.0f}-{w1:.0f} nm  R={w_res:.0f}")  # numpy-ref
 print(f"records  : {n_auto} autoionizing, {n_cont} merged-continuum")  # numpy-ref
 
-def _pack_records(prefix, nrec):
+def _pack_records(prefix, record_count):
     # JUSTIFIED-LOOP: heterogeneous npz archive unpacking only; no profile arithmetic is done here.
-    lens = np.empty(nrec, dtype=np.int64)  # numpy-ref
-    for i in range(nrec):  # numpy-ref
-        lens[i] = lt_ref[f"{prefix}{i}_wl_slice"].size  # numpy-ref
-    L = int(lens.max())  # numpy-ref
-    wl = np.zeros((nrec, L), dtype=np.float64)           # numpy-ref
-    ct = np.zeros((nrec, L), dtype=np.float64)           # numpy-ref
-    rf = np.zeros((nrec, L), dtype=np.float64)           # numpy-ref
-    valid = np.zeros((nrec, L), dtype=bool)              # numpy-ref
-    for i in range(nrec):  # numpy-ref
-        m = lens[i]  # numpy-ref
-        wl[i, :m] = lt_ref[f"{prefix}{i}_wl_slice"]      # numpy-ref
-        ct[i, :m] = lt_ref[f"{prefix}{i}_cont_slice"]    # numpy-ref
-        rf[i, :m] = lt_ref[f"{prefix}{i}_delta_vals"]    # numpy-ref
-        valid[i, :m] = True                              # numpy-ref
-    return wl, ct, rf, valid, lens                       # numpy-ref
+    record_lengths = np.empty(record_count, dtype=np.int64)  # numpy-ref
+    for record_index in range(record_count):  # numpy-ref
+        record_lengths[record_index] = lt_ref[f"{prefix}{record_index}_wl_slice"].size  # numpy-ref
+    padded_width = int(record_lengths.max())  # numpy-ref
+    wavelength_slices = np.zeros((record_count, padded_width), dtype=np.float64)  # numpy-ref
+    continuum_slices = np.zeros((record_count, padded_width), dtype=np.float64)   # numpy-ref
+    reference_delta_slices = np.zeros((record_count, padded_width), dtype=np.float64)  # numpy-ref
+    valid_mask = np.zeros((record_count, padded_width), dtype=bool)              # numpy-ref
+    for record_index in range(record_count):  # numpy-ref
+        record_length = record_lengths[record_index]  # numpy-ref
+        wavelength_slices[record_index, :record_length] = lt_ref[f"{prefix}{record_index}_wl_slice"]  # numpy-ref
+        continuum_slices[record_index, :record_length] = lt_ref[f"{prefix}{record_index}_cont_slice"]  # numpy-ref
+        reference_delta_slices[record_index, :record_length] = lt_ref[f"{prefix}{record_index}_delta_vals"]  # numpy-ref
+        valid_mask[record_index, :record_length] = True  # numpy-ref
+    return wavelength_slices, continuum_slices, reference_delta_slices, valid_mask, record_lengths  # numpy-ref
 
 auto_wl, auto_cont, auto_ref, auto_valid, auto_lens = _pack_records("auto", n_auto)  # numpy-ref
 cont_wl, cont_cont, cont_ref, cont_valid, cont_lens = _pack_records("cont", n_cont)  # numpy-ref''')
@@ -1411,15 +1467,15 @@ def autoionizing_delta_torch():
     # working device; the 12,568-line ordinary opacity remains MPS-resident.
     solve_device, solve_dtype = torch.device("cpu"), torch.float64
     to64 = lambda x: torch.as_tensor(x, dtype=solve_dtype, device=solve_device)
-    wl = to64(auto_wl)
-    cnt = to64(auto_cont)
-    valid = torch.as_tensor(auto_valid, dtype=torch.bool, device=solve_device)
+    wavelength_slices = to64(auto_wl)
+    continuum_slices = to64(auto_cont)
+    valid_mask = torch.as_tensor(auto_valid, dtype=torch.bool, device=solve_device)
 
-    slice_lo = torch.as_tensor(auto_slice_lo, dtype=torch.int64, device=solve_device)
-    center_g = torch.as_tensor(auto_center, dtype=torch.int64, device=solve_device)
-    c = center_g - slice_lo
+    slice_start_index = torch.as_tensor(auto_slice_lo, dtype=torch.int64, device=solve_device)
+    center_index_global = torch.as_tensor(auto_center, dtype=torch.int64, device=solve_device)
+    center_index_local = center_index_global - slice_start_index
 
-    line_wl = to64(auto_line_wl)
+    line_wavelength = to64(auto_line_wl)
     kappa0 = to64(auto_kappa0)
     gamma = torch.clamp(torch.abs(to64(auto_grad)), min=1.0e-300)
     ashore = to64(auto_gstark)
@@ -1428,39 +1484,55 @@ def autoionizing_delta_torch():
                          torch.copysign(torch.full_like(bshore_raw, 1.0e-300), bshore_raw))
     cutoff = to64(auto_cut)
 
-    rec = torch.arange(wl.shape[0], dtype=torch.int64, device=solve_device)
-    cont_center = cnt[rec, c]
-    gate = (kappa0 >= cont_center * cutoff) & (kappa0 > 0.0)
+    record_index = torch.arange(wavelength_slices.shape[0], dtype=torch.int64, device=solve_device)
+    continuum_at_center = continuum_slices[record_index, center_index_local]
+    line_passes_cutoff = (kappa0 >= continuum_at_center * cutoff) & (kappa0 > 0.0)
 
     # Stable detuning: avoid subtracting two ~1e15 Hz fp32 frequencies.  The
     # algebraic form c*(lambda0-lambda)/(lambda*lambda0) preserves the small
     # frequency difference that selects the Shore-profile sign and cutoff.
-    C_LIGHT_NM_t = torch.as_tensor(2.99792458e17, dtype=solve_dtype, device=solve_device)
-    wl0 = line_wl.view(-1, 1)
-    wl_safe = torch.where(valid, torch.clamp(wl, min=1.0e-30), wl0)
-    dfreq = C_LIGHT_NM_t * (wl0 - wl_safe) / (wl_safe * wl0)
-    eps = 2.0 * dfreq / gamma.view(-1, 1)
-    value = kappa0.view(-1, 1) * (ashore.view(-1, 1) * eps + bshore.view(-1, 1)) / ((eps * eps + 1.0) * bshore.view(-1, 1))
+    speed_of_light_nm = torch.as_tensor(2.99792458e17, dtype=solve_dtype, device=solve_device)
+    line_wavelength_column = line_wavelength.view(-1, 1)
+    safe_wavelength = torch.where(
+        valid_mask, torch.clamp(wavelength_slices, min=1.0e-30), line_wavelength_column)
+    frequency_detuning = (
+        speed_of_light_nm * (line_wavelength_column - safe_wavelength)
+        / (safe_wavelength * line_wavelength_column)
+    )
+    shore_epsilon = 2.0 * frequency_detuning / gamma.view(-1, 1)
+    profile_value = (
+        kappa0.view(-1, 1) * (ashore.view(-1, 1) * shore_epsilon + bshore.view(-1, 1))
+        / ((shore_epsilon * shore_epsilon + 1.0) * bshore.view(-1, 1))
+    )
 
-    j = torch.arange(wl.shape[1], dtype=torch.int64, device=solve_device).view(1, -1)
-    c2 = c.view(-1, 1)
+    local_column_index = torch.arange(
+        wavelength_slices.shape[1], dtype=torch.int64, device=solve_device).view(1, -1)
+    center_column = center_index_local.view(-1, 1)
 
-    red = j > c2
-    blue = j < c2
-    bad = (~valid) | (value <= 0.0) | (value < cnt * cutoff.view(-1, 1))
+    red_side = local_column_index > center_column
+    blue_side = local_column_index < center_column
+    invalid_or_stopped = (
+        (~valid_mask) | (profile_value <= 0.0)
+        | (profile_value < continuum_slices * cutoff.view(-1, 1))
+    )
 
-    stop_red = red & valid & bad
-    stop_blue = blue & valid & bad
-    red_before = torch.cumsum(stop_red.to(torch.int64), dim=1) == 0
-    blue_before = torch.flip(torch.cumsum(torch.flip(stop_blue.to(torch.int64), dims=(1,)), dim=1) == 0, dims=(1,))
+    red_stop = red_side & valid_mask & invalid_or_stopped
+    blue_stop = blue_side & valid_mask & invalid_or_stopped
+    red_before_stop = torch.cumsum(red_stop.to(torch.int64), dim=1) == 0
+    blue_before_stop = torch.flip(
+        torch.cumsum(torch.flip(blue_stop.to(torch.int64), dims=(1,)), dim=1) == 0,
+        dims=(1,))
 
-    wing_deposit = gate.view(-1, 1) & valid & (~bad) & ((red & red_before) | (blue & blue_before))
-    out = torch.where(wing_deposit, value, torch.zeros_like(value))
+    wing_deposit_mask = (
+        line_passes_cutoff.view(-1, 1) & valid_mask & (~invalid_or_stopped)
+        & ((red_side & red_before_stop) | (blue_side & blue_before_stop))
+    )
+    profile_delta = torch.where(wing_deposit_mask, profile_value, torch.zeros_like(profile_value))
 
-    center_mask = torch.zeros_like(out, dtype=torch.bool)
-    center_mask[rec, c] = gate
-    out = torch.where(center_mask, kappa0.view(-1, 1), out)
-    return out.to(device=DEVICE, dtype=DTYPE)
+    center_deposit_mask = torch.zeros_like(profile_delta, dtype=torch.bool)
+    center_deposit_mask[record_index, center_index_local] = line_passes_cutoff
+    profile_delta = torch.where(center_deposit_mask, kappa0.view(-1, 1), profile_delta)
+    return profile_delta.to(device=DEVICE, dtype=DTYPE)
 ''')
 
 md(r"""Run the autoionizing profile and compare it on its recorded support. This cell is intentionally only a validation call plus assertions; the profile arithmetic was defined above.""")
@@ -1504,45 +1576,47 @@ def merged_continuum_delta_torch():
     linear falloff toward the tail index.  The scalar walk's first-below-cutoff
     stop condition is represented by a cumulative mask along the local slice.
     """
-    wl = dev(cont_wl)
-    cnt = dev(cont_cont)
-    valid = torch.as_tensor(cont_valid, dtype=torch.bool, device=DEVICE)
+    wavelength_slices = dev(cont_wl)
+    continuum_slices = dev(cont_cont)
+    valid_mask = torch.as_tensor(cont_valid, dtype=torch.bool, device=DEVICE)
 
-    slice_lo = torch.as_tensor(cont_slice_lo, dtype=torch.int64, device=DEVICE)
+    slice_start_index = torch.as_tensor(cont_slice_lo, dtype=torch.int64, device=DEVICE)
     idx_start = torch.as_tensor(cont_idx_start, dtype=torch.int64, device=DEVICE)
     idx_merge = torch.as_tensor(cont_idx_merge, dtype=torch.int64, device=DEVICE)
     idx_tail = torch.as_tensor(cont_idx_tail, dtype=torch.int64, device=DEVICE)
 
-    line_wl = dev(cont_line_wl)
+    line_wavelength = dev(cont_line_wl)
     kappa = dev(cont_kappa)
     cutoff = dev(cont_cut)
 
-    loc = torch.arange(wl.shape[1], dtype=torch.int64, device=DEVICE).view(1, -1)
-    idx_g = slice_lo.view(-1, 1) + loc
+    local_column_index = torch.arange(
+        wavelength_slices.shape[1], dtype=torch.int64, device=DEVICE).view(1, -1)
+    global_column_index = slice_start_index.view(-1, 1) + local_column_index
 
-    denom_i = torch.clamp(idx_tail - torch.maximum(idx_merge, idx_start), min=1)
+    ramp_denominator = torch.clamp(idx_tail - torch.maximum(idx_merge, idx_start), min=1)
     ramp = torch.where(
-        idx_g >= idx_merge.view(-1, 1),
-        (idx_tail.view(-1, 1) - idx_g).to(DTYPE) / denom_i.view(-1, 1).to(DTYPE),
-        torch.ones_like(wl),
+        global_column_index >= idx_merge.view(-1, 1),
+        ((idx_tail.view(-1, 1) - global_column_index).to(DTYPE)
+         / ramp_denominator.view(-1, 1).to(DTYPE)),
+        torch.ones_like(wavelength_slices),
     )
     ramp = torch.clamp(ramp, min=0.0)
 
-    value = kappa.view(-1, 1) * ramp
+    ramped_value = kappa.view(-1, 1) * ramp
     domain = (
-        valid &
+        valid_mask &
         (kappa.view(-1, 1) > 0.0) &
         (idx_tail.view(-1, 1) > idx_start.view(-1, 1)) &
-        (idx_g >= idx_start.view(-1, 1)) &
-        (idx_g < idx_tail.view(-1, 1)) &
-        (wl >= line_wl.view(-1, 1))
+        (global_column_index >= idx_start.view(-1, 1)) &
+        (global_column_index < idx_tail.view(-1, 1)) &
+        (wavelength_slices >= line_wavelength.view(-1, 1))
     )
 
-    stop = domain & (value < cnt * cutoff.view(-1, 1))
-    before_stop = torch.cumsum(stop.to(torch.int64), dim=1) == 0
-    deposit = domain & before_stop & (~stop)
+    stop_mask = domain & (ramped_value < continuum_slices * cutoff.view(-1, 1))
+    before_stop_mask = torch.cumsum(stop_mask.to(torch.int64), dim=1) == 0
+    deposit_mask = domain & before_stop_mask & (~stop_mask)
 
-    return torch.where(deposit, value, torch.zeros_like(value))
+    return torch.where(deposit_mask, ramped_value, torch.zeros_like(ramped_value))
 ''')
 
 md(r"""Run the merged-continuum ramp profile and assert it against the recorded support. Together with the autoionizing check, this closes the two non-Voigt leaf profiles used by special line-type records.""")
