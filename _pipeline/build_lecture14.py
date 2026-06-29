@@ -1435,6 +1435,24 @@ def nearest_grid_indices_raw(grid, values, origin_start):
         wbegin = np.exp(ix_floor * ratiolg)
     return np.rint(np.log(values / wbegin) / ratiolg).astype(np.int64)''')
 
+md(r"""`metal_wing_profile_value` is the repeated Harris/Voigt profile branch used by both the cutoff
+probe and the final wing deposit. Keeping it separate makes the walk below about control flow:
+where to stop and where to add, not how Harris evaluates one offset.""")
+
+code(r'''def metal_wing_profile_value(offset, kappa0, adamp, dvoigt, tabstep, tabi, h0tab, h1tab, h2tab):
+    """Return one offset's metal-line profile contribution and updated Harris table cursor."""
+    x_offset = float(offset) * dvoigt
+    if adamp < 0.2:
+        tabi += tabstep
+        idx = max(int(tabi), 0)
+        if x_offset > 10.0:
+            return kappa0 * (0.5642 * adamp / (x_offset * x_offset)), tabi
+        if idx >= h0tab.size:
+            idx = h0tab.size - 1
+        return kappa0 * (h0tab[idx] + adamp * h1tab[idx]), tabi
+    return kappa0 * voigt_profile(x_offset, adamp, h0tab, h1tab, h2tab), tabi
+''')
+
 md(r"""`process_wing_pair` is the ASYNTH wing-accumulation kernel of Lecture 5: for one line it walks the red and blue wings outward, adding $\kappa_0\,H(a,v)$ to the opacity grid until the contribution falls below the cutoff. This is the heart of the metal-line forest.""")
 
 code(r'''
@@ -1462,21 +1480,8 @@ def process_wing_pair(asynth_d, wavelength_grid, center_idx, kappa0, adamp,
     tabi = 0.5
     broke = False
     for nstep in range(1, n10dop + 1):
-        if adamp < 0.2:
-            tabi += tabstep
-            idx = int(tabi)
-            if idx < 0:
-                idx = 0
-            x_step = float(nstep) * dvoigt
-            if x_step > 10.0:
-                profile_val = kappa0 * (0.5642 * adamp / (x_step * x_step))
-            else:
-                if idx >= h0tab.size:
-                    idx = h0tab.size - 1
-                profile_val = kappa0 * (h0tab[idx] + adamp * h1tab[idx])
-        else:
-            x_step = float(nstep) * dvoigt
-            profile_val = kappa0 * voigt_profile(x_step, adamp, h0tab, h1tab, h2tab)
+        profile_val, tabi = metal_wing_profile_value(
+            nstep, kappa0, adamp, dvoigt, tabstep, tabi, h0tab, h1tab, h2tab)
         if nstep == n10dop:
             profile_at_n10dop = profile_val
         if use_cutoff and profile_val < kapmin_ref:
@@ -1516,21 +1521,8 @@ def process_wing_pair(asynth_d, wavelength_grid, center_idx, kappa0, adamp,
         if use_far_wing and offset > n10dop:
             profile_val = x_far / float(offset) ** 2
         else:
-            if adamp < 0.2:
-                tabi_offset += tabstep
-                idx = int(tabi_offset)
-                if idx < 0:
-                    idx = 0
-                x_offset = float(offset) * dvoigt
-                if x_offset > 10.0:
-                    profile_val = kappa0 * (0.5642 * adamp / (x_offset * x_offset))
-                else:
-                    if idx >= h0tab.size:
-                        idx = h0tab.size - 1
-                    profile_val = kappa0 * (h0tab[idx] + adamp * h1tab[idx])
-            else:
-                x_offset = float(offset) * dvoigt
-                profile_val = kappa0 * voigt_profile(x_offset, adamp, h0tab, h1tab, h2tab)
+            profile_val, tabi_offset = metal_wing_profile_value(
+                offset, kappa0, adamp, dvoigt, tabstep, tabi_offset, h0tab, h1tab, h2tab)
         # stim_factor is 1.0 here (STIM applied to the whole array at the end)
         if profile_val == 0.0:
             break
@@ -2024,6 +2016,46 @@ code(r'''def _hydrogen_transition_constants(n, m, tabs):
         vdw=vdw, y1wtm=y1wtm,
     )''')
 
+md(r"""The electron-impact part of HPROF4 is its own small model: choose the density blend, form the
+`c1/c2` impact coefficients, then select between the simple and exponential-integral width
+formulae. Splitting it out keeps the line-profile cell focused on composing Doppler, Lorentz, and
+Stark pieces.""")
+
+code(r'''def _hydrogen_impact_lorentzian(n, m, mmn, y1wtm, electron_density,
+                                y1s, y1b, c1d, c2d, c1con, c2con,
+                                gcon1, gcon2, beta):
+    """Return the HPROF4 electron-impact Lorentzian term and y1 non-static parameter."""
+    y1num = 320.0
+    if m == 2:
+        y1num = 550.0
+    elif m == 3:
+        y1num = 380.0
+    y1wht = 1.0e14 if mmn <= 3 else 1.0e13
+    if mmn <= 2 and 1 <= n <= 2 and n <= y1wtm.shape[0] and mmn <= y1wtm.shape[1]:
+        y1wht = y1wtm[n - 1, mmn - 1]
+
+    wty1 = 1.0 / (1.0 + max(electron_density, 0.0) / max(y1wht, 1e-30))
+    y1_scal = y1num * y1s * wty1 + y1b * (1.0 - wty1)
+    c1 = c1d * c1con * y1_scal
+    c2 = c2d * c2con
+    y1 = c1 * beta
+    y2 = c2 * beta * beta
+
+    g1 = 6.77 * np.sqrt(max(c1, 1e-30))
+    ratio = np.sqrt(c2) / max(c1, 1e-30) if c1 > 0.0 and c2 > 0.0 else 0.0
+    log_term = np.log(max(ratio, 1e-30)) if ratio > 0.0 else 0.0
+    gamma = g1 * max(0.0, 0.2114 + log_term) * (1.0 - gcon1 - gcon2)
+    if y2 > 1e-4 and y1 > 1e-5:
+        gamma = (
+            g1
+            * (0.5 * _fast_ex(min(80.0, y1)) + _vcse1f(y1) - 0.5 * _vcse1f(y2))
+            * (1.0 - gcon1 / (1.0 + (90.0 * y1) ** 3) - gcon2 / (1.0 + 2000.0 * y1))
+        )
+    if gamma <= 0.0:
+        return 0.0, y1
+    return gamma / np.pi / (gamma * gamma + beta * beta), y1
+''')
+
 md(r"""`_hydrogen_line_profile` assembles the full per-line profile from the pieces above: the Stark $S(\beta)$ core, the resonance and van der Waals Lorentzians, and the Doppler convolution. It returns the profile a single hydrogen line deposits at one depth.""")
 
 code(r'''
@@ -2091,42 +2123,12 @@ def _hydrogen_line_profile(n, m, delta_lambda_nm, hyd, tabs, fine_offsets, fine_
                 top = max(hhw - freqnm * hwrad, 0.0)
         if hhw > 0.0:
             lorentz = (top / np.pi / (del_freq * del_freq + hhw * hhw) * 1.77245 * dop)
-    y1num = 320.0
-    if m == 2:
-        y1num = 550.0
-    elif m == 3:
-        y1num = 380.0
-    y1wht = 1.0e13
-    if mmn <= 3:
-        y1wht = 1.0e14
-    if mmn <= 2 and n <= 2 and n >= 1 and mmn >= 1:
-        if n <= y1wtm.shape[0] and mmn <= y1wtm.shape[1]:
-            y1wht = y1wtm[n - 1, mmn - 1]
-    y1wht_safe = max(y1wht, 1e-30)
-    elec_safe = max(electron_density, 0.0)
-    wty1 = 1.0 / (1.0 + elec_safe / y1wht_safe)
-    y1_scal = y1num * y1s * wty1 + y1b * (1.0 - wty1)
-    c1 = c1d * c1con * y1_scal
-    c2 = c2d * c2con
     fo_safe = max(fo, 1e-30)
     beta = del_freq / fo_safe * dbeta
-    y1 = c1 * beta
-    y2 = c2 * beta * beta
-    g1 = 6.77 * np.sqrt(max(c1, 1e-30))
-    ratio = 0.0
-    if c1 > 0.0 and c2 > 0.0:
-        ratio = np.sqrt(c2) / max(c1, 1e-30)
-    log_term = 0.0
-    if ratio > 0.0:
-        log_term = np.log(max(ratio, 1e-30))
-    gnot = g1 * max(0.0, 0.2114 + log_term) * (1.0 - gcon1 - gcon2)
-    gamma = gnot
-    if y2 > 1e-4 and y1 > 1e-5:
-        gamma = (g1 * (0.5 * _fast_ex(min(80.0, y1)) + _vcse1f(y1) - 0.5 * _vcse1f(y2))
-                 * (1.0 - gcon1 / (1.0 + (90.0 * y1) ** 3) - gcon2 / (1.0 + 2000.0 * y1)))
-    f = 0.0
-    if gamma > 0.0:
-        f = gamma / np.pi / (gamma * gamma + beta * beta)
+    f, y1 = _hydrogen_impact_lorentzian(
+        n, m, mmn, y1wtm, electron_density, y1s, y1b,
+        c1d, c2d, c1con, c2con, gcon1, gcon2, beta,
+    )
     prqs = _sofbeta(beta, pp_val, n, m, propbm, c_tbl, d_tbl, pp_tbl, beta_tbl)
     stark_extra = 0.0
     if m <= 2:
@@ -2145,6 +2147,38 @@ def _hydrogen_line_profile(n, m, delta_lambda_nm, hyd, tabs, fine_offsets, fine_
             return max(lorentz, 0.0)
         return max(stark_core + stark_extra, 0.0)
     return max(core + lorentz + stark_core + stark_extra, 0.0)''')
+
+md(r"""The next helper evaluates one hydrogen profile sample at one wavelength and applies the stimulated
+emission factor plus the continuum-merge taper. The accumulator can then focus on when to stop each
+wing.""")
+
+code(r'''def _hydrogen_profile_value_at_wave(wave, idx, line_wavelength, kappa0, n_lower, n_upper,
+                                   stim_row, use_taper, wcon, wtail,
+                                   hyd, tabs, fine_offsets, fine_weights, n_fine):
+    """Evaluate one tapered hydrogen-line contribution at one wavelength pixel."""
+    delta_nm = wave - line_wavelength
+    value = (
+        kappa0
+        * _hydrogen_line_profile(n_lower, n_upper, delta_nm, hyd, tabs, fine_offsets, fine_weights, n_fine)
+        * stim_row[idx]
+    )
+    if use_taper and wave < wtail:
+        value *= (wave - wcon) / (wtail - wcon)
+    return value
+''')
+
+md(r"""A tiny bookkeeping helper initializes the red/blue wing walk when the line center falls inside or
+outside the synthesis grid.""")
+
+code(r'''def _hydrogen_wing_walk_state(n_points, center_index):
+    """Return initial red/blue activity flags, offset, and maximum walk length."""
+    max_steps = max(center_index, n_points - center_index - 1)
+    if 0 <= center_index < n_points:
+        return True, True, 1, max_steps
+    if center_index >= n_points:
+        return False, True, max(1, center_index - (n_points - 1)), max_steps
+    return True, False, max(1, -center_index), max_steps
+''')
 
 md(r"""`_accumulate_hyd_line_depth` walks that profile out onto the wavelength grid at one depth — the hydrogen analogue of the metal-line wing accumulation, with its own (much wider) reach.""")
 
@@ -2166,35 +2200,17 @@ def _accumulate_hyd_line_depth(buffer, continuum_row, stim_row, grid, center_ind
     upper_minus2 = max(n_upper - 2, n_lower + 1)
     upper_plus2 = n_upper + 2
 
-    red_active = True
-    blue_active = True
-    offset = 1
-    max_steps = center_index
-    tmp = n_points - center_index - 1
-    if tmp > max_steps:
-        max_steps = tmp
-
-    def prof(nl, nu, dl):
-        return _hydrogen_line_profile(nl, nu, dl, hyd, tabs, fine_offsets, fine_weights, n_fine)
+    red_active, blue_active, offset, max_steps = _hydrogen_wing_walk_state(n_points, center_index)
 
     if 0 <= center_index < n_points:
         wave_center = grid[center_index]
         if not (not simple_wings and wave_center < wcon):
-            delta_center_nm = wave_center - line_wavelength
-            profile_center = kappa0 * prof(n_lower, n_upper, delta_center_nm)
-            value_center = profile_center * stim_row[center_index]
-            if use_taper and wave_center < wtail:
-                value_center *= (wave_center - wcon) / (wtail - wcon)
+            value_center = _hydrogen_profile_value_at_wave(
+                wave_center, center_index, line_wavelength, kappa0, n_lower, n_upper,
+                stim_row, use_taper, wcon, wtail, hyd, tabs, fine_offsets, fine_weights, n_fine,
+            )
             if value_center >= continuum_row[center_index] * cutoff:
                 buffer[center_index] += value_center
-    else:
-        if center_index >= n_points:
-            red_active = False
-            offset = max(1, center_index - (n_points - 1))
-        else:
-            blue_active = False
-            offset = max(1, -center_index)
-
     while offset <= max_steps and (red_active or blue_active):
         if red_active:
             idx = center_index + offset
@@ -2208,15 +2224,17 @@ def _accumulate_hyd_line_depth(buffer, continuum_row, stim_row, grid, center_ind
                     elif wave < wcon:
                         pass
                     else:
-                        delta_nm = wave - line_wavelength
-                        value = kappa0 * prof(n_lower, n_upper, delta_nm) * stim_row[idx]
-                        if use_taper and wave < wtail:
-                            value *= (wave - wcon) / (wtail - wcon)
+                        value = _hydrogen_profile_value_at_wave(
+                            wave, idx, line_wavelength, kappa0, n_lower, n_upper,
+                            stim_row, use_taper, wcon, wtail, hyd, tabs,
+                            fine_offsets, fine_weights, n_fine,
+                        )
                         if wave > redcut:
-                            delta_minus2 = wave - wlminus2
-                            value_minus2 = kappa0 * prof(n_lower, upper_minus2, delta_minus2) * stim_row[idx]
-                            if use_taper and wave < wtail:
-                                value_minus2 *= (wave - wcon) / (wtail - wcon)
+                            value_minus2 = _hydrogen_profile_value_at_wave(
+                                wave, idx, wlminus2, kappa0, n_lower, upper_minus2,
+                                stim_row, use_taper, wcon, wtail, hyd, tabs,
+                                fine_offsets, fine_weights, n_fine,
+                            )
                             if value_minus2 >= value:
                                 red_active = False
                                 value = 0.0
@@ -2225,8 +2243,10 @@ def _accumulate_hyd_line_depth(buffer, continuum_row, stim_row, grid, center_ind
                         else:
                             buffer[idx] += value
                 else:
-                    delta_nm = wave - line_wavelength
-                    value = kappa0 * prof(n_lower, n_upper, delta_nm) * stim_row[idx]
+                    value = _hydrogen_profile_value_at_wave(
+                        wave, idx, line_wavelength, kappa0, n_lower, n_upper,
+                        stim_row, False, wcon, wtail, hyd, tabs, fine_offsets, fine_weights, n_fine,
+                    )
                     if value <= 0.0 or value < continuum_row[idx] * cutoff:
                         red_active = False
                     else:
@@ -2240,16 +2260,18 @@ def _accumulate_hyd_line_depth(buffer, continuum_row, stim_row, grid, center_ind
                 if not simple_wings and (wave < wcon or wave < wlplus1):
                     blue_active = False
                 else:
-                    delta_nm = wave - line_wavelength
-                    value = kappa0 * prof(n_lower, n_upper, delta_nm) * stim_row[idx]
+                    value = _hydrogen_profile_value_at_wave(
+                        wave, idx, line_wavelength, kappa0, n_lower, n_upper,
+                        stim_row, use_taper, wcon, wtail, hyd, tabs,
+                        fine_offsets, fine_weights, n_fine,
+                    )
                     if not simple_wings:
-                        if use_taper and wave < wtail:
-                            value *= (wave - wcon) / (wtail - wcon)
                         if wave < bluecut:
-                            delta_plus2 = wave - wlplus2
-                            value_plus2 = kappa0 * prof(n_lower, upper_plus2, delta_plus2) * stim_row[idx]
-                            if use_taper and wave < wtail:
-                                value_plus2 *= (wave - wcon) / (wtail - wcon)
+                            value_plus2 = _hydrogen_profile_value_at_wave(
+                                wave, idx, wlplus2, kappa0, n_lower, upper_plus2,
+                                stim_row, use_taper, wcon, wtail, hyd, tabs,
+                                fine_offsets, fine_weights, n_fine,
+                            )
                             if value_plus2 >= value:
                                 blue_active = False
                                 value = 0.0
@@ -2339,6 +2361,29 @@ def _hydrogen_merge_limits(conth_val, emerge_h_di, wshift):
         wtail = wcon + wcon
     return wcon, min(wcon + wcon, wtail)''')
 
+md(r"""The static hydrogen lookup helper packages the HPROF4 tables, fine-structure components, and the
+line indices selected from the catalog. That setup is independent of atmospheric depth.""")
+
+code(r'''def _hydrogen_static_lookups(cat):
+    """Return HPROF4 table dict, fine-structure map, and selected hydrogen line indices."""
+    tabs = dict(
+        asum=cat["htab_asum"], asum_lyman=cat["htab_asum_lyman"],
+        y1wtm=cat["htab_y1wtm"], xknmtb=cat["htab_xknmtb"],
+        propbm=cat["htab_propbm"], c=cat["htab_c"], d=cat["htab_d"],
+        pp=cat["htab_pp"], beta=cat["htab_beta"],
+        cutoff_h2_plus=cat["htab_cutoff_h2_plus"], cutoff_h2=cat["htab_cutoff_h2"],
+    )
+    fine_map = {}
+    for j in range(cat["fine_keys"].shape[0]):
+        key = (int(cat["fine_keys"][j, 0]), int(cat["fine_keys"][j, 1]))
+        fine_map[key] = (cat["fine_offsets"][j], cat["fine_weights"][j], int(cat["fine_n"][j]))
+
+    lt = cat["cat_line_types"].astype(np.int64)
+    ion = cat["cat_ion"].astype(np.int64)
+    hidx = np.where(np.isin(lt, [-1, -2]) & (ion == 1))[0]
+    return tabs, fine_map, hidx
+''')
+
 md(r"""`compute_hydrogen_opacity` is the driver: it selects the visible hydrogen lines for the star, loops over depth, and deposits each line with the routines above, returning the hydrogen line opacity on the full grid. This is the Balmer-wing engine the hot dwarf's H$\beta$ exercises.""")
 
 code(r'''
@@ -2368,23 +2413,7 @@ def compute_hydrogen_opacity(cat, atm, diag, L4):
     emerge_h = _HYD_RYD_CM / np.maximum(nmerge * nmerge, 1e-12)
     conth = cat["conth"]
 
-    tabs = dict(asum=cat["htab_asum"], asum_lyman=cat["htab_asum_lyman"],
-                y1wtm=cat["htab_y1wtm"], xknmtb=cat["htab_xknmtb"], propbm=cat["htab_propbm"],
-                c=cat["htab_c"], d=cat["htab_d"], pp=cat["htab_pp"], beta=cat["htab_beta"],
-                cutoff_h2_plus=cat["htab_cutoff_h2_plus"], cutoff_h2=cat["htab_cutoff_h2"])
-
-    # fine-structure lookup keyed by (nl,nu)
-    fkeys = cat["fine_keys"]; foff = cat["fine_offsets"]; fwt = cat["fine_weights"]; fn = cat["fine_n"]
-    fine_map = {}
-    for j in range(fkeys.shape[0]):
-        fine_map[(int(fkeys[j, 0]), int(fkeys[j, 1]))] = (foff[j], fwt[j], int(fn[j]))
-
-    # ── select the H lines (type -1/-2, ion 1) ──
-    lt = cat["cat_line_types"].astype(np.int64)
-    ion = cat["cat_ion"].astype(np.int64)
-    Z = cat["cat_Z"].astype(np.int64)
-    hmask = np.isin(lt, [-1, -2]) & (ion == 1)
-    hidx = np.where(hmask)[0]
+    tabs, fine_map, hidx = _hydrogen_static_lookups(cat)
 
     wl_all = cat["cat_wl"]; idxwl_all = cat["cat_index_wl"]; gf_all = cat["cat_gf"]
     nl_all = cat["cat_n_lower"].astype(np.int64); nu_all = cat["cat_n_upper"].astype(np.int64)
