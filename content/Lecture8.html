@@ -14,7 +14,7 @@
 <p><img src="resources/figures/s7_josh.png" alt="The JOSH moment solver: opacity to optical depth, a map onto a fixed Eddington grid, a scattering iteration for the source, and a weighted surface flux."></p>
 <h2>Load the data and choose the device</h2>
 <p>The code path is self-contained: it imports no production solver and all source, mapping, iteration, and flux operations are written here in torch. The data path has a scoped fixture boundary appropriate to this transfer-kernel lesson: the opacity slabs are products of earlier continuum and line-opacity stages, and the JOSH operator tables are fixed numerical tables extracted from the Kurucz/ATLAS implementation rather than generated in this notebook.</p>
-<p>The next section audits every loaded array so the distinction is explicit. The LTE source is computed from the atmosphere temperatures, not imported from any solver, and the shipped flux arrays are used only after the solve as parity targets.</p>
+<p>The next section audits every loaded array so the distinction is explicit. The LTE source is computed from the atmosphere temperatures, not imported from any solver, and the shipped flux arrays are used only after the solve as parity targets. The JOSH operator arrays (<code>XTAU</code>, <code>COEFJ</code>, <code>CH</code>) are fixed method constants: the same Eddington-grid quadrature/Lambda tables for every star and every wavelength, shipped as data in the same sense as Harris Voigt or continuum cross-section tables, not as an output of this solar window.</p>
 <p>On MPS/CUDA the working dtype is fp32 because that is the practical GPU format and because the JOSH source iteration is specified by the original single-precision arithmetic. On CPU we use fp64 for the structural tensor operations, then still cast the source iteration to fp32.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
@@ -185,7 +185,7 @@ JOSH grid: 51 points, tau = 0 .. 20
 <td><code>josh_tables.xtau</code>, <code>josh_tables.coefj</code>, <code>josh_tables.ch</code></td>
 <td align="right">fixed numerical JOSH operator/quadrature tables</td>
 <td align="right">yes</td>
-<td>Scoped operator constants for the JOSH method; not per-star spectrum answers.</td>
+<td>Static Kurucz/ATLAS JOSH method constants, shared by all stars/wavelengths; not per-star spectrum answers.</td>
 </tr>
 <tr>
 <td><code>diag.slinec</code>, <code>diag.line_source</code></td>

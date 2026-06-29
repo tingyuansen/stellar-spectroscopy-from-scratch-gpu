@@ -46,7 +46,7 @@ blocking miss remains. Unchecked means it is the next fix target, not a vague co
 | L5 | [x] | [x] | [x] | [x] | [x] split Harris precision helper and helium merge/stop helper | [x] | [x] `verify_full_lines.py`, `verify_linetypes.py` |
 | L6 | [x] | [x] | [x] | [x] | [x] split fp64 Stark-profile island from Balmer opacity driver | [x] | [x] `verify_josh.py` |
 | L7 | [x] | [x] | [x] | [x] | [x] | [x] | [x] `verify_josh.py` |
-| L8 | [x] | [ ] opacity now comes from `L6.npz`; fixed JOSH operator tables remain scoped constants | [x] | [x] | [x] split PARCOE/INTEG and JOSH/spectrum wrappers | [x] | [x] `verify_josh.py` |
+| L8 | [x] | [x] opacity from `L6.npz`; fixed JOSH operator tables documented as static method constants | [x] | [x] | [x] split PARCOE/INTEG and JOSH/spectrum wrappers | [x] | [x] `verify_josh.py` |
 | L9 | [x] | [x] | [x] | [x] | [x] | [x] | [x] build/downstream atmosphere gates |
 | L10 | [x] | [x] | [x] | [x] | [x] split physical-grid thin-layer recurrence from JOSH profile driver | [x] | [x] `verify_converged.py` |
 | L11 | [x] | [x] comparison oracles are local verifier modules, not taught inputs | [x] | [x] | [x] | [x] | [x] `verify_convec_gaps.py`, `verify_converged.py` |
@@ -60,9 +60,6 @@ blocking miss remains. Unchecked means it is the next fix target, not a vague co
 
 - Dense pedagogical code cells are closed under the current `>=100` line audit: no lecture has a
   code cell at or above this threshold.
-- L8 is not strict closure until the fixed JOSH operator tables are either derived in-book or
-  explicitly vendor-provenanced. The opacity slabs now come from the preceding lecture artifact
-  `reference/L6.npz`, not the generic `diag.npz` bundle.
 - L14 is numerically honest but not the final capstone. It computes opacity + JOSH spectra from a
   supplied atmosphere/EOS/population/Doppler state. It does not yet regenerate the stellar
   atmosphere and EOS state from stellar parameters inside the capstone, and it is not yet a

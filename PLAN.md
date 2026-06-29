@@ -30,8 +30,8 @@ Current status:
    - do not erase this roadmap until every lecture either passes the closure checklist or has a
      precise, honest boundary that remains as future work.
    - status: `PASSDOWN.md` now carries the per-lecture checkbox matrix. The remaining concrete
-     lecture fixes are L8 fixed-operator provenance,
-     L14 true capstone/torch promotion, L15 fixture reduction, and L16 helper/fixture reduction.
+     lecture fixes are L14 true capstone/torch promotion, L15 fixture reduction, and L16
+     helper/fixture reduction.
 
 1. Establish the shared naming/glossary pass:
    - define readable names in `BIBLE.md` and use them consistently across lectures and kgpu;
@@ -61,8 +61,9 @@ Current status:
      lecture numbers and URLs. L14/L15/L16 rebuilt and verified after the prose/order move.
 
 3. Close L8's data boundary:
-   - status: opacity slabs now feed from `reference/L6.npz`, the preceding lecture artifact;
-   - remaining: derive, rebuild, or explicitly vendor-provenance fixed JOSH operator tables.
+   - status: closed for this round. Opacity slabs feed from `reference/L6.npz`, the preceding
+     lecture artifact, and the fixed `XTAU`/`COEFJ`/`CH` JOSH operator arrays are explicitly
+     documented as static method constants, not spectrum answers.
 
 4. Promote L14 from same-atmosphere synthesis to true capstone:
    - wire or inline L15/L16 so the Sun state is regenerated from stellar parameters;

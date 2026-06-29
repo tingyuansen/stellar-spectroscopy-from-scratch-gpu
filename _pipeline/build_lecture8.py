@@ -64,7 +64,7 @@ md(
 
 The code path is self-contained: it imports no production solver and all source, mapping, iteration, and flux operations are written here in torch. The data path has a scoped fixture boundary appropriate to this transfer-kernel lesson: the opacity slabs are products of earlier continuum and line-opacity stages, and the JOSH operator tables are fixed numerical tables extracted from the Kurucz/ATLAS implementation rather than generated in this notebook.
 
-The next section audits every loaded array so the distinction is explicit. The LTE source is computed from the atmosphere temperatures, not imported from any solver, and the shipped flux arrays are used only after the solve as parity targets.
+The next section audits every loaded array so the distinction is explicit. The LTE source is computed from the atmosphere temperatures, not imported from any solver, and the shipped flux arrays are used only after the solve as parity targets. The JOSH operator arrays (`XTAU`, `COEFJ`, `CH`) are fixed method constants: the same Eddington-grid quadrature/Lambda tables for every star and every wavelength, shipped as data in the same sense as Harris Voigt or continuum cross-section tables, not as an output of this solar window.
 
 On MPS/CUDA the working dtype is fp32 because that is the practical GPU format and because the JOSH source iteration is specified by the original single-precision arithmetic. On CPU we use fp64 for the structural tensor operations, then still cast the source iteration to fp32."""
 )
@@ -144,7 +144,7 @@ No `pykurucz`/`leankurucz` code appears in the taught computation path. The tabl
 | `L6.cont_abs`, `L6.cont_scat` | computed continuum opacity state | yes | Product of the preceding opacity lectures, consumed here as transfer input. |
 | `L6.total_abs - L6.cont_abs`, `L6.total_scat - L6.cont_scat` | computed line opacity/scattering state | yes | Product of the preceding opacity lectures, consumed here as transfer input. |
 | `L6.T`, `L6.rhox` | model temperature and column-mass grid | yes | Atmosphere state carried by the preceding lecture artifact. |
-| `josh_tables.xtau`, `josh_tables.coefj`, `josh_tables.ch` | fixed numerical JOSH operator/quadrature tables | yes | Scoped operator constants for the JOSH method; not per-star spectrum answers. |
+| `josh_tables.xtau`, `josh_tables.coefj`, `josh_tables.ch` | fixed numerical JOSH operator/quadrature tables | yes | Static Kurucz/ATLAS JOSH method constants, shared by all stars/wavelengths; not per-star spectrum answers. |
 | `diag.slinec`, `diag.line_source` | computed source arrays | no | Comparison-only sanity check against inline LTE Planck; never fed into the solver. |
 | `diag.flux_total`, `diag.flux_continuum` | computed spectrum answers | no | Comparison-only parity targets. |
 
