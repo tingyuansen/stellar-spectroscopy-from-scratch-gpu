@@ -81,7 +81,7 @@ Current status:
    - retain scalar loops only for true recurrences or fixed table logic.
 
 7. Finish dense-code teaching cleanup after the L14-L16 restructure:
-   - current `>=100` line audit: L14 has 9 long code cells;
+   - current `>=100` line audit: L14 has 7 long code cells;
    - add reader-walkthrough comments/docstrings inside dense code blocks after the sequence is
      stable, so comments describe the final structure rather than a soon-to-move draft;
    - split or comment dense cells only when the corresponding verifier is rerun.

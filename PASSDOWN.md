@@ -119,7 +119,7 @@ plus HR comparison.
 - Function-docstring audit: `lowdoc>=20 = 0` under the current rule (functions/classes at least
   20 lines must have useful docstrings).
 - Remaining long-cell audit using the stricter `>=100` line threshold:
-  L14 has 9. L1-L13 and L15-L16 have no code cells at or above this threshold.
+  L14 has 7. L1-L13 and L15-L16 have no code cells at or above this threshold.
 - `git diff --check`: clean.
 - `python _pipeline/build_lecture3_gpu.py && python _pipeline/build.py 3 &&
   python _pipeline/verify_kapp.py`: L3 stricter KAPP naming pass is green; KAPP verifier reports
