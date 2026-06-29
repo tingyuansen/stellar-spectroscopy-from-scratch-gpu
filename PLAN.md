@@ -11,13 +11,17 @@ paths must not import `kgpu`, `pykurucz`, or the NumPy textbook.
 Current status:
 
 - L1-L7 and L9-L13 are mostly green GPU-native lecture paths.
-- L8 has a torch-native JOSH path but still consumes scoped opacity slabs and fixed operator tables.
+- L8 has a torch-native JOSH path fed by the preceding Lecture 6 opacity artifact; its fixed JOSH
+  operator tables are documented as method constants rather than spectrum answers.
 - L14 is an honest same-atmosphere synthesis capstone: opacity and transfer are computed in the
   notebook, while atmosphere/EOS/population/Doppler state is loaded.
 - L15 computes the exact LINOP1 teaching-window recurrence, but still loads atmosphere/EOS/window/
   continuum/full-grid blanket fixtures.
-- L16 recomputes EOS-derived state for a loaded atmosphere fixture, with remaining helper-backed
-  NumPy boundaries.
+- L16 recomputes EOS-derived state for a loaded solar atmosphere structure, and summarizes a checked
+  warm-start solar trajectory. It still needs the live kgpu-style solar atmosphere solve rewritten
+  locally inside the lecture before it can be called the atmosphere capstone. The reference design
+  is `~/pykurucz_gpu/bench/converge_kgpu_port.py` / `kgpu.atlas_loop.converge_atmosphere`, but the
+  textbook path must not import `kgpu`; NumPy clean-room code is a parity gate, not the taught path.
 
 ## Closure Roadmap
 
@@ -30,8 +34,8 @@ Current status:
    - do not erase this roadmap until every lecture either passes the closure checklist or has a
      precise, honest boundary that remains as future work.
    - status: `PASSDOWN.md` now carries the per-lecture checkbox matrix. The remaining concrete
-     lecture fixes are L14 true capstone/torch promotion, L15 fixture reduction, and L16
-     helper/fixture reduction.
+     lecture fixes are L16 live torch solar atmosphere solve rewritten locally with no `kgpu`
+     import, L15 fixture reduction, and L14 true capstone/torch promotion.
 
 1. Establish the shared naming/glossary pass:
    - define readable names in `BIBLE.md` and use them consistently across lectures and kgpu;
@@ -77,8 +81,13 @@ Current status:
    - keep the exact LINOP1 recurrence and float32 accumulation-order gate intact.
 
 6. Reduce L16 helper boundaries:
+   - first close the more important scientific boundary: run the kgpu-style solar atmosphere loop
+     live in the lecture from stellar parameters or a documented warm-start structure, rather than
+     only summarizing `converge_fromscratch_result.npz`;
+   - mirror the product decomposition locally, without importing `kgpu`: resident invariants,
+     line invariants, opacity provider, convection recompute, and convergence loop;
    - port clean-room NumPy PFSAHA/NELECT/continuum/molecular helper paths into pedagogical torch
-     cells where practical;
+     cells where practical; use the NumPy clean-room solve only as a verifier for the GPU path;
    - retain scalar loops only for true recurrences or fixed table logic.
 
 7. Finish dense-code teaching cleanup after the L14-L16 restructure:

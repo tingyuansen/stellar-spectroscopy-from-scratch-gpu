@@ -54,7 +54,7 @@ blocking miss remains. Unchecked means it is the next fix target, not a vague co
 | L13 | [x] | [x] | [x] | [x] | [x] split one-depth Newton solve from pressure-continuation driver | [x] | [x] `verify_nmolec.py`, `verify_mol_continuum.py` |
 | L14 | [x] | [ ] loads atmosphere/EOS/population/Doppler state; not yet stellar-parameters-to-spectrum | [x] after L16 -> L15 -> L14 public read-order repair | [x] partial | [x] split continuum, line, molecular, JOSH, and TCORR helpers below 100-line threshold | [ ] capstone is not yet torch/MPS throughout | [x] `verify_leankurucz.py` |
 | L15 | [x] | [ ] still consumes production-derived atmosphere/EOS/window/continuum/full-grid blanket fixtures | [x] | [x] | [x] | [x] teaching-window deposit is torch; exact scalar recurrence retained for parity | [x] `verify_lineblanket.py` |
-| L16 | [x] | [ ] starts from loaded atmosphere/radiation fixture and helper-backed state modules | [x] | [x] | [x] | [ ] several load-bearing helpers are clean-room NumPy, not final torch cells | [x] `build.py 16`, L15/L14 downstream gates |
+| L16 | [x] | [ ] must run the live solar atmosphere solve, locally reconstructing the algorithmic pieces of `kgpu.atlas_loop.converge_atmosphere` without importing `kgpu`; current notebook only computes per-iteration state and summarizes a fixture | [x] | [x] | [x] | [ ] live solve must be torch/device-first; NumPy clean-room code is verifier only | [x] `build.py 16`, L15/L14 downstream gates |
 
 ### Honest remaining blockers
 
@@ -66,10 +66,12 @@ blocking miss remains. Unchecked means it is the next fix target, not a vague co
   torch/MPS builder throughout.
 - L15 still consumes production-derived fixtures for the converged atmosphere, per-iteration
   EOS/window state, continuum opacity/scattering/source arrays, and full-grid line blanket.
-- L16 still starts from a loaded atmosphere/radiation fixture and uses clean-room NumPy helper
-  modules (`eos_fromscratch.py`, `continuum_fromscratch.py`, `molecular_fromscratch.py`) for some
-  load-bearing physics. These helpers are not runtime `kgpu`/`pykurucz` imports, but they are not
-  final all-torch lecture closure.
+- L16 is not closed until the lecture runs the solar line-blanketed atmosphere solve itself. Use
+  `~/pykurucz_gpu/bench/converge_kgpu_port.py` and `kgpu.atlas_loop.converge_atmosphere` only as
+  the reference design to rewrite locally: per-iteration EOS, continuum, LINOP1+XLINOP blanket,
+  JOSH/ROSS/RADIAP/CONVEC/TCORR, and the tauros/RHOX remap must live in the textbook without
+  importing `kgpu`. Clean-room NumPy helpers may remain as parity gates, but they are not the
+  taught GPU implementation.
 - Naming is now an explicit quality track. `BIBLE.md` contains the shared glossary; keep raw
   fixture/table keys stable at boundaries and translate to readable names in taught code. Continue
   aggressive local-name cleanup in small gated slices before calling readability closed.
@@ -194,10 +196,13 @@ misses have either been fixed with a passing gate or explicitly marked as a real
 2. Close L8's data boundary by feeding opacity from earlier torch lecture outputs and documenting or
    deriving the JOSH operator tables.
 3. Promote L14 to a torch/MPS builder while keeping the current no-leakage/parity guardrails.
-4. Wire L15/L16 into L14 so the solar atmosphere/EOS state is generated rather than loaded.
+4. Rewrite the kgpu-style L16 live solar atmosphere solve inside the textbook first, with no
+   runtime `kgpu` import; then wire L15/L16 into L14 so the solar atmosphere/EOS state is generated
+   rather than loaded.
 5. Replace L15's production-derived atmosphere/EOS/window/continuum/full-grid blanket fixtures with
    computed lecture cells in small parity-gated steps.
-6. Move L16 helper-backed clean-room NumPy pieces into pedagogical torch cells where practical.
+6. Move L16 helper-backed clean-room NumPy pieces into pedagogical torch cells where practical;
+   keep NumPy only as the parity oracle for the GPU-native lecture path.
 7. Break up the densest L14/L15 code cells with interleaved markdown and docstrings, rerunning
    parity after each chunk.
 8. Continue the shared naming pass: use the `BIBLE.md` glossary, avoid destructive fixture/schema
