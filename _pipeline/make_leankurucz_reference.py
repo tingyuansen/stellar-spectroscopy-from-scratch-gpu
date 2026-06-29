@@ -1,10 +1,10 @@
 #!/usr/bin/env python
-"""Generate the Lecture 14 (capstone) lean-kurucz END-TO-END reference — 4 HR stars.
+"""Generate the Lecture 14 atmosphere-to-spectrum reference bundle — 4 HR stars.
 
 Run ONCE by the author against the READ-ONLY pykurucz tree.  Unlike the old
 make_capstone_reference.py (which warm-started EVERY atmosphere from the emulator
 and only shipped production opacity for the book's JOSH to replay), this generator
-makes the capstone a TRUE end-to-end test:
+makes the capstone an honest matched-atmosphere synthesis test:
 
   * It first ATTEMPTS to build each star's model atmosphere FROM SCRATCH — the
     classical ATLAS way: a grey start (Lecture 1) iterated by the production
