@@ -761,71 +761,135 @@ print("H- free-free log table assembled")''')
 
 md(r"""The H$^-$ opacity routine is the dominant source. Bound-free is the tabulated photodetachment cross-section times the H$^-$ Saha population and the stimulated-emission factor; free-free is the two-dimensional table interpolation in wavelength and $\theta=5040/T$.""")
 
-code(r'''def hminus_opacity_torch(freq_vec, ehvkt, stim):
+code(r'''def hminus_opacity_torch(sample_frequency_hz, exp_minus_hnu_over_kT, stimulated_emission):
     """Return tabulated H- bound-free plus free-free opacity.
 
     The result is a ``(depth, frequency)`` mass opacity.  Bound-free uses the
     parabolic photodetachment cross-section table and the H- Saha abundance.
     Free-free first interpolates the wavelength table for every frequency, then
     linearly interpolates those values in ``theta = 5040/T`` for every depth.
-    ``stim`` is accepted for interface symmetry; the bound-free branch uses the
-    equivalent ``1 - ehvkt`` factor used by the reference engine.
+    ``stimulated_emission`` is accepted for interface symmetry; the bound-free
+    branch uses the equivalent ``1 - exp_minus_hnu_over_kT`` factor used by the
+    reference engine.
     """
-    temp = Tk
-    theta_k = 5040.0 / temp
-    xnfph1 = xnfph_t[:, 0]
-    xhmin = torch.exp(0.754209 / (temp * KBOLTZ_EV_k)) / (2.0 * 2.4148e15 * temp * torch.sqrt(temp)) * xnfph1 * ne_k
-    wave = C_LIGHT_NM_k / freq_vec
+    temperature_k = Tk
+    theta = 5040.0 / temperature_k
+    neutral_h_population = xnfph_t[:, 0]
+    hminus_population = (
+        torch.exp(0.754209 / (temperature_k * KBOLTZ_EV_k))
+        / (2.0 * 2.4148e15 * temperature_k * torch.sqrt(temperature_k))
+        * neutral_h_population
+        * ne_k
+    )
+    wavelength_nm = C_LIGHT_NM_k / sample_frequency_hz
 
-    fftt = torch.exp(linter_matrix_torch(WFFLOG_t, FFLOG_t, torch.log(wave)))              # (nf, ntheta)
+    freefree_table_vs_theta = torch.exp(
+        linter_matrix_torch(WFFLOG_t, FFLOG_t, torch.log(wavelength_nm))
+    )  # (nf, ntheta)
     # Temperature interpolation is depth-vectorized: each layer chooses its
     # theta bracket, while all frequency rows are gathered in one tensor.
-    idx = torch.clamp(torch.searchsorted(HMINOP_THETAFF_t, theta_k, right=True), 1, nthetaff - 1)
-    th0 = HMINOP_THETAFF_t.index_select(0, idx - 1); th1 = HMINOP_THETAFF_t.index_select(0, idx)
-    ff0 = fftt[:, idx - 1]; ff1 = fftt[:, idx]
-    wt = ((theta_k - th0) / torch.where(torch.abs(th1 - th0) < 1e-40, torch.ones_like(th1), th1 - th0))[None, :]
-    fftheta = (ff0 + (ff1 - ff0) * wt).T
-    hminff = fftheta * xnfph1[:, None] * 2.0 * ne_k[:, None] / rho_k[:, None] * 1e-26
+    theta_index = torch.clamp(
+        torch.searchsorted(HMINOP_THETAFF_t, theta, right=True),
+        1,
+        nthetaff - 1,
+    )
+    theta_left = HMINOP_THETAFF_t.index_select(0, theta_index - 1)
+    theta_right = HMINOP_THETAFF_t.index_select(0, theta_index)
+    freefree_left = freefree_table_vs_theta[:, theta_index - 1]
+    freefree_right = freefree_table_vs_theta[:, theta_index]
+    theta_fraction = (
+        (theta - theta_left)
+        / torch.where(
+            torch.abs(theta_right - theta_left) < 1e-40,
+            torch.ones_like(theta_right),
+            theta_right - theta_left,
+        )
+    )[None, :]
+    freefree_cross_section = (
+        freefree_left + (freefree_right - freefree_left) * theta_fraction
+    ).T
+    hminus_freefree = (
+        freefree_cross_section
+        * neutral_h_population[:, None]
+        * 2.0
+        * ne_k[:, None]
+        / rho_k[:, None]
+        * 1e-26
+    )
 
-    hminbf = torch.where(freq_vec > 1.82365e14,
-                         parabolic_table_torch(HMINOP_WBF_t, HMINOP_BF_t, wave),
-                         torch.zeros_like(freq_vec))
-    h_bf = hminbf[None, :] * 1e-18 * (1.0 - ehvkt) * xhmin[:, None] / rho_k[:, None]
-    return h_bf + hminff''')
+    boundfree_cross_section = torch.where(
+        sample_frequency_hz > 1.82365e14,
+        parabolic_table_torch(HMINOP_WBF_t, HMINOP_BF_t, wavelength_nm),
+        torch.zeros_like(sample_frequency_hz),
+    )
+    hminus_boundfree = (
+        boundfree_cross_section[None, :]
+        * 1e-18
+        * (1.0 - exp_minus_hnu_over_kT)
+        * hminus_population[:, None]
+        / rho_k[:, None]
+    )
+    return hminus_boundfree + hminus_freefree''')
 
 md(r"""The hydrogen continuum adds H I bound-free from the Karzas--Latter levels and proton free-free using the charge-1 Coulomb Gaunt factor.""")
 
-code(r'''def hydrogen_opacity_torch(freq_vec, ehvkt, stim, hckt, cff1):
+code(r'''def hydrogen_opacity_torch(
+    sample_frequency_hz,
+    exp_minus_hnu_over_kT,
+    stimulated_emission,
+    hc_over_kT_cm,
+    charge1_gaunt,
+):
     """Compute H I bound-free and proton free-free continuum opacity.
 
     The hydrogenic bound-free terms are summed from the Karzas--Latter lookup
     for the explicit levels carried by the reference engine, with threshold
     masks in wavenumber.  The final addend is H+ free-free using the charge-1
-    COULFF table supplied as ``cff1``.  All terms return as ``(depth, frequency)``.
+    COULFF table supplied as ``charge1_gaunt``.  All terms return as
+    ``(depth, frequency)``.
     """
-    temp = Tk
-    f = freq_vec[None, :]
-    wno = f / C_LIGHT_CM_k
-    freq3 = 2.815e29 / (f*f*f)
-    h = freq3 * 2.0/2.0 / (RYDBERG_CM_k*hckt[:, None]) * (
-        torch.exp(-torch.maximum(torch.full_like(wno, 109250.336), 109678.764 - wno)*hckt[:, None]) -
-        torch.exp(-109678.764*hckt[:, None])) * stim
+    temperature_k = Tk
+    frequency_row = sample_frequency_hz[None, :]
+    wavenumber_cm = frequency_row / C_LIGHT_CM_k
+    inverse_frequency_cubed_scale = 2.815e29 / (frequency_row * frequency_row * frequency_row)
+    hydrogen_boundfree = inverse_frequency_cubed_scale * 2.0/2.0 / (RYDBERG_CM_k*hc_over_kT_cm[:, None]) * (
+        torch.exp(-torch.maximum(torch.full_like(wavenumber_cm, 109250.336), 109678.764 - wavenumber_cm)*hc_over_kT_cm[:, None]) -
+        torch.exp(-109678.764*hc_over_kT_cm[:, None])) * stimulated_emission
 
     # High-n and low-n edge lists mirror the production ordering; each loop
     # updates a full depth-by-frequency tensor, not one scalar cell at a time.
     for n, thr, wt, e in [(15,487.456,450.0,109191.313),(14,559.579,392.0,109119.188),(13,648.980,338.0,109029.789),(12,761.649,288.0,108917.117),(11,906.426,242.0,108772.336),(10,1096.776,200.0,108581.992),(9,1354.044,162.0,108324.719),(8,1713.713,128.0,107965.051),(7,2238.320,98.0,107440.444)]:  # JUSTIFIED-LOOP: fixed H I high-level bf table.
-        xs = xkarsas_vec(freq_vec, 1.0, n, n)[None, :]
-        h = h + torch.where(wno >= thr, xs*wt*torch.exp(-e*hckt[:, None])*stim, torch.zeros_like(h))
+        cross_section = xkarsas_vec(sample_frequency_hz, 1.0, n, n)[None, :]
+        hydrogen_boundfree = hydrogen_boundfree + torch.where(
+            wavenumber_cm >= thr,
+            cross_section*wt*torch.exp(-e*hc_over_kT_cm[:, None])*stimulated_emission,
+            torch.zeros_like(hydrogen_boundfree),
+        )
 
     for n, thr, wt, e in [(6,3046.604,72.0,106632.160),(5,4387.113,50.0,105291.651),(4,6854.871,32.0,102823.893),(3,12186.462,18.0,97492.302),(2,27419.659,8.0,82259.105)]:  # JUSTIFIED-LOOP: fixed H I low-level bf table.
-        xs = xkarsas_vec(freq_vec, 1.0, n, n)[None, :]
-        h = h + torch.where(wno >= thr, xs*wt*torch.exp(-e*hckt[:, None])*(1.0 - ehvkt), torch.zeros_like(h))
+        cross_section = xkarsas_vec(sample_frequency_hz, 1.0, n, n)[None, :]
+        hydrogen_boundfree = hydrogen_boundfree + torch.where(
+            wavenumber_cm >= thr,
+            cross_section*wt*torch.exp(-e*hc_over_kT_cm[:, None])*(1.0 - exp_minus_hnu_over_kT),
+            torch.zeros_like(hydrogen_boundfree),
+        )
 
-    xs1 = xkarsas_vec(freq_vec, 1.0, 1, 1)[None, :]
-    h = h + torch.where(wno >= 109678.764, xs1*2.0*(1.0 - ehvkt), torch.zeros_like(h))
-    h = h * xnfph_t[:, 0:1] / rho_k[:, None]
-    h = h + 3.6919e8/torch.sqrt(temp[:, None]) * cff1.T / f * ne_k[:, None] / f * xnfph_t[:, 1:2] / f * stim / rho_k[:, None]
-    return h''')
+    ground_cross_section = xkarsas_vec(sample_frequency_hz, 1.0, 1, 1)[None, :]
+    hydrogen_boundfree = hydrogen_boundfree + torch.where(
+        wavenumber_cm >= 109678.764,
+        ground_cross_section*2.0*(1.0 - exp_minus_hnu_over_kT),
+        torch.zeros_like(hydrogen_boundfree),
+    )
+    hydrogen_boundfree = hydrogen_boundfree * xnfph_t[:, 0:1] / rho_k[:, None]
+    proton_freefree = (
+        3.6919e8 / torch.sqrt(temperature_k[:, None])
+        * charge1_gaunt.T / frequency_row
+        * ne_k[:, None] / frequency_row
+        * xnfph_t[:, 1:2] / frequency_row
+        * stimulated_emission
+        / rho_k[:, None]
+    )
+    return hydrogen_boundfree + proton_freefree''')
 
 md(r"""## Summing to the absorption and scattering coefficients
 
@@ -1049,7 +1113,7 @@ md(r"""## Assembling the engine: one driver over the sample frequencies
 
 The driver computes all frequency-dependent and temperature-dependent invariants once, batches the Coulomb Gaunt factor over all selected sample frequencies, and then adds every opacity source. The returned budget dictionary is for inspection; the arrays used downstream are the two genuine sums `acont` and `sigmac`.""")
 
-code(r'''def compute_kapp_at_freqs_torch(freq_vec):
+code(r'''def compute_kapp_at_freqs_torch(sample_frequency_hz):
     """Evaluate the exact continuum engine at selected sample frequencies.
 
     This is the driver that prepares shared thermal factors, computes all
@@ -1057,30 +1121,62 @@ code(r'''def compute_kapp_at_freqs_torch(freq_vec):
     the two physical sums: true absorption ``acont`` and scattering ``sigmac``.
     The third return value is a named source budget for diagnostics and plots.
     """
-    temp = Tk
-    hckt = H_PLANCK_k / (K_BOLTZ_k * temp) * C_LIGHT_CM_k
-    tkev = temp * KBOLTZ_EV_k
-    tlog = torch.log(torch.clamp(temp, min=1e-10))
-    ehvkt = torch.exp(-H_PLANCK_k * freq_vec[None, :] / (K_BOLTZ_k * temp[:, None]))
-    stim_k = 1.0 - ehvkt
+    temperature_k = Tk
+    hc_over_kT_cm = H_PLANCK_k / (K_BOLTZ_k * temperature_k) * C_LIGHT_CM_k
+    temperature_ev = temperature_k * KBOLTZ_EV_k
+    log_temperature = torch.log(torch.clamp(temperature_k, min=1e-10))
+    exp_minus_hnu_over_kT = torch.exp(
+        -H_PLANCK_k * sample_frequency_hz[None, :] / (K_BOLTZ_k * temperature_k[:, None])
+    )
+    stimulated_emission = 1.0 - exp_minus_hnu_over_kT
 
     # Build the small set of charge-specific Gaunt-factor tables once and share
     # them across hydrogen, helium, and HOTOP.
-    cff_tabs = {q: coulff_table_torch(q, freq_vec, temp, tlog) for q in range(1, 6)}  # JUSTIFIED-LOOP: five fixed ionic charges.
+    gaunt_by_charge = {q: coulff_table_torch(q, sample_frequency_hz, temperature_k, log_temperature) for q in range(1, 6)}  # JUSTIFIED-LOOP: five fixed ionic charges.
     # Legacy HE2OP inherited FREQLG from the final HE1OP iteration over the full grid.
-    cff2_legacy = coulff_table_torch(2, freq_vec, temp, tlog, torch.log(freqset_t[-1]))
+    legacy_charge2_gaunt = coulff_table_torch(2, sample_frequency_hz, temperature_k, log_temperature, torch.log(freqset_t[-1]))
 
-    a_hmin = hminus_opacity_torch(freq_vec, ehvkt, stim_k)
-    a_hyd = hydrogen_opacity_torch(freq_vec, ehvkt, stim_k, hckt, cff_tabs[1])
-    a_min, s_min = minor_terms_torch(freq_vec, ehvkt, stim_k, hckt)
-    ahe1, ahe2 = helium_opacity_torch(freq_vec, ehvkt, stim_k, hckt, cff_tabs[1], cff2_legacy)
-    ahot, aluke = hot_and_si2_torch(freq_vec, stim_k, tkev, tlog, cff_tabs)
-    sigh, sigel = scattering_opacity_torch(freq_vec)
+    hminus_absorption = hminus_opacity_torch(sample_frequency_hz, exp_minus_hnu_over_kT, stimulated_emission)
+    hydrogen_absorption = hydrogen_opacity_torch(
+        sample_frequency_hz,
+        exp_minus_hnu_over_kT,
+        stimulated_emission,
+        hc_over_kT_cm,
+        gaunt_by_charge[1],
+    )
+    minor_absorption, minor_scattering = minor_terms_torch(sample_frequency_hz, exp_minus_hnu_over_kT, stimulated_emission, hc_over_kT_cm)
+    helium1_absorption, helium2_absorption = helium_opacity_torch(
+        sample_frequency_hz,
+        exp_minus_hnu_over_kT,
+        stimulated_emission,
+        hc_over_kT_cm,
+        gaunt_by_charge[1],
+        legacy_charge2_gaunt,
+    )
+    hot_absorption, si2_absorption = hot_and_si2_torch(sample_frequency_hz, stimulated_emission, temperature_ev, log_temperature, gaunt_by_charge)
+    rayleigh_scattering, thomson_scattering = scattering_opacity_torch(sample_frequency_hz)
 
-    acont = a_hmin + a_hyd + a_min + ahe1 + ahe2 + ahot + aluke
-    sigmac = sigh + sigel + s_min
-    return acont, sigmac, dict(Hminus=a_hmin, HI=a_hyd, minor=a_min, He=ahe1+ahe2, hot=ahot+aluke,
-                               Rayleigh=sigh, Thomson=sigel, scat_minor=s_min)
+    continuum_absorption = (
+        hminus_absorption
+        + hydrogen_absorption
+        + minor_absorption
+        + helium1_absorption
+        + helium2_absorption
+        + hot_absorption
+        + si2_absorption
+    )
+    continuum_scattering = rayleigh_scattering + thomson_scattering + minor_scattering
+    source_budget = dict(
+        Hminus=hminus_absorption,
+        HI=hydrogen_absorption,
+        minor=minor_absorption,
+        He=helium1_absorption + helium2_absorption,
+        hot=hot_absorption + si2_absorption,
+        Rayleigh=rayleigh_scattering,
+        Thomson=thomson_scattering,
+        scat_minor=minor_scattering,
+    )
+    return continuum_absorption, continuum_scattering, source_budget
 
 acont_sel_gpu, sigmac_sel_gpu, budget_gpu = compute_kapp_at_freqs_torch(freq_sel_t)
 print(f"computed exact-engine sources at {int(freq_sel_t.shape[0])} sampled frequencies on {EDEV.type}")''')
