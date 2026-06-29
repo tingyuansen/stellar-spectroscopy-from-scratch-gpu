@@ -40,7 +40,37 @@ else:
     DEVICE, DTYPE = torch.device(&quot;cpu&quot;), torch.float64
 REF64 = (torch.device(&quot;cpu&quot;), torch.float64)
 print(f&quot;working device = {DEVICE.type}   working dtype = {str(DTYPE).split(&#39;.&#39;)[-1]}&quot;)
+plt.rcParams.update({&quot;figure.figsize&quot;: (7.2, 4.2), &quot;figure.dpi&quot;: 120, &quot;axes.grid&quot;: True, &quot;grid.alpha&quot;: 0.25})" aria-label="Copy code">
+          <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
+      </div>
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">import</span> pathlib, sys
+<span class="hljs-keyword">import</span> numpy <span class="hljs-keyword">as</span> np
+<span class="hljs-keyword">import</span> torch
+<span class="hljs-keyword">import</span> matplotlib.pyplot <span class="hljs-keyword">as</span> plt
 
+PIPE = pathlib.Path(<span class="hljs-string">&quot;..&quot;</span>) / <span class="hljs-string">&quot;_pipeline&quot;</span>
+<span class="hljs-keyword">if</span> <span class="hljs-built_in">str</span>(PIPE) <span class="hljs-keyword">not</span> <span class="hljs-keyword">in</span> sys.path:
+    sys.path.insert(<span class="hljs-number">0</span>, <span class="hljs-built_in">str</span>(PIPE))
+
+<span class="hljs-keyword">import</span> eos_fromscratch <span class="hljs-keyword">as</span> EOS
+<span class="hljs-keyword">import</span> continuum_fromscratch <span class="hljs-keyword">as</span> CF
+<span class="hljs-keyword">import</span> molecular_fromscratch <span class="hljs-keyword">as</span> MF
+
+<span class="hljs-keyword">if</span> torch.backends.mps.is_available():
+    DEVICE, DTYPE = torch.device(<span class="hljs-string">&quot;mps&quot;</span>), torch.float32
+<span class="hljs-keyword">elif</span> torch.cuda.is_available():
+    DEVICE, DTYPE = torch.device(<span class="hljs-string">&quot;cuda&quot;</span>), torch.float32
+<span class="hljs-keyword">else</span>:
+    DEVICE, DTYPE = torch.device(<span class="hljs-string">&quot;cpu&quot;</span>), torch.float64
+REF64 = (torch.device(<span class="hljs-string">&quot;cpu&quot;</span>), torch.float64)
+<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;working device = <span class="hljs-subst">{DEVICE.<span class="hljs-built_in">type</span>}</span>   working dtype = <span class="hljs-subst">{<span class="hljs-built_in">str</span>(DTYPE).split(<span class="hljs-string">&#x27;.&#x27;</span>)[-<span class="hljs-number">1</span>]}</span>&quot;</span>)
+plt.rcParams.update({<span class="hljs-string">&quot;figure.figsize&quot;</span>: (<span class="hljs-number">7.2</span>, <span class="hljs-number">4.2</span>), <span class="hljs-string">&quot;figure.dpi&quot;</span>: <span class="hljs-number">120</span>, <span class="hljs-string">&quot;axes.grid&quot;</span>: <span class="hljs-literal">True</span>, <span class="hljs-string">&quot;grid.alpha&quot;</span>: <span class="hljs-number">0.25</span>})</code></pre>
+    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">working device = mps   working dtype = float32
+</pre></div></div><div class="prose"><p>The reference bundles are loaded next. <code>eos_state_ref.npz</code> and <code>lineblanket_ref.npz</code> are comparison targets; <code>pfsaha_inputs.npz</code> is atomic input data for the computation.</p>
+</div><div class="nb-cell"><div class="code-card">
+      <div class="code-top">
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[2]</span>Python</span>
+        <button class="copy-btn" type="button" data-code="
 REF = pathlib.Path(&quot;..&quot;) / &quot;reference&quot;
 S = np.load(REF / &quot;eos_state_ref.npz&quot;, allow_pickle=True)          # comparison only
 LB = np.load(REF / &quot;lineblanket_ref.npz&quot;, allow_pickle=True)       # comparison only
@@ -54,8 +84,30 @@ vturb = S[&quot;vturb&quot;].astype(np.float64)
 atmass = S[&quot;atmass&quot;].astype(np.float64)
 n_depth = T.size
 
-plt.rcParams.update({&quot;figure.figsize&quot;: (7.2, 4.2), &quot;figure.dpi&quot;: 120, &quot;axes.grid&quot;: True, &quot;grid.alpha&quot;: 0.25})
+print(f&quot;EOS state grid: {n_depth} layers; comparison target = eos_state_ref.npz&quot;)" aria-label="Copy code">
+          <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
+      </div>
+      <pre class="code-body"><code class="hljs language-python">
+REF = pathlib.Path(<span class="hljs-string">&quot;..&quot;</span>) / <span class="hljs-string">&quot;reference&quot;</span>
+S = np.load(REF / <span class="hljs-string">&quot;eos_state_ref.npz&quot;</span>, allow_pickle=<span class="hljs-literal">True</span>)          <span class="hljs-comment"># comparison only</span>
+LB = np.load(REF / <span class="hljs-string">&quot;lineblanket_ref.npz&quot;</span>, allow_pickle=<span class="hljs-literal">True</span>)       <span class="hljs-comment"># comparison only</span>
+TAB = EOS.EOSTables.from_npz(REF / <span class="hljs-string">&quot;pfsaha_inputs.npz&quot;</span>)            <span class="hljs-comment"># atomic data input</span>
 
+T = S[<span class="hljs-string">&quot;T&quot;</span>].astype(np.float64)
+P = S[<span class="hljs-string">&quot;P&quot;</span>].astype(np.float64)
+xabund = S[<span class="hljs-string">&quot;xabund&quot;</span>].astype(np.float64)
+wtmole = <span class="hljs-built_in">float</span>(S[<span class="hljs-string">&quot;wtmole&quot;</span>])
+vturb = S[<span class="hljs-string">&quot;vturb&quot;</span>].astype(np.float64)
+atmass = S[<span class="hljs-string">&quot;atmass&quot;</span>].astype(np.float64)
+n_depth = T.size
+
+<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;EOS state grid: <span class="hljs-subst">{n_depth}</span> layers; comparison target = eos_state_ref.npz&quot;</span>)</code></pre>
+    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">EOS state grid: 80 layers; comparison target = eos_state_ref.npz
+</pre></div></div><div class="prose"><p>Finally, define small comparison helpers. They enforce the rule used throughout this lecture: compute first, move tensors back to CPU/fp64 only at the comparison boundary, then assert the documented floor.</p>
+</div><div class="nb-cell"><div class="code-card">
+      <div class="code-top">
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[3]</span>Python</span>
+        <button class="copy-btn" type="button" data-code="
 def back(x):
     if torch.is_tensor(x):
         return x.detach().cpu().to(torch.float64).numpy()
@@ -81,47 +133,10 @@ def check(name, got, ref, limit, *, rel_floor=0.0):
 
 def t(a, device=DEVICE, dtype=DTYPE):
     return torch.as_tensor(np.asarray(a), dtype=dtype, device=device)
-
-print(f&quot;EOS state grid: {n_depth} layers; comparison target = eos_state_ref.npz&quot;)" aria-label="Copy code">
+" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">import</span> pathlib, sys
-<span class="hljs-keyword">import</span> numpy <span class="hljs-keyword">as</span> np
-<span class="hljs-keyword">import</span> torch
-<span class="hljs-keyword">import</span> matplotlib.pyplot <span class="hljs-keyword">as</span> plt
-
-PIPE = pathlib.Path(<span class="hljs-string">&quot;..&quot;</span>) / <span class="hljs-string">&quot;_pipeline&quot;</span>
-<span class="hljs-keyword">if</span> <span class="hljs-built_in">str</span>(PIPE) <span class="hljs-keyword">not</span> <span class="hljs-keyword">in</span> sys.path:
-    sys.path.insert(<span class="hljs-number">0</span>, <span class="hljs-built_in">str</span>(PIPE))
-
-<span class="hljs-keyword">import</span> eos_fromscratch <span class="hljs-keyword">as</span> EOS
-<span class="hljs-keyword">import</span> continuum_fromscratch <span class="hljs-keyword">as</span> CF
-<span class="hljs-keyword">import</span> molecular_fromscratch <span class="hljs-keyword">as</span> MF
-
-<span class="hljs-keyword">if</span> torch.backends.mps.is_available():
-    DEVICE, DTYPE = torch.device(<span class="hljs-string">&quot;mps&quot;</span>), torch.float32
-<span class="hljs-keyword">elif</span> torch.cuda.is_available():
-    DEVICE, DTYPE = torch.device(<span class="hljs-string">&quot;cuda&quot;</span>), torch.float32
-<span class="hljs-keyword">else</span>:
-    DEVICE, DTYPE = torch.device(<span class="hljs-string">&quot;cpu&quot;</span>), torch.float64
-REF64 = (torch.device(<span class="hljs-string">&quot;cpu&quot;</span>), torch.float64)
-<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;working device = <span class="hljs-subst">{DEVICE.<span class="hljs-built_in">type</span>}</span>   working dtype = <span class="hljs-subst">{<span class="hljs-built_in">str</span>(DTYPE).split(<span class="hljs-string">&#x27;.&#x27;</span>)[-<span class="hljs-number">1</span>]}</span>&quot;</span>)
-
-REF = pathlib.Path(<span class="hljs-string">&quot;..&quot;</span>) / <span class="hljs-string">&quot;reference&quot;</span>
-S = np.load(REF / <span class="hljs-string">&quot;eos_state_ref.npz&quot;</span>, allow_pickle=<span class="hljs-literal">True</span>)          <span class="hljs-comment"># comparison only</span>
-LB = np.load(REF / <span class="hljs-string">&quot;lineblanket_ref.npz&quot;</span>, allow_pickle=<span class="hljs-literal">True</span>)       <span class="hljs-comment"># comparison only</span>
-TAB = EOS.EOSTables.from_npz(REF / <span class="hljs-string">&quot;pfsaha_inputs.npz&quot;</span>)            <span class="hljs-comment"># atomic data input</span>
-
-T = S[<span class="hljs-string">&quot;T&quot;</span>].astype(np.float64)
-P = S[<span class="hljs-string">&quot;P&quot;</span>].astype(np.float64)
-xabund = S[<span class="hljs-string">&quot;xabund&quot;</span>].astype(np.float64)
-wtmole = <span class="hljs-built_in">float</span>(S[<span class="hljs-string">&quot;wtmole&quot;</span>])
-vturb = S[<span class="hljs-string">&quot;vturb&quot;</span>].astype(np.float64)
-atmass = S[<span class="hljs-string">&quot;atmass&quot;</span>].astype(np.float64)
-n_depth = T.size
-
-plt.rcParams.update({<span class="hljs-string">&quot;figure.figsize&quot;</span>: (<span class="hljs-number">7.2</span>, <span class="hljs-number">4.2</span>), <span class="hljs-string">&quot;figure.dpi&quot;</span>: <span class="hljs-number">120</span>, <span class="hljs-string">&quot;axes.grid&quot;</span>: <span class="hljs-literal">True</span>, <span class="hljs-string">&quot;grid.alpha&quot;</span>: <span class="hljs-number">0.25</span>})
-
+      <pre class="code-body"><code class="hljs language-python">
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">back</span>(<span class="hljs-params">x</span>):
     <span class="hljs-keyword">if</span> torch.is_tensor(x):
         <span class="hljs-keyword">return</span> x.detach().cpu().to(torch.float64).numpy()
@@ -147,15 +162,12 @@ CHECKS = {}
 
 <span class="hljs-keyword">def</span> <span class="hljs-title function_">t</span>(<span class="hljs-params">a, device=DEVICE, dtype=DTYPE</span>):
     <span class="hljs-keyword">return</span> torch.as_tensor(np.asarray(a), dtype=dtype, device=device)
-
-<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;EOS state grid: <span class="hljs-subst">{n_depth}</span> layers; comparison target = eos_state_ref.npz&quot;</span>)</code></pre>
-    </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">working device = mps   working dtype = float32
-EOS state grid: 80 layers; comparison target = eos_state_ref.npz
-</pre></div></div><div class="prose"><h2>1. PFSAHA/NELECT — compute populations from atomic data, then compare</h2>
+</code></pre>
+    </div></div><div class="prose"><h2>1. PFSAHA/NELECT — compute populations from atomic data, then compare</h2>
 <p>This is the load-bearing repair. The previous GPU notebook took <code>population_per_ion</code> directly from <code>eos_state_ref.npz</code>. Here the populations are recomputed from the PFSAHA atomic tables and the current <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">(</mo><mi>T</mi><mo separator="true">,</mo><mi>P</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">(T,P)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="mclose">)</span></span></span></span> structure. The reference arrays are comparison-only.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[2]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[4]</span>Python</span>
         <button class="copy-btn" type="button" data-code="pa = EOS.popsall(T, P, xabund, tab=TAB, wtmole=wtmole)
 print(&quot;computed PFSAHA/NELECT state from pfsaha_inputs.npz&quot;)
 print(f&quot;  n_e surface/base = {pa.xne[0]:.3e} / {pa.xne[-1]:.3e} cm^-3&quot;)
@@ -190,7 +202,7 @@ population_per_ion                 max|rel| = 5.688e-14   limit 5.0e-11
 <p>The line blanket does not index <code>(Z, ion)</code> directly. It indexes a flat Kurucz species slot (<code>nelion</code>). The map is triangular for <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>Z</mi><mo>≤</mo><mn>30</mn></mrow><annotation encoding="application/x-tex">Z\le30</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8193em;vertical-align:-0.136em;"></span><span class="mord mathnormal" style="margin-right:0.07153em;">Z</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">≤</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">30</span></span></span></span> and stride-5 for <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>Z</mi><mo>≥</mo><mn>31</mn></mrow><annotation encoding="application/x-tex">Z\ge31</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8193em;vertical-align:-0.136em;"></span><span class="mord mathnormal" style="margin-right:0.07153em;">Z</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">≥</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">31</span></span></span></span>. We build that map once, then gather the computed populations into a tensor with shape <code>(depth, slot)</code>.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[3]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[5]</span>Python</span>
         <button class="copy-btn" type="button" data-code="def build_nelion_maps(maxn=999):
     mode12 = [(1.01,1),(2.02,3),(3.03,6),(4.03,10),(5.03,15),(6.05,21),(7.05,28),(8.05,36),(9.05,45),(10.05,55),(11.05,66),(12.05,78),(13.05,91),(14.05,105),(15.05,120),(16.05,136),(17.04,153),(18.04,171),(19.04,190),(20.04,210),(21.04,231),(22.04,253),(23.04,276),(24.04,300),(25.04,325),(26.04,351),(27.04,378),(28.04,406),(29.02,435),(30.02,465)]
     nn = lambda code: max(1, int((code - int(code)) * 100.0 + 1.5))
@@ -285,7 +297,7 @@ populated atomic slots: 336
 <p><code>dopple</code> is the fractional thermal-plus-microturbulent Doppler width. <code>xnfdop</code> is the species population divided by <code>dopple*rho</code>, the line-center normalization used by Lecture 15&#39;s deposit. Both are computed from the just-solved populations, not read from the reference.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[4]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[6]</span>Python</span>
         <button class="copy-btn" type="button" data-code="K_BOLTZ = 1.38054e-16
 AMU = 1.660e-24
 C_LIGHT = 2.99792458e10
@@ -365,7 +377,7 @@ unmasked xnfdop fp32/fp64 max|rel| = 1.00e+00 (trace slots underflow below fp32 
 <p>The pressure-broadening term uses <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">(</mo><msub><mi>n</mi><mrow><mi mathvariant="normal">H</mi><mi mathvariant="normal">I</mi></mrow></msub><mo>+</mo><mn>0.42</mn><msub><mi>n</mi><mrow><mi mathvariant="normal">H</mi><mi mathvariant="normal">e</mi><mi mathvariant="normal">I</mi></mrow></msub><mo>+</mo><mn>0.85</mn><msub><mi>n</mi><msub><mi mathvariant="normal">H</mi><mn>2</mn></msub></msub><mo stretchy="false">)</mo><mo stretchy="false">(</mo><mi>T</mi><mi mathvariant="normal">/</mi><mn>1</mn><msup><mn>0</mn><mn>4</mn></msup><msup><mo stretchy="false">)</mo><mn>0.3</mn></msup></mrow><annotation encoding="application/x-tex">(n_{\rm H I}+0.42n_{\rm He I}+0.85n_{\rm H_2})(T/10^4)^{0.3}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal">n</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">HI</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.7944em;vertical-align:-0.15em;"></span><span class="mord">0.42</span><span class="mord"><span class="mord mathnormal">n</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">HeI</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1.0642em;vertical-align:-0.2501em;"></span><span class="mord">0.85</span><span class="mord"><span class="mord mathnormal">n</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">H</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3173em;"><span style="top:-2.357em;margin-left:0em;margin-right:0.0714em;"><span class="pstrut" style="height:2.5em;"></span><span class="sizing reset-size3 size1 mtight"><span class="mord mathrm mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.143em;"><span></span></span></span></span></span></span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2501em;"><span></span></span></span></span></span></span><span class="mclose">)</span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mord">/1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">4</span></span></span></span></span></span></span></span><span class="mclose"><span class="mclose">)</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">0.3</span></span></span></span></span></span></span></span></span></span></span></span>. Hydrogen and helium are from the recomputed EOS. The H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mrow></mrow><mn>2</mn></msub></mrow><annotation encoding="application/x-tex">_2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4511em;vertical-align:-0.15em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> correction is the same closed-form equilibrium used by the NumPy implementation.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[5]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[7]</span>Python</span>
         <button class="copy-btn" type="button" data-code="KEV_FACTOR = 8.6171e-5
 
 def txnxn_torch(device, dtype):
@@ -407,7 +419,7 @@ txnxn surface/base = 1.887e+13 / 1.661e+17 cm^-3
 <p>Lecture 11 needs four EOS perturbations at <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>T</mi><mo>±</mo><mn>0.1</mn><mi mathvariant="normal">%</mi></mrow><annotation encoding="application/x-tex">T\pm0.1\%</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">±</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.8056em;vertical-align:-0.0556em;"></span><span class="mord">0.1%</span></span></span></span> and <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>P</mi><mo>±</mo><mn>0.1</mn><mi mathvariant="normal">%</mi></mrow><annotation encoding="application/x-tex">P\pm0.1\%</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">±</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.8056em;vertical-align:-0.0556em;"></span><span class="mord">0.1%</span></span></span></span>. Here those samples are recomputed from the EOS engine, including cumulative ionization energy. This is the part that prevents the adiabatic gradient from reverting to the ideal monatomic value <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>0.4</mn></mrow><annotation encoding="application/x-tex">0.4</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">0.4</span></span></span></span> in partially ionized gas.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[6]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[8]</span>Python</span>
         <button class="copy-btn" type="button" data-code="ei1, ei2, ei3, ei4, r1, r2, r3, r4 = EOS.convec_fd_raw(T, P, xabund, wtmole, pa.xne, TAB)
 dilut = 1.0 - np.exp(-S[&quot;tauros&quot;])
 pradk = S[&quot;pradk&quot;]
@@ -453,7 +465,7 @@ finite-difference EOS samples are computed, not read
 <p>These two components are retained as audit sections rather than overstated as exact GPU achievements. The molecular solver is the Lecture-13 clean-room chemistry. <code>TABCONT</code> is built by the NumPy continuum bridge with the far-UV completion. Both are computed before comparison, and their residuals are reported explicitly.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[7]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[9]</span>Python</span>
         <button class="copy-btn" type="button" data-code="xnfpmol, dop_mol, mol_nelion = MF.molecular_deposit_populations(T, P, pa, xabund, vturb, REF / &quot;molecules.dat&quot;)
 mol_err = relmax(xnfpmol, S[&quot;xnfpmol&quot;])
 print(f&quot;molecular_deposit_populations shape = {xnfpmol.shape}&quot;)
@@ -504,7 +516,7 @@ TABCONT residual is reported as a remaining continuum-bridge limit, not hidden a
 <p>The full warm-start line-blanketed convergence trajectory in <code>converge_fromscratch_result.npz</code> is a reference artifact. This lecture does not claim to rerun that entire loop inside the notebook. It uses the file only to state the comparison target and residual after the EOS-state blocker is removed.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[8]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[10]</span>Python</span>
         <button class="copy-btn" type="button" data-code="conv_path = REF / &quot;converge_fromscratch_result.npz&quot;
 if conv_path.exists():
     conv = np.load(conv_path)
@@ -536,7 +548,7 @@ else:
 <p>The green checks are the pieces Lecture 16 now genuinely computes in this notebook: PFSAHA/NELECT populations, species-slot packing, Doppler/xnfdop, txnxn, and the ionization-energy finite-difference heat-capacity inputs. Molecular and <code>TABCONT</code> sections are computed and audited with their stated residual limits; the full convergence trajectory is comparison-only.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
-        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[9]</span>Python</span>
+        <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[11]</span>Python</span>
         <button class="copy-btn" type="button" data-code="print(&quot;GREEN ASSERTED CHECKS&quot;)
 for k, v in CHECKS.items():
     print(f&quot;  {k:34s} {v:.3e}&quot;)

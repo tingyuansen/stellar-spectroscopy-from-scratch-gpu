@@ -64,7 +64,11 @@ else:
     DEVICE, DTYPE = torch.device("cpu"), torch.float64
 REF64 = (torch.device("cpu"), torch.float64)
 print(f"working device = {DEVICE.type}   working dtype = {str(DTYPE).split('.')[-1]}")
+plt.rcParams.update({"figure.figsize": (7.2, 4.2), "figure.dpi": 120, "axes.grid": True, "grid.alpha": 0.25})''')
 
+md(r"""The reference bundles are loaded next. `eos_state_ref.npz` and `lineblanket_ref.npz` are comparison targets; `pfsaha_inputs.npz` is atomic input data for the computation.""")
+
+code(r'''
 REF = pathlib.Path("..") / "reference"
 S = np.load(REF / "eos_state_ref.npz", allow_pickle=True)          # comparison only
 LB = np.load(REF / "lineblanket_ref.npz", allow_pickle=True)       # comparison only
@@ -78,8 +82,11 @@ vturb = S["vturb"].astype(np.float64)
 atmass = S["atmass"].astype(np.float64)
 n_depth = T.size
 
-plt.rcParams.update({"figure.figsize": (7.2, 4.2), "figure.dpi": 120, "axes.grid": True, "grid.alpha": 0.25})
+print(f"EOS state grid: {n_depth} layers; comparison target = eos_state_ref.npz")''')
 
+md(r"""Finally, define small comparison helpers. They enforce the rule used throughout this lecture: compute first, move tensors back to CPU/fp64 only at the comparison boundary, then assert the documented floor.""")
+
+code(r'''
 def back(x):
     if torch.is_tensor(x):
         return x.detach().cpu().to(torch.float64).numpy()
@@ -105,8 +112,7 @@ def check(name, got, ref, limit, *, rel_floor=0.0):
 
 def t(a, device=DEVICE, dtype=DTYPE):
     return torch.as_tensor(np.asarray(a), dtype=dtype, device=device)
-
-print(f"EOS state grid: {n_depth} layers; comparison target = eos_state_ref.npz")''')
+''')
 
 md(r"""## 1. PFSAHA/NELECT — compute populations from atomic data, then compare
 
