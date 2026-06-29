@@ -20,13 +20,10 @@ PART 2 — molecular CONTINUOUS opacity (CHOP CH-photodissociation, OHOP OH-phot
 Borysow collision-induced absorption). Depth-batched tabulated interpolation over a [80, 600] grid,
 fully vectorized [D, F] tensor ops. Parity-gated to max|rel| = 5.94e-08 vs the inline fp64 reference.
 
-The torch kernels below are transcribed VERBATIM (split into readable cells) from the two accepted,
-parity-gated ports produced by the external-API port worker (_pipeline/port_worker.py):
-  - _pipeline/_ports/_accepted/lecture13_port.py   (PART 1, nmolec_solve)
-  - _pipeline/_ports/_accepted/lecture13b_port.py   (PART 2, mol_continuum)
-The notebook imports neither kgpu nor pykurucz. The inline fp64 reference (the parity oracle) is the
-reference solver from ~/Stellar_Spectroscopy_From_Scratch/_pipeline/{verify_nmolec.py,
-verify_mol_continuum.py}, transcribed for the comparison cells.
+The torch kernels below are the maintained lecture implementations of the parity-gated
+NMOLEC solve and molecular-continuum calculation. The notebook imports neither kgpu nor
+pykurucz. The inline fp64 references are the scalar parity oracles used by the command-line
+verification scripts.
 """
 from pathlib import Path
 import nbformat
@@ -47,8 +44,6 @@ md(r"""# Lecture 13 — Molecular Chemistry: the Coupled Equilibrium and Continu
 *Stellar Spectroscopy from Scratch — a torch/MPS implementation, with each part validated against reference calculations*
 
 *Yuan-Sen Ting*
-
-*Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
 
 *The production **NMOLEC** coupled-equilibrium solver and the **CHOP / OHOP / H$_2$-CIA** molecular continuum are rebuilt in clean **`torch`**. The lecture's added pedagogy is the **vectorization**, and it is a sharp lesson in *what vectorizes and what does not*. In Part 1 the Newton **iteration** over the $n_{\rm equa}$ unknowns is vectorized — an **autodiff Jacobian** (`torch.func.jacrev`) replaces the hand-coded `DEQ`, the residual is built **branchlessly in log space** from a precomputed incidence structure, and the linear step is a **column-scaled** `torch.linalg.solve` — but the **depth loop stays a loop** because this implementation uses a robust pressure-continuation warm start from the converged depth above; the depths are physically local, but naive batched cold starts are unreliable for this stiff system. This stiff solve is deliberately CPU/fp64. In Part 2 the continuum is a clean depth-batched `[D, F]` tabulated interpolation, vectorized over the grid and run in the notebook's working dtype. Each part ships a **comparison cell** validating the torch result against an inline fp64 reference (and the ground truth) to the documented float floor: $\sim10^{-13}$ for the equilibrium solve (CPU-fp64 reference path), $\sim6\times10^{-8}$ for the continuum (fp32 on MPS). The clean torch implementations are pedagogical reductions of the production `kgpu` engine — the notebook imports neither `kgpu` nor pykurucz.*
 
@@ -75,7 +70,7 @@ Lecture 13 makes the cleanest case in the book for the principle **"vectorize wh
 
 md(r"""![Left: the coupled equilibrium network — a central pool of element nuclei (O, C, H, Ti, ...) and a shared electron reservoir, with arrows pulling atoms into competing molecules (CO, OH, H2O, TiO, H2, H-), every molecule a node tied back to the pools it draws from, illustrating that no single molecule can be solved alone. Right: two H2 molecules drifting into a momentary collision complex with a transient induced dipole, absorbing an infrared photon — collision-induced absorption — beside a smooth opacity-vs-wavelength curve peaking in the near-infrared, overlapping much of an M dwarf's emergent flux.](resources/figures/s13_molchem.png)""")
 
-md(r"""**Setup — the device and the precision budget.** We pick the compute device once: **MPS** on Apple Silicon, **CUDA** on an NVIDIA box, otherwise **CPU**. The two parts sit on opposite sides of the precision question. Part 2's continuum is a benign table interpolation and runs **fp32 on the GPU** with a $\sim10^{-7}$ floor. Part 1's coupled solve is *stiff* — its Jacobian spans $\sim$25 decades and the Newton iteration is a difference of large competing terms — so the accepted port runs the **solve itself on CPU in fp64** (the reference path), where the autodiff Newton reaches the *same* equilibrium as the production Fortran DEQ+SOLVIT to the float64 floor; the MPS-fp32 budget is documented but not the shipped path for the stiff inner solve. We carry NumPy and Matplotlib alongside `torch` — NumPy holds the twin we validate against, and the comparisons are done in NumPy.""")
+md(r"""**Setup — the device and the precision budget.** We pick the compute device once: **MPS** on Apple Silicon, **CUDA** on an NVIDIA box, otherwise **CPU**. The two parts sit on opposite sides of the precision question. Part 2's continuum is a benign table interpolation and runs **fp32 on the GPU** with a $\sim10^{-7}$ floor. Part 1's coupled solve is *stiff* — its Jacobian spans $\sim$25 decades and the Newton iteration is a difference of large competing terms — so the maintained lecture implementation runs the **solve itself on CPU in fp64** (the reference path), where the autodiff Newton reaches the *same* equilibrium as the production Fortran DEQ+SOLVIT to the float64 floor; the MPS-fp32 budget is documented but not the shipped path for the stiff inner solve. We carry NumPy and Matplotlib alongside `torch` — NumPy holds the twin we validate against, and the comparisons are done in NumPy.""")
 
 code(r'''import pathlib, time
 import numpy as np
@@ -157,7 +152,7 @@ print(f"ion molecules (atomic-physics input)  : {int((~poly_mask).sum())}")''')
 
 md(r"""### Decoding `molecules.dat`: which atoms, which equations
 
-The dissociation table `molecules.dat` is a fixed-width text file: each molecule's line begins with a **code** packing the constituent atoms into base-100 digits, followed by $D_0$ and a six-term temperature polynomial. The decoder `readmol` is the from-scratch port of the Fortran READMOL routine. For each line it reads the code and seven coefficients, peels the code apart base-100 to recover the constituent **element ids** (a zero digit means an electron, id 100) and the net **charge** (each unit of positive charge adds an *inverse electron*, id 101 — a "divide by $n_e$"), and records the component slice and the polynomial. It then assigns an **equation number** to every element that appears, plus one for the electron, and rewrites each component as a 0-based equation index. This is **pure host setup** — it builds the integer index structure the solver consumes, runs once, and is not a compute hot path, so it stays plain Python (NumPy/int arrays), exactly transcribed from the accepted port.""")
+The dissociation table `molecules.dat` is a fixed-width text file: each molecule's line begins with a **code** packing the constituent atoms into base-100 digits, followed by $D_0$ and a six-term temperature polynomial. The decoder `readmol` is the from-scratch port of the Fortran READMOL routine. For each line it reads the code and seven coefficients, peels the code apart base-100 to recover the constituent **element ids** (a zero digit means an electron, id 100) and the net **charge** (each unit of positive charge adds an *inverse electron*, id 101 — a "divide by $n_e$"), and records the component slice and the polynomial. It then assigns an **equation number** to every element that appears, plus one for the electron, and rewrites each component as a 0-based equation index. This is **pure host setup** — it builds the integer index structure the solver consumes, runs once, and is not a compute hot path, so it stays plain Python (NumPy/int arrays).""")
 
 code(r'''MAXMOL = 200
 MAXEQ = 30
@@ -273,7 +268,7 @@ $$
 \log K_f(T) = \frac{D_0}{kT} - E_1 + \big(E_2 + (-E_3 + (E_4 + (-E_5 + E_6 T)T)T)T\big)\,T \;-\; \tfrac32\,(n_{\rm comp} - 2\,{\rm ion} - 1)\,\log T .
 $$
 
-The first term is the binding Boltzmann factor; the polynomial packages the partition-function ratio; the last is the phase-space $(kT)^{3/2}$ scaling per constituent particle (atom or electron) removed. The Kurucz polynomial-molecule contribution is set to zero above 10000 K, reflecting the production cutoff/fit-validity regime where these molecules are negligible for the intended atmospheres, and the **H$_2$ dissociation entry** (code 101) uses its own hard-coded polynomial. **The vectorization here:** this is the part of the setup that *is* naturally tensorized — the accepted port computes $K_f$ for **all layers at once** with NumPy-vectorized Horner arithmetic (the `np.where(cool, np.exp(poly), 0.0)` covers the $T>10000$ branch branchlessly across the depth axis). It is host-side fp64 because it is an input to the stiff fp64 solve; transcribed verbatim from the accepted port.""")
+The first term is the binding Boltzmann factor; the polynomial packages the partition-function ratio; the last is the phase-space $(kT)^{3/2}$ scaling per constituent particle (atom or electron) removed. The Kurucz polynomial-molecule contribution is set to zero above 10000 K, reflecting the production cutoff/fit-validity regime where these molecules are negligible for the intended atmospheres, and the **H$_2$ dissociation entry** (code 101) uses its own hard-coded polynomial. **The vectorization here:** this setup step computes $K_f$ for **all layers at once** with NumPy-vectorized Horner arithmetic (the `np.where(cool, np.exp(poly), 0.0)` covers the $T>10000$ branch branchlessly across the depth axis). It is host-side fp64 because it is an input to the stiff fp64 solve.""")
 
 code(r'''def compute_equilj_polynomial(T, code_mol, equil, locj, nummol):
     """K_f(T) for every POLYNOMIAL molecule, all layers at once (the lecture's physics).
@@ -321,14 +316,14 @@ assert worst_poly == 0.0, "molecular formation physics must be bit-exact"''')
 
 md(r"""### The incidence structure: turning the molecule table into branchless tensors
 
-Here is the first piece of genuine tensor re-engineering. A scalar implementation assembles the residual and Jacobian inside the Newton loop with **Python loops over molecules and their components**, branching on whether each component is an inverse electron, whether a molecule is a negative ion, and so on — natural on a CPU but the wrong shape for the GPU. The accepted port instead **precomputes a static incidence structure once**, `MolStructure`, that encodes the entire molecule table as dense tensors:
+Here is the first piece of genuine tensor re-engineering. A scalar implementation assembles the residual and Jacobian inside the Newton loop with **Python loops over molecules and their components**, branching on whether each component is an inverse electron, whether a molecule is a negative ion, and so on — natural on a CPU but the wrong shape for the GPU. The torch implementation instead **precomputes a static incidence structure once**, `MolStructure`, that encodes the entire molecule table as dense tensors:
 
 - `count[jmol, k]` — how many times equation-$k$'s atom appears in molecule `jmol` (its stoichiometric exponent), so a molecule's log density is a single matrix–vector contraction `count @ log_xn` instead of a per-component loop;
 - `inv_e[jmol]` — how many inverse electrons the molecule carries (the "divide by $n_e$" exponent);
 - `neg_ion`, `active` — masks for the negative-ion charge correction and for which entries are real molecules;
 - `total_mask`, `electron_mask` — one-hot selectors that route a term into the total-particle row or the charge row **without an `if`**.
 
-Building this once turns every later residual evaluation into branchless tensor algebra — no Python control flow inside the iteration. It is a frozen dataclass, transcribed verbatim from the accepted port. (`MAXEQ` here matches the port; the solver fp64-builds it on CPU.)""")
+Building this once turns every later residual evaluation into branchless tensor algebra — no Python control flow inside the iteration. It is a frozen dataclass; the solver fp64-builds it on CPU.""")
 
 code(r'''from dataclasses import dataclass
 
@@ -391,7 +386,7 @@ print("MolStructure (branchless incidence structure) ready")''')
 
 md(r"""### Assembling the system, part A: the conservation equations; part B: every molecule's mass-action term — the branchless log-space residual
 
-Now the residual $f(x_n)$ — how far each algebraic equation is from being satisfied — built **entirely without `if`**, and **in log space** to keep the dynamic range tame. The skeleton (element residual $x_k - X_k\,x_0$, where $x_0$ is the total-nuclei scaling variable; the total-particle closure; the $-n_e$ charge term) is laid down with the one-hot `total_mask` / `electron_mask` *adding in* the special rows rather than branching to them. Then every molecule's mass-action term $K_f\prod_i n_i$ is formed as `exp(log_equilj + count @ log_xn)` — a single matrix contraction over the incidence `count`, with `inv_e` subtracting the inverse-electron $\log n_e$ — and scattered into the total row and each element row by `count.T`, with the negative-ion electron correction applied through the `neg_ion` mask. For a negative ion such as H$^-$, the component bookkeeping first contributes $+n_{\rm mol}$ to the charge row; because the row tracks net positive charge, the correction subtracts $2n_{\rm mol}$ to turn that into the physical $-n_{\rm mol}$ contribution. **Why log space:** the product $\prod_i n_i$ over a dozen components, each $\sim10^{12}$–$10^{20}$, would overflow even fp64 intermediates and certainly fp32; summing logs and exponentiating once keeps every intermediate finite. `_safe_log` clamps to the dtype's tiny, and `_finite_or_zero` zeros any non-finite term. Transcribed verbatim.""")
+Now the residual $f(x_n)$ — how far each algebraic equation is from being satisfied — is built **entirely without `if`**, and **in log space** to keep the dynamic range tame. The skeleton (element residual $x_k - X_k\,x_0$, where $x_0$ is the total-nuclei scaling variable; the total-particle closure; the $-n_e$ charge term) is laid down with the one-hot `total_mask` / `electron_mask` *adding in* the special rows rather than branching to them. Then every molecule's mass-action term $K_f\prod_i n_i$ is formed as `exp(log_equilj + count @ log_xn)` — a single matrix contraction over the incidence `count`, with `inv_e` subtracting the inverse-electron $\log n_e$ — and scattered into the total row and each element row by `count.T`, with the negative-ion electron correction applied through the `neg_ion` mask. For a negative ion such as H$^-$, the component bookkeeping first contributes $+n_{\rm mol}$ to the charge row; because the row tracks net positive charge, the correction subtracts $2n_{\rm mol}$ to turn that into the physical $-n_{\rm mol}$ contribution. **Why log space:** the product $\prod_i n_i$ over a dozen components, each $\sim10^{12}$–$10^{20}$, would overflow even fp64 intermediates and certainly fp32; summing logs and exponentiating once keeps every intermediate finite. `_safe_log` clamps to the dtype's tiny, and `_finite_or_zero` zeros any non-finite term.""")
 
 code(r'''def _safe_log(x):
     """Log of a density-like tensor, clamped just above the dtype zero floor."""
@@ -471,7 +466,7 @@ The driver chains the pieces. For each layer it **seeds** the unknowns (top dept
 - **the inner Newton iteration** is fully vectorized — each iteration is the `jacrev` + `torch.linalg.solve` over the $n_{\rm equa}$ unknowns, a handful of dense tensor ops; there is nothing scalar left in it;
 - **the outer depth loop stays a loop in this implementation.** Each depth is physically local, but depth $j$ is seeded from the *converged* solution of depth $j-1$ scaled by the pressure ratio $P_j/P_{j-1}$. That pressure-continuation warm start makes the stiff Newton solve robust; batching all 80 depths with naive cold seeds often diverges or slows dramatically. So we vectorize the iteration and **keep the depth loop** — the honest division of labour is: tensorize the independent per-depth Newton algebra, and retain the continuation loop that makes the solve reliable.
 
-**The precision honesty.** The accepted port runs the solve on **CPU in fp64** (`solve_device = cpu`, `solve_dtype = float64`), regardless of the notebook's device handle. The reason is exactly the stiffness: the $\sim$25-dex Jacobian and the difference-of-large-terms residual need fp64 to converge to the production answer. The autodiff Newton + column-scaled solve reaches the **same equilibrium** as the Fortran DEQ+SOLVIT, and in fp64 it matches to the float64 floor; the MPS-fp32 budget is documented but the stiff inner solve is not the fp32 path. This is the same `GATED`-on-precision lesson the atmosphere lectures carry. The kernel is transcribed verbatim from the accepted port.""")
+**The precision honesty.** The solve runs on **CPU in fp64** (`solve_device = cpu`, `solve_dtype = float64`), regardless of the notebook's device handle. The reason is exactly the stiffness: the $\sim$25-dex Jacobian and the difference-of-large-terms residual need fp64 to converge to the production answer. The autodiff Newton + column-scaled solve reaches the **same equilibrium** as the Fortran DEQ+SOLVIT, and in fp64 it matches to the float64 floor; the MPS-fp32 budget is documented but the stiff inner solve is not the fp32 path.""")
 
 code(r'''def nmolec_solve(T, gas_pressure, electron_density, xabund,
                  nummol, code_mol, equil, locj, kcomps, idequa, nequa, equilj_ion):
@@ -893,7 +888,7 @@ print("tables:", [k for k in mc.files if k.isupper()])''')
 
 md(r"""### The shared physical constants and the device adapters
 
-The port keeps its own constants (matching the Fortran values) and small adapters: `_cpu64` / `_cpu_long` move host arrays onto the working device as fp64/long tensors, `_trunc_i64` is the integer truncation the band-index math needs, and `_finish` moves the final result onto the notebook's device in its working dtype (fp32 on MPS, fp64 on CPU). Transcribed verbatim from the accepted port.""")
+The continuum code keeps its own constants (matching the Fortran values) and small adapters: `_cpu64` / `_cpu_long` move host arrays onto the working device as fp64/long tensors, `_trunc_i64` is the integer truncation the band-index math needs, and `_finish` moves the final result onto the notebook's device in its working dtype (fp32 on MPS, fp64 on CPU).""")
 
 code(r'''C_LIGHT_CM = 2.99792458e10      # cm/s
 H_PLANCK = 6.62607015e-27       # erg s
@@ -929,7 +924,7 @@ print("continuum constants + device adapters ready")''')
 
 md(r"""### CH and OH continuous opacity (CHOP / OHOP): the frequency-row interpolation
 
-CHOP and OHOP share one structure, so the port factors it into `_band_frequency_rows`: given the whole frequency grid it forms the photon energy in eV, computes the band-energy index branchlessly (`_trunc_i64(ev*10)` with a per-species shift — CH starts at 0.2 eV, OH at 2.1 eV), brackets the cross-section table in energy, and **gathers two adjacent table rows and linearly interpolates** them — `lo + (hi - lo)*frac` — for *every* frequency at once. The inactive region (energy outside the band) is zeroed by a `torch.where` over the `valid` mask, not skipped by a Python `if/return`. This collapses the loop over frequency into one batched gather + interpolation. Transcribed verbatim.""")
+CHOP and OHOP share one structure, so the code factors it into `_band_frequency_rows`: given the whole frequency grid it forms the photon energy in eV, computes the band-energy index branchlessly (`_trunc_i64(ev*10)` with a per-species shift — CH starts at 0.2 eV, OH at 2.1 eV), brackets the cross-section table in energy, and **gathers two adjacent table rows and linearly interpolates** them — `lo + (hi - lo)*frac` — for *every* frequency at once. The inactive region (energy outside the band) is zeroed by a `torch.where` over the `valid` mask, not skipped by a Python `if/return`. This collapses the loop over frequency into one batched gather + interpolation.""")
 
 code(r'''def _band_frequency_rows(frequency_hz, cross_section_table, species):
     """Interpolate the CH/OH cross-section table in PHOTON ENERGY for all frequencies at once."""
@@ -991,7 +986,7 @@ print("_band_continuum + temperature-cell helpers ready")''')
 
 md(r"""### The H$_2$ density driving the collision-induced absorption; H$_2$ collision-induced absorption (Borysow), vectorized over frequency and temperature
 
-H$_2$-CIA scales as $n_{\rm H_2}$ times the partner density, so we need $n_{\rm H_2}$ first — from the **same** dissociation polynomial as the code-101 formation constant of Part 1, applied to the H ground-state population: $n_{\rm H_2} = (n_{\rm H,1}\cdot 2\,b_1)^2\,\exp(4.478/kT - 46.4584 + P(T) - \tfrac32\ln T)$, frequency-independent. The Borysow tables give $\log_{10}$ of the absorption coefficient (cm$^5$) on a (wavenumber, temperature) grid; `_h2_frequency_rows` does the **wavenumber** interpolation (250 cm$^{-1}$ bins) for all frequencies at once, masking $> 20000$ cm$^{-1}$ to a $-300$ log floor, and `_temp_lerp_rows` the **temperature** interpolation (1000 K bins). Transcribed verbatim.""")
+H$_2$-CIA scales as $n_{\rm H_2}$ times the partner density, so we need $n_{\rm H_2}$ first — from the **same** dissociation polynomial as the code-101 formation constant of Part 1, applied to the H ground-state population: $n_{\rm H_2} = (n_{\rm H,1}\cdot 2\,b_1)^2\,\exp(4.478/kT - 46.4584 + P(T) - \tfrac32\ln T)$, frequency-independent. The Borysow tables give $\log_{10}$ of the absorption coefficient (cm$^5$) on a (wavenumber, temperature) grid; `_h2_frequency_rows` does the **wavenumber** interpolation (250 cm$^{-1}$ bins) for all frequencies at once, masking $> 20000$ cm$^{-1}$ to a $-300$ log floor, and `_temp_lerp_rows` the **temperature** interpolation (1000 K bins).""")
 
 code(r'''def _h2_temp_cell(temperature):
     """Borysow H2-CIA temperature-cell index and interpolation weight."""
@@ -1038,7 +1033,7 @@ print("H2 density + Borysow interpolation helpers ready")''')
 
 md(r"""### Computing the molecular continuum over the full grid: `mol_continuum`
 
-The driver assembles everything: it interpolates CH/OH in energy and the Borysow tables in wavenumber (all frequencies at once), builds the per-depth temperature cells and the H$_2$ density, forms the stimulated-emission factor, and combines them into the three `[D, F]` opacities. CHOP and OHOP come from `_band_continuum`; H$_2$-CIA is $(10^{X_{\rm H_2He}} n_{\rm He} + 10^{X_{\rm H_2H_2}} n_{\rm H_2})\,n_{\rm H_2}/\rho\,(1-e^{-h\nu/kT})$ — the two-body, density-squared volume coefficient divided by $\rho$. The total is their sum. This is the **entire continuum in one vectorized pass** over the $[80, 600]$ grid, no Python frequency or depth loop. Transcribed verbatim from the accepted port.""")
+The driver assembles everything: it interpolates CH/OH in energy and the Borysow tables in wavenumber (all frequencies at once), builds the per-depth temperature cells and the H$_2$ density, forms the stimulated-emission factor, and combines them into the three `[D, F]` opacities. CHOP and OHOP come from `_band_continuum`; H$_2$-CIA is $(10^{X_{\rm H_2He}} n_{\rm He} + 10^{X_{\rm H_2H_2}} n_{\rm H_2})\,n_{\rm H_2}/\rho\,(1-e^{-h\nu/kT})$ — the two-body, density-squared volume coefficient divided by $\rho$. The total is their sum. This is the **entire continuum in one vectorized pass** over the $[80, 600]$ grid, no Python frequency or depth loop.""")
 
 code(r'''def mol_continuum(inp):
     """Molecular continuous opacity (CHOP, OHOP, H2-CIA) on the [D, F] grid, fully vectorized.

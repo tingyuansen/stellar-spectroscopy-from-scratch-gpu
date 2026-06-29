@@ -454,7 +454,7 @@ md(r"""## Band opacity: the Lorentz far wing, batched
 
 Beyond ten Doppler widths the Voigt profile is in its Lorentz asymptote, falling as $1/n^2$, so the production kernel treats the **far wing** with that analytic tail: it extends the last near-wing value by $\kappa = x_{\rm far}/n^2$ (with $x_{\rm far} = \texttt{prof\_n10}\cdot n_{10}^2$), stepping outward until it drops below `KAPMIN`. The crucial subtlety — the bug that cost a 1% error before the reference path matched production — is the **stopping rule**: a line's far wing breaks the first time *neither* the red nor the blue bin is on the grid. For a line whose center lies off the window, every far-wing step has both ends off-grid, so it stops immediately and never "re-enters."
 
-`_far_wing` selects only the pairs that do reach the far wing (`do_far`), computes each pair's analytic `maxstep`, sweeps fixed step-blocks past `n10dop`, and deposits red/blue with one `_scatter_add_flat` each. The hard, irreversible break is reproduced exactly: `first_kill` is the first step in the block where neither end is on-grid (a vectorized `argmax`), and once a pair records such a step it is killed from `alive` for good. Transcribed verbatim.""")
+`_far_wing` selects only the pairs that do reach the far wing (`do_far`), computes each pair's analytic `maxstep`, sweeps fixed step-blocks past `n10dop`, and deposits red/blue with one `_scatter_add_flat` each. The hard, irreversible break is reproduced exactly: `first_kill` is the first step in the block where neither end is on-grid (a vectorized `argmax`), and once a pair records such a step it is killed from `alive` for good. This is the exact recurrence boundary we keep intact while batching the profile evaluations.""")
 
 code(r'''def _far_wing(buf, pair, prof_n10, do_far, n_w):
     """Lorentz far wing (pval = x_far / n^2) for the selected pairs (port _far_wing), with the
@@ -603,7 +603,7 @@ print("_accumulate_chunk ready (one line-chunk, all depths, batched scatter)")''
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""## Computing the TiO band opacity over all depths: `mol_band_opacity`
 
-The top-level driver assembles the inputs and walks the line list in `CHUNK_LINES`-sized blocks, accumulating into the `[D, n_w]` buffer. It loads the wavelength grid and continuum; pulls the per-depth state (temperature, density, electron density, the Boltzmann factor `hckt`, microturbulence); builds the van der Waals collision factor $\texttt{TXNXN} = (n_{\rm H} + 0.42\,n_{\rm He} + 0.85\,n_{\rm H_2})\,(T/10^4)^{0.3}$, named `vdw_perturber_density` in the taught code; loads the Voigt tables; and — because the synthesis overwrites the atmosphere's placeholder Doppler width — **recomputes the molecular slot-5 Doppler widths** per species with `_molecular_doppler_fraction_compute` (the same formula as the public `molecular_doppler_fraction`, on the compute path). It precomputes each line's `center` and `mol_wl`, the per-grid-point resolving power, then loops the chunks through `_accumulate_chunk`. Finally it applies **stimulated emission** $1-e^{-h\nu/kT}$ once, at the end — the same factor applied to every line-absorption opacity. The whole thing runs on the CPU-fp64 reference path; this is the function the comparison cell validates. Transcribed verbatim.""")
+The top-level driver assembles the inputs and walks the line list in `CHUNK_LINES`-sized blocks, accumulating into the `[D, n_w]` buffer. It loads the wavelength grid and continuum; pulls the per-depth state (temperature, density, electron density, the Boltzmann factor `hckt`, microturbulence); builds the van der Waals collision factor $\texttt{TXNXN} = (n_{\rm H} + 0.42\,n_{\rm He} + 0.85\,n_{\rm H_2})\,(T/10^4)^{0.3}$, named `vdw_perturber_density` in the taught code; loads the Voigt tables; and — because the synthesis overwrites the atmosphere's placeholder Doppler width — **recomputes the molecular slot-5 Doppler widths** per species with `_molecular_doppler_fraction_compute` (the same formula as the public `molecular_doppler_fraction`, on the compute path). It precomputes each line's `center` and `mol_wl`, the per-grid-point resolving power, then loops the chunks through `_accumulate_chunk`. Finally it applies **stimulated emission** $1-e^{-h\nu/kT}$ once, at the end — the same factor applied to every line-absorption opacity. The whole thing runs on the CPU-fp64 reference path; this is the function the comparison cell validates.""")
 
 code(r'''C_NM = 2.99792458e17       # nm/s
 H_PLANCK = 6.62607015e-27  # erg s
@@ -732,7 +732,7 @@ print(f"\n  ref max {mol_ref.max():.4e}   reproduced max {mol_np.max():.4e}")
 print(f"  abs diff max {np.abs(mol_np - mol_ref).max():.2e}")
 print(f"  REL ERR:  median {np.median(rel):.2e}   max {rel.max():.2e}   over {mask.sum():,} points")
 
-floor = 1e-6                                                             # the bible gate for L12-13
+floor = 1e-6                                                             # documented L12/L13 parity gate
 max_dev = float(rel.max())
 status = "PASS" if max_dev < floor else "CHECK"
 print(f"\ndocumented float floor = {floor:.1e}   ->   [{status}]")

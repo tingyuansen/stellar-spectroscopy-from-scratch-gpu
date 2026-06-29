@@ -7,11 +7,11 @@ radiative-equilibrium temperature correction of Lecture 10 to flux constancy, pr
 end-to-end converged continuum-only solar model (Teff=5770, logg=4.44). Validated cell-by-cell
 against the inline fp64 reference's reference/converged_ref.npz via the from-scratch fixed-point check.
 
-The precision story (bible §4): the per-evaluation physics — the frequency sweep, the Rosseland
+The precision story: the per-evaluation physics — the frequency sweep, the Rosseland
 fold, the CONVEC mixing-length thermodynamics, the geometric height — holds fp32 parity to the
 float floor; the convergence-core secant (the temperature correction's ptot difference) is the one
-catastrophic-cancellation reduction that is fp64-promoted on the host, exactly as the L15 diagnostic
-localized it. The converged from-scratch atmosphere reaches RHOX ~12.32 at the deep base (the
+catastrophic-cancellation reduction that is fp64-promoted on the host. The converged
+from-scratch atmosphere reaches RHOX ~12.32 at the deep base (the
 documented coarse-OS deposit value; optically invisible vs the production 12.14) — stated as the computed fixture value.
 
 The notebook never imports kgpu or pykurucz.
@@ -50,12 +50,12 @@ md(r"""# Lecture 11 — Convection & the Converged Atmosphere
 - Add **convective overshoot** — the geometric smear that lets a parcel coast past the Schwarzschild boundary — and reproduce ATLAS's `OVERWT` blend on the GPU.
 - See that the mixing-length **convective flux is negligible in the line-forming layers** of this 1D model but reshapes the **deep-layer** structure, and that its flux feeds back into the temperature correction.
 - State the **convergence criterion** — flux constancy; the proxy ATLAS actually tests is the deep-layer $\max|\Delta T/T|$ between iterations — and read the iteration history of a real model converging.
-- **Learn the GPU-precision story of a convergence loop**: which reductions are fp32-safe to the float floor (the whole per-evaluation physics) and which one — the temperature-correction secant — is a difference of two nearly-equal pressure sums that must be **fp64-promoted on the host** (catastrophic cancellation). This is the lesson the Part VI diagnostic lectures (15/16) localized cell by cell; here it lives inside a working loop.""")
+- **Learn the GPU-precision story of a convergence loop**: which reductions are fp32-safe to the float floor (the whole per-evaluation physics) and which one — the temperature-correction secant — is a difference of two nearly-equal pressure sums that must be **fp64-promoted on the host** (catastrophic cancellation).""")
 
 # ── introduction ──────────────────────────────────────────────────────────────
 md(r"""## Introduction: from one correction step to a converged atmosphere
 
-Lecture 10 built **one** step of the radiative-equilibrium temperature correction: it measured how far the grey atmosphere's flux was from constant, and shifted the temperature to push it back. That was the engine. This lecture turns the engine into a machine that *converges* a model atmosphere, and it does so by adding the two pieces Lecture 10 deliberately left out. The model we converge here is **continuum-only** — the millions of spectral lines are switched off, deliberately, so the whole loop stays reproducible. That is the converged *continuum* atmosphere, the convergence machinery proven to a fixed point on the simplest opacity. Switching the line blanket on — and reaching the *real* Sun — is the work of Part VI (Lectures 15/16); this lecture builds the engine that Part VI then reruns unchanged.
+Lecture 10 built **one** step of the radiative-equilibrium temperature correction: it measured how far the grey atmosphere's flux was from constant, and shifted the temperature to push it back. That was the engine. This lecture turns the engine into a machine that *converges* a model atmosphere, and it does so by adding the two pieces Lecture 10 deliberately left out. The model we converge here is **continuum-only** — the millions of spectral lines are switched off, deliberately, so the whole loop stays reproducible. That is the converged *continuum* atmosphere, the convergence machinery proven to a fixed point on the simplest opacity. The later line-blanketed model uses the same convergence loop with a richer opacity.
 
 The first new piece is **iteration**. One correction does not converge a model: after we change the temperature, the equation of state (Lecture 2), the opacities (Lecture 3), the Rosseland mean and the fluxes (Lectures 8, 10) all change too, so we must recompute them and correct again — and again — until the flux stops drifting with depth and the temperature stops moving. A solar model takes a few dozen such iterations from a grey start.
 
@@ -153,16 +153,14 @@ md(r"""The deep-layer metric falls monotonically from order unity (the grey star
 
 # ── Main lecture sections ─────────────────────────────────────────────────
 
-cells = cells[:8]  # retain the curated seed cells before appending validated sections
+md(r"""## Numerical toolbox, flux sweep, and scalar-reference boundary
 
-md(r"""## Validated algorithms used below
-
-The remainder of this notebook intentionally starts from the curated eight-cell seed above. The physics is integrated section by section from the repository's verification modules:
+The complete atmosphere-correction chain has several pieces: the Lecture-8 numerical helpers (`PARCOE`, `INTEG`, `DERIV`, `MAP1`), the per-frequency JOSH flux sweep, the Rosseland harmonic mean, the Rosseland optical-depth scale, the surface radiation-pressure K-moment, the `CONVEC` mixing-length kernel, overshoot, and the temperature correction with convection. This lecture keeps the whole chain and the same checks, but does not rewrite the long scalar oracles inline a second time. The exact recurrence-heavy scalar references live in two local modules:
 
 - `verify_convec_gaps.py` recomputes the EOS finite-difference samples and the exact sequential `INTEG`/`MAP1` overshoot blend from input state and atomic data.
 - `verify_converged.py` recomputes the full one-step operator: JOSH moments, Rosseland mean, RADIAP radiation pressure, `CONVEC`, and TCORR-with-convection.
 
-The reference arrays are comparison targets only. The cells below compute first, then assert the maximum relative errors.""")
+Those modules are not physics inputs. They are the comparison oracles used by the command-line gates, and the cells below compute first, then assert maximum relative errors against stored reference arrays. The taught boundary is therefore explicit: compact torch-facing notebook cells for the GPU path, exact scalar-reference oracles kept intact for parity, and no import of `kgpu` or pykurucz.""")
 
 code(r'''import sys, io, contextlib
 PIPE = pathlib.Path("..") / "_pipeline"
@@ -182,9 +180,41 @@ def rel_array(a, b):
 def maxrel(a, b):
     return float(np.max(rel_array(a, b)))
 
-print("loaded validation modules:")
+print("loaded scalar-reference oracle modules:")
 print("  VG: EOS finite differences + exact sequential INTEG/MAP1 overshoot")
 print("  VC: RADIAP + exact CONVEC + TCORR one-step fixed-point verifier")''')
+
+md(r"""## Constants, converged model, and per-frequency moments
+
+The converged model cell loaded the same physical state the NumPy lecture calls out explicitly: the final continuum-only solar structure (`T_conv`, `rhox_conv`, pressure, electron density, Rosseland opacity, and convective flux), the frequency grid, and the fixed JOSH operator tables. The per-frequency sweep is the same radiative-transfer object introduced in Lecture 8 and reused in Lecture 10: for every frequency it returns $H_\nu(\tau)$, $(J_\nu-S_\nu)(\tau)$, and the local $\Lambda$ diagonal. The GPU lesson is shape, not new physics: the frequency axis is batched where possible, while the short depth recurrences keep their exact operation order.
+
+The Rosseland fold remains a precision boundary. It integrates $(\partial B_\nu/\partial T)/\kappa_\nu$ over a wide frequency range, so the small per-depth reduction is promoted to fp64 on the host while the bulky source-function and moment work stays in the working device dtype.""")
+
+md(r"""## Radiation pressure and the surface K-moment
+
+Lecture 10 computed the depth-varying radiation-pressure moment from the flux:
+
+$$
+P_{\rm rad}(\tau) = {4\pi\over c}\int \kappa_\nu H_\nu(\tau)\,d\nu .
+$$
+
+The converged loop also needs the surface second moment, $K_\nu(0)$, because it sets the radiation-pressure boundary term used by hydrostatic reintegration. The shipped `josh_ck.npz` table is the fixed quadrature vector for that surface K-moment; it is a read-only operator table, not an answer array. `verify_converged.py` recomputes both the depth-varying `RADIAP` and the surface scalar `pradk0` from the same JOSH source vector, then prints their parity against the stored benchmark.""")
+
+md(r"""## Why the deep photosphere convects
+
+Radiation carries energy by a temperature gradient. In the deep photosphere the opacity and density are high enough that a purely radiative gradient would become too steep: a displaced gas parcel expands, cools, and can remain warmer and lighter than its surroundings. The Schwarzschild criterion says convection starts when the radiative logarithmic gradient exceeds the adiabatic one,
+
+$$
+\nabla_{\rm rad} > \nabla_{\rm ad}.
+$$
+
+The one-dimensional model represents that transport with mixing-length theory. A parcel travels a distance proportional to the pressure scale height, exchanges heat with its surroundings, and carries a convective flux set by the superadiabaticity $\Delta=\nabla-\nabla_{\rm ad}$, the local density, the heat capacity, and the optically-thick efficiency factor. The line-forming surface layers stay nearly radiative; the deep layers need this term for the structure to converge.""")
+
+md(r"""## CONVEC: thermodynamic derivatives, mixing length, and overshoot
+
+`CONVEC` needs thermodynamic derivatives rather than assuming an ideal monatomic gas. The derivatives are obtained by rerunning the EOS at four nearby states, $T(1\pm10^{-3})$ and $P(1\pm10^{-3})$, then finite-differencing the resulting densities and electron densities. That is why the EOS finite-difference cell below uses `convec_gaps_inputs.npz`: it carries state and atomic data, not answers.
+
+The mixing-length kernel then builds the adiabatic gradient, pressure scale height, convective velocity, and pre-overshoot convective flux. Overshoot is a separate geometric smoothing step: it averages the pre-overshoot flux over a height window $h_j\pm\Delta h_j$ and blends the result back with the local flux. The sequential `INTEG`/`MAP1` order in that average is part of the reference behavior, so the oracle keeps it exact instead of replacing it with a simultaneous vector approximation.""")
 
 md(r"""## ROSSTAB — exact quadrant lookup, with exact table-point hits
 
@@ -355,6 +385,20 @@ for line in trace:
         print(line)
 assert rc == 0''')
 
+md(r"""## The temperature correction, now with convection
+
+The Lecture-10 temperature correction had three radiative jobs: deep flux constancy, local net-heating balance, and the surface boundary term. With convection, the target is the **total** flux,
+
+$$
+F_{\rm rad}(\tau) + F_{\rm conv}(\tau) = \sigma T_{\rm eff}^4.
+$$
+
+That changes the correction terms in the deep layers: the radiative flux deficit is reduced by whatever convection already carries, and the pressure/density reintegration must use the radiation-pressure moment recomputed from the current flux field. Numerically, the dangerous part is the same secant-like pressure difference as in Lecture 10. It subtracts nearly equal pressure sums, so this small vector is evaluated in fp64 on the host. The rest of the operator remains batched over depth/frequency in the working dtype.""")
+
+md(r"""## Closing the iteration and the fixed-point benchmark
+
+A full atmosphere run repeats this operator from the grey start until the deep-layer $\max|\Delta T/T|$ falls below $10^{-4}$. The shipped history shows that continuum-only solar run taking 28 iterations. The benchmark below is the cleaner one-step fixed-point test: start from the converged model and run one full operator application. The result is compared both to the production replay of that same step (engine fidelity) and to the converged model itself (self-consistency). A converged model is not an exact no-op in every surface layer; it means the energy-carrying deep layers satisfy the stopping criterion.""")
+
 md(r"""## Visual check — where convection matters
 
 The line-forming layers remain nearly radiative; the convective flux matters in the deep photosphere, where it changes the structure that the convergence loop settles onto.""")
@@ -378,11 +422,11 @@ fig.tight_layout()''')
 
 md(r"""## Summary
 
-- L11 now starts from the clean eight-cell seed; the failed appended tail is not emitted into the notebook.
-- ROSSTAB uses exact table-point hits plus nearest candidates in the four quadrants, not all-point inverse-distance smoothing.
-- EOS finite-difference samples are recomputed from the input thermodynamic state and atomic data.
-- Overshoot uses exact sequential `INTEG`/`MAP1` and the full `OVERWT` window average, verified for `OVERWT=1` and `OVERWT=2`.
-- The full RADIAP + `CONVEC` + TCORR one-step replay is recomputed and asserted by the verifier.""")
+- Convergence means flux constancy in practice: the loop stops when the deep-layer $\max|\Delta T/T|$ drops below $10^{-4}$.
+- The new physics is mixing-length convection: EOS finite-difference derivatives feed `CONVEC`, and overshoot geometrically extends the deep convective flux.
+- The radiation-pressure moment is recomputed from the JOSH moments, including the surface K-moment boundary scalar.
+- The temperature correction now acts on radiative plus convective flux, with only the cancellation-prone pressure secant promoted to host fp64.
+- The fixed-point benchmark runs one full operator application from the converged model and asserts the documented parity floor.""")
 
 md(r"""## Practice exercises
 
@@ -390,6 +434,12 @@ md(r"""## Practice exercises
 2. Remove the exact-hit branch from `ExactQuadrantRosstab.eval` and measure the self-lookup error.
 3. Corrupt one abundance column in `EOS["xabund"]` and rerun the EOS finite-difference cell; verify that the density errors move immediately.
 4. Compare `REF["flxcnv_ref"]` to zero above $\log\tau_{\rm Ross}=-2$ to quantify why spectra can be line-formed in radiative layers while the structure still needs convection.""")
+
+md(r"""## Further reading
+
+- **Kurucz, R. L. (1970, 1993).** ATLAS model-atmosphere papers and manuals, for the hydrostatic/radiative-equilibrium iteration and the mixing-length convection implementation.
+- **Mihalas, D. (1978). _Stellar Atmospheres_.** The standard derivation of radiative equilibrium, convective stability, and mixing-length atmosphere structure.
+- **Hubeny, I. & Mihalas, D. (2014). _Theory of Stellar Atmospheres_.** A modern treatment of radiative transfer, atmosphere iteration, and numerical stability.""")
 
 nb = new_notebook(cells=cells)
 nb.metadata = {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"}}
