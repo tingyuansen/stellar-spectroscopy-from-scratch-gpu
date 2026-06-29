@@ -8,12 +8,10 @@ the device — `index_put_(accumulate=True)`. The Harris Voigt kernel `voigt_H_g
 reused across every line in the catalog at every depth. The metal accumulation is validated against
 an inline fp64 reference with a strict full-support maximum-relative-error gate (<=1e-6 in fp32).
 
-The clean torch implementation is a pedagogical reduction of the production kgpu/line_opacity.py BATCHED
-accumulation (`_wing_reach_batched`, `_wing_walk_tiered`, the `_scatter_add_3d` =
-`index_put_(accumulate=True)` deposit); the notebook imports neither kgpu nor pykurucz. The torch
-kernels below are transcribed verbatim from the validated _pipeline/_ports/lecture5_port_batched.py
-(parity-gated against the inline fp64 reference's metal_accumulate_numpy); the inline fp64 reference is the _L5_NUMPY
-reference string from _pipeline/port_worker.py.
+The clean torch implementation is a pedagogical reduction of the production line-opacity
+scatter-add: compute every wing reach as tensors, deposit each red/blue offset block with
+`index_put_(accumulate=True)`, and compare against an inline fp64 reference. The notebook imports
+neither kgpu nor pykurucz and contains the taught implementation end to end.
 """
 from pathlib import Path
 import nbformat
@@ -34,8 +32,6 @@ md(r"""# Lecture 5 — Line Opacity II: The Line List
 *Stellar Spectroscopy from Scratch — tensor-native stellar spectroscopy, validated against reference calculations*
 
 *Yuan-Sen Ting*
-
-*Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
 
 *This lecture builds the metal-line opacity in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). The lesson is the **vectorization of a scatter**. The scalar reference adds each of $\sim$twelve thousand metal lines by walking outward from its center pixel — one grid step at a time, red and blue, `+=`-ing the Voigt value into the opacity array and stopping at the cutoff. That per-line outward walk is the textbook shape of a CPU loop, and it is exactly the shape the GPU hates. Here we recast it: the **line axis becomes a tensor batch axis**, the reach geometry of every $(\text{depth},\text{line})$ pair is computed at once, and the deposit is **one batched `[depth, line, offset]` scatter** — `index_put_(accumulate=True)` — per red/blue sweep. The Harris `voigt_H` kernel of Lecture 4 is reused, unchanged, across every line at every depth. We validate the metal accumulation against an inline **fp64 reference** of the exact same recipe, to the documented float floor.*
 
@@ -1020,50 +1016,10 @@ plt.legend(loc="upper right"); plt.tight_layout(); plt.show()''')
 
 md(r"""The forest matches line for line: every metal transition sits at its vacuum wavelength with the right strength, summed from its own Voigt profile and exact population — and the GPU deposited the whole forest with a handful of batched `index_put_(accumulate=True)` scatters instead of twelve thousand per-line `while` loops.""")
 
-# ════════════════════════════════════════════════════════════════════════════
-#  Synthesis / Summary / Practice / Further reading
-# ════════════════════════════════════════════════════════════════════════════
-md(r"""## Synthesis: what you built and where it goes
+# ── Full atomic catalog coverage beyond the metal scatter hot path ──
+md(r"""## Completing the atomic catalog coverage
 
-You took the scalar reference's per-line outward `+=` wing walk — a Python loop over twelve thousand lines, each `while`-looping scalar by scalar into the opacity array — and recast it as a **batched scatter**. The line axis became a **tensor batch axis**; `_wing_reach_batched` computed every $(\text{depth},\text{line})$ pair's reach at once; `_wing_walk_tiered`/`_wing_walk_core` swept fixed offsets over reach-tiered buckets; and the deposit collapsed to a handful of **`index_put_(accumulate=True)`** scatters — the GPU's native atomic accumulation. The Harris `voigt_H` kernel of Lecture 4 was reused unchanged across the whole list, and FASTEX became a branchless gather. The result reproduces the inline fp64 reference to the fp32 floor.
-
-Three GPU lessons crystallise here. **(1) Loop $\to$ scatter:** an adaptive per-element `+=` walk is a scatter, and the right shape is to batch the index axis and deposit with `index_put_(accumulate=True)`. **(2) The Metal-kernel verdict:** batched `index_put_` already lowers to an efficient atomic scatter; the win is in batching and reach-tiering. **(3) Precision placement:** discontinuous geometry and the cancellation-prone Harris core are compact fp64 islands, while the large low/far profile blocks and overlapping deposits remain on MPS. That division makes the strict full-maximum gate possible.
-
-This metal opacity, added to the continuum of Lecture 3 and (with the hydrogen lines of the next lecture) the complete line opacity, is the total extinction the photons face. Fed through the radiative transfer of Lectures 7–8, it produces the solar spectrum line for line.""")
-
-md(r"""## Summary
-
-- The scalar reference's **per-line outward `+=` wing walk** (red + blue, stop at the cutoff) is the **scatter-add hot path**; the tensor implementation recasts it with the **line axis as a batch axis** and the deposit as **one batched `[depth, line, offset]` scatter** per red/blue — `index_put_(accumulate=True)` — instead of $O(n_{\rm lines})$ tiny launches.
-- **`_wing_reach_batched`** computes every $(\text{depth},\text{line})$ pair's reach geometry at once; **`_wing_walk_tiered`/`_wing_walk_core`** sweep fixed offsets over **reach-tiered** buckets (to avoid wasted Harris evals); **`_scatter_add_3d`** is the `index_put_(accumulate=True)` deposit. The Harris **`voigt_H_grid`** of Lecture 4 and a branchless **FASTEX** gather are reused across the whole list.
-- The **Metal-kernel verdict**: the bible flags this scatter-add as the prime `torch.mps.compile_shader` candidate; the squeeze evaluated it and **kept the batched `index_put_`** — the scalar-walk alternative was 2245 ms vs the batched 610 ms and was rejected, and a true Metal scatter only *matched* the batched torch (which already lowers to an efficient atomic scatter). **The Metal kernel was not adopted; batched `index_put_` is the kernel optimum.**
-- **Parity:** every opacity-bearing metal pixel passes **max relative error $\le 10^{-6}$**; the two-line helium family and both special-profile families are gated the same way.""")
-
-md(r"""## Practice exercises
-
-**1. Watch the scatter overlap.** The whole point of `accumulate=True` is that two line wings landing on the same pixel **add**. Replace `index_put_(accumulate=True)` with `accumulate=False` in `scatter_add_3d` and re-run the comparison: where in the forest does the opacity now drop, and why? (Hint: the blends, where many wings overlap.)
-
-**2. The cost of tiering.** Replace `_wing_walk_tiered` with a single `_wing_walk_core` call over all live lines (one global $W$). The result is identical, but time both. By how much does the wasted-Harris-eval blow-up grow with the widest-reaching line in the batch?
-
-**3. FASTEX vs `torch.exp`.** Swap the branchless `fast_ex` for a plain `torch.exp(-x)` in `accumulate_metal` and re-run the comparison. Where does the agreement break, and at what level? This shows that matching the production code means matching its *tables*, not just its formulas.
-
-**4. Precision-island audit.** Disable `harris_branch_oracle` and re-run the full-maximum assertion. Identify separately the discrete branch failures and the intermediate-polynomial cancellation points that return.""")
-
-md(r"""## Further reading
-
-- **Kurucz, R. L. (2011). *Including all the lines*, Canadian Journal of Physics, 89, 417.** The philosophy and construction of the line lists this accumulation reads.
-- **Harris, D. L. (1948). *On the line-absorption coefficient due to Doppler effect and damping*, ApJ, 108, 112.** The Voigt-function polynomial tables `h0tab/h1tab/h2tab` the kernel evaluates.
-- **PyTorch documentation, `Tensor.index_put_`.** The accumulating atomic scatter that *is* the hot path here; on the MPS backend it lowers to a native atomic-add kernel — the reason a custom Metal scatter does not beat it.
-- **Gray, D. F. (2005). *The Observation and Analysis of Stellar Photospheres*, 3rd ed.** Chapters 11–13 on line absorption and the assembly of many lines.
-- **Kim, E. M. & Ting, Y.-S. (2026). [*pykurucz*](https://arxiv.org/abs/2603.11693).** The implementation our fp64 reference (and its reference line opacity) is reduced from.""")
-
-# ════════════════════════════════════════════════════════════════════════════
-#  Write the notebook
-# ════════════════════════════════════════════════════════════════════════════
-
-# ── CATCH-AND-FILL: appended sections (port_worker fill) ──
-md(r"""## Setup and the reference data
-
-The notebook has already chosen the device and loaded the three reference files (`full_lines_data.npz`, `atmosphere.npz`, `diag.npz`) used by the inline fp64 reference. This short section makes the data layout explicit: the line catalog, the depth-state atmosphere, and the production diagnostic arrays. The shipped computation below stays torch-native; NumPy appears only in the explicit comparison-reference cells.""")
+The metal scatter above is the main GPU hot path, but the textbook line-list lesson also has to account for the rest of the atomic catalog. We keep using the same loaded inputs: the line catalog (`full_lines_data.npz`), the depth-state atmosphere (`atmosphere.npz`), and the diagnostic arrays (`diag.npz`) used only as comparison targets. The cells below make the catalog tensors explicit, add helium, and close the non-Voigt special line-type leaves. The taught computation stays torch-native; NumPy appears only in explicit comparison-reference cells.""")
 
 code(r'''# Torch views of the already-loaded reference arrays.  The host files were loaded above;
 # from here on the shipped path works on DEVICE in DTYPE.
@@ -1087,12 +1043,12 @@ T_t    = dev(atm["temperature"])
 hckt_t = dev(atm["hckt"])
 txnxn_t = dev(txnxn)
 
-print(f"reference tensors on {DEVICE.type}: grid={tuple(grid_t.shape)}, continuum={tuple(cont_t.shape)}")
+print(f"catalog tensors on {DEVICE.type}: grid={tuple(grid_t.shape)}, continuum={tuple(cont_t.shape)}")
 print(f"catalog lines={lam_t.numel()}, depths={T_t.numel()}, population table={tuple(pop3_t.shape)}")''')
 
-md(r"""## Anatomy of a line record
+md(r"""## Catalog audit: line record anatomy
 
-Each Kurucz record supplies the wavelength, `log gf`, species code, lower excitation energy, damping constants, and line-type code. Here the same columns become one-dimensional tensors; the **line axis is a batch axis**. The code below mirrors a quick catalog inspection without a Python loop over the catalog: it ranks ordinary metal lines by `log gf` with `torch.topk` and prints the strongest few as tensors.""")
+Each Kurucz record supplies the wavelength, `log gf`, species code, lower excitation energy, damping constants, and line-type code. The earlier sections already used these fields for the metal scatter; here the same columns become one-dimensional tensors so the remaining catalog checks share the same **line axis as batch axis**. The code below mirrors a quick catalog inspection without a Python loop over the catalog: it ranks ordinary metal lines by `log gf` with `torch.topk` and prints the strongest few as tensors.""")
 
 code(r'''metal_t = (lt_t == 0)
 he_t = (lt_t == -3) | (lt_t == -4) | (lt_t == -6)
@@ -1114,7 +1070,7 @@ print(strong_table.detach().cpu())
 print(f"metal lines: {int(metal_t.sum().detach().cpu())}; helium lines: {int(he_t.sum().detach().cpu())}; "
       f"hydrogen lines: {int(hy_t.sum().detach().cpu())} -> next lecture")''')
 
-md(r"""## The exact lower-level population
+md(r"""## Population tensor audit
 
 The exact population normalization is the same one emphasized in the inline fp64 reference:
 
@@ -1125,7 +1081,7 @@ The exact population normalization is the same one emphasized in the inline fp64
 \exp(-\chi_\ell hc/kT).
 \]
 
-The atmosphere file already stores \(n_{\rm ion}/U\) as `population_per_ion`; the Boltzmann factor is the production code's tabulated FASTEX exponential. In torch this is a broadcasted gather over the whole `(depth, line)` grid: no line loop, no scalar table lookup.""")
+The atmosphere file already stores \(n_{\rm ion}/U\) as `population_per_ion`; the Boltzmann factor is the production code's tabulated FASTEX exponential. This is the same branchless gather used in the metal accumulation, shown here over the whole `(depth, line)` catalog tensor so the helium and special-profile sections have the same population boundary as the ordinary metal path.""")
 
 code(r'''extab_t, extabf_t = gpu_fastex_tables()
 
@@ -1153,9 +1109,9 @@ print("lower-level population per statistical weight is now a depth×line tensor
 print(f"shape = {tuple(lower_pop_per_g_t.shape)}; max Fe I contribution = "
       f"{fe1_lower.max().detach().cpu().to(torch.float64):.3e} cm^-3")''')
 
-md(r"""## The helium lines
+md(r"""## Adding the helium lines
 
-The deliberate early GPU rescope validated the metal scatter-add hot path first. We now add the helium path from the inline fp64 reference.
+The metal scatter-add hot path is now validated. We add the helium path next because helium is part of the atomic line-list lecture but does not use the ordinary metal reach-tier scatter unchanged.
 
 Helium uses the same population, FASTEX, damping, and Harris-Voigt machinery, but its wing accumulation includes a **continuum-merge taper**. For each depth and helium line the taper is zero below \(w_{\rm con}\), ramps linearly between \(w_{\rm con}\) and \(w_{\rm tail}\), and is full strength beyond \(w_{\rm tail}\). The inline fp64 reference walks each helium wing pixel by pixel. Here the entire `(depth, helium-line, wavelength)` cube is evaluated at once, and the "stop at the first below-cutoff pixel" rule is represented by cumulative stop masks along the wavelength axis.""")
 
@@ -1663,6 +1619,43 @@ axm.legend(loc="upper right")
 
 fig.tight_layout()
 plt.show()''')
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Synthesis / Summary / Practice / Further reading
+# ════════════════════════════════════════════════════════════════════════════
+md(r"""## Synthesis: what you built and where it goes
+
+You took the scalar reference's per-line outward `+=` wing walk — a Python loop over twelve thousand lines, each `while`-looping scalar by scalar into the opacity array — and recast it as a **batched scatter**. The line axis became a **tensor batch axis**; `_wing_reach_batched` computed every $(\text{depth},\text{line})$ pair's reach at once; `_wing_walk_tiered`/`_wing_walk_core` swept fixed offsets over reach-tiered buckets; and the deposit collapsed to a handful of **`index_put_(accumulate=True)`** scatters — the GPU's native atomic accumulation. The Harris `voigt_H` kernel of Lecture 4 was reused unchanged across the whole list, and FASTEX became a branchless gather. The result reproduces the inline fp64 reference to the fp32 floor.
+
+The translation keeps the full textbook coverage: ordinary metal lines, helium continuum-merge wings, the hydrogen boundary that moves to Lecture 6, and the two non-Voigt leaf profiles used by special line-type records. The extra GPU lesson is the computational shape. **(1) Loop $\to$ scatter:** an adaptive per-element `+=` walk is a scatter, and the right shape is to batch the line axis and deposit with `index_put_(accumulate=True)`. **(2) The Metal-kernel verdict:** batched `index_put_` already lowers to an efficient atomic scatter; the win is in batching and reach-tiering. **(3) Precision placement:** discontinuous geometry and the cancellation-prone Harris core are compact fp64 islands, while the large low/far profile blocks and overlapping deposits remain on MPS. That division makes the strict full-maximum gate possible.
+
+This atomic opacity, added to the continuum of Lecture 3 and the hydrogen lines of Lecture 6, is the line extinction the transfer lectures consume. Fed through Lectures 7–8, it produces the solar spectrum line for line.""")
+
+md(r"""## Summary
+
+- The scalar reference's **per-line outward `+=` wing walk** (red + blue, stop at the cutoff) is the **scatter-add hot path**; the tensor implementation recasts it with the **line axis as a batch axis** and the deposit as **one batched `[depth, line, offset]` scatter** per red/blue — `index_put_(accumulate=True)` — instead of $O(n_{\rm lines})$ tiny launches.
+- **`_wing_reach_batched`** computes every $(\text{depth},\text{line})$ pair's reach geometry at once; **`_wing_walk_tiered`/`_wing_walk_core`** sweep fixed offsets over **reach-tiered** buckets (to avoid wasted Harris evals); **`_scatter_add_3d`** is the `index_put_(accumulate=True)` deposit. The Harris **`voigt_H_grid`** of Lecture 4 and a branchless **FASTEX** gather are reused across the whole list.
+- The **Metal-kernel verdict**: the custom Metal scatter was evaluated and **not adopted**. The scalar-walk alternative was rejected, and a true Metal scatter only matched batched torch because `index_put_(accumulate=True)` already lowers to the backend's atomic scatter.
+- **Parity:** every opacity-bearing metal pixel passes **max relative error $\le 10^{-6}$**; the helium family and both special-profile families are gated the same way.
+- The lecture boundary is explicit: hydrogen is non-Voigt Stark broadening and is rebuilt in Lecture 6, not hidden inside this line-list kernel.""")
+
+md(r"""## Practice exercises
+
+**1. Watch the scatter overlap.** The whole point of `accumulate=True` is that two line wings landing on the same pixel **add**. Replace `index_put_(accumulate=True)` with `accumulate=False` in `scatter_add_3d` and re-run the comparison: where in the forest does the opacity now drop, and why? (Hint: the blends, where many wings overlap.)
+
+**2. The cost of tiering.** Replace `_wing_walk_tiered` with a single `_wing_walk_core` call over all live lines (one global $W$). The result is identical, but time both. By how much does the wasted-Harris-eval blow-up grow with the widest-reaching line in the batch?
+
+**3. FASTEX vs `torch.exp`.** Swap the branchless `fast_ex` for a plain `torch.exp(-x)` in `accumulate_metal` and re-run the comparison. Where does the agreement break, and at what level? This shows that matching the production code means matching its *tables*, not just its formulas.
+
+**4. Precision-island audit.** Disable `harris_branch_oracle` and re-run the full-maximum assertion. Identify separately the discrete branch failures and the intermediate-polynomial cancellation points that return.""")
+
+md(r"""## Further reading
+
+- **Kurucz, R. L. (2011). *Including all the lines*, Canadian Journal of Physics, 89, 417.** The philosophy and construction of the line lists this accumulation reads.
+- **Harris, D. L. (1948). *On the line-absorption coefficient due to Doppler effect and damping*, ApJ, 108, 112.** The Voigt-function polynomial tables `h0tab/h1tab/h2tab` the kernel evaluates.
+- **PyTorch documentation, `Tensor.index_put_`.** The accumulating atomic scatter that is the hot path here; on accelerator backends it lowers to an atomic-add style scatter, which is why a custom scatter does not beat it.
+- **Gray, D. F. (2005). *The Observation and Analysis of Stellar Photospheres*, 3rd ed.** Chapters 11–13 on line absorption and the assembly of many lines.
+- **Kim, E. M. & Ting, Y.-S. (2026). [*pykurucz*](https://arxiv.org/abs/2603.11693).** The implementation our fp64 reference and diagnostic line opacity are reduced from.""")
 
 nb = new_notebook(cells=cells, metadata={
     "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},

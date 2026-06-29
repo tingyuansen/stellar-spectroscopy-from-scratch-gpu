@@ -7,8 +7,7 @@
 <li>Recognise and fix the GPU <strong>precision trap</strong>: the detuning <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>ν</mi><mo>−</mo><msub><mi>ν</mi><mrow><mi>n</mi><mi>m</mi></mrow></msub></mrow><annotation encoding="application/x-tex">\nu-\nu_{nm}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal" style="margin-right:0.06366em;">ν</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.06366em;">ν</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.0637em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">nm</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> is a difference of two <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>∼</mo><mn>6</mn><mo>×</mo><mn>1</mn><msup><mn>0</mn><mn>14</mn></msup></mrow><annotation encoding="application/x-tex">\sim6\times10^{14}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">∼</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em;"></span><span class="mord">6</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">14</span></span></span></span></span></span></span></span></span></span></span></span> Hz numbers — catastrophic fp32 cancellation in the line core — and learn the algebraic <strong>factoring</strong> that removes it exactly (the same lesson Lecture 4 taught for <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>v</mi></mrow><annotation encoding="application/x-tex">v</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">v</span></span></span></span>, generalized).</li>
 <li><strong>Validate</strong> the profile and <code>sofbeta</code> against the scalar reference to the float floor (fp32 torch versus fp64 CPU).</li>
 </ul>
-</div><div class="prose"><p><em>Written in collaboration with <strong>Claude Opus 4.8</strong>, under the author&#39;s supervision. Schematics generated with <strong>Gemini 3 Pro</strong> (Nano Banana).</em></p>
-<p><em>This lecture builds Kurucz&#39;s <strong>HPROF4</strong> hydrogen Stark-profile engine in clean <strong><code>torch</code></strong> that runs on the GPU (Apple <strong>MPS</strong> or <strong>CUDA</strong>, with a CPU fallback in fp64). The lecture&#39;s new pedagogy is the <strong>vectorization</strong>: the scalar reference walks the profile <strong>one (depth, pixel) at a time</strong>, with <code>if/elif/else</code> branches on which broadening width dominates and three regimes in the detuning <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>β</mi></mrow><annotation encoding="application/x-tex">\beta</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.05278em;">β</span></span></span></span>; here the whole <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">[</mo><mtext>depth</mtext><mo separator="true">,</mo><mtext>wavelength</mtext><mo stretchy="false">]</mo></mrow><annotation encoding="application/x-tex">[\text{depth}, \text{wavelength}]</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">[</span><span class="mord text"><span class="mord">depth</span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord text"><span class="mord">wavelength</span></span><span class="mclose">]</span></span></span></span> grid is evaluated <strong>at once</strong> in branchless tensor functions, and the scalar outward line walk is recast as cumulative stop masks. It ends with a <strong>full-output benchmark</strong> against the independent <code>gt_ahline</code> reference over all 475,280 values, plus a component profile check against an inline fp64 reference. The clean torch implementation is a pedagogical reduction of the production <code>kgpu</code> engine&#39;s hydrogen kernel — the notebook imports neither <code>kgpu</code> nor pykurucz.</em></p>
+</div><div class="prose"><p><em>This lecture builds Kurucz&#39;s <strong>HPROF4</strong> hydrogen Stark-profile engine in clean <strong><code>torch</code></strong> that runs on the GPU (Apple <strong>MPS</strong> or <strong>CUDA</strong>, with a CPU fallback in fp64). The lecture&#39;s new pedagogy is the <strong>vectorization</strong>: the scalar reference walks the profile <strong>one (depth, pixel) at a time</strong>, with <code>if/elif/else</code> branches on which broadening width dominates and three regimes in the detuning <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>β</mi></mrow><annotation encoding="application/x-tex">\beta</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.05278em;">β</span></span></span></span>; here the whole <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">[</mo><mtext>depth</mtext><mo separator="true">,</mo><mtext>wavelength</mtext><mo stretchy="false">]</mo></mrow><annotation encoding="application/x-tex">[\text{depth}, \text{wavelength}]</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">[</span><span class="mord text"><span class="mord">depth</span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord text"><span class="mord">wavelength</span></span><span class="mclose">]</span></span></span></span> grid is evaluated <strong>at once</strong> in branchless tensor functions, and the scalar outward line walk is recast as cumulative stop masks. It ends with a <strong>full-output benchmark</strong> against the independent <code>gt_ahline</code> reference over all 475,280 values, plus a component profile check against an inline fp64 reference. The clean torch implementation is a pedagogical reduction of the production <code>kgpu</code> engine&#39;s hydrogen kernel — the notebook imports neither <code>kgpu</code> nor pykurucz.</em></p>
 <hr>
 <h2>Introduction</h2>
 <p>Lecture 4 broadened every line the same way: a <strong>Voigt profile</strong>, the convolution of a Gaussian Doppler core with a Lorentzian wing. That recipe reproduces the metal and helium lines to the bit, because their levels — lacking hydrogen&#39;s exact <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>n</mi><mo separator="true">,</mo><mi mathvariant="normal">ℓ</mi></mrow><annotation encoding="application/x-tex">n,\ell</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord mathnormal">n</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord">ℓ</span></span></span></span> degeneracy — respond to an electric field only at <strong>second order</strong>: the perturbation goes as the <em>square</em> of a passing charge&#39;s field, falls off as <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><mi mathvariant="normal">/</mi><msup><mi>r</mi><mn>4</mn></msup></mrow><annotation encoding="application/x-tex">1/r^4</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1.0641em;vertical-align:-0.25em;"></span><span class="mord">1/</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.02778em;">r</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">4</span></span></span></span></span></span></span></span></span></span></span>, and is so short-ranged that collisions are brief and isolated. The <strong>impact approximation</strong> holds, and it yields a Lorentzian wing. The line stays narrow and the Voigt picture works.</p>
@@ -851,13 +850,16 @@ print(&quot;hydrogen_profile_grid (half-widths + safe detuning) ready&quot;)" ar
 
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;hydrogen_profile_grid (half-widths + safe detuning) ready&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">hydrogen_profile_grid (half-widths + safe detuning) ready
-</pre></div></div><div class="prose"><p>The three pieces and the selection. The <strong>Doppler core</strong> is the broadcasted <code>[n_fine, D, n_w]</code> reduction (note <code>df_signed - foff</code> — the precision fix carried into the fine-structure term). The <strong>Lorentzian</strong> is a single Lorentz of width <code>hhw</code>. The <strong>Stark</strong> piece is <code>sofbeta_grid</code> <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>×</mo><mo stretchy="false">(</mo><mn>1</mn><mo>+</mo><mtext>fns</mtext><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">\times (1+\text{fns})</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">×</span><span class="mopen">(</span><span class="mord">1</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">fns</span></span><span class="mclose">)</span></span></span></span> plus the impact Lorentzian <code>f</code>, whose width <code>gamma</code> blends a simple analytic form with the exponential-integral form via <code>use_ei</code> (a boolean mask, replacing the scalar <code>if y2&gt;1e-4 and y1&gt;1e-5</code>). Finally the width-selection: in the core, <code>torch.where(dop_dom, core, where(lor_ge_stk, lorentz, stark))</code>; in the wing, the sum; chosen by <code>ifcore</code>.</p>
+</pre></div></div><div class="prose"><p>The three pieces and the selection. The <strong>Doppler core</strong> is the broadcasted <code>[n_fine, D, n_w]</code> reduction (note <code>signed_detuning_hz - foff</code> — the precision fix carried into the fine-structure term). The <strong>Lorentzian</strong> is a single Lorentz of width <code>lorentz_width_hz</code>. The <strong>Stark</strong> piece is <code>sofbeta_grid</code> <span class="katex-error" title="ParseError: KaTeX parse error: Expected &#x27;EOF&#x27;, got &#x27;_&#x27; at position 26: …\text{nonstatic_̲correction})" style="color:#cc0000">\times (1+\text{nonstatic_correction})</span> plus the impact Lorentzian <code>impact_lorentzian</code>, whose width <code>gamma</code> blends a simple analytic form with the exponential-integral form via a boolean mask replacing the scalar <code>if y2&gt;1e-4 and y1&gt;1e-5</code>. Finally the width-selection: in the core, <code>torch.where(doppler_dominates, core, where(lorentz_ge_stark, lorentz, stark))</code>; in the wing, the sum; chosen by <code>in_dominant_core</code>.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[13]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="def _hprof4_pieces(n, m, mmn, df_signed, del_freq, wlA, dop, dopph_safe, freqnm, dbeta,
-                   fo, hwlor, foff, fwt, n_fine, hyd, y1wtm, propbm, c_t, d_t, pp_t, beta_t,
-                   c1con, c2con, ifcore, dop_dom, lor_ge_stk):
+        <button class="copy-btn" type="button" data-code="def _hprof4_pieces(n, m, upper_minus_lower, signed_detuning_hz, abs_detuning_hz, wavelength_A,
+                   doppler_width_hz, doppler_fraction_safe, line_frequency, beta_scale,
+                   normal_field, lorentz_half_width, foff, fwt, n_fine, hyd,
+                   impact_density_weight_table, propbm_table, wing_c_table, wing_d_table,
+                   pressure_grid, beta_grid, impact_c1_scale, impact_c2_scale,
+                   in_dominant_core, doppler_dominates, lorentz_ge_stark):
     &quot;&quot;&quot;Build the Doppler, Lorentzian, and Stark setup pieces for HPROF4.
 
     The fine-structure Doppler core is reduced over a leading component axis,
@@ -865,47 +867,74 @@ print(&quot;hydrogen_profile_grid (half-widths + safe detuning) ready&quot;)" ar
     Stark terms are prepared for the gamma selector.  No profile selection is
     finalized here; this function forwards the pieces to `_hprof4_gamma`.
     &quot;&quot;&quot;
-    xm2 = m*m
-    c1d = _as_col(hyd[&quot;c1d&quot;]); c2d = _as_col(hyd[&quot;c2d&quot;])
-    y1s = _as_col(hyd[&quot;y1s&quot;]); y1b = _as_col(hyd[&quot;y1b&quot;])
-    gcon1 = _as_col(hyd[&quot;gcon1&quot;]); gcon2 = _as_col(hyd[&quot;gcon2&quot;])
-    pp_val = _as_col(hyd[&quot;pp&quot;]); ne = _as_col(hyd[&quot;ne&quot;])
+    impact_c1_depth = _as_col(hyd[&quot;c1d&quot;])
+    impact_c2_depth = _as_col(hyd[&quot;c2d&quot;])
+    y1_small_density = _as_col(hyd[&quot;y1s&quot;])
+    y1_large_density = _as_col(hyd[&quot;y1b&quot;])
+    gamma_correction_1 = _as_col(hyd[&quot;gcon1&quot;])
+    gamma_correction_2 = _as_col(hyd[&quot;gcon2&quot;])
+    pressure_value = _as_col(hyd[&quot;pp&quot;])
+    electron_density_col = _as_col(hyd[&quot;ne&quot;])
 
     # --- (1) Doppler core: SQUEEZE the fine-structure sum into one [n_fine, D, n_w] reduction ---
-    nf = min(int(n_fine), int(foff.numel()), int(fwt.numel()))
-    if nf &gt; 0:
-        foff_f = foff[:nf].reshape(nf, 1, 1); fwt_f = fwt[:nf].reshape(nf, 1, 1)
-        dd_f = (df_signed.unsqueeze(0) - foff_f).abs() / torch.clamp(dop, min=1.0e-30).unsqueeze(0)
-        core = torch.sum(torch.where(dd_f &lt;= 7.0, _fast_ex_gauss(dd_f*dd_f) * fwt_f,
-                                     torch.zeros_like(dd_f)), dim=0)
+    n_components = min(int(n_fine), int(foff.numel()), int(fwt.numel()))
+    if n_components &gt; 0:
+        component_offsets_hz = foff[:n_components].reshape(n_components, 1, 1)
+        component_weights = fwt[:n_components].reshape(n_components, 1, 1)
+        component_detuning_doppler = (
+            (signed_detuning_hz.unsqueeze(0) - component_offsets_hz).abs()
+            / torch.clamp(doppler_width_hz, min=1.0e-30).unsqueeze(0)
+        )
+        core = torch.sum(torch.where(component_detuning_doppler &lt;= 7.0,
+                                     _fast_ex_gauss(component_detuning_doppler*component_detuning_doppler)
+                                     * component_weights,
+                                     torch.zeros_like(component_detuning_doppler)), dim=0)
     else:
-        core = torch.zeros_like(del_freq)
+        core = torch.zeros_like(abs_detuning_hz)
 
     # --- (2) Lorentzian (resonance + radiative + van der Waals), one Lorentz of width hwlor ---
-    hhw = freqnm * hwlor; df2 = del_freq*del_freq; den_lor = df2 + hhw*hhw
-    den_lor_safe = torch.where(den_lor &gt; 0.0, den_lor, torch.ones_like(den_lor))
-    lorentz = torch.where(hhw &gt; 0.0, hhw/math.pi/den_lor_safe * 1.77245 * dop, torch.zeros_like(del_freq))
+    lorentz_width_hz = line_frequency * lorentz_half_width
+    detuning_sq_hz = abs_detuning_hz * abs_detuning_hz
+    lorentz_denominator = detuning_sq_hz + lorentz_width_hz*lorentz_width_hz
+    lorentz_denominator_safe = torch.where(lorentz_denominator &gt; 0.0,
+                                           lorentz_denominator,
+                                           torch.ones_like(lorentz_denominator))
+    lorentz = torch.where(lorentz_width_hz &gt; 0.0,
+                          lorentz_width_hz/math.pi/lorentz_denominator_safe * 1.77245 * doppler_width_hz,
+                          torch.zeros_like(abs_detuning_hz))
 
     # --- (3a) electron-impact width gamma: simple form + the E_1 form, mask-selected ---
-    y1num = 320.0 if m &gt; 3 else (550.0 if m == 2 else 380.0)
-    y1wht = torch.as_tensor(1.0e14 if mmn &lt;= 3 else 1.0e13, device=DEVICE, dtype=DTYPE)
-    if mmn &lt;= 2 and 1 &lt;= n &lt;= 2 and n &lt;= y1wtm.shape[0] and mmn &lt;= y1wtm.shape[1]:
-        y1wht = y1wtm[n-1, mmn-1]
-    wty1 = 1.0 / (1.0 + torch.clamp(ne, min=0.0) / torch.clamp(y1wht, min=1.0e-30))
-    y1_scal = y1num*y1s*wty1 + y1b*(1.0 - wty1)
-    c1 = c1d*c1con*y1_scal; c2 = c2d*c2con
-    beta = del_freq / torch.clamp(fo, min=1.0e-30) * dbeta
-    y1 = c1*beta; y2 = c2*beta*beta
-    return _hprof4_gamma(n, m, beta, y1, y2, c1, c2, core, lorentz, dop, dopph_safe, fo, dbeta,
-                         gcon1, gcon2, pp_val, propbm, c_t, d_t, pp_t, beta_t, wlA,
-                         ifcore, dop_dom, lor_ge_stk)
+    y1_transition_scale = 320.0 if m &gt; 3 else (550.0 if m == 2 else 380.0)
+    y1_density_weight = torch.as_tensor(1.0e14 if upper_minus_lower &lt;= 3 else 1.0e13,
+                                        device=DEVICE, dtype=DTYPE)
+    if (upper_minus_lower &lt;= 2 and 1 &lt;= n &lt;= 2
+            and n &lt;= impact_density_weight_table.shape[0]
+            and upper_minus_lower &lt;= impact_density_weight_table.shape[1]):
+        y1_density_weight = impact_density_weight_table[n-1, upper_minus_lower-1]
+    y1_density_mix = 1.0 / (
+        1.0 + torch.clamp(electron_density_col, min=0.0) / torch.clamp(y1_density_weight, min=1.0e-30)
+    )
+    y1_depth_scale = y1_transition_scale*y1_small_density*y1_density_mix + y1_large_density*(1.0 - y1_density_mix)
+    impact_c1 = impact_c1_depth*impact_c1_scale*y1_depth_scale
+    impact_c2 = impact_c2_depth*impact_c2_scale
+    beta_detuning = abs_detuning_hz / torch.clamp(normal_field, min=1.0e-30) * beta_scale
+    impact_y1 = impact_c1 * beta_detuning
+    impact_y2 = impact_c2 * beta_detuning * beta_detuning
+    return _hprof4_gamma(n, m, beta_detuning, impact_y1, impact_y2, impact_c1, impact_c2,
+                         core, lorentz, doppler_width_hz, doppler_fraction_safe, normal_field,
+                         beta_scale, gamma_correction_1, gamma_correction_2, pressure_value,
+                         propbm_table, wing_c_table, wing_d_table, pressure_grid, beta_grid, wavelength_A,
+                         in_dominant_core, doppler_dominates, lorentz_ge_stark)
 
 print(&quot;hydrogen_profile_grid (core + lorentz + impact setup) ready&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_hprof4_pieces</span>(<span class="hljs-params">n, m, mmn, df_signed, del_freq, wlA, dop, dopph_safe, freqnm, dbeta,
-                   fo, hwlor, foff, fwt, n_fine, hyd, y1wtm, propbm, c_t, d_t, pp_t, beta_t,
-                   c1con, c2con, ifcore, dop_dom, lor_ge_stk</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_hprof4_pieces</span>(<span class="hljs-params">n, m, upper_minus_lower, signed_detuning_hz, abs_detuning_hz, wavelength_A,
+                   doppler_width_hz, doppler_fraction_safe, line_frequency, beta_scale,
+                   normal_field, lorentz_half_width, foff, fwt, n_fine, hyd,
+                   impact_density_weight_table, propbm_table, wing_c_table, wing_d_table,
+                   pressure_grid, beta_grid, impact_c1_scale, impact_c2_scale,
+                   in_dominant_core, doppler_dominates, lorentz_ge_stark</span>):
     <span class="hljs-string">&quot;&quot;&quot;Build the Doppler, Lorentzian, and Stark setup pieces for HPROF4.
 
     The fine-structure Doppler core is reduced over a leading component axis,
@@ -913,50 +942,76 @@ print(&quot;hydrogen_profile_grid (core + lorentz + impact setup) ready&quot;)" 
     Stark terms are prepared for the gamma selector.  No profile selection is
     finalized here; this function forwards the pieces to `_hprof4_gamma`.
     &quot;&quot;&quot;</span>
-    xm2 = m*m
-    c1d = _as_col(hyd[<span class="hljs-string">&quot;c1d&quot;</span>]); c2d = _as_col(hyd[<span class="hljs-string">&quot;c2d&quot;</span>])
-    y1s = _as_col(hyd[<span class="hljs-string">&quot;y1s&quot;</span>]); y1b = _as_col(hyd[<span class="hljs-string">&quot;y1b&quot;</span>])
-    gcon1 = _as_col(hyd[<span class="hljs-string">&quot;gcon1&quot;</span>]); gcon2 = _as_col(hyd[<span class="hljs-string">&quot;gcon2&quot;</span>])
-    pp_val = _as_col(hyd[<span class="hljs-string">&quot;pp&quot;</span>]); ne = _as_col(hyd[<span class="hljs-string">&quot;ne&quot;</span>])
+    impact_c1_depth = _as_col(hyd[<span class="hljs-string">&quot;c1d&quot;</span>])
+    impact_c2_depth = _as_col(hyd[<span class="hljs-string">&quot;c2d&quot;</span>])
+    y1_small_density = _as_col(hyd[<span class="hljs-string">&quot;y1s&quot;</span>])
+    y1_large_density = _as_col(hyd[<span class="hljs-string">&quot;y1b&quot;</span>])
+    gamma_correction_1 = _as_col(hyd[<span class="hljs-string">&quot;gcon1&quot;</span>])
+    gamma_correction_2 = _as_col(hyd[<span class="hljs-string">&quot;gcon2&quot;</span>])
+    pressure_value = _as_col(hyd[<span class="hljs-string">&quot;pp&quot;</span>])
+    electron_density_col = _as_col(hyd[<span class="hljs-string">&quot;ne&quot;</span>])
 
     <span class="hljs-comment"># --- (1) Doppler core: SQUEEZE the fine-structure sum into one [n_fine, D, n_w] reduction ---</span>
-    nf = <span class="hljs-built_in">min</span>(<span class="hljs-built_in">int</span>(n_fine), <span class="hljs-built_in">int</span>(foff.numel()), <span class="hljs-built_in">int</span>(fwt.numel()))
-    <span class="hljs-keyword">if</span> nf &gt; <span class="hljs-number">0</span>:
-        foff_f = foff[:nf].reshape(nf, <span class="hljs-number">1</span>, <span class="hljs-number">1</span>); fwt_f = fwt[:nf].reshape(nf, <span class="hljs-number">1</span>, <span class="hljs-number">1</span>)
-        dd_f = (df_signed.unsqueeze(<span class="hljs-number">0</span>) - foff_f).<span class="hljs-built_in">abs</span>() / torch.clamp(dop, <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-30</span>).unsqueeze(<span class="hljs-number">0</span>)
-        core = torch.<span class="hljs-built_in">sum</span>(torch.where(dd_f &lt;= <span class="hljs-number">7.0</span>, _fast_ex_gauss(dd_f*dd_f) * fwt_f,
-                                     torch.zeros_like(dd_f)), dim=<span class="hljs-number">0</span>)
+    n_components = <span class="hljs-built_in">min</span>(<span class="hljs-built_in">int</span>(n_fine), <span class="hljs-built_in">int</span>(foff.numel()), <span class="hljs-built_in">int</span>(fwt.numel()))
+    <span class="hljs-keyword">if</span> n_components &gt; <span class="hljs-number">0</span>:
+        component_offsets_hz = foff[:n_components].reshape(n_components, <span class="hljs-number">1</span>, <span class="hljs-number">1</span>)
+        component_weights = fwt[:n_components].reshape(n_components, <span class="hljs-number">1</span>, <span class="hljs-number">1</span>)
+        component_detuning_doppler = (
+            (signed_detuning_hz.unsqueeze(<span class="hljs-number">0</span>) - component_offsets_hz).<span class="hljs-built_in">abs</span>()
+            / torch.clamp(doppler_width_hz, <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-30</span>).unsqueeze(<span class="hljs-number">0</span>)
+        )
+        core = torch.<span class="hljs-built_in">sum</span>(torch.where(component_detuning_doppler &lt;= <span class="hljs-number">7.0</span>,
+                                     _fast_ex_gauss(component_detuning_doppler*component_detuning_doppler)
+                                     * component_weights,
+                                     torch.zeros_like(component_detuning_doppler)), dim=<span class="hljs-number">0</span>)
     <span class="hljs-keyword">else</span>:
-        core = torch.zeros_like(del_freq)
+        core = torch.zeros_like(abs_detuning_hz)
 
     <span class="hljs-comment"># --- (2) Lorentzian (resonance + radiative + van der Waals), one Lorentz of width hwlor ---</span>
-    hhw = freqnm * hwlor; df2 = del_freq*del_freq; den_lor = df2 + hhw*hhw
-    den_lor_safe = torch.where(den_lor &gt; <span class="hljs-number">0.0</span>, den_lor, torch.ones_like(den_lor))
-    lorentz = torch.where(hhw &gt; <span class="hljs-number">0.0</span>, hhw/math.pi/den_lor_safe * <span class="hljs-number">1.77245</span> * dop, torch.zeros_like(del_freq))
+    lorentz_width_hz = line_frequency * lorentz_half_width
+    detuning_sq_hz = abs_detuning_hz * abs_detuning_hz
+    lorentz_denominator = detuning_sq_hz + lorentz_width_hz*lorentz_width_hz
+    lorentz_denominator_safe = torch.where(lorentz_denominator &gt; <span class="hljs-number">0.0</span>,
+                                           lorentz_denominator,
+                                           torch.ones_like(lorentz_denominator))
+    lorentz = torch.where(lorentz_width_hz &gt; <span class="hljs-number">0.0</span>,
+                          lorentz_width_hz/math.pi/lorentz_denominator_safe * <span class="hljs-number">1.77245</span> * doppler_width_hz,
+                          torch.zeros_like(abs_detuning_hz))
 
     <span class="hljs-comment"># --- (3a) electron-impact width gamma: simple form + the E_1 form, mask-selected ---</span>
-    y1num = <span class="hljs-number">320.0</span> <span class="hljs-keyword">if</span> m &gt; <span class="hljs-number">3</span> <span class="hljs-keyword">else</span> (<span class="hljs-number">550.0</span> <span class="hljs-keyword">if</span> m == <span class="hljs-number">2</span> <span class="hljs-keyword">else</span> <span class="hljs-number">380.0</span>)
-    y1wht = torch.as_tensor(<span class="hljs-number">1.0e14</span> <span class="hljs-keyword">if</span> mmn &lt;= <span class="hljs-number">3</span> <span class="hljs-keyword">else</span> <span class="hljs-number">1.0e13</span>, device=DEVICE, dtype=DTYPE)
-    <span class="hljs-keyword">if</span> mmn &lt;= <span class="hljs-number">2</span> <span class="hljs-keyword">and</span> <span class="hljs-number">1</span> &lt;= n &lt;= <span class="hljs-number">2</span> <span class="hljs-keyword">and</span> n &lt;= y1wtm.shape[<span class="hljs-number">0</span>] <span class="hljs-keyword">and</span> mmn &lt;= y1wtm.shape[<span class="hljs-number">1</span>]:
-        y1wht = y1wtm[n-<span class="hljs-number">1</span>, mmn-<span class="hljs-number">1</span>]
-    wty1 = <span class="hljs-number">1.0</span> / (<span class="hljs-number">1.0</span> + torch.clamp(ne, <span class="hljs-built_in">min</span>=<span class="hljs-number">0.0</span>) / torch.clamp(y1wht, <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-30</span>))
-    y1_scal = y1num*y1s*wty1 + y1b*(<span class="hljs-number">1.0</span> - wty1)
-    c1 = c1d*c1con*y1_scal; c2 = c2d*c2con
-    beta = del_freq / torch.clamp(fo, <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-30</span>) * dbeta
-    y1 = c1*beta; y2 = c2*beta*beta
-    <span class="hljs-keyword">return</span> _hprof4_gamma(n, m, beta, y1, y2, c1, c2, core, lorentz, dop, dopph_safe, fo, dbeta,
-                         gcon1, gcon2, pp_val, propbm, c_t, d_t, pp_t, beta_t, wlA,
-                         ifcore, dop_dom, lor_ge_stk)
+    y1_transition_scale = <span class="hljs-number">320.0</span> <span class="hljs-keyword">if</span> m &gt; <span class="hljs-number">3</span> <span class="hljs-keyword">else</span> (<span class="hljs-number">550.0</span> <span class="hljs-keyword">if</span> m == <span class="hljs-number">2</span> <span class="hljs-keyword">else</span> <span class="hljs-number">380.0</span>)
+    y1_density_weight = torch.as_tensor(<span class="hljs-number">1.0e14</span> <span class="hljs-keyword">if</span> upper_minus_lower &lt;= <span class="hljs-number">3</span> <span class="hljs-keyword">else</span> <span class="hljs-number">1.0e13</span>,
+                                        device=DEVICE, dtype=DTYPE)
+    <span class="hljs-keyword">if</span> (upper_minus_lower &lt;= <span class="hljs-number">2</span> <span class="hljs-keyword">and</span> <span class="hljs-number">1</span> &lt;= n &lt;= <span class="hljs-number">2</span>
+            <span class="hljs-keyword">and</span> n &lt;= impact_density_weight_table.shape[<span class="hljs-number">0</span>]
+            <span class="hljs-keyword">and</span> upper_minus_lower &lt;= impact_density_weight_table.shape[<span class="hljs-number">1</span>]):
+        y1_density_weight = impact_density_weight_table[n-<span class="hljs-number">1</span>, upper_minus_lower-<span class="hljs-number">1</span>]
+    y1_density_mix = <span class="hljs-number">1.0</span> / (
+        <span class="hljs-number">1.0</span> + torch.clamp(electron_density_col, <span class="hljs-built_in">min</span>=<span class="hljs-number">0.0</span>) / torch.clamp(y1_density_weight, <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-30</span>)
+    )
+    y1_depth_scale = y1_transition_scale*y1_small_density*y1_density_mix + y1_large_density*(<span class="hljs-number">1.0</span> - y1_density_mix)
+    impact_c1 = impact_c1_depth*impact_c1_scale*y1_depth_scale
+    impact_c2 = impact_c2_depth*impact_c2_scale
+    beta_detuning = abs_detuning_hz / torch.clamp(normal_field, <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-30</span>) * beta_scale
+    impact_y1 = impact_c1 * beta_detuning
+    impact_y2 = impact_c2 * beta_detuning * beta_detuning
+    <span class="hljs-keyword">return</span> _hprof4_gamma(n, m, beta_detuning, impact_y1, impact_y2, impact_c1, impact_c2,
+                         core, lorentz, doppler_width_hz, doppler_fraction_safe, normal_field,
+                         beta_scale, gamma_correction_1, gamma_correction_2, pressure_value,
+                         propbm_table, wing_c_table, wing_d_table, pressure_grid, beta_grid, wavelength_A,
+                         in_dominant_core, doppler_dominates, lorentz_ge_stark)
 
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;hydrogen_profile_grid (core + lorentz + impact setup) ready&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">hydrogen_profile_grid (core + lorentz + impact setup) ready
-</pre></div></div><div class="prose"><p>The impact width <code>gamma</code> and the final selection. The simple analytic <code>gamma_simple</code> is always computed; the exponential-integral form <code>gamma_ei</code> (using the vectorized <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>E</mi><mn>1</mn></msub></mrow><annotation encoding="application/x-tex">E_1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05764em;">E</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.0576em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> on <code>y1</code>, <code>y2</code>) is selected where <code>use_ei</code> holds. The combined Stark piece is <code>(prqs*(1+fns) + f)</code> normalised by <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>F</mi><mn>0</mn></msub></mrow><annotation encoding="application/x-tex">F_0</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">F</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.1389em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">0</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>. The closing <code>torch.where(ifcore, in_core_val, wing_val)</code> <em>is</em> the <code>if ifcore</code>/<code>else</code> of the scalar code — one straight-line selection over the whole grid.</p>
+</pre></div></div><div class="prose"><p>The impact width <code>gamma</code> and the final selection. The simple analytic <code>gamma_simple</code> is always computed; the exponential-integral form <code>gamma_ei</code> (using the vectorized <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>E</mi><mn>1</mn></msub></mrow><annotation encoding="application/x-tex">E_1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05764em;">E</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.0576em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> on <code>impact_y1</code>, <code>impact_y2</code>) is selected where the scalar thresholds hold. The combined Stark piece is <code>(quasi_static_profile*(1+nonstatic_correction) + impact_lorentzian)</code> normalised by <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>F</mi><mn>0</mn></msub></mrow><annotation encoding="application/x-tex">F_0</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">F</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.1389em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">0</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>. The closing <code>torch.where(in_dominant_core, core_selected_value, wing_sum_value)</code> <em>is</em> the scalar core/wing branch — one straight-line selection over the whole grid.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[14]</span>Python</span>
-        <button class="copy-btn" type="button" data-code="def _hprof4_gamma(n, m, beta, y1, y2, c1, c2, core, lorentz, dop, dopph_safe, fo, dbeta,
-                  gcon1, gcon2, pp_val, propbm, c_t, d_t, pp_t, beta_t, wlA,
-                  ifcore, dop_dom, lor_ge_stk):
+        <button class="copy-btn" type="button" data-code="def _hprof4_gamma(n, m, beta, impact_y1, impact_y2, impact_c1, impact_c2,
+                  core, lorentz, doppler_width_hz, doppler_fraction_safe, normal_field, beta_scale,
+                  gamma_correction_1, gamma_correction_2, pressure_value,
+                  propbm_table, wing_c_table, wing_d_table, pressure_grid, beta_grid, wavelength_A,
+                  in_dominant_core, doppler_dominates, lorentz_ge_stark):
     &quot;&quot;&quot;Finish HPROF4 by forming the Stark impact width and selecting the piece.
 
     `gamma_simple` and the exponential-integral form are both evaluated and
@@ -964,41 +1019,60 @@ print(&quot;hydrogen_profile_grid (core + lorentz + impact setup) ready&quot;)" 
     core only the dominant broadening component is returned; outside the core
     the Doppler, Lorentzian, and Stark contributions are summed.
     &quot;&quot;&quot;
-    g1 = 6.77 * torch.sqrt(torch.clamp(c1, min=1.0e-30))
-    ratio = torch.where((c1 &gt; 0.0) &amp; (c2 &gt; 0.0),
-                        torch.sqrt(torch.clamp(c2, min=0.0)) / torch.clamp(c1, min=1.0e-30),
-                        torch.zeros_like(c1))
-    log_term = torch.where(ratio &gt; 0.0, torch.log(torch.clamp(ratio, min=1.0e-30)),
-                           torch.zeros_like(ratio))
-    gamma_simple = (g1 * torch.clamp(0.2114 + log_term, min=0.0)
-                    * (1.0 - gcon1 - gcon2)).expand_as(beta)        # simple analytic gamma (low y1)
-    gamma_ei = (g1 * (0.5*_fast_ex_gauss(torch.clamp(y1, max=80.0)) + _vcse1f_tensor(y1)
-                      - 0.5*_vcse1f_tensor(y2))                     # exponential-integral form
-                * (1.0 - gcon1/(1.0 + (90.0*y1)**3) - gcon2/(1.0 + 2000.0*y1)))
-    gamma = torch.where((y2 &gt; 1.0e-4) &amp; (y1 &gt; 1.0e-5), gamma_ei, gamma_simple)
+    gamma_prefactor = 6.77 * torch.sqrt(torch.clamp(impact_c1, min=1.0e-30))
+    gamma_log_ratio = torch.where(
+        (impact_c1 &gt; 0.0) &amp; (impact_c2 &gt; 0.0),
+        torch.sqrt(torch.clamp(impact_c2, min=0.0)) / torch.clamp(impact_c1, min=1.0e-30),
+        torch.zeros_like(impact_c1)
+    )
+    gamma_log_term = torch.where(gamma_log_ratio &gt; 0.0,
+                                 torch.log(torch.clamp(gamma_log_ratio, min=1.0e-30)),
+                                 torch.zeros_like(gamma_log_ratio))
+    gamma_simple = (gamma_prefactor * torch.clamp(0.2114 + gamma_log_term, min=0.0)
+                    * (1.0 - gamma_correction_1 - gamma_correction_2)).expand_as(beta)
+    gamma_ei = (
+        gamma_prefactor
+        * (0.5*_fast_ex_gauss(torch.clamp(impact_y1, max=80.0))
+           + _vcse1f_tensor(impact_y1) - 0.5*_vcse1f_tensor(impact_y2))
+        * (1.0 - gamma_correction_1/(1.0 + (90.0*impact_y1)**3)
+           - gamma_correction_2/(1.0 + 2000.0*impact_y1))
+    )
+    gamma = torch.where((impact_y2 &gt; 1.0e-4) &amp; (impact_y1 &gt; 1.0e-5), gamma_ei, gamma_simple)
 
-    den_f = gamma*gamma + beta*beta
-    den_f_safe = torch.where(den_f &gt; 0.0, den_f, torch.ones_like(den_f))
-    f = torch.where(gamma &gt; 0.0, gamma/math.pi/den_f_safe, torch.zeros_like(beta))  # impact Lorentzian
+    impact_denominator = gamma*gamma + beta*beta
+    impact_denominator_safe = torch.where(impact_denominator &gt; 0.0,
+                                          impact_denominator,
+                                          torch.ones_like(impact_denominator))
+    impact_lorentzian = torch.where(gamma &gt; 0.0, gamma/math.pi/impact_denominator_safe,
+                                    torch.zeros_like(beta))
 
-    prqs = sofbeta_grid(beta, pp_val, n, m, propbm, c_t, d_t, pp_t, beta_t)
-    p1 = (0.9*y1)**2; fns = (p1 + 0.03*torch.sqrt(torch.clamp(y1, min=0.0))) / (p1 + 1.0)
-    stark_core = (prqs*(1.0 + fns) + f) / torch.clamp(fo, min=1.0e-30) * dbeta * 1.77245 * dop
+    quasi_static_profile = sofbeta_grid(beta, pressure_value, n, m, propbm_table, wing_c_table,
+                                        wing_d_table, pressure_grid, beta_grid)
+    nonstatic_weight_sq = (0.9*impact_y1)**2
+    nonstatic_correction = (
+        nonstatic_weight_sq + 0.03*torch.sqrt(torch.clamp(impact_y1, min=0.0))
+    ) / (nonstatic_weight_sq + 1.0)
+    stark_core = ((quasi_static_profile*(1.0 + nonstatic_correction) + impact_lorentzian)
+                  / torch.clamp(normal_field, min=1.0e-30) * beta_scale * 1.77245 * doppler_width_hz)
 
     # --- select by the dominant width: dominant piece in the core, sum in the wing (all torch.where) ---
-    core_p = torch.clamp(core, min=0.0); lor_p = torch.clamp(lorentz, min=0.0)
-    stk_p = torch.clamp(stark_core, min=0.0)
-    in_core_val = torch.where(dop_dom, core_p, torch.where(lor_ge_stk, lor_p, stk_p))
-    wing_val = torch.clamp(core + lorentz + stark_core, min=0.0)
-    out = torch.where(ifcore, in_core_val, wing_val)
-    return torch.where(wlA &gt; 0.0, out, torch.zeros_like(out))   # phi = 0 where wlA &lt;= 0 (scalar guard)
+    nonnegative_core = torch.clamp(core, min=0.0)
+    nonnegative_lorentz = torch.clamp(lorentz, min=0.0)
+    nonnegative_stark = torch.clamp(stark_core, min=0.0)
+    core_selected_value = torch.where(doppler_dominates, nonnegative_core,
+                                      torch.where(lorentz_ge_stark, nonnegative_lorentz, nonnegative_stark))
+    wing_sum_value = torch.clamp(core + lorentz + stark_core, min=0.0)
+    selected_profile = torch.where(in_dominant_core, core_selected_value, wing_sum_value)
+    return torch.where(wavelength_A &gt; 0.0, selected_profile, torch.zeros_like(selected_profile))
 
 print(&quot;hydrogen_profile_grid ready&quot;)" aria-label="Copy code">
           <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span><span class="ct">Copy</span></button>
       </div>
-      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_hprof4_gamma</span>(<span class="hljs-params">n, m, beta, y1, y2, c1, c2, core, lorentz, dop, dopph_safe, fo, dbeta,
-                  gcon1, gcon2, pp_val, propbm, c_t, d_t, pp_t, beta_t, wlA,
-                  ifcore, dop_dom, lor_ge_stk</span>):
+      <pre class="code-body"><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_hprof4_gamma</span>(<span class="hljs-params">n, m, beta, impact_y1, impact_y2, impact_c1, impact_c2,
+                  core, lorentz, doppler_width_hz, doppler_fraction_safe, normal_field, beta_scale,
+                  gamma_correction_1, gamma_correction_2, pressure_value,
+                  propbm_table, wing_c_table, wing_d_table, pressure_grid, beta_grid, wavelength_A,
+                  in_dominant_core, doppler_dominates, lorentz_ge_stark</span>):
     <span class="hljs-string">&quot;&quot;&quot;Finish HPROF4 by forming the Stark impact width and selecting the piece.
 
     `gamma_simple` and the exponential-integral form are both evaluated and
@@ -1006,34 +1080,51 @@ print(&quot;hydrogen_profile_grid ready&quot;)" aria-label="Copy code">
     core only the dominant broadening component is returned; outside the core
     the Doppler, Lorentzian, and Stark contributions are summed.
     &quot;&quot;&quot;</span>
-    g1 = <span class="hljs-number">6.77</span> * torch.sqrt(torch.clamp(c1, <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-30</span>))
-    ratio = torch.where((c1 &gt; <span class="hljs-number">0.0</span>) &amp; (c2 &gt; <span class="hljs-number">0.0</span>),
-                        torch.sqrt(torch.clamp(c2, <span class="hljs-built_in">min</span>=<span class="hljs-number">0.0</span>)) / torch.clamp(c1, <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-30</span>),
-                        torch.zeros_like(c1))
-    log_term = torch.where(ratio &gt; <span class="hljs-number">0.0</span>, torch.log(torch.clamp(ratio, <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-30</span>)),
-                           torch.zeros_like(ratio))
-    gamma_simple = (g1 * torch.clamp(<span class="hljs-number">0.2114</span> + log_term, <span class="hljs-built_in">min</span>=<span class="hljs-number">0.0</span>)
-                    * (<span class="hljs-number">1.0</span> - gcon1 - gcon2)).expand_as(beta)        <span class="hljs-comment"># simple analytic gamma (low y1)</span>
-    gamma_ei = (g1 * (<span class="hljs-number">0.5</span>*_fast_ex_gauss(torch.clamp(y1, <span class="hljs-built_in">max</span>=<span class="hljs-number">80.0</span>)) + _vcse1f_tensor(y1)
-                      - <span class="hljs-number">0.5</span>*_vcse1f_tensor(y2))                     <span class="hljs-comment"># exponential-integral form</span>
-                * (<span class="hljs-number">1.0</span> - gcon1/(<span class="hljs-number">1.0</span> + (<span class="hljs-number">90.0</span>*y1)**<span class="hljs-number">3</span>) - gcon2/(<span class="hljs-number">1.0</span> + <span class="hljs-number">2000.0</span>*y1)))
-    gamma = torch.where((y2 &gt; <span class="hljs-number">1.0e-4</span>) &amp; (y1 &gt; <span class="hljs-number">1.0e-5</span>), gamma_ei, gamma_simple)
+    gamma_prefactor = <span class="hljs-number">6.77</span> * torch.sqrt(torch.clamp(impact_c1, <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-30</span>))
+    gamma_log_ratio = torch.where(
+        (impact_c1 &gt; <span class="hljs-number">0.0</span>) &amp; (impact_c2 &gt; <span class="hljs-number">0.0</span>),
+        torch.sqrt(torch.clamp(impact_c2, <span class="hljs-built_in">min</span>=<span class="hljs-number">0.0</span>)) / torch.clamp(impact_c1, <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-30</span>),
+        torch.zeros_like(impact_c1)
+    )
+    gamma_log_term = torch.where(gamma_log_ratio &gt; <span class="hljs-number">0.0</span>,
+                                 torch.log(torch.clamp(gamma_log_ratio, <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-30</span>)),
+                                 torch.zeros_like(gamma_log_ratio))
+    gamma_simple = (gamma_prefactor * torch.clamp(<span class="hljs-number">0.2114</span> + gamma_log_term, <span class="hljs-built_in">min</span>=<span class="hljs-number">0.0</span>)
+                    * (<span class="hljs-number">1.0</span> - gamma_correction_1 - gamma_correction_2)).expand_as(beta)
+    gamma_ei = (
+        gamma_prefactor
+        * (<span class="hljs-number">0.5</span>*_fast_ex_gauss(torch.clamp(impact_y1, <span class="hljs-built_in">max</span>=<span class="hljs-number">80.0</span>))
+           + _vcse1f_tensor(impact_y1) - <span class="hljs-number">0.5</span>*_vcse1f_tensor(impact_y2))
+        * (<span class="hljs-number">1.0</span> - gamma_correction_1/(<span class="hljs-number">1.0</span> + (<span class="hljs-number">90.0</span>*impact_y1)**<span class="hljs-number">3</span>)
+           - gamma_correction_2/(<span class="hljs-number">1.0</span> + <span class="hljs-number">2000.0</span>*impact_y1))
+    )
+    gamma = torch.where((impact_y2 &gt; <span class="hljs-number">1.0e-4</span>) &amp; (impact_y1 &gt; <span class="hljs-number">1.0e-5</span>), gamma_ei, gamma_simple)
 
-    den_f = gamma*gamma + beta*beta
-    den_f_safe = torch.where(den_f &gt; <span class="hljs-number">0.0</span>, den_f, torch.ones_like(den_f))
-    f = torch.where(gamma &gt; <span class="hljs-number">0.0</span>, gamma/math.pi/den_f_safe, torch.zeros_like(beta))  <span class="hljs-comment"># impact Lorentzian</span>
+    impact_denominator = gamma*gamma + beta*beta
+    impact_denominator_safe = torch.where(impact_denominator &gt; <span class="hljs-number">0.0</span>,
+                                          impact_denominator,
+                                          torch.ones_like(impact_denominator))
+    impact_lorentzian = torch.where(gamma &gt; <span class="hljs-number">0.0</span>, gamma/math.pi/impact_denominator_safe,
+                                    torch.zeros_like(beta))
 
-    prqs = sofbeta_grid(beta, pp_val, n, m, propbm, c_t, d_t, pp_t, beta_t)
-    p1 = (<span class="hljs-number">0.9</span>*y1)**<span class="hljs-number">2</span>; fns = (p1 + <span class="hljs-number">0.03</span>*torch.sqrt(torch.clamp(y1, <span class="hljs-built_in">min</span>=<span class="hljs-number">0.0</span>))) / (p1 + <span class="hljs-number">1.0</span>)
-    stark_core = (prqs*(<span class="hljs-number">1.0</span> + fns) + f) / torch.clamp(fo, <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-30</span>) * dbeta * <span class="hljs-number">1.77245</span> * dop
+    quasi_static_profile = sofbeta_grid(beta, pressure_value, n, m, propbm_table, wing_c_table,
+                                        wing_d_table, pressure_grid, beta_grid)
+    nonstatic_weight_sq = (<span class="hljs-number">0.9</span>*impact_y1)**<span class="hljs-number">2</span>
+    nonstatic_correction = (
+        nonstatic_weight_sq + <span class="hljs-number">0.03</span>*torch.sqrt(torch.clamp(impact_y1, <span class="hljs-built_in">min</span>=<span class="hljs-number">0.0</span>))
+    ) / (nonstatic_weight_sq + <span class="hljs-number">1.0</span>)
+    stark_core = ((quasi_static_profile*(<span class="hljs-number">1.0</span> + nonstatic_correction) + impact_lorentzian)
+                  / torch.clamp(normal_field, <span class="hljs-built_in">min</span>=<span class="hljs-number">1.0e-30</span>) * beta_scale * <span class="hljs-number">1.77245</span> * doppler_width_hz)
 
     <span class="hljs-comment"># --- select by the dominant width: dominant piece in the core, sum in the wing (all torch.where) ---</span>
-    core_p = torch.clamp(core, <span class="hljs-built_in">min</span>=<span class="hljs-number">0.0</span>); lor_p = torch.clamp(lorentz, <span class="hljs-built_in">min</span>=<span class="hljs-number">0.0</span>)
-    stk_p = torch.clamp(stark_core, <span class="hljs-built_in">min</span>=<span class="hljs-number">0.0</span>)
-    in_core_val = torch.where(dop_dom, core_p, torch.where(lor_ge_stk, lor_p, stk_p))
-    wing_val = torch.clamp(core + lorentz + stark_core, <span class="hljs-built_in">min</span>=<span class="hljs-number">0.0</span>)
-    out = torch.where(ifcore, in_core_val, wing_val)
-    <span class="hljs-keyword">return</span> torch.where(wlA &gt; <span class="hljs-number">0.0</span>, out, torch.zeros_like(out))   <span class="hljs-comment"># phi = 0 where wlA &lt;= 0 (scalar guard)</span>
+    nonnegative_core = torch.clamp(core, <span class="hljs-built_in">min</span>=<span class="hljs-number">0.0</span>)
+    nonnegative_lorentz = torch.clamp(lorentz, <span class="hljs-built_in">min</span>=<span class="hljs-number">0.0</span>)
+    nonnegative_stark = torch.clamp(stark_core, <span class="hljs-built_in">min</span>=<span class="hljs-number">0.0</span>)
+    core_selected_value = torch.where(doppler_dominates, nonnegative_core,
+                                      torch.where(lorentz_ge_stark, nonnegative_lorentz, nonnegative_stark))
+    wing_sum_value = torch.clamp(core + lorentz + stark_core, <span class="hljs-built_in">min</span>=<span class="hljs-number">0.0</span>)
+    selected_profile = torch.where(in_dominant_core, core_selected_value, wing_sum_value)
+    <span class="hljs-keyword">return</span> torch.where(wavelength_A &gt; <span class="hljs-number">0.0</span>, selected_profile, torch.zeros_like(selected_profile))
 
 <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;hydrogen_profile_grid ready&quot;</span>)</code></pre>
     </div></div><div class="nb-out"><div class="out-block"><pre class="out-stream">hydrogen_profile_grid ready

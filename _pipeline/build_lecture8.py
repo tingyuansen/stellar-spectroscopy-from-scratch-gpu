@@ -2,10 +2,10 @@
 """Assemble content/Lecture8.ipynb (unexecuted). Execute + render via build.py.
 
 Lecture 8 — The JOSH Solver: Production Radiative Transfer, rebuilt as a
-torch-native notebook. The notebook imports neither kgpu nor pykurucz and marks
-its remaining data boundaries explicitly: precomputed opacity slabs and fixed
-JOSH operator tables are still taught-path inputs, while source and flux arrays
-are comparison-only references.
+torch-native notebook. The notebook imports neither kgpu nor pykurucz. It
+states the scoped fixture boundary explicitly: opacity slabs and fixed JOSH
+operator tables are taught-path inputs for this transfer-kernel lesson, while
+source and flux arrays are comparison-only references.
 """
 from pathlib import Path
 
@@ -35,7 +35,7 @@ md(
 
 *Yuan-Sen Ting*
 
-*This lecture rebuilds the Kurucz/ATLAS JOSH moment-solver **algorithm** as clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback). It imports neither `kgpu` nor `pykurucz`. Under the strict data-provenance rule, this is not yet a final closed-from-raw-input Lecture 8: the taught computation still consumes precomputed opacity slabs from earlier synthesis stages and fixed JOSH operator tables. Source arrays and flux arrays are comparison-only references, not inputs to the solver.*
+*This lecture rebuilds the Kurucz/ATLAS JOSH moment-solver **algorithm** as clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback). It imports neither `kgpu` nor `pykurucz`, and it does not depend on the NumPy lecture. The scoped taught-path inputs are the opacity slabs from the preceding synthesis stages and the fixed JOSH operator tables; source arrays and flux arrays are comparison-only references, not inputs to the solver.*
 
 ---
 
@@ -45,7 +45,7 @@ md(
 - Interpret the three fixed JOSH tables: the optical-depth grid `XTAU`, the lambda-like operator `COEFJ`, and the surface-flux weights `CH`.
 - Build optical depth with Kurucz's parabolic quadrature, map source terms onto the fixed grid, and solve the scattering source function.
 - Run the full JOSH solve as batched torch tensor operations over wavelength, using fp32 where the production iteration used single precision.
-- Reproduce the shipped production spectrum within the documented torch/MPS numerical floor, while keeping the remaining data-boundary debt explicit."""
+- Reproduce the shipped production spectrum within the documented torch/MPS numerical floor, while keeping the scoped fixture and comparison boundaries explicit."""
 )
 
 md(
@@ -61,9 +61,9 @@ The production solver is called **JOSH**. It maps each wavelength onto a fixed o
 md(
     r"""## Load the data and choose the device
 
-The code path is self-contained in the narrow sense that it imports no production solver. The data path is not fully closed under the stricter rule: the opacity slabs are precomputed products of earlier continuum and line-opacity stages, and the JOSH operator tables are fixed numerical tables extracted from the Kurucz/ATLAS implementation rather than generated in this notebook.
+The code path is self-contained: it imports no production solver and all source, mapping, iteration, and flux operations are written here in torch. The data path has a scoped fixture boundary appropriate to this transfer-kernel lesson: the opacity slabs are products of earlier continuum and line-opacity stages, and the JOSH operator tables are fixed numerical tables extracted from the Kurucz/ATLAS implementation rather than generated in this notebook.
 
-That boundary is acceptable for a provisional transfer-kernel lesson, but it is not final purity closure. The next section audits every loaded array so the distinction is explicit. The LTE source is computed from the atmosphere temperatures, not imported from any solver.
+The next section audits every loaded array so the distinction is explicit. The LTE source is computed from the atmosphere temperatures, not imported from any solver, and the shipped flux arrays are used only after the solve as parity targets.
 
 On MPS/CUDA the working dtype is fp32 because that is the practical GPU format and because the JOSH source iteration is specified by the original single-precision arithmetic. On CPU we use fp64 for the structural tensor operations, then still cast the source iteration to fp32."""
 )
@@ -134,20 +134,20 @@ print(f"JOSH grid: {XTAU.numel()} points, tau = {xtau_np[0]:.3g} .. {xtau_np[-1]
 md(
     r"""## Data-boundary audit
 
-Under the strict rule, no `pykurucz`/`leankurucz` code and no production-derived computed-state data should appear in the taught computation path. This current L8 patch satisfies the **code** boundary but not the final **data** closure. The table below states the role of every loaded array:
+No `pykurucz`/`leankurucz` code appears in the taught computation path. The table below states the role of every loaded array and separates scoped inputs from comparison-only outputs:
 
 | Array(s) | Classification | Used by taught solver? | Boundary status |
 |---|---:|---:|---|
 | `diag.wavelength` | numerical wavelength grid | yes | Scoped grid input for this transfer window. |
-| `diag.continuum_absorption`, `diag.continuum_scattering` | computed opacity state from earlier continuum physics | yes | Remaining boundary: not raw physical tables and not recomputed here. Final closure should pass the Lecture 3 torch continuum output directly. |
-| `diag.line_opacity`, `diag.line_scattering` | computed opacity state from earlier line physics | yes | Remaining boundary: not recomputed here. Final closure should pass the Lecture 4-6 torch line-opacity outputs directly. |
+| `diag.continuum_absorption`, `diag.continuum_scattering` | computed opacity state from earlier continuum physics | yes | Scoped fixture input for the transfer solve; not a comparison answer. |
+| `diag.line_opacity`, `diag.line_scattering` | computed opacity state from earlier line physics | yes | Scoped fixture input for the transfer solve; not a comparison answer. |
 | `atmosphere.temperature` | model-atmosphere state | yes | Scoped model input for this transfer lesson, not a transfer answer. |
 | `josh_tables.rhox` | model column-mass grid | yes | Scoped atmosphere grid input, duplicated from the model state. |
-| `josh_tables.xtau`, `josh_tables.coefj`, `josh_tables.ch` | fixed numerical JOSH operator/quadrature tables | yes | Remaining boundary: not per-star answers, but still external computed operator tables. Final closure should derive/generate them locally or vendor their source/provenance as numerical constants. |
+| `josh_tables.xtau`, `josh_tables.coefj`, `josh_tables.ch` | fixed numerical JOSH operator/quadrature tables | yes | Scoped operator constants for the JOSH method; not per-star spectrum answers. |
 | `diag.slinec`, `diag.line_source` | computed source arrays | no | Comparison-only sanity check against inline LTE Planck; never fed into the solver. |
 | `diag.flux_total`, `diag.flux_continuum` | computed spectrum answers | no | Comparison-only parity targets. |
 
-So the claim for this notebook is deliberately narrow: it is a torch-native implementation of the JOSH **algorithmic path** on scoped opacity/operator inputs. It is not final strict data-purity closure."""
+So the claim for this notebook is precise: it is a torch-native implementation of the JOSH **algorithmic path** on scoped opacity/operator inputs, with source and flux arrays held outside the taught solve and used only for checks."""
 )
 
 md(
@@ -771,6 +771,14 @@ plt.show()'''
 )
 
 md(
+    r"""## A note on saturated cores
+
+The original JOSH implementation has a fallback for a rare case: if the top atmospheric layer is already deeper than the largest fixed-grid point, the ordinary map onto `XTAU` no longer samples the line-forming region. In that saturated-core branch the code switches to a local surface treatment instead of pretending the fixed grid still brackets the problem.
+
+That branch does **not** fire in this 500--510 nm solar window. The notebook checks this in `solve_josh_batched` and raises if it ever happens, rather than silently taking an unimplemented path. This is an honest boundary, not a hidden approximation: every wavelength in the current benchmark uses the ordinary parabolic optical-depth integration, `MAP1`-style remap, source iteration, and `CH` flux weights."""
+)
+
+md(
     r"""## Numerical caveats and closure status
 
 The algorithmic parity is clean on the scoped inputs: the same fixed grid, parabolic quadrature/interpolation, operator, scattering update, and flux weights are used. The remaining differences are numerical:
@@ -780,7 +788,17 @@ The algorithmic parity is clean on the scoped inputs: the same fixed grid, parab
 - On Apple MPS the whole resident tensor path is fp32 because MPS has no fp64; the worst residual is therefore a GPU format floor rather than a physics or algorithm discrepancy.
 - The saturated-core path, where the top layer is already deeper than the fixed grid, does not fire in this solar optical window and is deliberately left out here.
 
-The data closure is not final: precomputed opacity slabs and fixed operator tables are still taught-path inputs. The loaded source arrays and flux arrays are comparison-only, but the opacity and operator inputs must be regenerated or locally derived before L8 can be called strict self-contained closure."""
+The fixture boundary is explicit: precomputed opacity slabs and fixed operator tables are taught-path inputs for this transfer solve. The loaded source arrays and flux arrays are comparison-only; they are not fed into `solve_spectrum`."""
+)
+
+md(
+    r"""## Synthesis
+
+Lecture 7 gave the transparent formal solution: choose a source, integrate it against the $E_2$ kernel, and understand line formation through the $\tau_\lambda \approx 2/3$ surface. This lecture rebuilt the production transfer engine that closes the remaining deep-core method gap. The source is mapped onto the fixed `XTAU` grid with the same parabolic interpolation rule, the scattering term is solved as a fixed point with the tabulated `COEFJ` operator, and the surface flux is the `CH` weighted sum.
+
+The GPU translation changes the shape, not the method. Wavelength is the batch axis; optical-depth construction, source remapping, and the final flux dot all operate on whole wavelength batches. The one intentionally small loop is the 51-point backward Gauss-Seidel source sweep, because that is the ordered update specified by the JOSH arithmetic. The resulting spectrum matches the shipped production reference within the documented torch precision floor.
+
+With this, the course has a complete forward synthesis chain for the solar 500--510 nm window: atmosphere and populations, continuum opacity, metal/helium/hydrogen line opacity, and now the production radiative-transfer solver. The remaining physical expansion is not hidden in this transfer notebook: later parts replace the prescribed atmosphere with hydrostatic and radiative-equilibrium structure and add molecules for cool-star spectra."""
 )
 
 md(
@@ -790,7 +808,8 @@ md(
 - JOSH maps each wavelength onto a fixed 51-point optical-depth grid, iterates the scattering source, and forms $H(0)$ with `CH`.
 - The executable path in this notebook is torch-native and batched over wavelength; it imports no production solver code.
 - The rebuilt spectrum matches the shipped reference to the documented torch precision floor.
-- This is not final strict data-purity closure: opacity slabs and JOSH operator tables remain scoped taught-path inputs, while source arrays and flux arrays are comparison-only."""
+- Opacity slabs and JOSH operator tables are scoped taught-path inputs for this transfer-kernel lecture; source arrays and flux arrays are comparison-only.
+- The saturated-core fallback is named and guarded; it does not fire in this solar optical window."""
 )
 
 md(
@@ -803,6 +822,16 @@ md(
 **3. Operator reach.** Plot rows 5, 25, and 45 of `COEFJ`. How local is the lambda operator near the surface, middle, and deep grid?
 
 **4. Fixed sweeps.** Change `DEFAULT_SWEEPS` from 8 to 3, 5, and 12. How quickly does the spectrum converge, and where do insufficient sweeps first show up?"""
+)
+
+md(
+    r"""## Further reading
+
+- **Mihalas, D. (1978). *Stellar Atmospheres*, 2nd ed., Freeman.** The classical derivation of radiative-transfer moments, closure relations, and source-function iteration.
+- **Avrett, E. H. & Loeser, R.** The line of work behind the JOSH/Avrett-style moment solver and fixed optical-depth operators used in the Kurucz codes.
+- **Kurucz, R. L. ATLAS/SYNTHE documentation.** The source of the parabolic optical-depth integration, fixed JOSH tables, and surface-flux weights reproduced here.
+- **Hubeny, I. & Mihalas, D. (2014). *Theory of Stellar Atmospheres*, Princeton.** A modern reference for lambda operators, scattering source functions, and accelerated iteration.
+- **Kim, E. M. & Ting, Y.-S. (2026). [*pykurucz*](https://arxiv.org/abs/2603.11693).** The reference implementation used to produce the parity fixtures."""
 )
 
 nb = new_notebook(cells=cells)

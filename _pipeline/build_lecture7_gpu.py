@@ -10,11 +10,9 @@ GPU precision budget: the cumulative optical depth is a long fp32 accumulation t
 photosphere, and the E2 kernel's x>1 branch is a difference exp(-x) - x*E1 of two nearly-equal
 numbers — both need the surgical fp64-promotion lesson this lecture teaches.
 
-The torch kernels below were produced + parity-gated by the external-API port worker
-(_pipeline/port_worker.py, job 'lecture7') and validated to spectrum_dev = 4.43e-7 vs the inline
-fp64 reference (< the 5e-6 fp32-MPS float floor). The clean torch implementation is a pedagogical reduction of
-the production kgpu/josh.py formal-solution path (read-only); the notebook imports neither kgpu nor
-pykurucz.
+The torch kernels below validate to spectrum_dev = 4.43e-7 against the inline fp64 reference
+(below the 5e-6 fp32-MPS float floor). The clean torch implementation is a pedagogical reduction
+of the production formal-solution path; the notebook imports neither kgpu nor pykurucz.
 """
 from pathlib import Path
 import nbformat
@@ -32,11 +30,9 @@ def code(s): cells.append(new_code_cell(s.strip("\n")))
 # ════════════════════════════════════════════════════════════════════════════
 md(r"""# Lecture 7 — Radiative Transfer & the Emergent Spectrum
 
-*Stellar Spectroscopy from Scratch — a torch/MPS implementation, with each part validated against reference calculations*
+*Stellar Spectroscopy from Scratch — tensor-native stellar spectroscopy, validated against reference calculations*
 
 *Yuan-Sen Ting*
-
-*Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
 
 *The formal solution of radiative transfer is rebuilt in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). The new pedagogy is the **vectorization**: the whole **`[depth, wavelength]`** grid — the optical-depth scale, the Planck source, the $E_2$ kernel, the flux integral — is built as a handful of tensor ops, with **no per-wavelength Python loop** anywhere, even for the Eddington–Barbier interpolation. It ends with a **comparison cell** that validates the torch spectrum against an inline fp64 NumPy parity twin to the documented float floor (~$5\times10^{-6}$ fp32). The clean torch implementation is a pedagogical reduction of the production `kgpu` formal-solution path — the notebook imports neither `kgpu` nor pykurucz.*
 

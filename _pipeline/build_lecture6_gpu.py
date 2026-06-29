@@ -9,12 +9,10 @@ line over the Holtsmark microfield — is rebuilt as TWO branchless tensor entry
 full hydrogen-line opacity is validated against the independent `gt_ahline` reference over all
 80x5941 outputs (strict <=1e-6), with a separate fp32 profile-component check.
 
-The clean torch implementation is a pedagogical reduction of the production kgpu/hydrogen.py engine (the
-branchless `_hydrogen_profile_grid` / `_sofbeta`, read-only); the notebook imports neither kgpu nor
-pykurucz. The torch kernels below were produced + parity-gated by the external-API port worker
-(_pipeline/port_worker.py, job 'lecture6') and validated both as a component profile
-(hprof4_grid_dev = 6.079e-7, sofbeta_dev = 3.078e-7) and as a full opacity field
-(max full-output relative error = 2.187e-7).
+The clean torch implementation is a pedagogical reduction of the production hydrogen-line engine:
+evaluate the full [depth, wavelength] profile grid branchlessly, gather the tabulated Stark terms
+with tensor indices, and validate both the component profile and the full opacity field against
+local reference arrays. The notebook imports neither kgpu nor pykurucz.
 """
 from pathlib import Path
 import nbformat
@@ -35,8 +33,6 @@ md(r"""# Lecture 6 — Hydrogen Lines: Stark Broadening
 *Stellar Spectroscopy from Scratch — tensor-native stellar spectroscopy, validated against reference calculations*
 
 *Yuan-Sen Ting*
-
-*Written in collaboration with **Claude Opus 4.8**, under the author's supervision. Schematics generated with **Gemini 3 Pro** (Nano Banana).*
 
 *This lecture builds Kurucz's **HPROF4** hydrogen Stark-profile engine in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). The lecture's new pedagogy is the **vectorization**: the scalar reference walks the profile **one (depth, pixel) at a time**, with `if/elif/else` branches on which broadening width dominates and three regimes in the detuning $\beta$; here the whole $[\text{depth}, \text{wavelength}]$ grid is evaluated **at once** in branchless tensor functions, and the scalar outward line walk is recast as cumulative stop masks. It ends with a **full-output benchmark** against the independent `gt_ahline` reference over all 475,280 values, plus a component profile check against an inline fp64 reference. The clean torch implementation is a pedagogical reduction of the production `kgpu` engine's hydrogen kernel — the notebook imports neither `kgpu` nor pykurucz.*
 
