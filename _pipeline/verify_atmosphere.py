@@ -1,8 +1,10 @@
 #!/usr/bin/env python
-"""From-scratch grey model-atmosphere builder, verified bit-exact against reference/L1.npz.
+"""NumPy parity verifier for Lecture 1, separate from the rendered notebook.
 
-Reproduces the ATLAS12 grey cold start that Lectures 1-9 took as GIVEN:
-  (Teff, logg)  ->  grey T(tau)  ->  hydrostatic P_gas(tau), column mass RHOX(tau)
+Checks the two pieces used in Chapter 1 against reference/L1.npz:
+  1. the overflow-safe Planck B_nu expression;
+  2. the grey atmosphere cold start:
+     (Teff, logg) -> grey T(tau) -> hydrostatic P_gas(tau), column mass RHOX(tau).
 
 The reference is computed by pykurucz's `generate_grey_atm(teff=5770, logg=4.44)` (pure NumPy,
 no torch/emulator on this path -> deterministic). That routine:
@@ -12,8 +14,9 @@ no torch/emulator on this path -> deterministic). That routine:
     predictor-corrector multistep (subroutine TTAUP),
   - returns P_gas = P_total - P_rad and RHOX = P_total / g.
 
-This script is a clean reimplementation (no pykurucz import) verified to machine precision
-(bit-exact, rel error 0) against reference/L1.npz: grey_tau, grey_T, grey_pgas, grey_rhox.
+This script is a clean reimplementation (no pykurucz import) and is intentionally kept
+outside the student-facing notebook so the rendered lecture remains a self-contained
+set of notes rather than a parity-test report.
 """
 import sys
 from pathlib import Path
@@ -21,6 +24,18 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
+C_LIGHT = 2.99792458e10   # cm/s
+
+
+def planck_nu(freq_hz, temperature):
+    """Overflow-safe Planck B_nu(T), matching the reference expression."""
+    freq = np.asarray(freq_hz, dtype=np.float64)
+    temp = np.asarray(temperature, dtype=np.float64)
+    h = 6.62607015e-27
+    k = 1.380649e-16
+    x = h * freq / (k * temp)
+    exp_minus_x = np.exp(-x)
+    return 1.47439e-2 * (freq / 1.0e15) ** 3 * exp_minus_x / (1.0 - exp_minus_x)
 
 
 # ---------------------------------------------------------------------------
@@ -133,30 +148,33 @@ def generate_grey_atm(teff=5770.0, logg=4.44, nrhox=80, tau1lg=-6.875, steplg=0.
     return tau, t, pgas, rhox
 
 
-def _check(name, got, ref):
+def _check(name, got, ref, *, rtol=0.0, require_bit_exact=True):
     got = np.asarray(got, dtype=np.float64)
     ref = np.asarray(ref, dtype=np.float64)
     m = np.abs(ref) > 0
     rel = np.zeros_like(ref)
     rel[m] = np.abs(got[m] - ref[m]) / np.abs(ref[m])
     bit = np.array_equal(got, ref)
+    ok = bit if require_bit_exact else bool(rel.max() <= rtol)
     print(f"  {name:10s}  max|rel|={rel.max():.3e}  median|rel|={np.median(rel):.3e}  "
-          f"bit-exact={bit}")
-    return rel.max(), bit
+          f"bit-exact={bit}  ok={ok}")
+    return rel.max(), bit, ok
 
 
 if __name__ == "__main__":
     ref = np.load(ROOT / "reference" / "L1.npz")
+    planck_b = planck_nu(ref["planck_freq"], ref["planck_T"])
     tau, t, pgas, rhox = generate_grey_atm(teff=5770.0, logg=4.44)
 
-    print("grey model atmosphere  (Teff=5770, logg=4.44)  vs reference/L1.npz:")
-    r_tau, b_tau = _check("grey_tau", tau, ref["grey_tau"])
-    r_t,   b_t   = _check("grey_T", t, ref["grey_T"])
-    r_p,   b_p   = _check("grey_pgas", pgas, ref["grey_pgas"])
-    r_x,   b_x   = _check("grey_rhox", rhox, ref["grey_rhox"])
+    print("Lecture 1 NumPy parity vs reference/L1.npz:")
+    r_b,   b_b,   ok_b   = _check("planck_B", planck_b, ref["planck_B"], rtol=1e-14, require_bit_exact=False)
+    r_tau, b_tau, ok_tau = _check("grey_tau", tau, ref["grey_tau"])
+    r_t,   b_t,   ok_t   = _check("grey_T", t, ref["grey_T"])
+    r_p,   b_p,   ok_p   = _check("grey_pgas", pgas, ref["grey_pgas"])
+    r_x,   b_x,   ok_x   = _check("grey_rhox", rhox, ref["grey_rhox"])
 
-    worst = max(r_tau, r_t, r_p, r_x)
-    all_bit = b_tau and b_t and b_p and b_x
-    print(f"\nworst max|rel| over all four arrays = {worst:.3e}")
-    print(f"all four arrays bit-exact = {all_bit}")
-    sys.exit(0 if all_bit else 1)
+    worst = max(r_b, r_tau, r_t, r_p, r_x)
+    all_ok = ok_b and ok_tau and ok_t and ok_p and ok_x
+    print(f"\nworst max|rel| over all five arrays = {worst:.3e}")
+    print(f"all five checks pass = {all_ok}")
+    sys.exit(0 if all_ok else 1)

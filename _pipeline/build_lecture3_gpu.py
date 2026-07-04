@@ -1,18 +1,9 @@
 #!/usr/bin/env python
 """Assemble content/Lecture3.ipynb (unexecuted). Execute + render via build.py.
 
-Lecture 3 — Continuous Opacity, implemented in clean depth-AND-wavelength-batched torch/MPS.
-The analytic continuous opacity of a cool star: the H- ion abundance from a Saha balance, its
-bound-free and free-free cross-sections (John 1988), Rayleigh scattering off neutral hydrogen and
-Thomson scattering off free electrons — every source a single tensor expression broadcast over the
-(80 depth) x (200 wavelength) grid, on the GPU (MPS/CUDA if present, else CPU/fp64). The lecture
-ends with TWO comparison cells: against the production reference (the physics-level ~few-percent
-fidelity of the analytic model) and against the GPU's OWN numpy fp64 twin (the fp32 float floor,
-proving the vectorization is bit-correct).
-
-The exact tabulated KAPP engine is the production path; this lecture first builds the
-analytic continuum the reference L3.npz validates, then the tabulated path, fully vectorized. The notebook imports
-neither kgpu nor pykurucz.
+Lecture 3 -- Continuous Opacity. These are self-contained graduate notes on
+true absorption, scattering, H-minus continuum opacity, Rayleigh/Thomson scattering,
+and the tabulated continuum construction.
 """
 from pathlib import Path
 import nbformat
@@ -27,40 +18,42 @@ def code(src): cells.append(new_code_cell(src))
 
 md(r"""# Lecture 3 — Continuous Opacity
 
-*Stellar Spectroscopy from Scratch — tensor-native stellar spectroscopy, validated against reference calculations*
+*Self-contained notes on H-minus absorption, scattering, and tabulated continuum opacity*
 
 *Yuan-Sen Ting*
 
-*This lecture builds the continuous opacity in clean **`torch`** that runs on the GPU (Apple **MPS** or **CUDA**, with a CPU fallback in fp64). The crucial new axis here is **wavelength**: where Lecture 2 batched over the 80 atmospheric depths, the continuum is a function of depth **and** wavelength, so every opacity source is a single tensor expression broadcast over the full $(80 \times 200)$ grid — no Python loop over depths or wavelengths. The lecture ends with two comparison cells: one against the production reference `L3.npz` (the analytic model's honest few-percent physics fidelity), and one against a **NumPy fp64 twin** of the same formulas (the fp32 float floor, which proves the vectorization is numerically faithful). The notebook imports neither `kgpu` nor pykurucz.*
+The continuum is the smooth opacity background on which spectral lines sit. In a solar-type photosphere it is set mainly by H-minus absorption, with a smaller scattering contribution from neutral hydrogen and free electrons. This lecture builds that continuum in two steps. First we write the analytic H-minus, Rayleigh, and Thomson terms so the physical scaling is clear. Then we replace the analytic fits with a tabulated continuum calculation used for detailed synthesis.
 
----
-
-**Learning objectives.** By the end of this lecture you will be able to:
-
-- Distinguish **true absorption** from **scattering**, and write the continuous extinction coefficient per gram.
-- Solve the **Saha balance** for the negative hydrogen ion H$^-$ and explain why it dominates the cool-star continuum.
-- Evaluate the **H$^-$ bound-free and free-free** opacity (John 1988) and add **Rayleigh** and **Thomson** scattering, as tensor expressions broadcast over depth **and** wavelength on the GPU.
-- Eliminate the data-dependent threshold branch **branchlessly** — clamp the base before a fractional power — so the GPU never produces a NaN that contaminates an in-range pixel.
-- **Validate** the GPU continuum twice: against the production reference (the analytic physics, a few percent) and against the GPU's own fp64 twin (the fp32 float floor), the independent per-part check.""")
+The calculations use PyTorch because every source naturally lives on a depth-by-wavelength grid: depth-dependent populations multiply wavelength-dependent cross-sections. A single expression therefore evaluates the whole grid at once and can run on a GPU when one is available.""")
 
 md(r"""## Introduction
 
-With the equation of state of Lecture 2 in hand — the electron density and the per-ion populations — we can finally compute an opacity. Opacity comes in two flavours, and the distinction matters for the radiative transfer later. **True absorption** couples the photon to the thermal energy reservoir of the gas; in LTE its emissivity follows the Planck function. **Scattering** merely redirects a photon without exchanging energy, so its source function depends on the radiation field itself. This lecture builds the **continuous** opacity: the smooth, slowly-varying background that sets the overall brightness of the star and the floor from which the sharp spectral lines are carved.
+An opacity tells us how effectively matter removes photons from a beam. In stellar atmospheres we usually quote a **mass extinction coefficient**, $\kappa_\lambda$ in $\mathrm{cm^2\,g^{-1}}$, so the monochromatic optical-depth increment is
 
-The first half is the analytic continuum: the H$^-$ ion dominates the cool-star continuum, so we solve its Saha abundance, evaluate its bound-free and free-free cross-sections with the standard fits of John (1988), and add Rayleigh and Thomson scattering. Against the production reference this analytic model is accurate to **a few percent** — the right level to understand *why* the continuum looks as it does. The second half closes that gap to the bit with the tabulated KAPP engine; that exact engine is the production path used by the `kgpu` continuum module.
+$$
+d\tau_\lambda = \kappa_\lambda\,dm,
+$$
 
-The continuum is a function of two axes — depth and wavelength — so we make **both** the batch: a single `torch` expression evaluates an opacity source at all $80 \times 200$ grid points at once, with the depth-dependent populations broadcast against the wavelength-dependent cross-sections. There is one accelerator-specific subtlety — a data-dependent threshold in the H$^-$ bound-free cross-section — which we handle branchlessly. At the end we validate against both the production reference and a fp64 reference.""")
+where $dm=\rho\,dz$ is a column-mass increment. The continuum opacity is the slowly varying part of $\kappa_\lambda$: it changes with wavelength, but without the sharp resonance structure of spectral lines.
 
-md(r"""**Setup — the device and the precision budget.** As in Lecture 2 we pick the compute device once: **MPS** on Apple Silicon, **CUDA** on an NVIDIA box, else **CPU**. MPS lacks practical fp64 support, and this teaching path deliberately uses **fp32** on both MPS and CUDA so the accelerator route has one uniform precision budget; CUDA hardware can support fp64, but that is not the default path here. On the GPU the parity bar is therefore the documented float floor; on CPU we use **fp64** and recover machine precision. We load the reference continuum grid `L3.npz`, which carries the wavelength and temperature grids, the populations from the equation of state, the depth scale, and the gold-standard continuum (`absorption`, `scattering`).""")
+There are two ways photons are removed from a beam. **True absorption** converts photon energy into internal energy of the gas; in LTE its emission partner is tied to the Planck function. **Scattering** redirects photons without thermalizing them. The total continuous extinction is their sum,
+
+$$
+\kappa_{\lambda,\rm cont} = \kappa_{\lambda,\rm abs} + \kappa_{\lambda,\rm scat}.
+$$
+
+For a cool photosphere the dominant visible absorber is **H-minus**, the negative hydrogen ion: a neutral hydrogen atom with one extra, weakly bound electron. It is rare, but it has a large photodetachment cross-section, and its abundance scales with the free-electron density. Neutral-hydrogen Rayleigh scattering and electron Thomson scattering add a smaller scattering floor.""")
+
+md(r"""## Atmosphere and wavelength grid
+
+Load a solar atmosphere with temperature, density, electron density, neutral-hydrogen density, column mass, and a 500--510 nm wavelength grid. Depth-dependent quantities are stored as columns and wavelength-dependent quantities as rows, so multiplication broadcasts into a full $(\text{depth},\text{wavelength})$ opacity grid.""")
 
 code(r'''import pathlib
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
 
-# pick the compute device ONCE; MPS (Apple) -> CUDA -> CPU. The accelerator teaching
-# path uses fp32 on both MPS and CUDA, so its parity bar is the documented float floor;
-# on CPU we use fp64 and recover machine precision.
+# Execution machinery only: the opacity equations below are written as tensor operations.
 if torch.backends.mps.is_available():
     DEVICE, DTYPE = torch.device("mps"), torch.float32
 elif torch.cuda.is_available():
@@ -69,10 +62,8 @@ else:
     DEVICE, DTYPE = torch.device("cpu"), torch.float64
 
 def dev(x):
-    """Move an array/tensor onto the compute device in the working dtype."""
+    """Convert an input array to the working array type."""
     return torch.as_tensor(np.asarray(x), dtype=DTYPE, device=DEVICE)
-
-print(f"device = {DEVICE.type}   working dtype = {str(DTYPE).split('.')[-1]}")
 
 plt.rcParams.update({
     "figure.figsize": (7.2, 4.3), "figure.dpi": 120, "savefig.facecolor": "white",
@@ -82,9 +73,9 @@ plt.rcParams.update({
 
 REF = np.load(pathlib.Path("..") / "reference" / "L3.npz")''')
 
-md(r"""Unpack the grids and populations, reshaping the depth-dependent quantities to a column so they broadcast over the wavelength axis. The wavelength grid is a row. Every opacity below is then a $(\text{nd}, \text{nw})$ tensor formed by broadcasting a depth column against a wavelength row — the GPU evaluates all 16 000 grid points in one shot, no loop on either axis.""")
+md(r"""Unpack the grids and populations, reshaping the depth-dependent quantities to a column and the wavelength grid to a row. Every opacity below is then a $(\text{depth}, \text{wavelength})$ array: a population column times a cross-section row, divided by the mass density.""")
 
-code(r'''# The fixture keeps compact historical keys; translate once into taught names.
+code(r'''# The data bundle keeps compact historical keys; translate once into taught names.
 wavelength_nm = dev(REF["wl"])[:, None].T            # (1,nw) [nm]
 temperature = dev(REF["T"])[:, None]                 # (nd,1) [K]
 electron_density = dev(REF["n_e"])[:, None]          # (nd,1) [cm^-3]
@@ -92,7 +83,7 @@ mass_density = dev(REF["rho"])[:, None]              # (nd,1) [g cm^-3]
 neutral_hydrogen_density = dev(REF["nHI"])[:, None]  # (nd,1) neutral H number density [cm^-3]
 n_wavelength = wavelength_nm.shape[1]
 
-# Rosseland optical depth and column mass (host NumPy — only used for plotting / formation depth)
+# Rosseland optical depth and column mass, used for plotting / formation depth
 rosseland_optical_depth, column_mass_host = REF["tau"], REF["rhox"]
 
 # physical constants, CGS: Planck, c, Boltzmann
@@ -104,18 +95,17 @@ KEV, SAHA = 1.0/11604.5, 2.4148e15
 frequency_hz = C / (wavelength_nm * 1e-7)
 
 print(f"continuum grid: {REF['absorption'].shape[0]} layers x {n_wavelength} wavelengths, "
-      f"{float(wavelength_nm[0, 0]):.0f}-{float(wavelength_nm[0, -1]):.0f} nm  "
-      f"(all opacities are (nd, nw) tensors on {DEVICE.type})")''')
+      f"{float(wavelength_nm[0, 0]):.0f}-{float(wavelength_nm[0, -1]):.0f} nm")''')
 
 md(r"""## The stimulated-emission factor
 
-Every true-absorption coefficient carries a correction we met in Lecture 1: the radiation field stimulates the inverse, emitting transition alongside the absorbing one, so the net absorption is multiplied by
+Every true-absorption coefficient carries a stimulated-emission correction. A photon can induce the inverse transition as well as be absorbed, so the net absorption is multiplied by
 
 $$
 \big(1 - e^{-h\nu/kT}\big),
 $$
 
-near $1$ in the blue, dropping toward the infrared where $h\nu \lesssim kT$. Scattering, which exchanges no energy with the gas, carries no such factor. On the GPU this is one broadcast expression: the depth column $T$ against the wavelength row $\nu$ gives the full $(\text{nd}, \text{nw})$ factor at once.""")
+near $1$ in the blue, dropping toward the infrared where $h\nu \lesssim kT$. Scattering, which redirects photons without converting their energy into heat, carries no such factor.""")
 
 code(r'''# stimulated-emission correction, (nd, nw): depth column temperature x wavelength row frequency.
 stimulated_emission_factor = 1.0 - torch.exp(-H * frequency_hz / (K * temperature))
@@ -123,21 +113,21 @@ print(f"stimulated-emission factor at 505 nm: "
       f"{float(stimulated_emission_factor[:,100].min()):.3f} (hot, deep) .. "
       f"{float(stimulated_emission_factor[:,100].max()):.3f} (cool)")''')
 
-md(r"""## How much H$^-$ is there? The Saha balance
+md(r"""## How much H-minus is there? The Saha balance
 
-In a cool star the dominant continuous absorber is the **negative hydrogen ion, H$^-$** — a neutral hydrogen atom holding a second, weakly bound electron (binding energy $\chi = 0.754\ \mathrm{eV}$). It is fragile and rare, but neutral hydrogen is so abundant and the metal-supplied free electrons (Lecture 2) so available that in solar-type photospheres H$^-$ swamps every other optical continuous opacity. Its abundance follows a Saha balance exactly like Lecture 2's, with the tiny detachment energy in place of an ionization potential:
+In a cool star the dominant continuous absorber is **H-minus**, the negative hydrogen ion: a neutral hydrogen atom holding a second, weakly bound electron with binding energy $\chi = 0.754\ \mathrm{eV}$. It is fragile and rare, but neutral hydrogen is abundant and metal ionization supplies enough free electrons that H-minus dominates the visible continuous opacity of solar-type photospheres. Its abundance follows a Saha balance, with the small detachment energy in place of a usual ionization potential:
 
 $$
 n(\mathrm{H}^-) = \frac{n(\mathrm{H\,I})\,n_e}{4\,(2.4148\times10^{15})\,T^{3/2}}\;e^{+\chi/kT}.
 $$
 
-The factor of four is the statistical-weight bookkeeping: two spin states for the free electron times the neutral-hydrogen ground-state weight, divided by the closed-shell H$^-$ weight. The positive exponent says H$^-$ is *favoured* at low temperature, and the explicit $n_e$ is why H$^-$ opacity tracks the electron density — and hence the metal abundance — that Lecture 2 worked out. We derive this density once, on the GPU; both opacity channels reuse it.
+The factor of four is statistical-weight accounting: two spin states for the free electron times the neutral-hydrogen ground-state weight, divided by the closed-shell H-minus weight. The positive exponent says H-minus is favoured at low temperature, and the explicit $n_e$ is why H-minus opacity tracks electron density and therefore metallicity. We compute the H-minus density once; both opacity channels reuse it.
 
-![The H$^-$ ion — a hydrogen atom holding a second, weakly bound electron (0.754 eV) — is the dominant continuous absorber in cool stars; a photon detaches the electron, and its abundance tracks the electron density.](resources/figures/s3_hminus.png)""")
+![The H-minus ion, a hydrogen atom holding a second weakly bound electron, is the dominant continuous absorber in cool stars; a photon detaches the electron, and its abundance tracks the electron density.](resources/figures/s3_hminus.png)""")
 
-code(r'''chi_Hminus = 0.754   # H- electron binding energy [eV]
+code(r'''chi_Hminus = 0.754   # H-minus electron binding energy [eV]
 
-# the Saha balance, solved for the H- density [cm^-3] — a (nd,1) depth column
+# the Saha balance, solved for the H-minus density [cm^-3] — a (nd,1) depth column
 n_Hminus = (
     neutral_hydrogen_density * electron_density
     * torch.exp(chi_Hminus / (KEV * temperature))
@@ -145,16 +135,22 @@ n_Hminus = (
 )
 
 jp = int(torch.argmin(torch.abs(torch.as_tensor(rosseland_optical_depth, dtype=DTYPE, device=DEVICE) - 2/3)))
-print(f"n(H-)/n(H I) at the photosphere: {float((n_Hminus/neutral_hydrogen_density)[jp,0]):.2e}  "
-      f"(about two H- per billion H atoms)")''')
+print(f"n(H-minus)/n(H I) at the photosphere: {float((n_Hminus/neutral_hydrogen_density)[jp,0]):.2e}  "
+      f"(about two H-minus ions per billion H atoms)")''')
 
-md(r"""## H$^-$ bound-free and free-free (John 1988), and the branchless threshold
+md(r"""## H-minus bound-free and free-free opacity
 
-H$^-$ absorbs by two channels. **Bound-free** (photodetachment) ejects the bound electron; it has a threshold at $\lambda_0 = 1.6419\ \mathrm{\mu m}$ and peaks in the red. **Free-free** is absorption by a passing electron in the field of a neutral H atom; it has no threshold and rises into the infrared. We use the analytic fits of **John (1988)**.
+H-minus absorbs by two channels. **Bound-free** absorption, or photodetachment, ejects the weakly bound electron; it has a threshold at $\lambda_0 = 1.6419\ \mathrm{\mu m}$ and peaks in the red. **Free-free** absorption is absorption by a passing electron in the field of a neutral H atom; it has no threshold and rises into the infrared. We use the analytic fits of **John (1988)**.
 
-The bound-free cross-section, with $\lambda$ in microns and $f \equiv 1/\lambda - 1/\lambda_0$, is $\sigma_{\rm bf} = 10^{-18}\,\lambda^3\,f^{3/2}\sum_{n=0}^{5} C_n\, f^{n/2}$, *zero past the threshold* ($\lambda \geq \lambda_0$, where $f \leq 0$). This threshold is the one genuinely GPU-specific subtlety in the lecture: $f$ goes **negative** past threshold, and a fractional power of a negative number is `NaN` — and `torch.where(mask, f**1.5*..., 0)` does **not** help, because `torch` evaluates *both* branches, so the invalid operation is still performed before the mask is applied. In fused kernels, diagnostics, or gradient-bearing variants, those invalid intermediates can surface even though the inactive branch is later discarded. The fix is to **clamp the base to $\geq 0$ before the power**: with $x = \sqrt{\max(0,\,f)}$, the cross-section becomes $\sigma_{\rm bf} = 10^{-18}\,\lambda^3\,x^3\sum_n C_n\,x^n$, a clean **Horner** polynomial in $x$ that is *exactly* zero past threshold (because $x = 0$ there) with no `NaN` and no `where` at all. This is both branchless and faster — fewer kernel launches — and we use the algebraically stable form $f = (\lambda_0 - \lambda)/(\lambda_0\lambda)$ to avoid catastrophic cancellation near the edge.""")
+The bound-free cross-section, with $\lambda$ in microns and $f \equiv 1/\lambda - 1/\lambda_0$, is $\sigma_{\rm bf} = 10^{-18}\,\lambda^3\,f^{3/2}\sum_{n=0}^{5} C_n\, f^{n/2}$, *zero past the threshold* ($\lambda \geq \lambda_0$, where $f \leq 0$). The threshold needs one careful numerical step: fractional powers require a nonnegative base. With $x = \sqrt{\max(0,\,f)}$, the cross-section becomes
 
-code(r'''# H- bound-free (John 1988) — clamp-then-Horner evaluation (branchless, NaN-free).
+$$
+\sigma_{\rm bf} = 10^{-18}\,\lambda^3\,x^3\sum_{n=0}^{5} C_n x^n,
+$$
+
+a Horner polynomial that is exactly zero past threshold because $x=0$ there. We also use the algebraically stable form $f = (\lambda_0-\lambda)/(\lambda_0\lambda)$ near the edge.""")
+
+code(r'''# H-minus bound-free (John 1988) — clamp-then-Horner evaluation (branchless, NaN-free).
 lam_um = wavelength_nm * 1e-3        # (1, nw) [um]
 lam0 = 1.6419                        # threshold [um] (0.754 eV)
 
@@ -174,7 +170,7 @@ kappa_bf = n_Hminus * sigma_bf * stimulated_emission_factor / mass_density''')
 
 md(r"""The free-free coefficient is John's second polynomial: a double power series in $\theta = 5040/T$ and in inverse wavelength, returning absorption per neutral H atom per unit electron pressure $P_e = n_e kT$ (the stimulated-emission factor is already folded into the fit). We evaluate the inverse-wavelength terms with explicit reciprocal powers and sum the five $\theta$-orders — the whole thing a $(\text{nd}, \text{nw})$ tensor: $\theta$ is a depth column, the wavelength terms a row.""")
 
-code(r'''# H- free-free (John 1988, lambda > 0.3645 um branch), per H I atom per unit P_e.
+code(r'''# H-minus free-free (John 1988, lambda > 0.3645 um branch), per H I atom per unit P_e.
 A=[0,2483.346,-3449.889,2200.040,-696.271,88.283]; B=[0,285.827,-1158.382,2427.719,-1841.400,444.517]
 Cc=[0,-2054.291,8746.523,-13651.105,8624.970,-1863.864]; D=[0,2827.776,-11485.632,16755.524,-10051.530,2095.288]
 E=[0,-1341.537,5303.609,-7510.494,4400.067,-901.788]; F=[0,208.952,-812.939,1132.738,-655.020,132.985]
@@ -188,23 +184,22 @@ for n in range(1, 6):                # JUSTIFIED-LOOP: five fixed polynomial ord
 
 P_e = electron_density * K * temperature          # electron pressure [dyn cm^-2] (depth column)
 kappa_ff = 1e-29 * kff * P_e * neutral_hydrogen_density / mass_density  # [cm^2/g]
-kappa_Hminus = kappa_bf + kappa_ff               # total analytic H- absorption (nd, nw)''')
+kappa_Hminus = kappa_bf + kappa_ff               # total analytic H-minus absorption (nd, nw)''')
 
-md(r"""**Benchmark against the production reference** — over the layers where the optical spectrum forms. H$^-$ dominates there; far deeper, hydrogen and metal bound-free edges take over from it, and this analytic model does not carry them (the exact engine does). This is the *physics-fidelity* check: the analytic model vs the production continuum.""")
+md(r"""**Read the H-minus opacity.** The analytic model is deliberately simple: it keeps H-minus bound-free and free-free absorption, the two terms that explain the visible continuum of a cool star. The code below records the spectrum-forming layers and prints the relative size of the two H-minus channels near the photosphere.""")
 
 code(r'''def to_np(t):
-    """GPU tensor -> NumPy fp64 (move to CPU FIRST, then cast: MPS has no fp64)."""
+    """Tensor -> NumPy for plotting and scalar summaries."""
     return t.detach().cpu().to(torch.float64).numpy() if torch.is_tensor(t) else np.asarray(t, float)
 
-# H- dominates only where the optical spectrum forms; benchmark over the forming layers.
+# H-minus dominates where the optical spectrum forms; keep that layer mask for summaries.
 form = (rosseland_optical_depth > 1e-3) & (rosseland_optical_depth < 3.0)
 absn = to_np(kappa_Hminus)
-rel = np.abs(absn[form] - REF["absorption"][form]) / REF["absorption"][form]
-print(f"continuum absorption (H-), spectrum-forming layers (vs PRODUCTION reference):")
-print(f"   median|rel diff| = {np.median(rel):.2e}   max = {np.max(rel):.2e}  "
-      f"(the analytic model's honest few-percent fidelity)")''')
+bf_share = float(kappa_bf[jp,100] / kappa_Hminus[jp,100])
+print(f"H-minus absorption at 505 nm, tau=2/3: {float(kappa_Hminus[jp,100]):.3e} cm^2/g")
+print(f"bound-free supplies {100*bf_share:.1f}% of that H-minus opacity; free-free supplies {100*(1-bf_share):.1f}%")''')
 
-md(r"""About two to three percent through the spectrum-forming layers — the analytic H$^-$ reproduces the production reference, the bound-free channel carrying most of it at these optical wavelengths. The residual is not GPU round-off: the exact continuum engine also carries the tabulated H$^-$ bound-free and free-free data, the hydrogenic and metal-edge contributors, helium and H$_2^+$ terms, Rayleigh details, and the KAPP edge-grid reconstruction. We confirm the arithmetic point explicitly with the fp64-twin check at the end. Where it matters, H$^-$ is still the dominant continuous absorber of the solar photosphere.""")
+md(r"""At 500--510 nm the bound-free channel carries most of the H-minus absorption, because these photons have enough energy to detach the weakly bound electron. The free-free channel grows toward the infrared, where a passing electron can absorb photon energy while remaining free.""")
 
 md(r"""## Scattering: Rayleigh beats Thomson
 
@@ -222,23 +217,17 @@ kappa_scat = kappa_Ray + kappa_Thomson
 kappa_total = kappa_Hminus + kappa_scat
 
 scatn = to_np(kappa_scat)
-rel = np.abs(scatn - REF["scattering"]) / np.where(REF["scattering"]!=0, np.abs(REF["scattering"]), 1.0)
-print(f"scattering (Rayleigh+Thomson) vs reference:  max|rel diff| = {rel.max():.2e}")
 print(f"at the photosphere, Rayleigh is {float(kappa_Ray[jp,100]/kappa_Thomson[jp,100]):.0f}x Thomson; "
-      f"scattering is {float(100*kappa_scat[jp,100]/kappa_Hminus[jp,100]):.1f}% of the H$^-$ absorption")''')
+      f"scattering is {float(100*kappa_scat[jp,100]/kappa_Hminus[jp,100]):.1f}% of the H-minus absorption")''')
 
-md(r"""Rayleigh outweighs Thomson several-fold at the $\tau=2/3$ layer (the ratio climbs higher in the cooler layers above, where free electrons grow even scarcer), and scattering as a whole is only about a percent of the H$^-$ absorption — the solar optical continuum is an *absorption* continuum, which is why its source function stays close to the Planck function. In the ultraviolet, where $\lambda^{-4}$ Rayleigh climbs and metal photoionization switches on, the balance shifts; in hot stars, where hydrogen is ionized, Thomson takes over.""")
+md(r"""Rayleigh outweighs Thomson several-fold at the $\tau=2/3$ layer (the ratio climbs higher in the cooler layers above, where free electrons grow even scarcer), and scattering as a whole is only about a percent of the H-minus absorption — the solar optical continuum is an *absorption* continuum, which is why its source function stays close to the Planck function. In the ultraviolet, where $\lambda^{-4}$ Rayleigh climbs and metal photoionization switches on, the balance shifts; in hot stars, where hydrogen is ionized, Thomson takes over.""")
 
 md(r"""## The total continuum and where it forms
 
 Add absorption and scattering for the total continuous extinction, and convert it to optical depth. Here `column_mass_host` is the inward column mass $m = \int\rho\,dz$, so $d\tau_\lambda = \kappa_\lambda\,dm$; integrating the continuum opacity over the column mass tells us the depth from which the continuum escapes.""")
 
-code(r'''totn = to_np(kappa_total); ref_total = REF["absorption"] + REF["scattering"]
-rel = np.abs(totn[form] - ref_total[form]) / ref_total[form]
-print(f"total continuum, spectrum-forming layers (vs reference):  "
-      f"median|rel diff| = {np.median(rel):.2e}   max = {np.max(rel):.2e}")
-
-# continuum optical depth at 505 nm, integrated over column mass (trapezoid), on host NumPy
+code(r'''totn = to_np(kappa_total)
+# continuum optical depth at 505 nm, integrated over column mass (trapezoid)
 k505 = totn[:, 100]
 tau_cont = np.zeros_like(column_mass_host)
 tau_cont[1:] = np.cumsum(0.5*(k505[1:]+k505[:-1]) * np.diff(column_mass_host))
@@ -246,15 +235,15 @@ j23 = int(np.argmin(np.abs(tau_cont - 2/3)))
 print(f"the 505 nm continuum reaches tau=2/3 at T = {REF['T'][j23]:.0f} K  "
       f"(log tau_Ross = {np.log10(rosseland_optical_depth[j23]):.2f})")''')
 
-md(r"""Plot the GPU opacity against depth (absorption vs scattering) and the integrated continuum optical depth that locates the $\tau = 2/3$ surface.""")
+md(r"""Plot the opacity against depth (absorption versus scattering) and the integrated continuum optical depth that locates the $\tau = 2/3$ surface.""")
 
 code(r'''logtau = np.log10(rosseland_optical_depth)
 fig, ax = plt.subplots(1, 2, figsize=(10.5, 4.1))
 ax[0].plot(logtau, np.log10(totn[:,100]), color="C0", label="total")
-ax[0].plot(logtau, np.log10(to_np(kappa_Hminus)[:,100]), "--", color="C3", label="H$^-$ absorption")
+ax[0].plot(logtau, np.log10(to_np(kappa_Hminus)[:,100]), "--", color="C3", label="H-minus absorption")
 ax[0].plot(logtau, np.log10(scatn[:,100]), ":", color="C2", label="scattering")
 ax[0].set_xlabel(r"$\log_{10}\tau_{\rm Ross}$"); ax[0].set_ylabel(r"$\log_{10}\kappa_{505}$  [cm$^2$/g]")
-ax[0].set_title("Continuum opacity vs depth (on the GPU)"); ax[0].legend()
+ax[0].set_title("Continuum opacity vs depth"); ax[0].legend()
 
 ax[1].plot(logtau, tau_cont, color="C0")
 ax[1].axhline(2/3, ls="--", color="0.5", lw=1, label=r"$\tau_{505}=2/3$")
@@ -263,197 +252,46 @@ ax[1].set_ylabel(r"continuum optical depth $\tau_{505}$"); ax[1].set_title("Wher
 ax[1].legend()
 fig.tight_layout(); plt.show()''')
 
-md(r"""The total continuum matches the production reference to about two percent through the spectrum-forming layers — the level at which clean analytic opacity reproduces a production code, the residual being the detailed cross-section tables it carries. That residual is physics, not GPU round-off — which the next cell proves directly.""")
-
-# ── The validation cell — the per-part GPU check ─────────────────────────
-md(r"""## The comparison cell — validating the GPU result two ways
-
-This is the per-part check used throughout the book, and the continuum needs **two** comparisons that mean different things:
-
-1. **vs the production reference (`L3.npz`)** — the *physics* check. The analytic H$^-$ + Rayleigh/Thomson model reproduces the production continuum to a few percent through the spectrum-forming layers. This is a property of the *model*; it does not get better on the GPU.
-
-2. **vs a NumPy fp64 twin** — the *implementation* check. We recompute the **exact same formulas** in fp64 NumPy and compare the GPU fp32 result to them. This isolates the single-precision round-off of the tensor vectorization from the analytic model's physics residual, and it must hold to the documented fp32 float floor. The H$^-$ bound-free threshold is a zero-crossing, so we measure the relative deviation against $\max(|\text{ref}|,\ \text{floor})$ — pure relative error is meaningless where the cross-section is exactly zero.""")
-
-code(r'''def numpy_twin():
-    """Recompute the EXACT same continuum formulas in fp64 NumPy — the GPU's own twin."""
-    # Broadcast atmosphere columns [depth, 1] against the wavelength grid [1, wavelength].
-    wavelength_nm_np = REF["wl"][None, :]
-    temperature_np = REF["T"][:, None]
-    electron_density_np = REF["n_e"][:, None]
-    mass_density_np = REF["rho"][:, None]
-    neutral_hydrogen_density_np = REF["nHI"][:, None]
-
-    # Shared radiation factors.
-    frequency_hz_np = C / (wavelength_nm_np * 1e-7)
-    stimulated_emission_np = 1 - np.exp(-H * frequency_hz_np / (K * temperature_np))
-
-    # H- bound-free: Saha density of H- times threshold cross-section.
-    hminus_density_np = (
-        neutral_hydrogen_density_np * electron_density_np
-        * np.exp(chi_Hminus / (KEV * temperature_np))
-        / (4.0 * SAHA * temperature_np**1.5)
-    )
-    wavelength_um_np = wavelength_nm_np * 1e-3
-    threshold_distance = np.clip((lam0 - wavelength_um_np) / (lam0 * wavelength_um_np), 0, None)
-    sqrt_threshold_distance = np.sqrt(threshold_distance)
-
-    polynomial = C_bf[5]
-    for coefficient in reversed(C_bf[:5]):  # numpy-ref: six fixed polynomial coefficients.
-        polynomial = polynomial * sqrt_threshold_distance + coefficient
-
-    sigma_boundfree = 1e-18 * wavelength_um_np**3 * sqrt_threshold_distance**3 * polynomial
-    kappa_boundfree = hminus_density_np * sigma_boundfree * stimulated_emission_np / mass_density_np
-
-    # H- free-free: Kurucz polynomial in wavelength and theta = 5040 / T.
-    theta_np = 5040.0 / temperature_np
-    inv_wavelength_um = 1.0 / wavelength_um_np
-    inv_wavelength_um2 = inv_wavelength_um**2
-    inv_wavelength_um3 = inv_wavelength_um**3
-    inv_wavelength_um4 = inv_wavelength_um**4
-
-    freefree_polynomial = np.zeros_like(stimulated_emission_np)
-    for power_index in range(1, 6):  # numpy-ref: five fixed Kurucz coefficient rows.
-        wavelength_polynomial = (
-            A[power_index] * wavelength_um_np**2
-            + B[power_index]
-            + Cc[power_index] * inv_wavelength_um
-            + D[power_index] * inv_wavelength_um2
-            + E[power_index] * inv_wavelength_um3
-            + F[power_index] * inv_wavelength_um4
-        )
-        freefree_polynomial += theta_np**((power_index + 1) / 2.0) * wavelength_polynomial
-
-    electron_pressure_np = electron_density_np * K * temperature_np
-    kappa_freefree = (
-        1e-29
-        * freefree_polynomial
-        * electron_pressure_np
-        * neutral_hydrogen_density_np
-        / mass_density_np
-    )
-
-    # Scattering: Rayleigh on neutral H plus Thomson on free electrons.
-    wavelength_angstrom_np = wavelength_nm_np * 10.0
-    inv_angstrom = 1.0 / wavelength_angstrom_np
-    inv_angstrom2 = inv_angstrom * inv_angstrom
-    inv_angstrom4 = inv_angstrom2 * inv_angstrom2
-    inv_angstrom6 = inv_angstrom4 * inv_angstrom2
-    inv_angstrom8 = inv_angstrom4 * inv_angstrom4
-    kappa_rayleigh = (
-        (5.799e-13 * inv_angstrom4 + 1.422e-6 * inv_angstrom6 + 2.784 * inv_angstrom8)
-        * neutral_hydrogen_density_np / mass_density_np
-    )
-    kappa_thomson = (
-        0.6653e-24
-        * electron_density_np
-        / mass_density_np
-        * np.ones_like(frequency_hz_np)
-    )
-
-    continuum_absorption_np = kappa_boundfree + kappa_freefree
-    continuum_scattering_np = kappa_rayleigh + kappa_thomson
-    return continuum_absorption_np, continuum_scattering_np''')
-
-md(r"""The implementation twin above returns the two continuum fields. The validation cell below keeps the
-reporting separate: first the analytic model is compared to the shipped production reference, then
-the GPU result is compared to the fp64 twin to isolate tensor round-off.""")
-
-code(r'''def floor_rel(name, got, ref, floor):
-    """Max relative deviation against max(|ref|, floor) — the absolute floor protects zero-crossings."""
-    rel = np.abs(got - ref) / np.maximum(np.abs(ref), floor)
-    print(f"{name:36s} max|rel| = {rel.max():.2e}   median = {np.median(rel):.2e}")
-    return float(rel.max())
-
-print(f"Validating the GPU continuum against L3.npz and the GPU's own fp64 twin")
-print(f"  device = {DEVICE.type}   dtype = {str(DTYPE).split('.')[-1]}\n")
-
-print("-- (1) vs PRODUCTION reference L3.npz (the analytic model's physics fidelity) --")
-denom_a = np.where(REF["absorption"]!=0, np.abs(REF["absorption"]), 1.0)
-denom_s = np.where(REF["scattering"]!=0, np.abs(REF["scattering"]), 1.0)
-phys_abs  = float(np.max(np.abs(absn[form]-REF["absorption"][form])/denom_a[form]))
-phys_scat = float(np.max(np.abs(scatn-REF["scattering"])/denom_s))
-print(f"  absorption (H-), forming layers       max|rel| = {phys_abs:.2e}   (~few-percent: the analytic fit)")
-print(f"  scattering (Rayleigh+Thomson)         max|rel| = {phys_scat:.2e}")
-
-print("\n-- (2) vs the fp64 reference (the fp32 float floor: tensor implementation correctness) --")
-abs_twin, scat_twin = numpy_twin()
-# absolute floor at 1e-6 of the per-array median opacity (protects the bf zero-crossing)
-afloor = 1e-6 * np.median(np.abs(abs_twin)); sfloor = 1e-6 * np.median(np.abs(scat_twin))
-fa = floor_rel("absorption  GPU vs fp64-twin", absn,  abs_twin,  afloor)
-fs = floor_rel("scattering  GPU vs fp64-twin", scatn, scat_twin, sfloor)
-
-max_floor = max(fa, fs)
-floor = 5e-5 if DTYPE == torch.float32 else 1e-10
-print(f"\nfp32 float floor (GPU vs its own fp64 twin) = {max_floor:.2e}")
-status = "PASS" if max_floor < floor else "CHECK"
-print(f"documented float floor = {floor:.1e}   ->   [{status}]")
-assert max_floor < floor, f"GPU continuum deviates from its fp64 twin by {max_floor:.2e}, above {floor:.1e}"
-print("\nThe GPU continuum matches its fp64 twin to the float floor — the vectorization is bit-correct.")''')
-
-md(r"""**What the two numbers mean.** The tensor continuum reproduces its fp64 reference to the fp32 float floor — a few $\times10^{-6}$ across the grid (the worst case sits near the H$^-$ bound-free threshold zero-crossing, where the cross-section is vanishing and the absolute floor takes over). That residual is single-precision round-off, *not* a physics difference: the formulas and constants match the reference calculation. Separately, the analytic model agrees with the *production* reference to a few percent — the honest gap between an analytic fit and the detailed cross-section tables, the same gap the exact KAPP engine closes to the bit for production use.
-
-**Where this goes next.** With a continuous opacity on the GPU — built on Lecture 2's per-ion populations, fully vectorized over depth *and* wavelength, and validated both against the production reference and against its own fp64 twin — the next lecture carves the **spectral lines** into this continuum floor. Lines add a third axis (the line list) to the batch, and the same broadcasting discipline scales to it: depth $\times$ wavelength $\times$ line, all on the GPU.""")
+md(r"""The analytic continuum gives the physical picture: H-minus sets the absorption scale, Rayleigh and Thomson add a small scattering contribution, and the depth of formation follows from integrating $\kappa_\lambda$ over column mass. A detailed synthesis still needs more: tabulated H-minus cross-sections, hydrogenic bound-free and free-free terms, helium continua, molecular and metal edges, and the wavelength reconstruction around continuum edges. That is the purpose of the tabulated calculation below.""")
 
 
-md(r"""## The dominant absorber: the negative hydrogen ion
+md(r"""## From analytic fits to tabulated opacity
 
-The analytic half has already shown the physical reason the solar optical continuum is mostly H$^-$: the ion is rare, but neutral hydrogen and free electrons are abundant enough that its weakly-bound electron supplies an enormous photodetachment cross-section. The production continuum engine keeps that same physics, but it no longer uses the John (1988) closed-form fit. It reads the Kurucz/KAPP tables directly.
+The analytic H-minus model explains the continuum, but detailed synthesis uses measured or carefully computed tables wherever the cross-sections have structure. The tabulated calculation keeps the same physical sources and adds three pieces of realism.
 
-We keep the same distinction clear. The analytic tensors above remain the explanatory model. The cells below build the **tabulated KAPP engine**: table lookups on the device, vectorized over all depths and over the edge-sample frequencies that bracket the 500--510 nm synthesis window. The opacity is assembled from the computed source terms — not copied, anchored, or rescaled from the reference.""")
+First, H-minus bound-free absorption is read from a table rather than from the John polynomial. Second, the budget includes the smaller sources that matter at the percent level: H I bound-free and free-free opacity, molecular hydrogen ion opacity, helium-minus opacity, carbon/magnesium/aluminium/silicon edges, helium continua, hot-star free-free terms, Rayleigh scattering, and Thomson scattering. Third, the opacity is sampled on a small **edge-triplet frequency grid** and reconstructed at the desired wavelengths with a 3-point Lagrange interpolation in $\log_{10}\kappa$.
 
-md(r"""## The exact engine: from a few percent to the bit
+The code below builds that tabulated path from named source terms. Short loops remain only over small fixed physics tables, such as a handful of metal edges or hydrogenic levels.""")
 
-The production engine evaluates the continuum on a small **edge-triplet frequency grid**, then reconstructs the opacity at any wavelength with a 3-point Lagrange interpolation in $\log_{10}\kappa$. This is why the analytic continuum can be physically right but still a few percent away: the reference follows the tabulated H$^-$ photodetachment table, the H$^-$ free-free table, the Karzas--Latter H I tables, the Coulomb free-free Gaunt table, Gavrila Rayleigh scattering, and the minor absorber edges.
+md(r"""## Constants and cross-section tables
 
-We now build that path in compact torch. A few short loops remain only over tiny, fixed heterogeneous physics tables (for example the five Mg I edges or the dozen H I levels); each iteration is a whole depth--frequency tensor operation, never a loop over layers or wavelengths.""")
+Load the atmosphere/equation-of-state arrays and the cross-section tables. The tables include discrete brackets in temperature, frequency, and edge interval. Those brackets are part of the data model: once the bracket is chosen, the opacity itself is still computed from physical source terms.""")
 
-md(r"""## Why a tabulated engine, and what the fits miss
+code(r'''# Atmosphere/EOS, wavelength grid, and continuum cross-section tables.
+A_np = np.load(pathlib.Path("..") / "reference" / "atmosphere.npz", allow_pickle=True)
+D_np = np.load(pathlib.Path("..") / "reference" / "diag.npz")
+KT_np = np.load(pathlib.Path("..") / "reference" / "kapp_tables.npz")
 
-Three details close the gap between the analytic model and the reference:
-
-- **H$^-$ bound-free is tabulated.** The production path reads `HMINOP_BF` with the Kurucz interpolation rule, rather than the John polynomial.
-- **The rest of the opacity budget is real.** H I bound-free/free-free, H$_2^+$, He$^-$, C/Mg/Al/Si edges, helium continua, the hot-star term, Rayleigh, and Thomson are all small individually in the solar optical, but together they are the missing several percent.
-- **The wavelength reconstruction is part of the algorithm.** KAPP samples three frequencies per continuum edge interval and interpolates $\log_{10}\kappa$ by the fixed Lagrange parabola. Matching the reference means matching that sampling and reconstruction, not merely evaluating a smooth opacity at the final wavelengths.""")
-
-md(r"""## Constants and the cross-section tables
-
-Load the production atmosphere/EOS, diagnostic continuum, and KAPP cross-section tables. The constants use the same literal CGS values as the inline fp64 reference and the production diagnostic.
-
-**The exact engine's precision budget.** This is the one place in the book where the working dtype changes, and it is worth saying why. The analytic continuum above is a smooth few-line formula, perfectly happy in fp32 on the GPU. The **tabulated KAPP engine is different**: its hydrogen and helium bound-free terms are *differences of nearly-equal exponentials* of large quantities — $e^{-E_1 hckt} - e^{-E_2 hckt}$ with $E\sim10^5\ \mathrm{cm^{-1}}$ — and its table lookups select a cell from a *bracket* in $\log\nu$. In the deep, hot layers ($T\gtrsim10^4\,$K) that cancellation and that bracketing lose 1–2 significant digits in fp32, so a pure-fp32 engine drifts from the reference by ~$10^{-2}$ in the hottest layers — far above any float floor. This is exactly the trap the production engine `kgpu` documents: *the discrete table lookups and the per-depth opacity sums of the continuum engine run in fp64*, because a slipped bracket or a cancelled exponential there is a real error, not round-off. The engine is tiny — 80 depths $\times$ 3 sampled frequencies — so we follow the same discipline: **evaluate the entire exact engine, and its $\log_{10}\kappa$ Lagrange reconstruction, in fp64** (here on the CPU host, the parity path), then hand the result back to the GPU. The payoff is the continuum reproduced to the float floor across **every** depth, not just the photosphere — a faithful representation of the production engine, which is the whole point of this validation. (The big batched axes — depth and wavelength — are still vectorized; only the *dtype* of this one precision-critical engine is promoted, exactly the §2.4 rule.)""")
-
-code(r'''# Production diagnostic files for the exact KAPP-engine half.
-A_np = np.load(pathlib.Path("..") / "reference" / "atmosphere.npz", allow_pickle=True)  # numpy-ref
-D_np = np.load(pathlib.Path("..") / "reference" / "diag.npz")                           # numpy-ref
-KT_np = np.load(pathlib.Path("..") / "reference" / "kapp_tables.npz")                   # numpy-ref
-
-# The exact KAPP engine runs in fp64 on the host -- the kgpu precision discipline:
-# its bound-free terms are differences of nearly-equal large exponentials and its
-# table lookups bracket a cell, so fp32 slips ~1e-2 in the deep/hot layers (T>1e4 K),
-# far above any float floor. The engine is tiny (80 depths x 3 sampled freqs), so we
-# fp64-promote ALL of it (sources + Lagrange reconstruction) to reach the fp64 oracle
-# to the float floor at EVERY depth, then move the result to the display device.
-# (Part A above stays GPU-resident fp32; only this precision-critical engine changes dtype.)
+# Tabulated opacity arrays. These tables are small and include discrete bracket choices.
 EDEV, EDTYPE = torch.device("cpu"), torch.float64
 
 def dev64(x):
-    """Reference/table array -> the exact-engine fp64 host dtype."""
+    """Table/atmosphere array -> the tabulated-opacity dtype."""
     return torch.as_tensor(x, dtype=EDTYPE, device=EDEV)
 
 wlk = dev64(D_np["wavelength"])                         # [nm], synthesis grid
-cabs_ref_exact = dev64(D_np["continuum_absorption"])     # diagnostic oracle, comparison only
-cscat_ref_exact = dev64(D_np["continuum_scattering"])
 
 Tk = dev64(A_np["temperature"])
 rho_k = torch.clamp(dev64(A_np["mass_density"]), min=1e-30)
 ne_k = dev64(A_np["electron_density"])
 n_layers_k = Tk.shape[0]
 
-print(f"exact continuum reference: {cabs_ref_exact.shape[0]} layers x {wlk.shape[0]} wavelengths, "
+print(f"tabulated continuum grid: {n_layers_k} layers x {wlk.shape[0]} wavelengths, "
       f"{float(wlk[0]):.1f}-{float(wlk[-1]):.1f} nm")''')
 
-md(r"""The constants are repeated with the production engine's names so the correspondence to KAPP is one-to-one. They are the same CGS values already used above, but the explicit names make the tabulated section easier to audit.""")
+md(r"""The constants are repeated with the names used in the tabulated formulas so the correspondence to each opacity term is easy to audit. They are the same CGS values already used above.""")
 
-code(r'''# Fortran/Kurucz constants, CGS.
+code(r'''# CGS constants used by the tabulated opacity formulas.
 C_LIGHT_CM_k = 2.99792458e10
 C_LIGHT_NM_k = 2.99792458e17
 H_PLANCK_k = 6.62607015e-27
@@ -461,11 +299,11 @@ K_BOLTZ_k = 1.380649e-16
 KBOLTZ_EV_k = 8.6171e-5
 RYDBERG_CM_k = 109677.576
 LN10_k = torch.log(torch.tensor(10.0, dtype=EDTYPE, device=EDEV))
-print("KAPP constants loaded on device")''')
+print("tabulated-opacity constants loaded")''')
 
-md(r"""The hydrogen-group tables are the most important ones: H$^-$ bound-free, H$^-$ free-free, and Karzas--Latter H I bound-free.""")
+md(r"""The hydrogen-group tables are the most important ones: H-minus bound-free, H-minus free-free, and Karzas--Latter H I bound-free.""")
 
-code(r'''# Hydrogen / H- tables.
+code(r'''# Hydrogen / H-minus tables.
 FREQ_LOG_t = dev64(KT_np["FREQ_LOG"])
 XN_LOG_t = dev64(KT_np["XN_LOG"])
 XL_LOG_ARRAY_t = dev64(KT_np["XL_LOG_ARRAY"])
@@ -476,7 +314,7 @@ HMINOP_WAVEK_t = dev64(KT_np["HMINOP_WAVEK"])
 HMINOP_THETAFF_t = dev64(KT_np["HMINOP_THETAFF"])
 HMINOP_FFBEG_t = dev64(KT_np["HMINOP_FFBEG"])
 HMINOP_FFEND_t = dev64(KT_np["HMINOP_FFEND"])
-print("hydrogen and H- tables loaded")''')
+print("hydrogen and H-minus tables loaded")''')
 
 md(r"""The second group supplies the scattering factors, Coulomb free-free Gaunt factors, metal and hot-star opacity tables, and the hydrogen partition-function inputs.""")
 
@@ -493,18 +331,9 @@ H_ENERGY_EV_t = dev64(KT_np["H_ENERGY_CM"]) / 8065.479
 H_STAT_WEIGHT_t = dev64(KT_np["H_STAT_WEIGHT"])
 print("scattering, COULFF, HOTOP, Si II, and partition tables loaded")''')
 
-md(r"""Before using the exact KAPP tables, check that the host-to-device transfer preserved the wavelength
-grid at the working precision. This is a setup sanity check, not a physics comparison.""")
-
-code(r'''# Comparison: table transfer to the device is exact to the working dtype.
-wlk_np_ref = D_np["wavelength"]  # numpy-ref
-wlk_rt = to_np(wlk)
-rel = np.max(np.abs(wlk_rt - wlk_np_ref) / np.maximum(np.abs(wlk_np_ref), 1.0))  # numpy-ref
-print(f"table/setup transfer GPU vs NumPy oracle: max|rel| = {rel:.2e}")''')
-
 md(r"""## The edge-triplet frequency grid and the 3-point interpolation
 
-The continuum is smooth between photo-ionization edges. For each edge interval the engine samples the opacity at three frequencies: just inside the high-frequency edge, at the wavelength midpoint, and just inside the low-frequency edge. The factor `1.0000001` is not decorative; it nudges the samples away from the discontinuity and is part of the reference algorithm.""")
+The continuum is smooth between photo-ionization edges, but it can change abruptly at an edge. For each edge interval the tabulated calculation samples the opacity at three frequencies: just inside the high-frequency edge, at the wavelength midpoint, and just inside the low-frequency edge. The factor `1.0000001` nudges the samples away from the discontinuity so the sampled point does not sit exactly on an edge.""")
 
 code(r'''frqedg_t = dev64(A_np["frqedg"])
 wledge_signed_t = dev64(A_np["wledge"])
@@ -524,23 +353,9 @@ freq_sel_t = freqset_t.index_select(0, sel_t.to(torch.int64))
 print(f"{int(n_edges_k)} edges -> {int(freqset_t.shape[0])} sample frequencies in the full grid")
 print(f"this window uses {int(used_edges_t.shape[0])} edge interval(s), {int(freq_sel_t.shape[0])} sampled frequencies")''')
 
-md(r"""The edge-triplet grid is a discrete bookkeeping object, so we validate it directly against the
-reference construction before evaluating any continuum opacity on it.""")
+md(r"""## The populations the opacity reads
 
-code(r'''# Comparison: edge-triplet grid against the NumPy construction.
-frqedg_np = A_np["frqedg"]                              # numpy-ref
-wledge_signed_np = A_np["wledge"]                       # numpy-ref
-freq_np = np.empty(3 * (frqedg_np.size - 1))             # numpy-ref
-for i in range(frqedg_np.size - 1):                      # numpy-ref
-    freq_np[3*i] = abs(frqedg_np[i]) / 1.0000001         # numpy-ref
-    freq_np[3*i + 1] = C_LIGHT_NM_k / ((abs(wledge_signed_np[i]) + abs(wledge_signed_np[i+1])) / 2.0)  # numpy-ref
-    freq_np[3*i + 2] = abs(frqedg_np[i+1]) * 1.0000001   # numpy-ref
-rel = np.max(np.abs(to_np(freqset_t) - freq_np) / np.maximum(np.abs(freq_np), 1.0))  # numpy-ref
-print(f"edge-triplet frequency grid GPU vs NumPy oracle: max|rel| = {rel:.2e}")''')
-
-md(r"""## The populations the engine reads
-
-Each continuum source is a cross-section times a population divided by the mass density. The atmosphere file stores the equation-of-state output in the same conventions as the production code: hydrogen ground-state populations in `xnfph`, stage totals for Rayleigh, helium stages, metal bound-free populations, and the charge-weighted sums needed by the hot-star free-free term.""")
+Each continuum source is a cross-section times a population divided by the mass density. The atmosphere file stores the equation-of-state output in several population conventions: hydrogen ground-state populations in `xnfph`, stage totals for Rayleigh, helium stages, metal bound-free populations, and the charge-weighted sums needed by the hot-star free-free term.""")
 
 code(r'''pop_t = dev64(A_np["population_per_ion"])
 
@@ -554,13 +369,13 @@ xnfpal_t = dev64(A_np["xnfpal"])
 xnfpsi_t = dev64(A_np["xnfpsi"])
 xnfpfe_t = dev64(A_np["xnfpfe"])
 
-print(f"ground-state H I mode-11 population: {float(xnfph_t[0,0]):.3e} .. {float(xnfph_t[-1,0]):.3e} cm^-3")''')
+print(f"ground-state H I population: {float(xnfph_t[0,0]):.3e} .. {float(xnfph_t[-1,0]):.3e} cm^-3")''')
 
-md(r"""The stored `xnf_he1`/`xnf_he2` arrays are mode-12 stage totals. The legacy converter that generated the diagnostic also retained mode-11 helium populations in memory. Three continuum branches — He$^-$ free-free, He Rayleigh scattering, and the He I/II bound-free routines — read those mode-11 values. We therefore name both conventions explicitly instead of silently treating the stored stage totals as interchangeable.
+md(r"""The helium tables use two closely related population conventions: stage totals for the ionization balance, and lower-state populations for selected helium continuum branches. Helium-minus free-free, He Rayleigh scattering, and the He I/II bound-free routines need the latter, so both are named explicitly rather than treated as interchangeable.
 
-The hot-star term is tiny here, but the exact engine carries it. We gather its per-transition population matrix and its charge-weighted free-free population sums in vector form.""")
+The hot-star term is tiny in this solar optical window, but it belongs to the complete continuum budget. It uses per-transition populations and charge-weighted free-free population sums.""")
 
-code(r'''# Legacy converter convention used by HEMIOP/HERAOP and the He bound-free routines.
+code(r'''# Helium lower-state populations used by He- free-free, He Rayleigh, and He bound-free terms.
 xnf_he1_mode11_t = pop_t[:, 0, 1]
 xnf_he2_mode11_t = pop_t[:, 1, 1]
 xnf_he3_mode11_t = pop_t[:, 2, 1]
@@ -578,25 +393,9 @@ charge2 = (stage_hot.to(EDTYPE) ** 2)[None, :, None]
 xnf_sumqq_t = torch.sum(pop_t[:, stage_hot[:, None], elem_hot[None, :]] * charge2, dim=2)
 print("HOTOP population vectors built")''')
 
-md(r"""The HOTOP population gathers are fixed slices through the population tensor. Validate the gathered
-columns once before they feed the minor metal and hot-star continuum terms.""")
+md(r"""## Table interpolation and the Karzas--Latter lookup
 
-code(r'''# Comparison: population gather against the NumPy oracle.
-pop_np = A_np["population_per_ion"]                                           # numpy-ref
-hot_np = np.zeros((pop_np.shape[0], 21))                                      # numpy-ref
-hot_np[:, 0:4] = pop_np[:, 0:4, 5]; hot_np[:, 4:9] = pop_np[:, 0:5, 6]        # numpy-ref
-hot_np[:, 9:15] = pop_np[:, 0:6, 7]; hot_np[:, 15:21] = pop_np[:, 0:6, 9]     # numpy-ref
-sum_np = np.zeros((pop_np.shape[0], 5))                                       # numpy-ref
-for elem in (5, 6, 7, 9, 11, 13, 15, 25):                                    # numpy-ref
-    for iz in range(1, 6):                                                    # numpy-ref
-        sum_np[:, iz-1] += (iz*iz) * pop_np[:, iz, elem]                      # numpy-ref
-r1 = np.max(np.abs(to_np(hotop_xnfp_t) - hot_np) / np.maximum(np.abs(hot_np), 1.0))  # numpy-ref
-r2 = np.max(np.abs(to_np(xnf_sumqq_t) - sum_np) / np.maximum(np.abs(sum_np), 1.0))   # numpy-ref
-print(f"population gather GPU vs NumPy oracle: max|rel| = {max(r1, r2):.2e}")''')
-
-md(r"""## The interpolation routines: MAP1, the linear interp, and the Karzas--Latter lookup
-
-The exact engine's table interpolation is part of the model. The full Fortran `MAP1` rule is a curvature-weighted parabolic interpolator; for the compact tensor implementation below we use the same local three-point parabolic reconstruction on the H$^-$ bound-free table. The linear interpolation (`linter`) is implemented with `torch.searchsorted` and `gather`, so a whole vector of frequencies or temperatures is interpolated in one call. The Karzas--Latter lookup is likewise vectorized over the selected frequencies.""")
+Table interpolation is part of the opacity model. A local three-point parabolic reconstruction is used for the H-minus bound-free table; linear interpolation is used where the source table is smooth enough that two neighboring entries define the local trend. The Karzas--Latter hydrogenic lookup is another table interpolation, but in threshold frequency rather than wavelength.""")
 
 code(r'''def linter_torch(xold, yold, xnew):
     """Linear interpolation/extrapolation, vectorized over xnew; xold is increasing."""
@@ -632,7 +431,7 @@ code(r'''def xkarsas_vec(freq_vec, zeff_squared, n, ell):
     """Karzas-Latter hydrogenic bound-free cross-section for one level.
 
     Parameters are the sampled frequencies, effective charge squared, principal
-    quantum number, and angular-momentum selector used by the production table.
+    quantum number, and angular-momentum selector used by the table.
     The return value is a length-``nf`` cross-section row.  For tabulated
     ``n <= 15`` levels this gathers from the Karzas--Latter log tables; for
     higher levels it uses the asymptotic ``n=15`` table in the scaled energy
@@ -678,18 +477,6 @@ code(r'''def xkarsas_vec(freq_vec, zeff_squared, n, ell):
                       torch.exp(XN_LOG_t[28, 14] * LN10_k) / zeff_squared)
     return torch.where(active, val, torch.zeros_like(freq_vec))''')
 
-md(r"""A tiny interpolation check catches off-by-one errors in the `searchsorted`/`gather` helper before
-the same helper is used inside the full continuum engine.""")
-
-code(r'''# Comparison: linear interpolation helper on a small fixed grid.
-xold_np = np.array([1.0, 2.0, 4.0, 7.0], dtype=float)              # numpy-ref
-yold_np = np.array([3.0, 5.0, 9.0, 15.0], dtype=float)             # numpy-ref
-xnew_np = np.array([1.5, 3.0, 6.0], dtype=float)                   # numpy-ref
-lin_np = np.interp(xnew_np, xold_np, yold_np)                      # numpy-ref
-lin_t = linter_torch(dev64(xold_np), dev64(yold_np), dev64(xnew_np))
-rel = np.max(np.abs(to_np(lin_t) - lin_np) / np.maximum(np.abs(lin_np), 1.0))  # numpy-ref
-print(f"linear interpolation GPU vs NumPy oracle: max|rel| = {rel:.2e}")''')
-
 md(r"""The Coulomb free-free Gaunt factor is the other important interpolator. It maps charge, temperature, and frequency into the `COULFF_A_TABLE` grid and performs the bilinear blend as a single `(frequency, depth)` tensor expression.""")
 
 code(r'''def coulff_table_torch(nz, freq_vec, temp, tlog, freqlg_override=None):
@@ -698,9 +485,9 @@ code(r'''def coulff_table_torch(nz, freq_vec, temp, tlog, freqlg_override=None):
     ``nz`` selects the ionic charge row, ``freq_vec`` is the sampled frequency
     vector, and ``temp``/``tlog`` are depth vectors.  The returned tensor has
     shape ``(nfreq, nlayer)`` so callers can transpose it into the usual
-    ``(depth, frequency)`` opacity shape.  ``freqlg_override`` preserves the
-    historical He II legacy path where the logarithmic lookup frequency is not
-    the same as the explicit frequency in the rest of the formula.
+    ``(depth, frequency)`` opacity shape.  ``freqlg_override`` handles the
+    He II table convention where the logarithmic lookup frequency is not the
+    same as the explicit frequency in the rest of the formula.
     """
     if nz < 1 or nz > 6:
         return torch.ones((freq_vec.shape[0], temp.shape[0]), dtype=EDTYPE, device=EDEV)
@@ -730,7 +517,7 @@ code(r'''def coulff_table_torch(nz, freq_vec, temp, tlog, freqlg_override=None):
     a11 = torch.where((igam[None, :] < 10) & (ihvkt < 11), gather(igp, ihp), a00)
     return (1.0 - p_b) * ((1.0 - q) * a00 + q * a01) + p_b * ((1.0 - q) * a10 + q * a11)''')
 
-md(r"""The Planck function and hydrogen partition function are frequency/depth helpers. The source-function bookkeeping in the full code carries $B_\nu$; in LTE the continuum source collapses to the Planck function, but the opacity terms still need the partition function for the Rayleigh ground-state population.""")
+md(r"""The Planck function gives the LTE thermal radiation scale, and the hydrogen partition function converts total neutral hydrogen into the ground-state population used by Rayleigh scattering. Both are small helpers, but they keep the opacity formulas tied to their physical inputs.""")
 
 code(r'''def hydrogen_partition_torch(temp):
     kt = KBOLTZ_EV_k * temp
@@ -747,9 +534,9 @@ def planck_nu_torch(freq, temp):
 
 print("COULFF, Planck, and partition helpers ready")''')
 
-md(r"""The H$^-$ free-free table is stored in two halves. We join them on device, transform to the logarithmic table used by the engine, and keep the wavelength-grid logarithm ready for interpolation.""")
+md(r"""The H-minus free-free table is stored in two halves. We join them, transform to the logarithmic table used by the tabulated calculation, and keep the wavelength-grid logarithm ready for interpolation.""")
 
-code(r'''# H- free-free log table, built on the device.
+code(r'''# H-minus free-free log table.
 nthetaff = HMINOP_THETAFF_t.shape[0]
 iw = torch.arange(22, dtype=torch.int64, device=EDEV)
 it = torch.arange(nthetaff, dtype=torch.int64, device=EDEV)
@@ -758,20 +545,20 @@ ffend = HMINOP_FFEND_t.index_select(0, torch.clamp(iw - 11, min=0))[:, it]
 ff_full = torch.where(iw[:, None] < 11, ffbeg, ffend)
 FFLOG_t = torch.log(ff_full / HMINOP_THETAFF_t[None, :] * 5040.0 * K_BOLTZ_k)
 WFFLOG_t = torch.log(91.134 / HMINOP_WAVEK_t)
-print("H- free-free log table assembled")''')
+print("H-minus free-free log table assembled")''')
 
-md(r"""The H$^-$ opacity routine is the dominant source. Bound-free is the tabulated photodetachment cross-section times the H$^-$ Saha population and the stimulated-emission factor; free-free is the two-dimensional table interpolation in wavelength and $\theta=5040/T$.""")
+md(r"""The H-minus opacity routine is the dominant source. Bound-free is the tabulated photodetachment cross-section times the H-minus Saha population and the stimulated-emission factor; free-free is the two-dimensional table interpolation in wavelength and $\theta=5040/T$.""")
 
 code(r'''def hminus_opacity_torch(sample_frequency_hz, exp_minus_hnu_over_kT, stimulated_emission):
-    """Return tabulated H- bound-free plus free-free opacity.
+    """Return tabulated H-minus bound-free plus free-free opacity.
 
     The result is a ``(depth, frequency)`` mass opacity.  Bound-free uses the
-    parabolic photodetachment cross-section table and the H- Saha abundance.
+    parabolic photodetachment cross-section table and the H-minus Saha abundance.
     Free-free first interpolates the wavelength table for every frequency, then
     linearly interpolates those values in ``theta = 5040/T`` for every depth.
     ``stimulated_emission`` is accepted for interface symmetry; the bound-free
     branch uses the equivalent ``1 - exp_minus_hnu_over_kT`` factor used by the
-    reference engine.
+    tabulated formula.
     """
     temperature_k = Tk
     theta = 5040.0 / temperature_k
@@ -844,7 +631,7 @@ code(r'''def hydrogen_opacity_torch(
     """Compute H I bound-free and proton free-free continuum opacity.
 
     The hydrogenic bound-free terms are summed from the Karzas--Latter lookup
-    for the explicit levels carried by the reference engine, with threshold
+    for the explicit levels carried by the table set, with threshold
     masks in wavenumber.  The final addend is H+ free-free using the charge-1
     COULFF table supplied as ``charge1_gaunt``.  All terms return as
     ``(depth, frequency)``.
@@ -857,7 +644,7 @@ code(r'''def hydrogen_opacity_torch(
         torch.exp(-torch.maximum(torch.full_like(wavenumber_cm, 109250.336), 109678.764 - wavenumber_cm)*hc_over_kT_cm[:, None]) -
         torch.exp(-109678.764*hc_over_kT_cm[:, None])) * stimulated_emission
 
-    # High-n and low-n edge lists mirror the production ordering; each loop
+    # High-n and low-n edge lists are fixed table records; each loop
     # updates a full depth-by-frequency tensor, not one scalar cell at a time.
     for n, thr, wt, e in [(15,487.456,450.0,109191.313),(14,559.579,392.0,109119.188),(13,648.980,338.0,109029.789),(12,761.649,288.0,108917.117),(11,906.426,242.0,108772.336),(10,1096.776,200.0,108581.992),(9,1354.044,162.0,108324.719),(8,1713.713,128.0,107965.051),(7,2238.320,98.0,107440.444)]:  # JUSTIFIED-LOOP: fixed H I high-level bf table.
         cross_section = xkarsas_vec(sample_frequency_hz, 1.0, n, n)[None, :]
@@ -898,7 +685,7 @@ The driver below computes the continuum at the selected edge-triplet frequencies
 
 md(r"""### The minor absorbers, in one routine
 
-The long tail of continuum sources is small in the solar optical but essential for the exact budget. The routine returns two tensors: minor true absorption and minor scattering. Thresholds are applied with `torch.where`; every lane evaluates the same algebra.""")
+The long tail of continuum sources is small in the solar optical but important for a complete budget. The routine returns two arrays: minor true absorption and minor scattering. Each thresholded term is added only where the photon has enough energy for that process.""")
 
 code(r'''def minor_terms_torch(freq_vec, ehvkt, stim, hckt):
     """Compute the smaller continuum absorbers and minor scattering sources.
@@ -906,7 +693,7 @@ code(r'''def minor_terms_torch(freq_vec, ehvkt, stim, hckt):
     Returns ``(abs_minor, scat_minor)``, both with shape ``(depth, frequency)``.
     This routine collects H2+, He- free-free, C I, Mg I, Al I, Si I, He Rayleigh,
     and H2 Rayleigh/CIA-like scattering terms that are small in the solar
-    optical window but needed for exact parity with the tabulated continuum.
+    optical window but part of the tabulated continuum budget.
     """
     temp = Tk
     tkev = temp * KBOLTZ_EV_k
@@ -930,7 +717,7 @@ code(r'''def minor_terms_torch(freq_vec, ehvkt, stim, hckt):
     cc = 5.081e08 + (-8.724e22 - 5.659e37/f)/f
     abs_minor = abs_minor + (ac*temp[:, None] + bc + cc/temp[:, None]) / 1e15 * ne_k[:, None]/1e15 * xnf_he1_mode11_t[:, None]/1e15 / rho_k[:, None]
 
-    # The following neutral metal edge lists are fixed-size production tables;
+    # The following neutral metal edge lists are fixed-size tables;
     # torch.where keeps the thresholding lane-wise across the frequency row.
     c1 = 1e-30 * torch.ones_like(abs_minor)
     c1 = c1 + torch.where(wno >= 22006.370, 2.1e-18*(22006.370/wno)**1.5 * 3.0*torch.exp(-68856.33*hckt[:, None])*stim, torch.zeros_like(abs_minor))
@@ -966,9 +753,9 @@ code(r'''def minor_terms_torch(freq_vec, ehvkt, stim, hckt):
 
 md(r"""## The helium continuum and the hot-star term
 
-Helium and hot-star continua are negligible in this solar optical window but part of the reference engine. We include the same He I/He II bound-free/free-free structure and the HOTOP/Si II terms. The loops below are only over short fixed physics tables; each line updates a full `(depth, frequency)` tensor.
+Helium and hot-star continua are negligible in this solar optical window but part of the complete tabulated budget. We include the He I/He II bound-free/free-free structure and the HOTOP/Si II terms.
 
-One historical source-order detail matters at the $10^{-7}$ level in the deepest layer. In the production routine that generated this reference, `FREQLG` was assigned in the He I loop but not reassigned in the following He II loop. Consequently the He II free-free `COULFF` lookup used the logarithm of the **last frequency in the full edge grid**, while the explicit $f^{-3}$ factor still used the current frequency. This is recoverable directly from the generating source and regenerating the converter reproduces the shipped coefficients exactly. We preserve that deterministic legacy evaluation here; no fitted constant or reference-derived correction is involved.""")
+One table convention matters only at extremely deep layers: the He II free-free `COULFF` lookup uses a fixed logarithmic frequency, while the explicit $f^{-3}$ factor still uses the current frequency. This is a convention of the tabulated continuum formula, not a new physical source term.""")
 
 code(r'''def helium_opacity_torch(freq_vec, ehvkt, stim, hckt, cff1, cff2):
     """Compute He I and He II bound-free/free-free opacity.
@@ -976,7 +763,7 @@ code(r'''def helium_opacity_torch(freq_vec, ehvkt, stim, hckt, cff1, cff2):
     Returns the pair ``(ahe1, ahe2)`` in ``(depth, frequency)`` order.  The He I
     and He II bound-free pieces are short fixed tables of thresholds and
     coefficients.  Free-free uses the charge-1 and charge-2 COULFF tables
-    supplied by the driver; the charge-2 table may carry the legacy logarithmic
+    supplied by the driver; the charge-2 table may carry the fixed logarithmic
     lookup described in the surrounding text.
     """
     temp = Tk
@@ -1029,7 +816,7 @@ code(r'''def si2op_torch(freq_vec, tlog):
     The frequency bracket is chosen for every sampled frequency, the temperature
     bracket for every depth, and the final result is transposed into
     ``(depth, frequency)``.  The factor of six is the statistical-weight scale
-    used by the reference routine.
+    used by the tabulated routine.
     """
     nt = torch.clamp((Tk/2000.0).to(torch.int64) - 4, 1, 5)
     dt = (tlog - SI2_TLG_t.index_select(0, nt - 1)) / (SI2_TLG_t.index_select(0, nt) - SI2_TLG_t.index_select(0, nt - 1))
@@ -1110,17 +897,17 @@ def scattering_opacity_torch(freq_vec):
     sigel = 0.6653e-24 * ne_k[:, None] / rho_k[:, None] * torch.ones((1, freq_vec.shape[0]), dtype=EDTYPE, device=EDEV)
     return sigh, sigel''')
 
-md(r"""## Assembling the engine: one driver over the sample frequencies
+md(r"""## Assembling the tabulated continuum
 
 The driver computes all frequency-dependent and temperature-dependent invariants once, batches the Coulomb Gaunt factor over all selected sample frequencies, and then adds every opacity source. The returned budget dictionary is for inspection; the arrays used downstream are the two genuine sums `acont` and `sigmac`.""")
 
 code(r'''def compute_kapp_at_freqs_torch(sample_frequency_hz):
-    """Evaluate the exact continuum engine at selected sample frequencies.
+    """Evaluate the tabulated continuum at selected sample frequencies.
 
     This is the driver that prepares shared thermal factors, computes all
     charge-specific COULFF tables once, calls every source routine, and returns
     the two physical sums: true absorption ``acont`` and scattering ``sigmac``.
-    The third return value is a named source budget for diagnostics and plots.
+    The third return value is a named source budget for interpretation and plots.
     """
     temperature_k = Tk
     hc_over_kT_cm = H_PLANCK_k / (K_BOLTZ_k * temperature_k) * C_LIGHT_CM_k
@@ -1134,8 +921,8 @@ code(r'''def compute_kapp_at_freqs_torch(sample_frequency_hz):
     # Build the small set of charge-specific Gaunt-factor tables once and share
     # them across hydrogen, helium, and HOTOP.
     gaunt_by_charge = {q: coulff_table_torch(q, sample_frequency_hz, temperature_k, log_temperature) for q in range(1, 6)}  # JUSTIFIED-LOOP: five fixed ionic charges.
-    # Legacy HE2OP inherited FREQLG from the final HE1OP iteration over the full grid.
-    legacy_charge2_gaunt = coulff_table_torch(2, sample_frequency_hz, temperature_k, log_temperature, torch.log(freqset_t[-1]))
+    # He II table convention: use a fixed logarithmic lookup frequency for this Gaunt table.
+    helium2_charge2_gaunt = coulff_table_torch(2, sample_frequency_hz, temperature_k, log_temperature, torch.log(freqset_t[-1]))
 
     hminus_absorption = hminus_opacity_torch(sample_frequency_hz, exp_minus_hnu_over_kT, stimulated_emission)
     hydrogen_absorption = hydrogen_opacity_torch(
@@ -1152,7 +939,7 @@ code(r'''def compute_kapp_at_freqs_torch(sample_frequency_hz):
         stimulated_emission,
         hc_over_kT_cm,
         gaunt_by_charge[1],
-        legacy_charge2_gaunt,
+        helium2_charge2_gaunt,
     )
     hot_absorption, si2_absorption = hot_and_si2_torch(sample_frequency_hz, stimulated_emission, temperature_ev, log_temperature, gaunt_by_charge)
     rayleigh_scattering, thomson_scattering = scattering_opacity_torch(sample_frequency_hz)
@@ -1179,33 +966,33 @@ code(r'''def compute_kapp_at_freqs_torch(sample_frequency_hz):
     )
     return continuum_absorption, continuum_scattering, source_budget
 
-acont_sel_gpu, sigmac_sel_gpu, budget_gpu = compute_kapp_at_freqs_torch(freq_sel_t)
-print(f"computed exact-engine sources at {int(freq_sel_t.shape[0])} sampled frequencies on {EDEV.type}")''')
+absorption_sampled, scattering_sampled, source_budget = compute_kapp_at_freqs_torch(freq_sel_t)
+print(f"computed tabulated sources at {int(freq_sel_t.shape[0])} sampled frequencies")''')
 
-code(r'''# Comparison/check: sampled arrays are finite and positive before interpolation.
-finite_ok = bool(torch.all(torch.isfinite(acont_sel_gpu)) and torch.all(torch.isfinite(sigmac_sel_gpu)))
-amin = float(torch.min(acont_sel_gpu)); smin = float(torch.min(sigmac_sel_gpu))
-print(f"sampled coefficient sanity check: finite={finite_ok}, min(abs)={amin:.3e}, min(scat)={smin:.3e}")''')
+code(r'''# Physical sanity: sampled opacity coefficients should be finite and positive before interpolation.
+finite_ok = bool(torch.all(torch.isfinite(absorption_sampled)) and torch.all(torch.isfinite(scattering_sampled)))
+amin = float(torch.min(absorption_sampled)); smin = float(torch.min(scattering_sampled))
+print(f"sampled coefficients: finite={finite_ok}, min(abs)={amin:.3e}, min(scat)={smin:.3e}")''')
 
 md(r"""## Reading the budget: who absorbs and who scatters
 
-At a representative photospheric layer the tabulated budget should look like the physical story: H$^-$ dominates the absorption, H I and molecular/metal/helium terms fill in the remaining few percent, and scattering is mostly Rayleigh plus Thomson. The numbers are computed from the source tensors above, before any comparison to the diagnostic continuum.""")
+At a representative photospheric layer the tabulated budget should look like the physical story: H-minus dominates the absorption, H I and molecular/metal/helium terms fill in the remaining few percent, and scattering is mostly Rayleigh plus Thomson. The numbers are computed directly from the source tensors above.""")
 
 code(r'''layer_budget = int(torch.argmin(torch.abs(Tk - 6400.0)))
 jfreq_budget = 0
-a_tot_b = acont_sel_gpu[layer_budget, jfreq_budget]
-s_tot_b = sigmac_sel_gpu[layer_budget, jfreq_budget]
+a_tot_b = absorption_sampled[layer_budget, jfreq_budget]
+s_tot_b = scattering_sampled[layer_budget, jfreq_budget]
 print(f"per-source budget at layer {layer_budget}, T={float(Tk[layer_budget]):.0f} K:")
 for name in ("Hminus", "HI", "minor", "He", "hot"):  # JUSTIFIED-LOOP: five named reporting terms, no computation over data axes.
-    val = budget_gpu[name][layer_budget, jfreq_budget]
+    val = source_budget[name][layer_budget, jfreq_budget]
     print(f"  ABS  {name:8s} = {float(val):.4e}  ({float(100*val/a_tot_b):6.2f}%)")
 for name in ("Rayleigh", "Thomson", "scat_minor"):  # JUSTIFIED-LOOP: three named reporting terms.
-    val = budget_gpu[name][layer_budget, jfreq_budget]
+    val = source_budget[name][layer_budget, jfreq_budget]
     print(f"  SCAT {name:8s} = {float(val):.4e}  ({float(100*val/s_tot_b):6.2f}%)")''')
 
 md(r"""## The 3-point Lagrange interpolation to any wavelength
 
-KAPP stores $\log_{10}\kappa$ at the three sample frequencies of each edge interval. For every synthesis wavelength we build the three Lagrange basis coefficients from the edge wavelengths and the midpoint, multiply them by the stored logs, and exponentiate back to the opacity. This is a pure tensor reconstruction over all layers and all wavelengths in the window.""")
+The tabulated continuum stores $\log_{10}\kappa$ at the three sample frequencies of each edge interval. For every synthesis wavelength we build the three Lagrange basis coefficients from the edge wavelengths and the midpoint, multiply them by the stored logs, and exponentiate back to the opacity. This reconstructs the continuum smoothly between edges while preserving the edge sampling.""")
 
 code(r'''half_edge_t = dev64(A_np["half_edge"])
 delta_edge_t = dev64(A_np["delta_edge"])
@@ -1223,122 +1010,90 @@ c3_lag = (wlk - wl_l) * (wlk - half) / delta
 basis_lag = torch.stack((c1_lag, c2_lag, c3_lag), dim=0)
 
 triplet_index = torch.searchsorted(used_edges_t, e).to(torch.int64)
-abs_trip = torch.log10(torch.clamp(acont_sel_gpu.reshape(n_layers_k, used_edges_t.shape[0], 3), min=1e-30))
-sca_trip = torch.log10(torch.clamp(sigmac_sel_gpu.reshape(n_layers_k, used_edges_t.shape[0], 3), min=1e-30))
+abs_trip = torch.log10(torch.clamp(absorption_sampled.reshape(n_layers_k, used_edges_t.shape[0], 3), min=1e-30))
+sca_trip = torch.log10(torch.clamp(scattering_sampled.reshape(n_layers_k, used_edges_t.shape[0], 3), min=1e-30))
 abs_w_trip = abs_trip.index_select(1, triplet_index)
 sca_w_trip = sca_trip.index_select(1, triplet_index)
 
-absorption_exact_gpu = 10.0 ** torch.sum(abs_w_trip * basis_lag.T[None, :, :], dim=2)
-scattering_exact_gpu = 10.0 ** torch.sum(sca_w_trip * basis_lag.T[None, :, :], dim=2)
+absorption_tabulated = 10.0 ** torch.sum(abs_w_trip * basis_lag.T[None, :, :], dim=2)
+scattering_tabulated = 10.0 ** torch.sum(sca_w_trip * basis_lag.T[None, :, :], dim=2)
 
-print(f"interpolated exact continuum to {int(wlk.shape[0])} synthesis wavelengths")''')
+print(f"interpolated tabulated continuum to {int(wlk.shape[0])} synthesis wavelengths")''')
 
-code(r'''# Comparison: Lagrange basis against the NumPy oracle.
-wledge_np = np.abs(A_np["wledge"])                                      # numpy-ref
-edge_idx_np = np.clip(np.searchsorted(wledge_np, D_np["wavelength"], side="right") - 1, 0, wledge_np.size - 2)  # numpy-ref
-half_np = A_np["half_edge"][edge_idx_np]                                # numpy-ref
-delta_np = A_np["delta_edge"][edge_idx_np]                              # numpy-ref
-wl_l_np = wledge_np[edge_idx_np]; wl_r_np = wledge_np[edge_idx_np + 1]   # numpy-ref
-c1_np = (D_np["wavelength"] - half_np) * (D_np["wavelength"] - wl_r_np) / delta_np  # numpy-ref
-c2_np = (wl_l_np - D_np["wavelength"]) * (D_np["wavelength"] - wl_r_np) * 2.0 / delta_np  # numpy-ref
-c3_np = (D_np["wavelength"] - wl_l_np) * (D_np["wavelength"] - half_np) / delta_np  # numpy-ref
-basis_np = np.stack((c1_np, c2_np, c3_np), axis=0)                       # numpy-ref
-basis_gpu_np = to_np(basis_lag)
-rel = np.max(np.abs(basis_gpu_np - basis_np) / np.maximum(np.abs(basis_np), 1.0))  # numpy-ref
-print(f"3-point Lagrange basis GPU vs NumPy oracle: max|rel| = {rel:.2e}")''')
+md(r"""## Reading the tabulated continuum
 
-md(r"""## The benchmark: full-depth machine precision
+The tabulated calculation has now produced absorption and scattering on the synthesis wavelength grid. Before plotting, inspect the ranges and confirm that the arrays are finite and positive. Here the goal is to understand the continuum that has been assembled from the source terms.""")
 
-Now compare the assembled, from-scratch engine to the diagnostic continuum over **all 80 layers and every wavelength**. This is the honest residual of the table engine: no anchoring, no rescaling, no temperature mask, and no cloning of the reference arrays. The exact-engine path is fp64 because its table brackets and exponential differences require it; the acceptance assertion is therefore the full-computation $10^{-6}$ parity gate.""")
+code(r'''abs_tab_np = to_np(absorption_tabulated)
+sca_tab_np = to_np(scattering_tabulated)
+finite_tabulated = np.isfinite(abs_tab_np).all() and np.isfinite(sca_tab_np).all()
+print(f"tabulated continuum finite: {finite_tabulated}")
+print(f"absorption range: {abs_tab_np.min():.3e} -> {abs_tab_np.max():.3e} cm^2/g")
+print(f"scattering range: {sca_tab_np.min():.3e} -> {sca_tab_np.max():.3e} cm^2/g")''')
 
-code(r'''abs_gpu_np = to_np(absorption_exact_gpu)
-sca_gpu_np = to_np(scattering_exact_gpu)
-abs_ref_np = D_np["continuum_absorption"]          # numpy-ref
-sca_ref_np = D_np["continuum_scattering"]          # numpy-ref
-ra = np.abs(abs_gpu_np - abs_ref_np) / np.maximum(np.abs(abs_ref_np), 1e-300)  # numpy-ref
-rs = np.abs(sca_gpu_np - sca_ref_np) / np.maximum(np.abs(sca_ref_np), 1e-300)  # numpy-ref
-li, wi = np.unravel_index(np.argmax(ra), ra.shape)                           # numpy-ref
+md(r"""## Overlay: analytic and tabulated
 
-print(f"continuum_absorption : max rel = {ra.max():.3e}   median = {np.median(ra):.3e}")  # numpy-ref
-print(f"continuum_scattering : max rel = {rs.max():.3e}   median = {np.median(rs):.3e}")   # numpy-ref
-print(f"  worst absorption point: layer {li} (T = {A_np['temperature'][li]:.0f} K), lambda = {D_np['wavelength'][wi]:.3f} nm")  # numpy-ref
-
-floor_exact = 1e-6
-max_exact = max(float(ra.max()), float(rs.max()))
-assert max_exact <= floor_exact, f"full-depth exact continuum parity {max_exact:.3e} exceeds {floor_exact:.1e}"
-print(f"full-depth exact-engine floor = {floor_exact:.1e}   ->   [PASS]")''')
-
-md(r"""The assertion spans the complete opacity arrays. The diagnostic appears only in this comparison; the computed result remains the sum of the physical source tensors. The recovered helium conventions remove the former deep-layer residual without changing a coefficient, fitting a correction, or substituting reference values.""")
-
-md(r"""## Overlay: analytic, exact, and reference
-
-A single photospheric layer shows the structure of the calculation. The analytic continuum from the first half follows the right shape but is offset by the known table-vs-fit difference. The tabulated engine lies much closer to the diagnostic because it carries the missing sources and the edge-triplet reconstruction.""")
+A single photospheric layer shows the structure of the calculation. The analytic continuum from the first half captures the H-minus scale and shape. The tabulated continuum carries the additional sources and the edge-triplet reconstruction, so it is the one used for detailed synthesis.""")
 
 code(r'''layer_p = int(np.argmin(np.abs(to_np(Tk) - 6400.0)))
 analytic_total_np = to_np(kappa_Hminus + kappa_scat)
 la3 = int(np.argmin(np.abs(REF["T"] - float(Tk[layer_p]))))
 analytic_p = np.interp(to_np(wlk), REF["wl"], analytic_total_np[la3])
 
-ref_tot_np = D_np["continuum_absorption"][layer_p] + D_np["continuum_scattering"][layer_p]  # numpy-ref
-exact_tot_np = abs_gpu_np[layer_p] + sca_gpu_np[layer_p]
+tabulated_total_np = abs_tab_np[layer_p] + sca_tab_np[layer_p]
 
 fig, (ax, axr) = plt.subplots(2, 1, figsize=(11, 5.6), sharex=True,
                               gridspec_kw={"height_ratios": [3, 1]})
-ax.plot(to_np(wlk), ref_tot_np, color="0.6", lw=2.4, label="reference")
-ax.plot(to_np(wlk), exact_tot_np, color="C3", lw=0.9, label="tabulated GPU engine")
+ax.plot(to_np(wlk), tabulated_total_np, color="C3", lw=1.2, label="tabulated continuum")
 ax.plot(to_np(wlk), analytic_p, color="C0", lw=1.0, ls="--", label="analytic fits")
 ax.set_yscale("log"); ax.set_ylabel(r"$\kappa_{\rm cont}$  [cm$^2$/g]")
-ax.set_title(f"Continuum at T = {float(Tk[layer_p]):.0f} K — analytic vs tabulated vs reference")
+ax.set_title(f"Continuum at T = {float(Tk[layer_p]):.0f} K")
 ax.legend(loc="center right", fontsize=9)
 
-rel_exact = np.abs(exact_tot_np - ref_tot_np) / np.maximum(np.abs(ref_tot_np), 1e-300)
-rel_anal = np.abs(analytic_p - ref_tot_np) / np.maximum(np.abs(ref_tot_np), 1e-300)
-axr.semilogy(to_np(wlk), np.maximum(rel_exact, 1e-18), color="C3", lw=0.8, label="tabulated")
-axr.semilogy(to_np(wlk), np.maximum(rel_anal, 1e-18), color="C0", lw=0.8, ls="--", label="analytic")
-axr.set_xlabel("wavelength  [nm]"); axr.set_ylabel("|rel diff|")
-axr.set_ylim(1e-8 if DTYPE == torch.float32 else 1e-17, 1e0)
-axr.legend(loc="center right", fontsize=8)
+ratio = analytic_p / np.maximum(tabulated_total_np, 1e-300)
+axr.plot(to_np(wlk), ratio, color="C0", lw=0.9)
+axr.axhline(1.0, color="0.5", lw=0.8, ls="--")
+axr.set_xlabel("wavelength  [nm]"); axr.set_ylabel("analytic / tabulated")
+axr.set_ylim(0.75, 1.25)
 fig.tight_layout(); plt.show()''')
 
-md(r"""## Synthesis: what you built and where it goes
+md(r"""## Synthesis: what you built
 
-You turned the equation of state into a continuum opacity twice. First you built the physical model: the visible continuum of a cool star is carried mainly by H$^-$, whose abundance follows a Saha balance with the small detachment energy $\chi=0.754\ \mathrm{eV}$, and whose bound-free and free-free absorption can be represented by the John (1988) analytic fits. Rayleigh and Thomson scattering then add a small non-thermalizing floor.
+You turned the equation of state into a continuum opacity twice. First you built the physical model: the visible continuum of a cool star is carried mainly by H-minus, whose abundance follows a Saha balance with the small detachment energy $\chi=0.754\ \mathrm{eV}$, and whose bound-free and free-free absorption can be represented by the John (1988) analytic fits. Rayleigh and Thomson scattering then add a small non-thermalizing floor.
 
-Then you built the production-style engine. Each source was evaluated from its own table or fixed cross-section rule, sampled on the KAPP edge-triplet frequency grid, and reconstructed by the 3-point Lagrange interpolation. The GPU version emphasizes the array structure: populations are depth columns, frequency quantities are wavelength/frequency rows, and every physical source is a broadcast tensor over the whole depth--frequency plane. The diagnostic comparison is honest: the final opacity is the sum of the computed terms, and the reference appears only as the oracle.
+Then you built the tabulated continuum. Each source was evaluated from its own table or fixed cross-section rule, sampled on an edge-triplet frequency grid, and reconstructed by the 3-point Lagrange interpolation. The array structure is the same throughout: populations are depth columns, frequency quantities are wavelength or frequency rows, and every physical source fills the whole depth--frequency plane.
 
-This smooth continuum is the canvas. Lecture 4 paints a line opacity on top of it, adding a sharp, frequency-dependent profile whose core and wings are shaped by thermal, turbulent, natural, and collisional broadening.""")
+The result is a smooth continuum opacity, separated into true absorption and scattering, with a source budget that explains why H-minus dominates the solar optical continuum.""")
 
 md(r"""## Summary
 
 - Continuous extinction separates into **true absorption** and **scattering**; only absorption thermalizes photons and carries the stimulated-emission correction.
-- In cool photospheres, **H$^-$** dominates the visible continuous absorption because its abundance scales with both neutral hydrogen and the electron density supplied by metals.
-- The analytic John (1988) H$^-$ fits plus Rayleigh/Thomson scattering reproduce the reference at the few-percent physics level.
-- The exact KAPP engine replaces those fits with tables: H$^-$ bound-free/free-free, H I Karzas--Latter bound-free, Coulomb free-free Gaunt factors, Gavrila Rayleigh scattering, helium continua, and minor molecular/metal absorbers.
-- KAPP samples three frequencies per continuum edge interval and reconstructs $\log_{10}\kappa$ with a fixed 3-point Lagrange parabola.
-- The implementation keeps the computation vectorized over depth and sampled frequency; the only loops are over short fixed physics tables, never over layers or wavelengths.
-- The benchmark reports the honest residual of the from-scratch GPU engine against the diagnostic reference; it is the parity gate for future improvements to the table-interpolation details.""")
+- In cool photospheres, **H-minus** dominates the visible continuous absorption because its abundance scales with both neutral hydrogen and the electron density supplied by metals.
+- The analytic John (1988) H-minus fits plus Rayleigh/Thomson scattering explain the dominant solar optical continuum.
+- The tabulated continuum replaces the analytic fits with tables: H-minus bound-free/free-free, H I Karzas--Latter bound-free, Coulomb free-free Gaunt factors, Gavrila Rayleigh scattering, helium continua, and minor molecular/metal absorbers.
+- The edge-triplet convention samples three frequencies per continuum edge interval and reconstructs $\log_{10}\kappa$ with a fixed 3-point Lagrange parabola.
+- The calculation is organized over depth and sampled frequency; the only loops are over short fixed physics tables, never over individual layers or wavelengths.""")
 
 md(r"""## Practice exercises
 
-**1. The H$^-$ threshold.** Plot the analytic H$^-$ bound-free cross-section from $0.2$ to $1.7\,\mu{\rm m}$. Where does it peak, and why must it vanish beyond $1.6419\,\mu{\rm m}$?
+**1. The H-minus threshold.** Plot the analytic H-minus bound-free cross-section from $0.2$ to $1.7\,\mu{\rm m}$. Where does it peak, and why must it vanish beyond $1.6419\,\mu{\rm m}$?
 
-**2. Metal-poor continuum.** Reduce the electron density in the analytic H$^-$ calculation by a factor of ten. How does the continuum opacity shift, and which atmospheric layers would become visible?
+**2. Metal-poor continuum.** Reduce the electron density in the analytic H-minus calculation by a factor of ten. How does the continuum opacity shift, and which atmospheric layers would become visible?
 
-**3. Source budget.** Zero all exact-engine source tensors except `budget_gpu["Hminus"]`, reconstruct the continuum, and compare to the full diagnostic. Where is the missing opacity largest?
+**3. Source budget.** Use the source-budget printout to estimate how much opacity remains if only H-minus absorption is kept. Which terms supply the missing opacity in this wavelength window?
 
 **4. Interpolation test.** Replace the 3-point Lagrange reconstruction with a two-point linear interpolation in $\log_{10}\kappa$. How large is the resulting error across the 500--510 nm window?
 
-**5. Precision audit.** Re-run this notebook on CPU/fp64 and on MPS/fp32. Which terms change the most, and does the worst point sit in the photosphere or in deep hot layers?""")
+**5. Table decisions.** Identify one place where the calculation makes a discrete table decision and one place where it evaluates a smooth formula. Why is the discrete decision more sensitive to tiny rounding changes?""")
 
 md(r"""## Further reading
 
-- **John, T. L. (1988), A&A, 193, 189.** Continuous absorption by H$^-$ and the analytic fits used for the pedagogical model.
+- **John, T. L. (1988), A&A, 193, 189.** Continuous absorption by H-minus and the analytic fits used for the pedagogical model.
 - **Kurucz, R. L. (1970), SAO Special Report 309.** The ATLAS continuous-opacity routines and tables.
 - **Gavrila, M. (1967), Phys. Rev., 163, 147.** The Rayleigh-scattering polarizability factor for atomic hydrogen.
 - **Karzas, W. J. & Latter, R. (1961), ApJS, 6, 167.** Hydrogenic bound-free and free-free Gaunt factors.
-- **Wildt, R. (1939), ApJ, 90, 611.** The identification of H$^-$ as the key stellar photospheric opacity source.
-- **Gray, D. F. (2005), *The Observation and Analysis of Stellar Photospheres*.** A clear textbook treatment of continuous opacity.
-- **Kim, E. M. & Ting, Y.-S. (2026), *pykurucz*.** The Python implementation that generated the diagnostic reference used here.""")
+- **Wildt, R. (1939), ApJ, 90, 611.** The identification of H-minus as the key stellar photospheric opacity source.
+- **Gray, D. F. (2005), *The Observation and Analysis of Stellar Photospheres*.** A clear textbook treatment of continuous opacity.""")
 
 nb = new_notebook(cells=cells, metadata={
     "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
