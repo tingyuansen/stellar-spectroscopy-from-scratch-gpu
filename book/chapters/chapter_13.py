@@ -366,24 +366,58 @@ def build_notebook() -> dict:
 
             ## 13.5 Safeguards are an ordered algorithm
 
-            The exact order is part of the numerical method:
+            Every term in §13.4 is a linearization, and §13.3 warned that
+            linearizations overshoot. A safeguard is not defensive programming
+            here; it is the part of the method that keeps a confident step from
+            producing a structure the next pass cannot even evaluate. Each of
+            these guards answers a specific failure:
 
-            1. smooth the active convective flux after zeroing its first two
-               layers;
-            2. integrate the optical-depth correction and clamp it within
-               \([-\tau_{\rm R}/3,+\tau_{\rm R}/3]\);
-            3. limit the local lambda and surface steps using
-               \(T_{\rm eff}/25\);
-            4. combine the three temperature terms;
-            5. use the previous correction to damp oscillation;
-            6. replace nonfinite proposals and require \(T\ge1\) K;
-            7. apply the configured local smoother;
-            8. walk outward from the inner boundary and require at least a
-               one-kelvin rise inward.
+            1. **smooth the active convective flux after zeroing its first two
+               layers** — mixing-length theory is least trustworthy exactly where
+               the surface suppression policy of §12.22 applies, and a noisy
+               convective flux would inject that noise straight into the energy
+               residual;
+            2. **integrate the optical-depth correction and clamp it within**
+               \([-\tau_{\rm R}/3,+\tau_{\rm R}/3]\) — the depth coordinate must
+               stay ordered. A larger shift could make \(\tau_{\rm R}\)
+               non-monotonic, which would not be a bad atmosphere so much as an
+               uninterpretable one;
+            3. **limit the local lambda and surface steps using**
+               \(T_{\rm eff}/25\) — these are the two terms built from a local
+               Newton step, and the surface is where their linearization is
+               weakest, so they are the ones most able to propose an absurd
+               jump;
+            4. **combine the three temperature terms** — only now, once each
+               contribution has been individually bounded, so that a later cap
+               cannot disguise which term misbehaved;
+            5. **use the previous correction to damp oscillation** — successive
+               substitution can overshoot and reverse on alternate passes.
+               Averaging against the previous step is under-relaxation: it trades
+               a little convergence speed for a trajectory that settles rather
+               than rings;
+            6. **replace nonfinite proposals and require** \(T\ge1\) K — one NaN
+               anywhere would propagate through the equation of state, opacity,
+               and transfer on the next pass, so it must be contained at the
+               moment it appears rather than diagnosed later;
+            7. **apply the configured local smoother** — the correction is
+               computed depth by depth and can be rougher than any real
+               atmosphere;
+            8. **walk outward from the inner boundary and require at least a
+               one-kelvin rise inward** — temperature increasing inward is a
+               physical requirement, not a preference, and the smoother in step 7
+               can locally violate it.
 
-            Reordering these operations changes the trajectory. In particular,
-            `temperature_correction` stores the damped raw step, while
-            `temperature` stores the later safeguarded result.
+            The order carries as much of the method as the list does. Bounding
+            before combining keeps each term's failure visible; damping after
+            combining acts on the total step rather than on one component; and
+            the monotonic walk comes last because it is the only guard permitted
+            to have the final word about the returned structure. Reordering these
+            operations changes the trajectory.
+
+            One naming consequence follows: `temperature_correction` stores the
+            damped raw step from stage 5, while `temperature` stores the fully
+            safeguarded result from stage 8. They are deliberately not the same
+            quantity, and the plot below shows how far apart they can sit.
             """
         ),
         code(
@@ -604,6 +638,34 @@ def build_notebook() -> dict:
             Limits are strict `<`. A pass increments the consecutive counter
             only after the minimum pass and only when every configured norm
             passes. Any other pass resets it to zero.
+
+            Each of those choices is doing work. The deep slice drops the outer
+            thirty-nine layers because that is precisely the region §13.3
+            described as hardest: the correction there rests on a local Newton
+            step, the convective flux is policy-suppressed, and relative
+            temperature changes stay comparatively large long after the interior
+            has settled. Left in, those layers would dominate the norm and the
+            solver would never declare success. The innermost five are dropped
+            for the opposite reason — they are pinned by the deep boundary
+            condition rather than solved, so they carry no information about
+            whether the iteration has converged.
+
+            The norm is a maximum, not an average. An RMS over eighty layers can
+            report a comfortable number while one layer is still moving by
+            hundreds of kelvin; a maximum refuses to average that away. The
+            one-kelvin floor in the all-layer norm exists only to stop the
+            denominator collapsing where a temperature approaches zero.
+
+            Most importantly, convergence is *consecutive*. A single quiet pass
+            proves very little, because the under-relaxation of §13.5 makes a
+            damped oscillation cross through a small step on its way from one
+            side to the other. Requiring several successive quiet passes — and
+            resetting the counter to zero rather than decrementing it on any
+            failure — is what distinguishes a trajectory that has settled from
+            one that merely paused. The minimum-pass requirement closes the
+            matching hole at the start: a seed good enough to look converged
+            immediately has still not demonstrated that the physics agrees with
+            it.
             """
         ),
         code(
@@ -664,6 +726,16 @@ def build_notebook() -> dict:
             chunk owns private accumulators, then chunks are reduced in
             increasing order. Atmosphere passes cannot be parallel because
             pass \(n+1\) consumes pass \(n\)'s remapped structure.
+
+            Both halves of that arrangement are deliberate. Private accumulators
+            mean no two threads ever write the same location, so the hot loop
+            needs no locking and no atomics. Reducing them in increasing chunk
+            order then costs nothing and buys reproducibility: floating-point
+            addition is not associative, so as §12.9 showed, a different grouping
+            moves the last bits. Fixing the order makes the result independent of
+            how the scheduler happened to finish the chunks — which is what lets
+            us treat a bitwise comparison against the pinned oracle as a
+            meaningful test rather than a coin flip.
             """
         ),
         code(

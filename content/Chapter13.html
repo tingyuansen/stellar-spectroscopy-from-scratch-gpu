@@ -388,24 +388,57 @@ lambda-diagonal term is restricted to shallow radiative layers.
 Their sum is the <em>raw</em> correction before the returned temperature
 is smoothed and constrained.</p>
 <h2>13.5 Safeguards are an ordered algorithm</h2>
-<p>The exact order is part of the numerical method:</p>
+<p>Every term in §13.4 is a linearization, and §13.3 warned that
+linearizations overshoot. A safeguard is not defensive programming
+here; it is the part of the method that keeps a confident step from
+producing a structure the next pass cannot even evaluate. Each of
+these guards answers a specific failure:</p>
 <ol>
-<li>smooth the active convective flux after zeroing its first two
-layers;</li>
-<li>integrate the optical-depth correction and clamp it within
-<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">[</mo><mo>−</mo><msub><mi>τ</mi><mi mathvariant="normal">R</mi></msub><mi mathvariant="normal">/</mi><mn>3</mn><mo separator="true">,</mo><mo>+</mo><msub><mi>τ</mi><mi mathvariant="normal">R</mi></msub><mi mathvariant="normal">/</mi><mn>3</mn><mo stretchy="false">]</mo></mrow><annotation encoding="application/x-tex">[-\tau_{\rm R}/3,+\tau_{\rm R}/3]</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">[</span><span class="mord">−</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:-0.1132em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">R</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mord">/3</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord">+</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:-0.1132em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">R</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mord">/3</span><span class="mclose">]</span></span></span></span>;</li>
-<li>limit the local lambda and surface steps using
-<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>T</mi><mrow><mi mathvariant="normal">e</mi><mi mathvariant="normal">f</mi><mi mathvariant="normal">f</mi></mrow></msub><mi mathvariant="normal">/</mi><mn>25</mn></mrow><annotation encoding="application/x-tex">T_{\rm eff}/25</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3361em;"><span style="top:-2.55em;margin-left:-0.1389em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight" style="margin-right:0.07778em;">eff</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mord">/25</span></span></span></span>;</li>
-<li>combine the three temperature terms;</li>
-<li>use the previous correction to damp oscillation;</li>
-<li>replace nonfinite proposals and require <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>T</mi><mo>≥</mo><mn>1</mn></mrow><annotation encoding="application/x-tex">T\ge1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8193em;vertical-align:-0.136em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">≥</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">1</span></span></span></span> K;</li>
-<li>apply the configured local smoother;</li>
-<li>walk outward from the inner boundary and require at least a
-one-kelvin rise inward.</li>
+<li><strong>smooth the active convective flux after zeroing its first two
+layers</strong> — mixing-length theory is least trustworthy exactly where
+the surface suppression policy of §12.22 applies, and a noisy
+convective flux would inject that noise straight into the energy
+residual;</li>
+<li><strong>integrate the optical-depth correction and clamp it within</strong>
+<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">[</mo><mo>−</mo><msub><mi>τ</mi><mi mathvariant="normal">R</mi></msub><mi mathvariant="normal">/</mi><mn>3</mn><mo separator="true">,</mo><mo>+</mo><msub><mi>τ</mi><mi mathvariant="normal">R</mi></msub><mi mathvariant="normal">/</mi><mn>3</mn><mo stretchy="false">]</mo></mrow><annotation encoding="application/x-tex">[-\tau_{\rm R}/3,+\tau_{\rm R}/3]</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">[</span><span class="mord">−</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:-0.1132em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">R</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mord">/3</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord">+</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:-0.1132em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">R</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mord">/3</span><span class="mclose">]</span></span></span></span> — the depth coordinate must
+stay ordered. A larger shift could make <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>τ</mi><mi mathvariant="normal">R</mi></msub></mrow><annotation encoding="application/x-tex">\tau_{\rm R}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.1132em;">τ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:-0.1132em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight">R</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>
+non-monotonic, which would not be a bad atmosphere so much as an
+uninterpretable one;</li>
+<li><strong>limit the local lambda and surface steps using</strong>
+<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>T</mi><mrow><mi mathvariant="normal">e</mi><mi mathvariant="normal">f</mi><mi mathvariant="normal">f</mi></mrow></msub><mi mathvariant="normal">/</mi><mn>25</mn></mrow><annotation encoding="application/x-tex">T_{\rm eff}/25</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3361em;"><span style="top:-2.55em;margin-left:-0.1389em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight"><span class="mord mathrm mtight" style="margin-right:0.07778em;">eff</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mord">/25</span></span></span></span> — these are the two terms built from a local
+Newton step, and the surface is where their linearization is
+weakest, so they are the ones most able to propose an absurd
+jump;</li>
+<li><strong>combine the three temperature terms</strong> — only now, once each
+contribution has been individually bounded, so that a later cap
+cannot disguise which term misbehaved;</li>
+<li><strong>use the previous correction to damp oscillation</strong> — successive
+substitution can overshoot and reverse on alternate passes.
+Averaging against the previous step is under-relaxation: it trades
+a little convergence speed for a trajectory that settles rather
+than rings;</li>
+<li><strong>replace nonfinite proposals and require</strong> <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>T</mi><mo>≥</mo><mn>1</mn></mrow><annotation encoding="application/x-tex">T\ge1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8193em;vertical-align:-0.136em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">T</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">≥</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">1</span></span></span></span> K — one NaN
+anywhere would propagate through the equation of state, opacity,
+and transfer on the next pass, so it must be contained at the
+moment it appears rather than diagnosed later;</li>
+<li><strong>apply the configured local smoother</strong> — the correction is
+computed depth by depth and can be rougher than any real
+atmosphere;</li>
+<li><strong>walk outward from the inner boundary and require at least a
+one-kelvin rise inward</strong> — temperature increasing inward is a
+physical requirement, not a preference, and the smoother in step 7
+can locally violate it.</li>
 </ol>
-<p>Reordering these operations changes the trajectory. In particular,
-<code>temperature_correction</code> stores the damped raw step, while
-<code>temperature</code> stores the later safeguarded result.</p>
+<p>The order carries as much of the method as the list does. Bounding
+before combining keeps each term&#39;s failure visible; damping after
+combining acts on the total step rather than on one component; and
+the monotonic walk comes last because it is the only guard permitted
+to have the final word about the returned structure. Reordering these
+operations changes the trajectory.</p>
+<p>One naming consequence follows: <code>temperature_correction</code> stores the
+damped raw step from stage 5, while <code>temperature</code> stores the fully
+safeguarded result from stage 8. They are deliberately not the same
+quantity, and the plot below shows how far apart they can sit.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[8]</span>Python</span>
@@ -727,6 +760,31 @@ slice <code>[39:L-5]</code>:</p>
 <p>Limits are strict <code>&lt;</code>. A pass increments the consecutive counter
 only after the minimum pass and only when every configured norm
 passes. Any other pass resets it to zero.</p>
+<p>Each of those choices is doing work. The deep slice drops the outer
+thirty-nine layers because that is precisely the region §13.3
+described as hardest: the correction there rests on a local Newton
+step, the convective flux is policy-suppressed, and relative
+temperature changes stay comparatively large long after the interior
+has settled. Left in, those layers would dominate the norm and the
+solver would never declare success. The innermost five are dropped
+for the opposite reason — they are pinned by the deep boundary
+condition rather than solved, so they carry no information about
+whether the iteration has converged.</p>
+<p>The norm is a maximum, not an average. An RMS over eighty layers can
+report a comfortable number while one layer is still moving by
+hundreds of kelvin; a maximum refuses to average that away. The
+one-kelvin floor in the all-layer norm exists only to stop the
+denominator collapsing where a temperature approaches zero.</p>
+<p>Most importantly, convergence is <em>consecutive</em>. A single quiet pass
+proves very little, because the under-relaxation of §13.5 makes a
+damped oscillation cross through a small step on its way from one
+side to the other. Requiring several successive quiet passes — and
+resetting the counter to zero rather than decrementing it on any
+failure — is what distinguishes a trajectory that has settled from
+one that merely paused. The minimum-pass requirement closes the
+matching hole at the start: a seed good enough to look converged
+immediately has still not demonstrated that the physics agrees with
+it.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[13]</span>Python</span>
@@ -839,6 +897,15 @@ work. Transfer uses contiguous frequency chunks: each <code>prange</code>
 chunk owns private accumulators, then chunks are reduced in
 increasing order. Atmosphere passes cannot be parallel because
 pass <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>n</mi><mo>+</mo><mn>1</mn></mrow><annotation encoding="application/x-tex">n+1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal">n</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">1</span></span></span></span> consumes pass <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>n</mi></mrow><annotation encoding="application/x-tex">n</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal">n</span></span></span></span>&#39;s remapped structure.</p>
+<p>Both halves of that arrangement are deliberate. Private accumulators
+mean no two threads ever write the same location, so the hot loop
+needs no locking and no atomics. Reducing them in increasing chunk
+order then costs nothing and buys reproducibility: floating-point
+addition is not associative, so as §12.9 showed, a different grouping
+moves the last bits. Fixing the order makes the result independent of
+how the scheduler happened to finish the chunks — which is what lets
+us treat a bitwise comparison against the pinned oracle as a
+meaningful test rather than a coin flip.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[15]</span>Python</span>

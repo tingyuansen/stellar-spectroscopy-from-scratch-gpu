@@ -718,6 +718,20 @@ path:</p>
 <span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mtext>prediction</mtext><mo>⟶</mo><mtext>fixed-column text</mtext><mo>⟶</mo><mtext mathvariant="monospace">ModelAtmosphere</mtext><mi mathvariant="normal">.</mi></mrow><annotation encoding="application/x-tex">\text{prediction}\longrightarrow
 \text{fixed-column text}\longrightarrow
 \texttt{ModelAtmosphere}.</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord text"><span class="mord">prediction</span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">⟶</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.7054em;vertical-align:-0.011em;"></span><span class="mord text"><span class="mord">fixed-column text</span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">⟶</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.2222em;"></span><span class="mord text"><span class="mord texttt">ModelAtmosphere</span></span><span class="mord">.</span></span></span></span></span>
+<p>It is worth being explicit about why the in-memory route throws away
+precision it already holds. If it kept full float64 while the file
+route rounded, the same star would enter the solver in two different
+states depending on how the code happened to be invoked, and the two
+trajectories could converge to visibly different atmospheres. The
+quantization is lossy, but it is <em>deterministic</em>, and reproducing it
+makes the entry boundary a defined numerical operator rather than an
+accident of plumbing.</p>
+<p>This is the same argument Chapter 13 makes about <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>Q</mi></mrow><annotation encoding="application/x-tex">Q</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8778em;vertical-align:-0.1944em;"></span><span class="mord mathnormal">Q</span></span></span></span> at the far end
+of the loop, applied at the near end. Chapter 13 keeps the iteration
+unquantized and rounds exactly once on the way out; Chapter 14 rounds
+exactly once on the way in. In both cases the rule is that a lossy
+format operation may happen, but it must happen at a single declared
+place, never inside the fixed-point map.</p>
 <p>The formatter and parser run once per candidate before its first
 physical pass. The resulting object has no <code>converged</code> field.
 It is a starting atmosphere.</p>
@@ -893,6 +907,17 @@ then uses its own coefficient scales, coordinate normalization,
 and PCA basis. It shares the <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">(</mo><mn>160</mn><mo separator="true">,</mo><mn>480</mn><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">(160,480)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord">160</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord">480</span><span class="mclose">)</span></span></span></span> shape and the final six
 physical profile definitions with the other families, not their
 trained arrays.</p>
+<p>The summation is the load-bearing choice. A mixture is a <em>set</em>: the
+periodic table has a conventional order, but a star does not care
+which element we happen to list first, so the predicted atmosphere
+must not either. Addition is the natural operation with that
+symmetry built in — it gives the same answer for every ordering of
+its arguments. A design that concatenated the 80 responses instead,
+or fed them through anything sequential, would have to <em>learn</em> that
+invariance from data, spending capacity discovering a symmetry we
+already know exactly. Supplying both <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>a</mi></mrow><annotation encoding="application/x-tex">a</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal">a</span></span></span></span> and <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mi>a</mi><mn>2</mn></msup></mrow><annotation encoding="application/x-tex">a^2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord"><span class="mord mathnormal">a</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span></span></span></span> to the shared
+law then lets one element&#39;s contribution curve without needing a
+separate model per element.</p>
 <p>Reordering complete identity–abundance pairs changes only the
 floating-point summation order. Reordering abundances without
 their element identities describes a different mixture and must

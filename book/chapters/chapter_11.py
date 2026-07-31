@@ -515,11 +515,33 @@ def build_notebook() -> dict:
             reference points cannot materially change the opacity-sampling
             solution.
 
+            Two design choices are hiding in that sentence. The first is the
+            number 344. Testing every line against all 30,000 frequencies at
+            every depth would cost about as much as the deposit we are trying to
+            avoid, so the filter instead evaluates a sparse set of reference
+            coordinates spanning the range. The second is the direction of the
+            error. Selection is a *conservative* filter: keeping a line that
+            turns out to be negligible costs a little arithmetic, while dropping
+            one that mattered silently removes opacity that nothing downstream
+            will flag. The test therefore asks whether a line could rise above
+            the threshold *anywhere* in the atmosphere, not whether it typically
+            does.
+
             The threshold is float32 because the selected-line route consumes
             it in that dtype. The source field
             `wavelength_bin_edges` is historically named: it actually stores
             packed logarithmic wavelength indices. Entry 343 duplicates
             reference wavelength 342 and carries the sentinel \(2^{30}\).
+
+            That duplicate-plus-sentinel pair is a performance construction of
+            the same family as the `prange` work we met in Chapter 2. A scan that
+            walks the reference coordinates comparing each entry against the next
+            one would normally need a bounds test on every iteration to avoid
+            running off the end. Padding the array with a repeated coordinate
+            whose packed index exceeds any real value means the comparison itself
+            terminates the walk, so the innermost loop carries no branch. It is a
+            small thing that reappears constantly in kernels that run millions of
+            times.
             """
         ),
         code(

@@ -177,10 +177,10 @@ audit note. Current measured state, per generated notebook:
 | 8 | 3893 | 17 | 375 | 3 | 4 |
 | 9 | 3250 | 18 | 449 | 4 | 5 |
 | 10 | 4618 | 18 | 296 | 1 | 2 |
-| 11 | 2732 | 18 | 173 | 0 | 1 |
+| 11 | 2935 | 18 | 173 | 0 | 1 |
 | 12 | 3361 | 21 | 248 | 0 | 2 |
-| 13 | 2333 | 15 | 259 | 0 | 4 |
-| 14 | 2492 | 20 | 267 | 0 | 6 |
+| 13 | 3009 | 15 | 259 | 0 | 4 |
+| 14 | 2758 | 20 | 267 | 0 | 6 |
 | 15 | 2993 | 15 | 241 | 1 | 1 |
 
 Regenerate this table after substantive edits: count markdown words, visible
@@ -386,15 +386,63 @@ list, including this one.
   the wings because the reference Voigt convolves per sample. Ch9 prose
   2,769 → 3,250 words, figures 4 → 5; zero execution errors; 43 tests pass.
 
+### Implementation-narrative hunt — Ch11/13/14 (2026-07-31)
+
+A second pass over the three chapters that had already had a physics pass,
+looking specifically for *implementation* decisions stated without reasons.
+Five found and closed; all are prose-only, so no cell counts changed.
+
+- **Ch13 §13.5** listed eight ordered safeguards and asserted that "reordering
+  these operations changes the trajectory" without saying why any of them
+  exists. Each now names the failure it prevents — surface-suppressed convective
+  noise, a non-monotonic \(\tau_{\rm R}\) grid, the weakest linearization
+  proposing the largest jump, NaN propagating through the next pass's EOS — and a
+  closing paragraph explains why the *order* is load-bearing: bound before
+  combining so each term's failure stays visible, damp after combining so
+  under-relaxation acts on the total, and let the monotonic walk have the last
+  word.
+- **Ch13 §13.8** gave the convergence norms as formulas only. Now explains why
+  the deep slice drops the outer 39 layers (the §13.3 region, which would
+  dominate a max-norm and never settle) and the inner 5 (pinned by the boundary
+  condition, so they carry no convergence information); why the norm is a
+  maximum rather than an RMS; and why convergence must be *consecutive* — a
+  damped oscillation crosses through a small step on its way between sides, so
+  one quiet pass proves nothing.
+- **Ch13 §13.9** now explains why the chunk reduction is *ordered*: private
+  accumulators avoid locks, and fixing the reduction order is what makes a
+  bitwise comparison against the pinned oracle meaningful rather than
+  scheduler-dependent. Cross-references §12.9 instead of rederiving it.
+- **Ch14 §14.5** now says why the in-memory route deliberately discards
+  precision it holds: an unquantized in-memory path would let the same star
+  enter the solver in two different states depending on invocation. Framed as
+  the same rule as Chapter 13's terminal \(Q\), applied at the near end of the
+  loop — a lossy format operation may happen, but only at one declared place,
+  never inside the fixed-point map.
+- **Ch14 §14.7** now explains why the element responses are *summed*: a mixture
+  is a set, so the prediction must be order-invariant, and addition has that
+  symmetry built in. A concatenating or sequential design would have to spend
+  capacity learning an invariance we already know exactly.
+- **Ch11 §11.9** now explains why selection uses 344 sparse reference
+  coordinates rather than all 30,000 frequencies (the full test would cost what
+  the deposit costs), why the filter is deliberately conservative (a dropped
+  line silently removes opacity; a kept one costs only arithmetic), and what the
+  duplicated entry plus \(2^{30}\) sentinel buys — a branchless inner scan, in
+  the same family as the Chapter 2 `prange` work.
+
+Ch11 2,732 → 2,935; Ch13 2,333 → 3,009; Ch14 2,492 → 2,758. Zero execution
+errors; 70 tests pass.
+
 ## Immediate sequence
 
 1. Continue deepening the thin chapters (open defect 1). Ch9 (2,456 → 2,769),
    Ch11 (2,282 → 2,732), Ch13 (1,846 → 2,333), Ch14 (2,009 → 2,492), and Ch15
    (2,518 → 2,993) are done, as are Ch6 (3,138 → 3,358) and Ch7
    (3,405 → 3,576) — the whole atmosphere arc, transfer, and the line chapters.
-   **The remaining thin end is Ch13 (2,333), Ch14 (2,492), and Ch11 (2,732)**,
-   all of which have already had one pass; a second pass should look for
-   under-explained *implementation* narrative rather than missing physics.
+   The implementation-narrative hunt over Ch11/13/14 is **done** (see Completed).
+   **The thin end is now Ch9 excepted — Ch14 (2,758), Ch11 (2,935), and Ch15
+   (2,993)** — but no chapter is below 2,700 and the spread is much tighter than
+   it was. Further deepening should be driven by a specific unexplained claim,
+   not by word count.
 
    The pattern that has now worked five times: find where a chapter *names* a
    quantity the implementation computes, and derive it instead. Worked examples

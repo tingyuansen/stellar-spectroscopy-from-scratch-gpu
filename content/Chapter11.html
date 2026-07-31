@@ -608,11 +608,31 @@ threshold is
 stimulated-emission factor. A line below this level at all
 reference points cannot materially change the opacity-sampling
 solution.</p>
+<p>Two design choices are hiding in that sentence. The first is the
+number 344. Testing every line against all 30,000 frequencies at
+every depth would cost about as much as the deposit we are trying to
+avoid, so the filter instead evaluates a sparse set of reference
+coordinates spanning the range. The second is the direction of the
+error. Selection is a <em>conservative</em> filter: keeping a line that
+turns out to be negligible costs a little arithmetic, while dropping
+one that mattered silently removes opacity that nothing downstream
+will flag. The test therefore asks whether a line could rise above
+the threshold <em>anywhere</em> in the atmosphere, not whether it typically
+does.</p>
 <p>The threshold is float32 because the selected-line route consumes
 it in that dtype. The source field
 <code>wavelength_bin_edges</code> is historically named: it actually stores
 packed logarithmic wavelength indices. Entry 343 duplicates
 reference wavelength 342 and carries the sentinel <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mn>2</mn><mn>30</mn></msup></mrow><annotation encoding="application/x-tex">2^{30}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord"><span class="mord">2</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">30</span></span></span></span></span></span></span></span></span></span></span></span>.</p>
+<p>That duplicate-plus-sentinel pair is a performance construction of
+the same family as the <code>prange</code> work we met in Chapter 2. A scan that
+walks the reference coordinates comparing each entry against the next
+one would normally need a bounds test on every iteration to avoid
+running off the end. Padding the array with a repeated coordinate
+whose packed index exceeds any real value means the comparison itself
+terminates the walk, so the innermost loop carries no branch. It is a
+small thing that reappears constantly in kernels that run millions of
+times.</p>
 </div><div class="nb-cell"><div class="code-card">
       <div class="code-top">
         <span class="code-label"><span class="lang-dot"></span><span style="font-family:var(--font-mono);color:oklch(0.6 0.02 264)">[15]</span>Python</span>

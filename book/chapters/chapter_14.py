@@ -610,6 +610,22 @@ def build_notebook() -> dict:
             \texttt{ModelAtmosphere}.
             \]
 
+            It is worth being explicit about why the in-memory route throws away
+            precision it already holds. If it kept full float64 while the file
+            route rounded, the same star would enter the solver in two different
+            states depending on how the code happened to be invoked, and the two
+            trajectories could converge to visibly different atmospheres. The
+            quantization is lossy, but it is *deterministic*, and reproducing it
+            makes the entry boundary a defined numerical operator rather than an
+            accident of plumbing.
+
+            This is the same argument Chapter 13 makes about \(Q\) at the far end
+            of the loop, applied at the near end. Chapter 13 keeps the iteration
+            unquantized and rounds exactly once on the way out; Chapter 14 rounds
+            exactly once on the way in. In both cases the rule is that a lossy
+            format operation may happen, but it must happen at a single declared
+            place, never inside the fixed-point map.
+
             The formatter and parser run once per candidate before its first
             physical pass. The resulting object has no `converged` field.
             It is a starting atmosphere.
@@ -740,6 +756,18 @@ def build_notebook() -> dict:
             and PCA basis. It shares the \((160,480)\) shape and the final six
             physical profile definitions with the other families, not their
             trained arrays.
+
+            The summation is the load-bearing choice. A mixture is a *set*: the
+            periodic table has a conventional order, but a star does not care
+            which element we happen to list first, so the predicted atmosphere
+            must not either. Addition is the natural operation with that
+            symmetry built in — it gives the same answer for every ordering of
+            its arguments. A design that concatenated the 80 responses instead,
+            or fed them through anything sequential, would have to *learn* that
+            invariance from data, spending capacity discovering a symmetry we
+            already know exactly. Supplying both \(a\) and \(a^2\) to the shared
+            law then lets one element's contribution curve without needing a
+            separate model per element.
 
             Reordering complete identity–abundance pairs changes only the
             floating-point summation order. Reordering abundances without
