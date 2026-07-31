@@ -87,27 +87,22 @@ Live state, verified evidence, open defects, and the immediate action sequence
 are owned by `PASSDOWN.md`. Do not duplicate them here — this file holds only
 the static architecture and the standing backlog.
 
-## Per-chapter design contract backlog
+## Per-chapter design documents
 
-Chapters 2–6 were built to a per-chapter contract standard under `design/`.
-Chapters 7–15 were carried end-to-end first and still hold only a
-`first_pass_contract`. Bringing them to the same standard is standing work, not
-optional ceremony.
+`design/` holds two alternative formats from two eras, not one complete set and
+one incomplete set. Chapters 2–6 use `causal_outline` plus
+`exact_source_contract`; Chapters 7–15 use `first_pass_contract`, which covers
+the same ground and adds a visible code-cell ledger and a figure contract.
+**Every chapter now has an `acceptance` record.**
 
-Each chapter should own:
+Do not regenerate `causal_outline` for Chapters 7–15. It would duplicate
+existing material in an older format — the metadata ceremony the Cadence
+section warns against.
 
-- `chapterNN_exact_source_contract.md` — which pinned Payne Zero symbols the
-  chapter stages, and the exact-match obligations on them;
-- `chapterNN_causal_outline.md` — the question-before-machinery ordering, so
-  prose flow can be audited without reading the notebook;
-- `chapterNN_acceptance.md` — what must be true for the chapter to be accepted,
-  with unevaluated gates left visibly `None`.
-
-Use Chapter 3 as the template: it is the cleanest complete example at five
-files. Chapter 6's 49 files are not the target — that is an artifact of
-iterating hardest there, and it should be consolidated rather than imitated.
-
-The current per-chapter counts and precise gaps are tabulated in `PASSDOWN.md`.
+`PASSDOWN.md` carries the format table and the remaining real gaps, which are
+judgement calls rather than filing: whether to re-run Chapter 1's stale audits,
+and whether to commission the independent pedagogy audit that Chapters 5–15
+lack.
 
 ## Resolved source boundary
 
@@ -154,7 +149,10 @@ Status: in progress.
 
 ### Pass 4 — Pedagogical depth
 
-Status: in progress.
+Status: a full read-for-argument sweep of all fifteen chapters is complete
+(2026-07-31). The recurring defect was physics stated rather than derived, and
+unexplained physical constants; roughly fifteen such sites are closed. Remaining
+work is triggered by a specific unexplained claim, not by word count.
 
 - expand terse causal transitions, especially in Chapters 10–15;
 - keep code cells small enough to explain immediately;
@@ -165,7 +163,9 @@ Status: in progress.
 
 ### Pass 5 — Visual system
 
-Status: pending global acceptance.
+Status: figure coverage is complete — every chapter carries at least two
+figures as of 2026-07-31. Typography and rendered-legibility review across the
+whole book remains pending global acceptance.
 
 - use original website-aesthetic schematics generated from owned figure
   specifications;

@@ -6,6 +6,10 @@ ledger), and `design/global_chapter_contracts.md` (chapter boundaries and
 notation).** Those five documents plus `design/pedagogical_flow_rubric.md` are
 sufficient to continue without any prior conversation.
 
+This file is ordered for someone picking the project up: state, then what to do
+next, then the traps and commands you will need to do it. The record of
+completed work is at the bottom, because it is history rather than instruction.
+
 ## Document ownership
 
 | File | Owns |
@@ -95,62 +99,42 @@ Not yet evaluated, and must stay visibly absent rather than assumed:
 - full physical trajectories for the hot dwarf, low-gravity giant, and cool
   molecule-rich capstone requests.
 
-## Completed 2026-07-31 — repository cleanup
+## Immediate sequence
 
-(Book-content work from the same date is under *Completed 2026-07-31* below.)
+1. Continue deepening the thin chapters (open defect 1). Ch9 (2,456 → 2,769),
+   Ch11 (2,282 → 2,732), Ch13 (1,846 → 2,333), Ch14 (2,009 → 2,492), and Ch15
+   (2,518 → 2,993) are done, as are Ch6 (3,138 → 3,358) and Ch7
+   (3,405 → 3,576) — the whole atmosphere arc, transfer, and the line chapters.
+   The implementation-narrative hunt over Ch11/13/14 is **done** (see Completed).
+   **The thin end is now Ch9 excepted — Ch14 (2,758), Ch11 (2,935), and Ch15
+   (2,993)** — but no chapter is below 2,700 and the spread is much tighter than
+   it was. Further deepening should be driven by a specific unexplained claim,
+   not by word count.
 
-Removed, all recoverable via `git checkout HEAD~1 -- <path>` — every one was
-verified unreferenced by live code before deletion:
+   The pattern that has now worked five times: find where a chapter *names* a
+   quantity the implementation computes, and derive it instead. Worked examples
+   — Ch9 §9.2 (scattering source function), Ch11 §11.12 (backwarming),
+   Ch12 §§12.19–12.21 (Schwarzschild, adiabatic gradient, enthalpy flux),
+   Ch13 §§13.2–13.3 (temperature correction), Ch15 §15.10 (why the four regimes
+   differ). Each also closed a causal gap between neighbouring chapters, which
+   matters more than the word count.
+2. Give Ch11 and Ch15 a second figure each (open defect 3) — they are the only
+   chapters left with one. Ch11's would naturally show lines raising the
+   Rosseland mean, but `BlanketingCheckpoint` does not currently expose the
+   layer temperature needed for the \(\partial B_\nu/\partial T\) weighting;
+   add that field rather than plotting an unweighted proxy.
+3. All 15 chapters now have an acceptance record. The remaining design work is
+   judgement, not filing: decide whether to re-run Chapter 1's stale audits and
+   whether the absent independent pedagogy audit for Ch5–15 is worth
+   commissioning. Do *not* regenerate `causal_outline` for Ch7–15; see the
+   corrected picture above for why.
+4. Settle the display-math and heading-nesting inconsistencies (defects 4, 5)
+   in a single mechanical pass once prose work has settled.
 
-- `_pipeline/` — 72 legacy build/verify scripts from the superseded
-  Lecture-based book. The single live file, `render_fragment.js`, moved to
-  `scripts/render_fragment.js`; `scripts/build_book.py` updated.
-- `content/Lecture1–16.{ipynb,html}` — superseded by `Chapter01–15`.
-- `reference/` (369 MB) and `resources/` — legacy data and figures for the old
-  book.
-- Committed `.pytest_cache` / `.ruff_cache`; `.gitignore` simplified.
-
-Working tree is ~310 MB, down from ~690 MB. Root now holds only the five
-Markdown documents, the reader entry points, and the live source trees.
-
-## Per-chapter design documents — corrected picture
-
-An earlier reading of this gap was wrong and is corrected here. `design/` holds
-**two alternative formats from two eras**, not one complete set and one
-incomplete set:
-
-| | Ch1 | Ch2–4 | Ch5–6 | Ch7–15 |
-|---|---|---|---|---|
-| `first_pass_contract` | — | — | — | ✅ |
-| `causal_outline` | — | ✅ | ✅ | — |
-| `exact_source_contract` | — | ✅ | ✅ | — |
-| `acceptance` | ✅ *(added 2026-07-31)* | ✅ | ✅ *(added 2026-07-31)* | ✅ *(added 2026-07-31)* |
-
-Chapter 7's `first_pass_contract` is 1,249 lines and already covers what
-`causal_outline` covers — canonical placement and boundaries, the chapter's
-single question, reader promise and prerequisites, a notation and decision
-ledger, and per-movement section detail — **plus** a visible code-cell ledger
-and a figure/schematic contract that the older format lacks. Regenerating
-`causal_outline` for Ch7–15 would duplicate existing material in an older
-format, which is exactly the metadata ceremony the Cadence section warns
-against. Do not do it without a specific reason.
-
-**Remaining real gaps, in priority order:**
-
-1. **Chapter 1's two audits predate the text they describe.**
-   `chapter01_rewrite_audit.md` and `chapter01_flow_audit.md` returned
-   conditional verdicts against an earlier draft. Their headline findings
-   measurably no longer apply — the rewrite audit counted 151 lines of source
-   across five Markdown cells, and the count is now zero — but "appears
-   addressed" is not a fresh ACCEPT. Re-run them, or mark them historical.
-2. **Exact-source depth.** `first_pass_contract` is lighter here than
-   `exact_source_contract` was (Ch7 names the pinned packages 7 times against
-   Ch3's 19). This is descriptive rather than load-bearing, because
-   `verify_pinned_source_fragments.py` already enforces exactness mechanically
-   for every chapter — so treat it as low priority.
-3. **No independent pedagogy audit exists for Ch5–15.** Chapters 2–4 carry one.
-   Every Ch7–14 acceptance record states this openly in its *Not evaluated*
-   section. Closing it means running a genuine audit, not writing a document.
+After each step: rebuild the affected chapters with `scripts/build_book.py`,
+re-run `verify_pinned_source_fragments.py`, run the affected tests, and update
+this file's Verified state, Completed, and Immediate sequence so the next agent
+can resume cold.
 
 ## Known pedagogical defects — re-verified 2026-07-31
 
@@ -242,10 +226,174 @@ already repaired by the time they were acted on. Re-measure before editing;
 prefer a grep or a notebook measurement over trusting any inherited defect
 list, including this one.
 
-## Completed 2026-07-31 — book content
+## Traps that have already cost time
 
-- **Repository cleanup** — see *Completed 2026-07-31 — repository cleanup*
-  above.
+- **Governance anchors are verbatim.** `tests/test_global_molecular_lane_language.py`
+  requires exact text blocks in `PASSDOWN.md`, `PLAN.md`, and `BIBLE.md`
+  (anchors `passdown-resolved-lane-boundary`, `plan-resolved-lane-boundary`,
+  `bible-active-selectors`). Paraphrasing them fails the suite. Edit those
+  paragraphs only by copying the required string out of the test.
+- **Editing `book/chapters/*.py` creates notebook drift** until you rebuild.
+  Always run `scripts/build_book.py <n>` for every chapter you touch.
+- **Some `tests/test_chapterNN_runtime.py` assertions encode chapter prose**
+  (exact headings, visible code-cell counts). Changing structure means updating
+  the matching assertion — check whether the test or the chapter is wrong
+  against `design/global_chapter_contracts.md` before assuming the test is right.
+- **Renumbering a chapter silently breaks cross-references.** Inserting a
+  section shifts every later number, and `§13.5`-style references elsewhere in
+  the book keep pointing at the old slot — invisible in the rendered output.
+  Run `python scripts/check_section_references.py` after any renumber; it is
+  cheap and covers all 227 sections.
+- **Two published Chapter 6 artifacts require filesystem mode `0600`, which
+  git cannot record.** A fresh clone — or any `git checkout` that rewrites the
+  working tree, such as a branch merge — leaves them at the umask default and
+  6 publication-authority tests fail with `PublicationStateError: ... not the
+  exact single-link mode-0600 artifact`. The contents are fine; only the
+  permission bit is lost. Fix with `python scripts/restore_publication_modes.py`.
+  This bit me after merging to `main` and cost real time to diagnose.
+- **`python -m pytest`, never bare `pytest`** — the latter omits the repo root
+  from `sys.path`.
+- **The full suite can stall.** Run per-file with a watchdog if `python -m pytest`
+  appears to hang at 0% CPU; that isolates the offending file instead of losing
+  the whole run.
+
+## Commands
+
+Build and execute selected chapters:
+
+```bash
+python scripts/build_book.py 12 15
+```
+
+Build the full reader:
+
+```bash
+python scripts/build_book.py
+```
+
+Verify exact staged source against pinned Payne Zero:
+
+```bash
+python scripts/verify_pinned_source_fragments.py
+```
+
+Verify every `§N.M` / `Section N.M` cross-reference still resolves — run this
+after any chapter renumbering:
+
+```bash
+python scripts/check_section_references.py
+```
+
+Run the tests — use `python -m pytest`, not bare `pytest`, so the repository
+root is on `sys.path`:
+
+```bash
+python -m pytest -q
+```
+
+Serve the reader locally:
+
+```bash
+python -m http.server 8765
+```
+
+Jupyter execution needs permission to bind local kernel ports in restricted
+environments. Never replace execution with an unexecuted render.
+
+## Per-chapter design documents — corrected picture
+
+An earlier reading of this gap was wrong and is corrected here. `design/` holds
+**two alternative formats from two eras**, not one complete set and one
+incomplete set:
+
+| | Ch1 | Ch2–4 | Ch5–6 | Ch7–15 |
+|---|---|---|---|---|
+| `first_pass_contract` | — | — | — | ✅ |
+| `causal_outline` | — | ✅ | ✅ | — |
+| `exact_source_contract` | — | ✅ | ✅ | — |
+| `acceptance` | ✅ *(added 2026-07-31)* | ✅ | ✅ *(added 2026-07-31)* | ✅ *(added 2026-07-31)* |
+
+Chapter 7's `first_pass_contract` is 1,249 lines and already covers what
+`causal_outline` covers — canonical placement and boundaries, the chapter's
+single question, reader promise and prerequisites, a notation and decision
+ledger, and per-movement section detail — **plus** a visible code-cell ledger
+and a figure/schematic contract that the older format lacks. Regenerating
+`causal_outline` for Ch7–15 would duplicate existing material in an older
+format, which is exactly the metadata ceremony the Cadence section warns
+against. Do not do it without a specific reason.
+
+**Remaining real gaps, in priority order:**
+
+1. **Chapter 1's two audits predate the text they describe.**
+   `chapter01_rewrite_audit.md` and `chapter01_flow_audit.md` returned
+   conditional verdicts against an earlier draft. Their headline findings
+   measurably no longer apply — the rewrite audit counted 151 lines of source
+   across five Markdown cells, and the count is now zero — but "appears
+   addressed" is not a fresh ACCEPT. Re-run them, or mark them historical.
+2. **Exact-source depth.** `first_pass_contract` is lighter here than
+   `exact_source_contract` was (Ch7 names the pinned packages 7 times against
+   Ch3's 19). This is descriptive rather than load-bearing, because
+   `verify_pinned_source_fragments.py` already enforces exactness mechanically
+   for every chapter — so treat it as low priority.
+3. **No independent pedagogy audit exists for Ch5–15.** Chapters 2–4 carry one.
+   Every Ch7–14 acceptance record states this openly in its *Not evaluated*
+   section. Closing it means running a genuine audit, not writing a document.
+
+## Role boundaries that must remain visible
+
+1. **Resolved boundary:** H2O compiler parity is retained and verified, while
+   the pinned standard synthesis pipeline continues to compile text bands plus
+   TiO rather than H2O. This synthesis boundary does not apply to the standard
+   atmosphere water selection/deposition path.
+
+- static inputs, computed fixtures, and golden comparison outputs are different
+  data roles;
+- initializer predictions are starting proposals, never converged atmosphere
+  products;
+- schema validity proves an interface contract, not physical closure;
+- synthesis proves the consequence of a supplied atmosphere, not that
+  atmosphere's convergence;
+- `r_grid` and `resolution` are interface-specific names and are never silently
+  merged;
+- standard synthesis omits the separate H2O compiler path, even though Chapter 8
+  implements and verifies H2O compiler parity — see the resolved boundary above;
+- the direct-abundance initializer remains experimental and requires exact
+  physical closure;
+- fixed-thread reproducibility is the strict atmosphere target; regrouped
+  reductions may move final bits;
+- timings are performance observations, not physical identity.
+
+## Integration rule
+
+Subagents may take bounded, nonoverlapping chapters. The primary agent owns
+final integration and must recheck global notation, prerequisites, single
+ownership of repeated concepts, neighbouring chapter transitions, exact runtime
+claims, and rendered output. No subagent draft is accepted solely because its
+local tests pass. Preserve unrelated user changes; never clean the tree with
+destructive Git commands.
+
+## Completed 2026-07-31
+
+### Repository cleanup
+
+
+Removed, all recoverable via `git checkout HEAD~1 -- <path>` — every one was
+verified unreferenced by live code before deletion:
+
+- `_pipeline/` — 72 legacy build/verify scripts from the superseded
+  Lecture-based book. The single live file, `render_fragment.js`, moved to
+  `scripts/render_fragment.js`; `scripts/build_book.py` updated.
+- `content/Lecture1–16.{ipynb,html}` — superseded by `Chapter01–15`.
+- `reference/` (369 MB) and `resources/` — legacy data and figures for the old
+  book.
+- Committed `.pytest_cache` / `.ruff_cache`; `.gitignore` simplified.
+
+Working tree is ~310 MB, down from ~690 MB. Root now holds only the five
+Markdown documents, the reader entry points, and the live source trees.
+
+### Book content
+
+
 - **Chapter summary headings normalized.** Chapters 7–15 used
   `### Chapter summary`, violating the `## N.N Chapter summary` requirement at
   `design/global_chapter_contracts.md:751-764`. All nine now carry correct
@@ -425,146 +573,3 @@ Five found and closed; all are prose-only, so no cell counts changed.
 Ch11 2,732 → 2,935; Ch13 2,333 → 3,009; Ch14 2,492 → 2,758. Zero execution
 errors; 70 tests pass.
 
-## Immediate sequence
-
-1. Continue deepening the thin chapters (open defect 1). Ch9 (2,456 → 2,769),
-   Ch11 (2,282 → 2,732), Ch13 (1,846 → 2,333), Ch14 (2,009 → 2,492), and Ch15
-   (2,518 → 2,993) are done, as are Ch6 (3,138 → 3,358) and Ch7
-   (3,405 → 3,576) — the whole atmosphere arc, transfer, and the line chapters.
-   The implementation-narrative hunt over Ch11/13/14 is **done** (see Completed).
-   **The thin end is now Ch9 excepted — Ch14 (2,758), Ch11 (2,935), and Ch15
-   (2,993)** — but no chapter is below 2,700 and the spread is much tighter than
-   it was. Further deepening should be driven by a specific unexplained claim,
-   not by word count.
-
-   The pattern that has now worked five times: find where a chapter *names* a
-   quantity the implementation computes, and derive it instead. Worked examples
-   — Ch9 §9.2 (scattering source function), Ch11 §11.12 (backwarming),
-   Ch12 §§12.19–12.21 (Schwarzschild, adiabatic gradient, enthalpy flux),
-   Ch13 §§13.2–13.3 (temperature correction), Ch15 §15.10 (why the four regimes
-   differ). Each also closed a causal gap between neighbouring chapters, which
-   matters more than the word count.
-2. Give Ch11 and Ch15 a second figure each (open defect 3) — they are the only
-   chapters left with one. Ch11's would naturally show lines raising the
-   Rosseland mean, but `BlanketingCheckpoint` does not currently expose the
-   layer temperature needed for the \(\partial B_\nu/\partial T\) weighting;
-   add that field rather than plotting an unweighted proxy.
-3. All 15 chapters now have an acceptance record. The remaining design work is
-   judgement, not filing: decide whether to re-run Chapter 1's stale audits and
-   whether the absent independent pedagogy audit for Ch5–15 is worth
-   commissioning. Do *not* regenerate `causal_outline` for Ch7–15; see the
-   corrected picture above for why.
-4. Settle the display-math and heading-nesting inconsistencies (defects 4, 5)
-   in a single mechanical pass once prose work has settled.
-
-After each step: rebuild the affected chapters with `scripts/build_book.py`,
-re-run `verify_pinned_source_fragments.py`, run the affected tests, and update
-this file's Verified state, Completed, and Immediate sequence so the next agent
-can resume cold.
-
-## Traps that have already cost time
-
-- **Governance anchors are verbatim.** `tests/test_global_molecular_lane_language.py`
-  requires exact text blocks in `PASSDOWN.md`, `PLAN.md`, and `BIBLE.md`
-  (anchors `passdown-resolved-lane-boundary`, `plan-resolved-lane-boundary`,
-  `bible-active-selectors`). Paraphrasing them fails the suite. Edit those
-  paragraphs only by copying the required string out of the test.
-- **Editing `book/chapters/*.py` creates notebook drift** until you rebuild.
-  Always run `scripts/build_book.py <n>` for every chapter you touch.
-- **Some `tests/test_chapterNN_runtime.py` assertions encode chapter prose**
-  (exact headings, visible code-cell counts). Changing structure means updating
-  the matching assertion — check whether the test or the chapter is wrong
-  against `design/global_chapter_contracts.md` before assuming the test is right.
-- **Renumbering a chapter silently breaks cross-references.** Inserting a
-  section shifts every later number, and `§13.5`-style references elsewhere in
-  the book keep pointing at the old slot — invisible in the rendered output.
-  Run `python scripts/check_section_references.py` after any renumber; it is
-  cheap and covers all 227 sections.
-- **Two published Chapter 6 artifacts require filesystem mode `0600`, which
-  git cannot record.** A fresh clone — or any `git checkout` that rewrites the
-  working tree, such as a branch merge — leaves them at the umask default and
-  6 publication-authority tests fail with `PublicationStateError: ... not the
-  exact single-link mode-0600 artifact`. The contents are fine; only the
-  permission bit is lost. Fix with `python scripts/restore_publication_modes.py`.
-  This bit me after merging to `main` and cost real time to diagnose.
-- **`python -m pytest`, never bare `pytest`** — the latter omits the repo root
-  from `sys.path`.
-- **The full suite can stall.** Run per-file with a watchdog if `python -m pytest`
-  appears to hang at 0% CPU; that isolates the offending file instead of losing
-  the whole run.
-
-## Commands
-
-Build and execute selected chapters:
-
-```bash
-python scripts/build_book.py 12 15
-```
-
-Build the full reader:
-
-```bash
-python scripts/build_book.py
-```
-
-Verify exact staged source against pinned Payne Zero:
-
-```bash
-python scripts/verify_pinned_source_fragments.py
-```
-
-Verify every `§N.M` / `Section N.M` cross-reference still resolves — run this
-after any chapter renumbering:
-
-```bash
-python scripts/check_section_references.py
-```
-
-Run the tests — use `python -m pytest`, not bare `pytest`, so the repository
-root is on `sys.path`:
-
-```bash
-python -m pytest -q
-```
-
-Serve the reader locally:
-
-```bash
-python -m http.server 8765
-```
-
-Jupyter execution needs permission to bind local kernel ports in restricted
-environments. Never replace execution with an unexecuted render.
-
-## Role boundaries that must remain visible
-
-1. **Resolved boundary:** H2O compiler parity is retained and verified, while
-   the pinned standard synthesis pipeline continues to compile text bands plus
-   TiO rather than H2O. This synthesis boundary does not apply to the standard
-   atmosphere water selection/deposition path.
-
-- static inputs, computed fixtures, and golden comparison outputs are different
-  data roles;
-- initializer predictions are starting proposals, never converged atmosphere
-  products;
-- schema validity proves an interface contract, not physical closure;
-- synthesis proves the consequence of a supplied atmosphere, not that
-  atmosphere's convergence;
-- `r_grid` and `resolution` are interface-specific names and are never silently
-  merged;
-- standard synthesis omits the separate H2O compiler path, even though Chapter 8
-  implements and verifies H2O compiler parity — see the resolved boundary above;
-- the direct-abundance initializer remains experimental and requires exact
-  physical closure;
-- fixed-thread reproducibility is the strict atmosphere target; regrouped
-  reductions may move final bits;
-- timings are performance observations, not physical identity.
-
-## Integration rule
-
-Subagents may take bounded, nonoverlapping chapters. The primary agent owns
-final integration and must recheck global notation, prerequisites, single
-ownership of repeated concepts, neighbouring chapter transitions, exact runtime
-claims, and rendered output. No subagent draft is accepted solely because its
-local tests pass. Preserve unrelated user changes; never clean the tree with
-destructive Git commands.

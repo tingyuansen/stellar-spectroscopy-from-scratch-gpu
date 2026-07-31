@@ -26,8 +26,12 @@ Zero website; quantitative figures are generated from executed chapter code.
 All fifteen chapters exist, execute, and render; the reader publishes Chapters 1–15. The source
 inventory maps 58 modules and 1,501 public exports, routines, classes, fields, and named source
 objects to a chapter and verification gate. The exact solar atmosphere converges and reproduces
-the pinned oracle bitwise. Remaining work is pedagogical depth and density balance rather than
-missing machinery.
+the pinned oracle bitwise. A full read-for-argument sweep of all fifteen chapters is complete,
+every chapter carries at least two figures, and every chapter has an acceptance record.
+
+The largest outstanding item is not code: Chapters 5–15 have no independent pedagogy audit,
+so their acceptance records are measured-gate rather than audited. `PASSDOWN.md` says so
+explicitly.
 
 `PASSDOWN.md` is authoritative for live state and is the correct entry point for anyone — human
 or agent — picking the project up.
