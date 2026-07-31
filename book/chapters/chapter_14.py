@@ -385,28 +385,6 @@ def build_notebook() -> dict:
                   five.maximum_absolute_decode_difference)
             """,
         ),
-        code(
-            """
-            stages = ["five\\nlabels", "float32\\nSiLU MLP",
-                      "160 PCA\\ncoefficients", "480 float64\\ncoordinates",
-                      "six physical\\nprofiles"]
-            figure, axes = single_panel(height=2.7)
-            for index, label in enumerate(stages):
-                axes.text(index, 0.5, label, ha="center", va="center",
-                          bbox={"boxstyle": "round,pad=0.45", "facecolor": "white",
-                                "edgecolor": PAPER_COLORS["blue"], "linewidth": 1.4})
-                if index + 1 < len(stages):
-                    axes.annotate("", xy=(index + 0.72, 0.5),
-                                  xytext=(index + 0.28, 0.5),
-                                  arrowprops={"arrowstyle": "->",
-                                              "color": PAPER_COLORS["slate"]})
-            axes.set(xlim=(-0.7, 4.7), ylim=(0.0, 1.0),
-                     title="One family bundle, with one device-to-CPU crossing")
-            axes.axis("off")
-            plt.show()
-            plt.close(figure)
-            """,
-        ),
         markdown(
             r"""
             During training, profile accuracy was supplemented by three

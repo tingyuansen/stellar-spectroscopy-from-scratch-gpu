@@ -157,7 +157,7 @@ audit note. Current measured state, per generated notebook:
 | 11 | 3172 | 19 | 196 | 0 | 2 |
 | 12 | 3361 | 21 | 248 | 0 | 2 |
 | 13 | 3009 | 15 | 259 | 0 | 4 |
-| 14 | 2758 | 20 | 267 | 0 | 6 |
+| 14 | 2786 | 19 | 246 | 0 | 5 |
 | 15 | 3293 | 16 | 274 | 1 | 2 |
 
 Regenerate this table after substantive edits: count markdown words, visible
@@ -251,6 +251,14 @@ list, including this one.
   exact single-link mode-0600 artifact`. The contents are fine; only the
   permission bit is lost. Fix with `python scripts/restore_publication_modes.py`.
   This bit me after merging to `main` and cost real time to diagnose.
+- **Conceptual flow diagrams are hand-sketched PNGs under
+  `assets/schematics/textbook/`, never matplotlib.** Matplotlib is for
+  *quantitative* figures drawn from executed data. A box-and-arrow flowchart
+  built with `boxstyle` + `axis("off")` renders in a plain matplotlib style that
+  clashes badly with the hand-drawn house aesthetic, and one such cell shipped in
+  Chapter 14 before being removed on 2026-07-31. To check for regressions, scan
+  the notebooks for code cells containing both `boxstyle` and `axis("off")`; the
+  correct count is zero.
 - **A KaTeX failure is invisible to the test suite.** The notebook still
   executes, every test still passes, and the only symptom is raw LaTeX shown in
   red on the rendered page. Eight expressions in Chapter 8 shipped broken this
