@@ -479,8 +479,37 @@ def build_notebook() -> dict:
             n_e\frac{n_{\rm H\,I}}{U_{\rm H\,I}} .
             \]
 
-            The numerical prefactor carries the cgs conversion, so the result is in
-            cm\(^{-3}\). Both \(b_-\), for H-minus, and \(b_1\), for the H I ground state,
+            That expression should look familiar, because it is not a new law. It is
+            the Saha relation of §3.3 applied to the reaction
+            \({\rm H\,I}+e^-\rightleftharpoons{\rm H}^-\), read in the association
+            direction instead of the ionization direction. Three details make the
+            correspondence exact.
+
+            The constant \(2.4148\times10^{15}\) is not a fitted conversion. It is
+
+            \[
+            \left(\frac{2\pi m_e k_{\rm B}}{h^2}\right)^{3/2}
+            =2.4148\times10^{15}\ {\rm cm^{-3}\,K^{-3/2}},
+            \]
+
+            the same translational-state factor that appeared in §3.3 — there it
+            multiplied \(T^{3/2}\) because an electron was being released into the
+            continuum, and here it divides \(T^{3/2}\) because an electron is being
+            captured out of it. Counting the states available to the free electron is
+            the whole content of that term either way.
+
+            The exponential carries a **positive** sign for the same reason. In §3.3 the
+            gas had to pay the ionization energy, so the exponent was negative and
+            higher temperature drove the reaction forward. Here the electron is already
+            bound and 0.754209 eV would have to be supplied to remove it, so higher
+            temperature works *against* H\(^-\) and the sign flips. This is why H\(^-\)
+            fades in hot stars even where electrons remain plentiful.
+
+            The factor of two in the denominator is the electron's two spin states, and
+            \(n_{\rm H\,I}/U_{\rm H\,I}\) is the partition-normalized population that
+            §3.2 taught us to carry instead of a raw number density.
+
+            Both \(b_-\), for H-minus, and \(b_1\), for the H I ground state,
             are dimensionless departure coefficients; each is one in LTE. The same
             0.754209-eV binding energy sets the strict bound-free threshold through
             \(h\nu_0=0.754209\) eV.

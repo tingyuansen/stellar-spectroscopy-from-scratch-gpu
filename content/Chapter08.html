@@ -511,8 +511,8 @@ print(&quot;Timing is a performance observation; field equality is the proof.&qu
   van_der_waals_damping        exact=True
   margin_class                 exact=True
 
-readable scalar loop:      0.0065 s
-first compiled call here:  0.0081 s
+readable scalar loop:      0.0063 s
+first compiled call here:  0.0077 s
 compiled-value cache hit:  0.0003 s
 
 The first timing may reuse an on-disk Numba signature.
@@ -703,7 +703,14 @@ synthesis route chooses vacuum wavelengths.</p>
 <h2>8.8 H<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mrow></mrow><mn>2</mn></msub></mrow><annotation encoding="application/x-tex">_2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4511em;vertical-align:-0.15em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>O hides four isotopologues in two signs</h2>
 <p>A packed water record is shorter: one wavelength code and two
 signed 16-bit fields. The signs are storage codes, not negative
-molecular energies. The exact tests use “positive” and
+molecular energies.</p>
+<p>The trick is worth naming, because it is the same kind of
+construction as the sentinel in §11.9. Both the energy and the
+strength are physically positive, so their sign bits carry no
+information — they are two free bits already sitting in the record.
+Spending them on the isotope index costs nothing, where a separate
+index column would add bytes to every one of millions of rows.
+The exact tests use “positive” and
 “nonpositive,” so a zero follows the nonpositive branch:</p>
 <span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mtable rowspacing="0.16em" columnalign="center center center" columnlines="solid solid" columnspacing="1em" rowlines="solid none none none"><mtr><mtd><mstyle scriptlevel="0" displaystyle="false"><mtext>energy field</mtext></mstyle></mtd><mtd><mstyle scriptlevel="0" displaystyle="false"><mtext>strength field</mtext></mstyle></mtd><mtd><mstyle scriptlevel="0" displaystyle="false"><mtext>isotope index</mtext></mstyle></mtd></mtr><mtr><mtd><mstyle scriptlevel="0" displaystyle="false"><mo lspace="0em" rspace="0em">+</mo></mstyle></mtd><mtd><mstyle scriptlevel="0" displaystyle="false"><mo lspace="0em" rspace="0em">+</mo></mstyle></mtd><mtd><mstyle scriptlevel="0" displaystyle="false"><mn>0</mn></mstyle></mtd></mtr><mtr><mtd><mstyle scriptlevel="0" displaystyle="false"><mo lspace="0em" rspace="0em">+</mo></mstyle></mtd><mtd><mstyle scriptlevel="0" displaystyle="false"><mrow><mo>≤</mo><mn>0</mn></mrow></mstyle></mtd><mtd><mstyle scriptlevel="0" displaystyle="false"><mn>1</mn></mstyle></mtd></mtr><mtr><mtd><mstyle scriptlevel="0" displaystyle="false"><mrow><mo>≤</mo><mn>0</mn></mrow></mstyle></mtd><mtd><mstyle scriptlevel="0" displaystyle="false"><mo lspace="0em" rspace="0em">+</mo></mstyle></mtd><mtd><mstyle scriptlevel="0" displaystyle="false"><mn>2</mn></mstyle></mtd></mtr><mtr><mtd><mstyle scriptlevel="0" displaystyle="false"><mrow><mo>≤</mo><mn>0</mn></mrow></mstyle></mtd><mtd><mstyle scriptlevel="0" displaystyle="false"><mrow><mo>≤</mo><mn>0</mn></mrow></mstyle></mtd><mtd><mstyle scriptlevel="0" displaystyle="false"><mn>3</mn></mstyle></mtd></mtr></mtable><annotation encoding="application/x-tex">\begin{array}{c|c|c}
 \text{energy field} &amp; \text{strength field} &amp; \text{isotope index}\\

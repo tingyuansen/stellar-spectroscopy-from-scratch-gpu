@@ -437,8 +437,26 @@ def build_notebook() -> dict:
             Here \(s\) identifies the element, \(m_e\) is the electron mass, and the leading
             factor two counts the free electron's two spin states under this partition
             convention. The partition ratio counts internal states on the two ionic sides. The
-            \(T^{3/2}\) term counts translational states available to the released electron. The
-            exponential pays the **ionization energy** \(\mathcal I\). Electron density appears
+            \(T^{3/2}\) term counts translational states available to the released electron.
+
+            That last term is worth a moment, because it reappears throughout the book. A
+            free electron at temperature \(T\) cannot be localized more finely than its
+            thermal de Broglie wavelength
+            \(\Lambda=h/\sqrt{2\pi m_e k_{\rm B}T}\), so the number of distinct places it
+            can be put per unit volume is \(1/\Lambda^3\):
+
+            $$
+            \frac{1}{\Lambda^3}
+            =\left(\frac{2\pi m_e k_{\rm B}T}{h^2}\right)^{3/2}
+            =2.4148\times10^{15}\,T^{3/2}\ {\rm cm^{-3}} .
+            $$
+
+            Ionization is favoured at high temperature partly because the freed electron has
+            so many more states to occupy. We will meet the constant
+            \(2.4148\times10^{15}\) again in §5.3, where the same factor runs in reverse as
+            an electron is captured rather than released.
+
+            The exponential pays the **ionization energy** \(\mathcal I\). Electron density appears
             on the left, so crowding free electrons favors recombination. The right side has
             units of number density, matching \(n_{r+1}n_e/n_r\).
 

@@ -994,8 +994,15 @@ def build_notebook() -> dict:
 
             \[
             \widetilde\nu_{\rm merge}
-            =\frac{109737.312}{n_{\rm merge}^2}\quad [{\rm cm}^{-1}].
+            =\frac{R_\infty}{n_{\rm merge}^2},
+            \qquad
+            R_\infty=109737.312\ {\rm cm^{-1}} .
             \]
+
+            The constant is the Rydberg wavenumber, so this is nothing more than the
+            hydrogen term value at \(n_{\rm merge}\): the series limit moves inward to
+            wherever the levels stopped being separable, and everything above it is
+            handed to the continuum instead of to individual lines.
 
             Every other catalog invariant can be reused for another star, but this
             array must be recomputed from that star's electron-density profile.

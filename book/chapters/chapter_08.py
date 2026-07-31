@@ -547,7 +547,15 @@ def build_notebook() -> dict:
 
             A packed water record is shorter: one wavelength code and two
             signed 16-bit fields. The signs are storage codes, not negative
-            molecular energies. The exact tests use “positive” and
+            molecular energies.
+
+            The trick is worth naming, because it is the same kind of
+            construction as the sentinel in §11.9. Both the energy and the
+            strength are physically positive, so their sign bits carry no
+            information — they are two free bits already sitting in the record.
+            Spending them on the isotope index costs nothing, where a separate
+            index column would add bytes to every one of millions of rows.
+            The exact tests use “positive” and
             “nonpositive,” so a zero follows the nonpositive branch:
 
             \[

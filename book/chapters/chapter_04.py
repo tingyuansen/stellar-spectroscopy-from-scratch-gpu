@@ -1345,6 +1345,27 @@ def build_notebook() -> dict:
             (1.8786\times10^{20})(m_mT)^{3/2}.
             \]
 
+            Neither constant is arbitrary, and both have appeared before in different
+            clothes. The factor \(1.8786\times10^{20}\) is
+
+            \[
+            \left(\frac{2\pi m_u k_{\rm B}}{h^2}\right)^{3/2},
+            \]
+
+            the translational-state density of §3.3 written for a particle of one atomic
+            mass unit rather than for an electron — which is why it is multiplied by
+            \((m_ZT)^{3/2}\), scaling it to the actual species mass. The electron version,
+            \(2.4148\times10^{15}\), is smaller by exactly \((m_e/m_u)^{3/2}\). The same
+            counting argument runs through ionization in Chapter 3, H\(^-\) formation in
+            §5.3, and molecule formation here: every equilibrium that creates or destroys a
+            free particle pays for the states that particle can occupy.
+
+            The 11604.5 in the exponent is simply \(1\ {\rm eV}/k_{\rm B}\) in kelvin, so
+            \(T/11604.5\) expresses the temperature in electronvolts and lets the
+            dissociation energy \(a_0\) be quoted directly in eV. As §5 notes, the source's
+            constant tier is part of the algorithm; these values match their published tier
+            rather than the latest CODATA digits.
+
             An inverse-electron sentinel divides this product by the transformed electron
             basis. Here \(m_m\) is the molecular mass in amu. For CO, the components are C and
             O, \(a_0=11.091\ {\rm eV}\), and
