@@ -1,0 +1,398 @@
+{
+  "acceptance_scope": {
+    "accepted_for": [
+      "exact staged/repeat/pinned array reproducibility",
+      "schema-v4 structured-atmosphere handoff",
+      "finite wavelength-aligned spectrum",
+      "normalized-flux internal ratio"
+    ],
+    "not_accepted_for": [
+      "independent flux-closure threshold",
+      "independent hydrostatic-residual threshold"
+    ]
+  },
+  "builder": "scripts/build_chapter15_verified_solar_goldens.py",
+  "case": {
+    "alpha_over_metal_dex": 0.0,
+    "atmosphere_molecules": true,
+    "backend": "cpu",
+    "convection": true,
+    "dtype": "float64",
+    "effective_temperature_k": 5777.0,
+    "explicit_cno_labels": false,
+    "initializer_family": "five_label",
+    "initializer_selection": "auto",
+    "iterations_per_trial": 15,
+    "log_surface_gravity_cgs": 4.44,
+    "maximum_trials": 2,
+    "metallicity_dex": 0.0,
+    "microturbulence_km_s": 2.0,
+    "minimum_iterations_before_convergence": 3,
+    "molecular_lines": true,
+    "r_grid": 20000.0,
+    "random_seed": 20260713,
+    "required_consecutive_converged_iterations": 1,
+    "trial_jitter_fraction": 0.01,
+    "wavelength_start_nm": 498.95,
+    "wavelength_stop_nm": 499.15
+  },
+  "catalog_policy": {
+    "approximate_full_catalog_size_gb": 6.8,
+    "bundled_in_chapter15_goldens": false,
+    "full_source_catalogs_are_optional_textbook_data": true,
+    "required_to_rebuild_this_record": true,
+    "required_to_validate_published_goldens": false
+  },
+  "evidence": {
+    "atmosphere_array_parity": {
+      "accepted": true,
+      "arrays": {
+        "aluminum_neutral_partition_normalized_population": {
+          "dtype": "float64",
+          "sha256": "49952167fc1630b09cc52d660b586b224d16106443c1b7ee51f712204d166a9a",
+          "shape": [
+            80
+          ],
+          "unit": "cm^-3 per partition function"
+        },
+        "atmosphere_schema_version": {
+          "dtype": "int32",
+          "sha256": "fb5e512425fc9449316ec95969ebe71e2d576dbab833d61e2a5b9330fd70ee02",
+          "shape": [
+            1
+          ],
+          "unit": "schema version"
+        },
+        "carbon_partition_normalized_ion_stage_populations": {
+          "dtype": "float64",
+          "sha256": "7fb5c5409eff0ce0f72756450aa7dd49059d23b8ddcfbfe8bcbcbfa604a90cee",
+          "shape": [
+            80,
+            2
+          ],
+          "unit": "cm^-3 per partition function"
+        },
+        "column_mass": {
+          "dtype": "float64",
+          "sha256": "d47ddd21ae770a66cf4b972eefcd087c9928b3f1c8e3b5f098a7a7d43b5e35bc",
+          "shape": [
+            80
+          ],
+          "unit": "g cm^-2"
+        },
+        "continuum_edge_interval_width_squared_over_two_nm2": {
+          "dtype": "float64",
+          "sha256": "757375fda74e459531fd912ae11bdd86ca65da65b5c7e99b753ef965a1d9a051",
+          "shape": [
+            340
+          ],
+          "unit": "nm^2"
+        },
+        "continuum_edge_midpoint_wavelength_nm": {
+          "dtype": "float64",
+          "sha256": "9482e5359a3ff471da95616bbea2cbff44c9161f85ebf1e26c8834cf2113c7b1",
+          "shape": [
+            340
+          ],
+          "unit": "nm"
+        },
+        "continuum_edge_wavelength_nm": {
+          "dtype": "float64",
+          "sha256": "6f5df0eaedaad63508407fe28b84a4c2cfdc704a4a0556520052905679c3f163",
+          "shape": [
+            341
+          ],
+          "unit": "nm"
+        },
+        "electron_density": {
+          "dtype": "float64",
+          "sha256": "12f62c38eefb559552343e444fde67984abb95e53869eaf58b45a388eeb0a12f",
+          "shape": [
+            80
+          ],
+          "unit": "cm^-3"
+        },
+        "elemental_abundances": {
+          "dtype": "float64",
+          "sha256": "da46fd5bf858699aa0a99e5ae3723edfc3d875b18aeff6a9bc6cddba3fd7a6da",
+          "shape": [
+            99
+          ],
+          "unit": "relative number abundance"
+        },
+        "fractional_doppler_widths": {
+          "dtype": "float64",
+          "sha256": "eae37210e4eba6172ef2713b0e9fe8452d25ae8b6e5d23a5c240dfaa7f22e987",
+          "shape": [
+            80,
+            6,
+            139
+          ],
+          "unit": "dimensionless v/c"
+        },
+        "gas_pressure": {
+          "dtype": "float64",
+          "sha256": "c0a6bc832cc0dfe544698e395929f7d3de6ab6ffdf4f576152f34b5269db7c75",
+          "shape": [
+            80
+          ],
+          "unit": "dyne cm^-2"
+        },
+        "hc_over_kt": {
+          "dtype": "float64",
+          "sha256": "0f63a07860cc604865b7e750f57d4eab4141695fa596854b1aed311eeccbb88c",
+          "shape": [
+            80
+          ],
+          "unit": "cm"
+        },
+        "helium_neutral_population": {
+          "dtype": "float64",
+          "sha256": "a78f53d425878c9974e53534c9cb1673e6e37328e1f85ef5b80b514f8175ba06",
+          "shape": [
+            80
+          ],
+          "unit": "cm^-3"
+        },
+        "helium_singly_ionized_population": {
+          "dtype": "float64",
+          "sha256": "c36d48abe17eb45b1c17a96d1ebb8974aa0104a2ef0225b09b326970b49ff2c2",
+          "shape": [
+            80
+          ],
+          "unit": "cm^-3"
+        },
+        "hydrogen_ionized_population": {
+          "dtype": "float64",
+          "sha256": "c233c39d50d142e43770f7f63c2d76e621dccb266fd2e0272ec1d17d07e51fd3",
+          "shape": [
+            80
+          ],
+          "unit": "cm^-3"
+        },
+        "hydrogen_neutral_population": {
+          "dtype": "float64",
+          "sha256": "20d60f234265ed7cb6f6ef2fd85908d9e9eda4d133a96deda0b5b197165dcd2f",
+          "shape": [
+            80
+          ],
+          "unit": "cm^-3"
+        },
+        "hydrogen_partition_normalized_ion_stage_populations": {
+          "dtype": "float64",
+          "sha256": "706b2353789433cb060b34c830732b0555e63a8c4004491e9476d7a0d8f1ff80",
+          "shape": [
+            80,
+            2
+          ],
+          "unit": "cm^-3 per partition function"
+        },
+        "ion_stage_populations": {
+          "dtype": "float64",
+          "sha256": "30ddfcc63485f66c69fdc57d2192b7a414bfc49c01199e36a43e8ffde8e68de0",
+          "shape": [
+            80,
+            6,
+            139
+          ],
+          "unit": "cm^-3"
+        },
+        "iron_neutral_partition_normalized_population": {
+          "dtype": "float64",
+          "sha256": "7f4b94ecb6bb2a3762cc01f98b02964379fb84d7722fa19cd7237602874ddade",
+          "shape": [
+            80
+          ],
+          "unit": "cm^-3 per partition function"
+        },
+        "magnesium_neutral_partition_normalized_population": {
+          "dtype": "float64",
+          "sha256": "19f2a9b65d2de97efd43d3247f3cbe68afb385a9105c024ba268b3c9a9ef3ff7",
+          "shape": [
+            80
+          ],
+          "unit": "cm^-3 per partition function"
+        },
+        "mass_density": {
+          "dtype": "float64",
+          "sha256": "eb13b1570d9da4427ab6e931b4d368437fe316ca35abcc9ab32db62d0dd9e962",
+          "shape": [
+            80
+          ],
+          "unit": "g cm^-3"
+        },
+        "microturbulence": {
+          "dtype": "float64",
+          "sha256": "cbf0a305b00b6d6f546b74c0afcf0bb233549adf5aca2d348e29613433876251",
+          "shape": [
+            80
+          ],
+          "unit": "cm s^-1"
+        },
+        "molecular_hydrogen_population": {
+          "dtype": "float64",
+          "sha256": "5d07f4432a6c06aa1ac5f2503d9d8acccffec50bf4155a9438995219a63c353b",
+          "shape": [
+            80
+          ],
+          "unit": "cm^-3"
+        },
+        "partition_normalized_populations": {
+          "dtype": "float64",
+          "sha256": "24c0be5e3687523ee09cb6e1199234f3be0f42c2afd512a2650ceb192953b81a",
+          "shape": [
+            80,
+            6,
+            139
+          ],
+          "unit": "cm^-3 per partition function"
+        },
+        "signed_continuum_edge_frequency_hz": {
+          "dtype": "float64",
+          "sha256": "b0c7221c5f3e397005d6c8138e125fa523f398e24c50174f7467a420cbab6c54",
+          "shape": [
+            341
+          ],
+          "unit": "Hz"
+        },
+        "silicon_neutral_partition_normalized_population": {
+          "dtype": "float64",
+          "sha256": "d2b64c53cf4a10b1431258413e1523d7b742f83749e3989c00da0131677058d7",
+          "shape": [
+            80
+          ],
+          "unit": "cm^-3 per partition function"
+        },
+        "temperature": {
+          "dtype": "float64",
+          "sha256": "ae3907316531c479ca00ca6af6333f9f224c69a32286a9abf46624a7f4ff9cf6",
+          "shape": [
+            80
+          ],
+          "unit": "K"
+        }
+      },
+      "comparison": "bitwise shape + dtype + C-order payload",
+      "payload_sha256": "d7cdb98e2e5e11f6d8eed4cb28d65e42bf64a0a15f53df917a0629a8efcb7e9a",
+      "run_count": 3
+    },
+    "declared_flux_error_threshold": {
+      "accepted": null,
+      "reason": "the prepared product archives do not retain an independently reviewed flux-error acceptance record",
+      "status": "not_evaluated"
+    },
+    "hydrostatic_residual": {
+      "accepted": null,
+      "reason": "no independent hydrostatic-residual threshold was evaluated for this publication",
+      "status": "not_evaluated"
+    },
+    "normalized_flux_ratio": {
+      "accepted": true,
+      "atol": 0.0,
+      "rtol": 3e-07,
+      "test": "normalized_flux ~= flux_total / flux_continuum"
+    },
+    "spectrum_array_parity": {
+      "accepted": true,
+      "arrays": {
+        "flux_continuum": {
+          "dtype": "float64",
+          "sha256": "10646455d3072669c51b894eba273820041885a3b431678c572c769f6a9aa580",
+          "shape": [
+            8
+          ],
+          "unit": "source-native emergent flux density"
+        },
+        "flux_total": {
+          "dtype": "float64",
+          "sha256": "a14a0e04d65fbe9feee1cd068b5cf1421a538304b35c3ca5f62ac54a78c73650",
+          "shape": [
+            8
+          ],
+          "unit": "source-native emergent flux density"
+        },
+        "normalized_flux": {
+          "dtype": "float64",
+          "sha256": "4bc7f920226e4ac2e94afb115f4b73dffdd0f231d4c6dff4ccac440f13a38998",
+          "shape": [
+            8
+          ],
+          "unit": "dimensionless flux ratio"
+        },
+        "wavelength_nm": {
+          "dtype": "float64",
+          "sha256": "2966affffd64ad897974b4b5a2401d23f3d71f09d89c2435bcdbcb6bbf5485f1",
+          "shape": [
+            8
+          ],
+          "unit": "nm"
+        }
+      },
+      "comparison": "bitwise physical arrays; wall-clock seconds excluded",
+      "physical_payload_sha256": "5e2b65add5326a9bfa0442216b8198b225305bc1ed0a05325858b34b2f345f27",
+      "run_count": 3
+    },
+    "structural_convergence": {
+      "accepted": true,
+      "converged_on_pass": 4,
+      "deep_layer_relative_temperature_change": 0.0004778548,
+      "maximum_deep_layer_relative_temperature_change": 0.0005,
+      "publication_gate": "the exact runner writes the product structured-atmosphere archive only after its declared convergence criterion passes"
+    }
+  },
+  "inputs": [
+    {
+      "atmosphere_archive_sha256": "14e552717e0bbf5eb263deec043c16d3ef796708b5328d822f8a2e2e06fb1fbc",
+      "atmosphere_path": "audit/full_solve/solar_role_safe/payne_zero_structured_atmosphere.npz",
+      "atmosphere_payload_sha256": "d7cdb98e2e5e11f6d8eed4cb28d65e42bf64a0a15f53df917a0629a8efcb7e9a",
+      "role": "staged",
+      "spectrum_archive_sha256": "19d1f47e6111228cdd202501a8143b4b1c9591e9e3ad6763e58ff53e8dad80bd",
+      "spectrum_path": "audit/full_solve/solar_role_safe/spectrum_49895_49915.npz",
+      "spectrum_physical_payload_sha256": "5e2b65add5326a9bfa0442216b8198b225305bc1ed0a05325858b34b2f345f27",
+      "synthesis_seconds_observed_not_identity": 2.8333851670031436
+    },
+    {
+      "atmosphere_archive_sha256": "14e552717e0bbf5eb263deec043c16d3ef796708b5328d822f8a2e2e06fb1fbc",
+      "atmosphere_path": "audit/full_solve/solar_role_safe_repeat/payne_zero_structured_atmosphere.npz",
+      "atmosphere_payload_sha256": "d7cdb98e2e5e11f6d8eed4cb28d65e42bf64a0a15f53df917a0629a8efcb7e9a",
+      "role": "staged_repeat",
+      "spectrum_archive_sha256": "b117245d7ae29645b4b117b75f3f0b9476772806b4e2dfbd00d28d44a6d44b23",
+      "spectrum_path": "audit/full_solve/solar_role_safe_repeat/spectrum_49895_49915.npz",
+      "spectrum_physical_payload_sha256": "5e2b65add5326a9bfa0442216b8198b225305bc1ed0a05325858b34b2f345f27",
+      "synthesis_seconds_observed_not_identity": 4.255756041005952
+    },
+    {
+      "atmosphere_archive_sha256": "14e552717e0bbf5eb263deec043c16d3ef796708b5328d822f8a2e2e06fb1fbc",
+      "atmosphere_path": "audit/full_solve/solar_pinned_oracle/payne_zero_structured_atmosphere.npz",
+      "atmosphere_payload_sha256": "d7cdb98e2e5e11f6d8eed4cb28d65e42bf64a0a15f53df917a0629a8efcb7e9a",
+      "role": "pinned_read_only_oracle",
+      "spectrum_archive_sha256": "23ae5f70e0ce619677559608d7704fccc39fd1a3a4124d8b067ab7db4ef8c0a6",
+      "spectrum_path": "audit/full_solve/solar_pinned_oracle/spectrum_49895_49915.npz",
+      "spectrum_physical_payload_sha256": "5e2b65add5326a9bfa0442216b8198b225305bc1ed0a05325858b34b2f345f27",
+      "synthesis_seconds_observed_not_identity": 3.091295749996789
+    }
+  ],
+  "outputs": {
+    "atmosphere": {
+      "path": "data/golden/payne_zero/chapter15/chapter15_verified_solar_atmosphere_cpu_float64.npz",
+      "payload_sha256": "d7cdb98e2e5e11f6d8eed4cb28d65e42bf64a0a15f53df917a0629a8efcb7e9a",
+      "role": "comparison-only golden",
+      "sha256": "81d5163c755e0a755ca6f530ebf4ff06615efb64184b453135f7b59c42373ac3"
+    },
+    "spectrum": {
+      "path": "data/golden/payne_zero/chapter15/chapter15_verified_solar_spectrum_cpu_float64.npz",
+      "physical_payload_sha256": "5e2b65add5326a9bfa0442216b8198b225305bc1ed0a05325858b34b2f345f27",
+      "role": "timing-free comparison-only golden",
+      "sha256": "2131ab0c5a5681e568275a0da6054a6d7de65b82402aac10222050546dd15213"
+    }
+  },
+  "payne_zero_commit": "9c44001feae40b85146630499e6f8a5fed42e5af",
+  "schema": "chapter15_verified_solar_acceptance_v1",
+  "status": "accepted_exact_three_run_array_parity",
+  "timing_policy": {
+    "excluded_from_identity": [
+      "seconds"
+    ],
+    "reason": "wall-clock timings vary with runtime state and are not physical output arrays"
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "schema": "chapter15_case_requests_v1",
+  "cases": [
+    {
+      "name": "hot_dwarf",
+      "effective_temperature": 9000.0,
+      "log_surface_gravity": 4.0,
+      "metallicity": 0.0,
+      "alpha_enhancement": 0.0,
+      "microturbulence_km_s": 2.0,
+      "c_over_m": null,
+      "n_over_m": null,
+      "o_over_m": null,
+      "initializer_family": "auto",
+      "molecular_lines": true
+    },
+    {
+      "name": "solar_dwarf",
+      "effective_temperature": 5777.0,
+      "log_surface_gravity": 4.44,
+      "metallicity": 0.0,
+      "alpha_enhancement": 0.0,
+      "microturbulence_km_s": 2.0,
+      "c_over_m": null,
+      "n_over_m": null,
+      "o_over_m": null,
+      "initializer_family": "auto",
+      "molecular_lines": true
+    },
+    {
+      "name": "low_gravity_giant",
+      "effective_temperature": 4500.0,
+      "log_surface_gravity": 2.0,
+      "metallicity": -0.5,
+      "alpha_enhancement": 0.2,
+      "microturbulence_km_s": 2.0,
+      "c_over_m": null,
+      "n_over_m": null,
+      "o_over_m": null,
+      "initializer_family": "auto",
+      "molecular_lines": true
+    },
+    {
+      "name": "cool_molecule_rich",
+      "effective_temperature": 3800.0,
+      "log_surface_gravity": 4.7,
+      "metallicity": -0.2,
+      "alpha_enhancement": 0.2,
+      "microturbulence_km_s": 1.5,
+      "c_over_m": 0.1,
+      "n_over_m": -0.1,
+      "o_over_m": 0.3,
+      "initializer_family": "auto",
+      "molecular_lines": true
+    }
+  ]
+}

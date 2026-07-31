@@ -1,16 +1,15 @@
-# Runtime for the GPU-edition lecture notebooks — they are self-contained: they import
-# torch + numpy + matplotlib + astropy and load the shipped reference/*.npz data files (the NumPy
-# edition's references). No pykurucz, no production kgpu import.
-torch          # the GPU array library: Apple MPS / CUDA, with a CPU fp64 fallback
-numpy          # the reference array library + the validation comparisons
-matplotlib
-astropy        # physical constants and unit conversion
+# Core Payne Zero implementation taught by the book.
+#
+# These lower bounds match the pinned Payne Zero package.  Atmosphere physics
+# uses NumPy + Numba; synthesis and the learned initializers use PyTorch.
+numba>=0.59
+numpy>=1.26
+torch>=2.2
 
-# Building the book (assembling notebooks with nbformat, executing with nbconvert):
-nbformat
-nbconvert
-jupyter
+# Executable textbook and publication-quality quantitative figures.
+jupyterlab>=4.2
+nbconvert>=7.16
+matplotlib>=3.8
 
-# Rendering the executed notebooks to HTML fragments uses Node, not Python:
-#   npm install        # installs marked / katex / highlight.js (see package.json)
-#   python _pipeline/build.py 1 2 3 4 5 6 7 8 9
+# Repository verification.
+pytest>=8.2

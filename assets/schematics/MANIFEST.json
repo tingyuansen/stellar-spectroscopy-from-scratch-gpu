@@ -1,0 +1,552 @@
+{
+  "schema_version": 2,
+  "visual_reference": {
+    "repository": "/Users/ysting/payne-zero-website",
+    "generator_source": "scripts/generate_physics_images.py",
+    "style_master": "public/figures/payne-zero-pipeline-v2.png",
+    "source_role": "read-only style and prompt-architecture reference",
+    "textbook_prompt_registry": "scripts/textbook_schematic_specs.py"
+  },
+  "assets": [
+    {
+      "path": "assets/schematics/official/atmosphere-layers-v3.png",
+      "source_path": "public/figures/atmosphere-layers-v3.png",
+      "prompt_id": "atmosphere-layers-v3",
+      "generator": "gemini-3-pro-image-preview",
+      "role": "style_reference_only",
+      "width_px": 1536,
+      "height_px": 1024,
+      "bytes": 1544847,
+      "sha256": "ada97b5b305b05adadfcd4f832ec972d0383f5a12b5aea65a9b22e3a7e774925"
+    },
+    {
+      "path": "assets/schematics/official/cpu-gpu-acceleration-v2.png",
+      "source_path": "public/figures/cpu-gpu-acceleration-v2.png",
+      "prompt_id": "cpu-gpu-acceleration-v2",
+      "generator": "gemini-3-pro-image-preview",
+      "role": "style_reference_only",
+      "width_px": 1536,
+      "height_px": 1024,
+      "bytes": 1384324,
+      "sha256": "54df9c2452c3482bfd23b245c0de0bdf8da2bf7630cc65ecda136016875a0915"
+    },
+    {
+      "path": "assets/schematics/official/payne-zero-pipeline-v2.png",
+      "source_path": "public/figures/payne-zero-pipeline-v2.png",
+      "prompt_id": "payne-zero-pipeline-v2",
+      "generator": "gemini-3-pro-image-preview",
+      "role": "style_reference_only",
+      "width_px": 1619,
+      "height_px": 971,
+      "bytes": 1109292,
+      "sha256": "6c7061aef963b97adbe5795aecf8da1db5bca8f8ed3218049968b58c9a5793a2"
+    },
+    {
+      "path": "assets/schematics/textbook/ch01-forward-problem-v1.png",
+      "prompt_id": "ch01-forward-problem",
+      "prompt_source": "scripts/textbook_schematic_specs.py",
+      "generator": "openai-built-in-image-generation",
+      "style_reference": "assets/schematics/official/payne-zero-pipeline-v2.png",
+      "role": "original_textbook_conceptual_schematic",
+      "width_px": 1774,
+      "height_px": 887,
+      "bytes": 957564,
+      "sha256": "5565f655d1667a70703ce56a2c3d472386aa56dbdc917df990f1a31691094524",
+      "primary_chapter": 1
+    },
+    {
+      "path": "assets/schematics/textbook/ch01-formation-depth-v1.png",
+      "prompt_id": "ch01-formation-depth",
+      "prompt_source": "scripts/textbook_schematic_specs.py",
+      "generator": "openai-built-in-image-generation",
+      "style_reference": "assets/schematics/official/payne-zero-pipeline-v2.png",
+      "role": "original_textbook_conceptual_schematic",
+      "width_px": 1536,
+      "height_px": 1024,
+      "bytes": 1348258,
+      "sha256": "fe65b6535b54a48dae6938b5e77ed77132456f4a63d5b6c056c6e756ff771af5",
+      "primary_chapter": 1
+    },
+    {
+      "path": "assets/schematics/textbook/ch02-ordered-depth-v1.png",
+      "prompt_id": "ch02-ordered-depth",
+      "prompt_source": "scripts/textbook_schematic_specs.py",
+      "generator": "openai-built-in-image-generation",
+      "style_reference": "assets/schematics/official/payne-zero-pipeline-v2.png",
+      "role": "original_textbook_conceptual_schematic",
+      "width_px": 1672,
+      "height_px": 941,
+      "bytes": 1356766,
+      "sha256": "cfed225527f20221ff38cdab056a74e5e324f23e966710ff582a7475e37740b8",
+      "primary_chapter": 2
+    },
+    {
+      "path": "assets/schematics/textbook/ch02-architecture-v1.png",
+      "prompt_id": "ch02-architecture",
+      "prompt_source": "scripts/textbook_schematic_specs.py",
+      "generator": "openai-built-in-image-generation",
+      "style_reference": "assets/schematics/official/payne-zero-pipeline-v2.png",
+      "role": "original_textbook_conceptual_schematic",
+      "width_px": 1672,
+      "height_px": 941,
+      "bytes": 1634574,
+      "sha256": "4dbac1074ba591ad17cdd6b60ab29e400cedf1361018c4709fe3f78527f3067a",
+      "primary_chapter": 2
+    },
+    {
+      "path": "assets/schematics/textbook/ch02-data-roles-v1.png",
+      "prompt_id": "ch02-data-roles",
+      "prompt_source": "scripts/textbook_schematic_specs.py",
+      "generator": "openai-built-in-image-generation",
+      "style_reference": "assets/schematics/official/payne-zero-pipeline-v2.png",
+      "role": "original_textbook_conceptual_schematic",
+      "width_px": 1672,
+      "height_px": 941,
+      "bytes": 1674332,
+      "sha256": "2484133ae0b23dee2d8d1aa66ae1e742478a6a50d53cc9ad3308a7ba64a82641",
+      "primary_chapter": 2
+    },
+    {
+      "path": "assets/schematics/textbook/ch02-populations-v1.png",
+      "prompt_id": "ch02-populations",
+      "prompt_source": "scripts/textbook_schematic_specs.py",
+      "generator": "openai-built-in-image-generation",
+      "style_reference": "assets/schematics/official/payne-zero-pipeline-v2.png",
+      "role": "original_textbook_conceptual_schematic",
+      "width_px": 1672,
+      "height_px": 941,
+      "bytes": 1419916,
+      "sha256": "c7802687c1f4c3273e65fd20519dce29fc41b2c13489419fc7bfa5f78327325b",
+      "primary_chapter": 2
+    },
+    {
+      "path": "assets/schematics/textbook/ch03-levels-to-charge-v1.png",
+      "prompt_id": "ch03-levels-to-charge",
+      "prompt_source": "scripts/textbook_schematic_specs.py",
+      "generator": "openai-built-in-image-generation",
+      "style_rule_source": "scripts/textbook_schematic_specs.py:STYLE",
+      "website_aesthetic_source": "/Users/ysting/payne-zero-website/scripts/generate_physics_images.py",
+      "source_image_inputs": [
+        {
+          "role": "owned_prior_revision",
+          "sha256": "2ae8c71323ec81ceda17953a9ae1c03eb95b8039186d7958693566a1d6579ee1"
+        }
+      ],
+      "role": "original_textbook_conceptual_schematic",
+      "width_px": 1536,
+      "height_px": 1024,
+      "bytes": 1593465,
+      "sha256": "c04bb8a509ac7d2865c4b1088f4cce6bedd9b1699b4ba97bf9125825ea1b1d1c",
+      "primary_chapter": 3,
+      "scientific_review": {
+        "status": "accepted",
+        "checks": [
+          "forward path is level data to partition U to ion populations to charge sum",
+          "charge sum updates an explicit electron-density node",
+          "the electron-density arrow terminates on a brace spanning every Saha ratio, not on one charge state",
+          "no molecule, atmosphere-iteration, or spectrum claim is drawn"
+        ]
+      }
+    },
+    {
+      "path": "assets/schematics/textbook/ch03-packed-to-public-v1.png",
+      "prompt_id": "ch03-packed-to-public",
+      "prompt_source": "scripts/textbook_schematic_specs.py",
+      "generator": "openai-built-in-image-generation",
+      "style_rule_source": "scripts/textbook_schematic_specs.py:STYLE",
+      "website_aesthetic_source": "/Users/ysting/payne-zero-website/scripts/generate_physics_images.py",
+      "source_image_inputs": [],
+      "role": "original_textbook_conceptual_schematic",
+      "width_px": 1693,
+      "height_px": 929,
+      "bytes": 1409957,
+      "sha256": "7f215c27814a9ae77c8ec22087c4c2550039cc20cdb5d97c50f39216ce6dd7ef",
+      "primary_chapter": 3,
+      "scientific_review": {
+        "status": "accepted",
+        "checks": [
+          "separated packed slots pass through an explicit gather-and-place map",
+          "the atom-only region and its unused 99 through 138 tail are labelled without claiming a molecular address rule",
+          "the synthetic-line callout targets the stage-index-5 plane rather than the unused tail",
+          "the conversion is explicitly marked not a reshape"
+        ]
+      }
+    },
+    {
+      "path": "assets/schematics/textbook/ch04-coupled-budgets-v1.png",
+      "prompt_id": "ch04-coupled-budgets",
+      "prompt_source": "scripts/textbook_schematic_specs.py",
+      "generator": "openai-built-in-image-generation",
+      "style_rule_source": "scripts/textbook_schematic_specs.py:STYLE",
+      "website_aesthetic_source": "/Users/ysting/payne-zero-website/scripts/generate_physics_images.py",
+      "source_image_inputs": [],
+      "role": "original_textbook_conceptual_schematic",
+      "width_px": 1536,
+      "height_px": 1024,
+      "bytes": 1882260,
+      "sha256": "6eb3916226619c0c7c5421d1f9908a6afe9e8217f0dd3408ced36ca4fad34488",
+      "primary_chapter": 4,
+      "scientific_review": {
+        "status": "accepted",
+        "checks": [
+          "one CO token is assembled from one free carbon token and one free oxygen token",
+          "free elemental densities use x_C and x_O while the molecular population uses n_CO",
+          "the same CO population contributes to particle, carbon, and oxygen ledgers",
+          "the figure communicates conservation coupling rather than reaction kinetics",
+          "no numerical or software-architecture claim is introduced"
+        ]
+      }
+    },
+    {
+      "path": "assets/schematics/textbook/ch04-newton-positivity-v1.png",
+      "prompt_id": "ch04-newton-positivity",
+      "prompt_source": "scripts/textbook_schematic_specs.py",
+      "generator": "openai-built-in-image-generation",
+      "style_rule_source": "scripts/textbook_schematic_specs.py:STYLE",
+      "website_aesthetic_source": "/Users/ysting/payne-zero-website/scripts/generate_physics_images.py",
+      "source_image_inputs": [],
+      "role": "original_textbook_conceptual_schematic",
+      "width_px": 1774,
+      "height_px": 887,
+      "bytes": 1533332,
+      "sha256": "741848999aa0527354801056b351320bf7896ced3999977d0df04ecc8b136d9b",
+      "primary_chapter": 4,
+      "scientific_review": {
+        "status": "accepted",
+        "checks": [
+          "the conservation residual forks before the backend-specific Jacobian and solve policies",
+          "both lanes damp the correction before forming candidate density x - delta",
+          "all unknowns and both terminal branches are explicitly density-space updates",
+          "atmosphere reflection/shared-scale and synthesis multiplicative-floor policies remain distinct",
+          "the shared 0.69 sign-reversal damping is placed at the branch point"
+        ]
+      }
+    },
+    {
+      "path": "assets/schematics/textbook/ch04-ordered-backends-v1.png",
+      "prompt_id": "ch04-ordered-backends",
+      "prompt_source": "scripts/textbook_schematic_specs.py",
+      "generator": "openai-built-in-image-generation",
+      "style_rule_source": "scripts/textbook_schematic_specs.py:STYLE",
+      "website_aesthetic_source": "/Users/ysting/payne-zero-website/scripts/generate_physics_images.py",
+      "source_image_inputs": [],
+      "role": "original_textbook_conceptual_schematic",
+      "width_px": 1694,
+      "height_px": 929,
+      "bytes": 1087944,
+      "sha256": "d09795767950a834da2e75e3b821d5fad550d3f82da93e38ae267447bcd8502f",
+      "primary_chapter": 4,
+      "scientific_review": {
+        "status": "accepted",
+        "checks": [
+          "both backends show the same outer-to-inner sequential depth recurrence",
+          "Numba local kernels and the CPU linear solve are confined to the atmosphere chain",
+          "safe-log products, jacrev, and the scaled solve remain inside one synthesis depth",
+          "vmap appears only after the final synthesis depth solve"
+        ]
+      }
+    },
+    {
+      "path": "assets/schematics/textbook/ch04-catalog-to-public-lane-v1.png",
+      "prompt_id": "ch04-catalog-to-public-lane",
+      "prompt_source": "scripts/textbook_schematic_specs.py",
+      "generator": "openai-built-in-image-generation",
+      "style_rule_source": "scripts/textbook_schematic_specs.py:STYLE",
+      "website_aesthetic_source": "/Users/ysting/payne-zero-website/scripts/generate_physics_images.py",
+      "source_image_inputs": [],
+      "role": "original_textbook_conceptual_schematic",
+      "width_px": 1592,
+      "height_px": 988,
+      "bytes": 1127685,
+      "sha256": "2e374fa372ae663e10bd78847f6679b482f7e50e207ac5e06fd7fdb68db7ddc9",
+      "primary_chapter": 4,
+      "scientific_review": {
+        "status": "accepted",
+        "checks": [
+          "the 170-record atmosphere set is nested inside the 190-record synthesis set with 20 synthesis-only records",
+          "the catalog pair is matched by molecule code and semantics rather than row position",
+          "54 line-list species codes follow a separate code-derived mapping into selected normalized stage-index-5 cells",
+          "the fixed stage-5 sheet visibly spans depth by species, with discrete selected columns rather than a constant-depth or fully colored plane",
+          "the exact 51-inside and 3-tail split plus CO trace 276 to 608 to [depth,5,45] are shown",
+          "a separate protected card states that the actual ion-stage cube is unchanged"
+        ]
+      }
+    },
+    {
+      "path": "assets/schematics/textbook/ch05-cross-section-to-opacity-v2.png",
+      "prompt_id": "ch05-cross-section-to-opacity",
+      "prompt_source": "scripts/textbook_schematic_specs.py",
+      "generator": "openai-built-in-image-generation",
+      "style_rule_source": "scripts/textbook_schematic_specs.py:STYLE",
+      "website_aesthetic_source": "/Users/ysting/payne-zero-website/scripts/generate_physics_images.py",
+      "source_image_inputs": [
+        {
+          "role": "owned_prior_revision",
+          "sha256": "af155a0533817b48cc6539fc3980a85f029837c4097079a52131f6f892f78ac1"
+        }
+      ],
+      "role": "original_textbook_conceptual_schematic",
+      "width_px": 1693,
+      "height_px": 929,
+      "bytes": 1393449,
+      "sha256": "217814c9f9cbacd26bcb535989f674988d14aa3ba5709c63dd9d3a1994db3ec9",
+      "primary_chapter": 5,
+      "scientific_review": {
+        "status": "accepted_with_caption_guard",
+        "checks": [
+          "microscopic cross section is labelled in square centimetres",
+          "number density times cross section is labelled as an inverse length",
+          "thin-slice interaction probability is shown separately and is never divided by mass density",
+          "division by mass density yields the exact n sigma over rho relation",
+          "the final mass-opacity unit is square centimetres per gram"
+        ]
+      }
+    },
+    {
+      "path": "assets/schematics/textbook/ch05-absorption-vs-scattering-v3.png",
+      "prompt_id": "ch05-absorption-vs-scattering",
+      "prompt_source": "scripts/textbook_schematic_specs.py",
+      "generator": "openai-built-in-image-generation",
+      "style_rule_source": "scripts/textbook_schematic_specs.py:STYLE",
+      "website_aesthetic_source": "/Users/ysting/payne-zero-website/scripts/generate_physics_images.py",
+      "source_image_inputs": [
+        {
+          "role": "owned_prior_revision",
+          "sha256": "93c9fca63939dea38fed4641708c051d2b8b07d04b1cd379ec537a634a9e1d27"
+        }
+      ],
+      "role": "original_textbook_conceptual_schematic",
+      "width_px": 1692,
+      "height_px": 930,
+      "bytes": 1293396,
+      "sha256": "27bda4233b048f962d5631dd47beb828f3df24325e8480f53c1a03043a10737e",
+      "primary_chapter": 5,
+      "scientific_review": {
+        "status": "accepted",
+        "checks": [
+          "true absorption deposits energy and forks into sibling absorption-opacity and absorption-weighted-source records",
+          "coherent scattering visibly retains the photon wavelength",
+          "no arrow runs between the thermal source numerator and absorption opacity",
+          "scattering has no connection to the thermal source numerator",
+          "only absorption and scattering opacity arrows enter the circled plus node, with no enclosing brace"
+        ]
+      }
+    },
+    {
+      "path": "assets/schematics/textbook/ch05-prange-columns-v4.png",
+      "prompt_id": "ch05-prange-columns",
+      "prompt_source": "scripts/textbook_schematic_specs.py",
+      "generator": "openai-built-in-image-generation",
+      "style_rule_source": "scripts/textbook_schematic_specs.py:STYLE",
+      "website_aesthetic_source": "/Users/ysting/payne-zero-website/scripts/generate_physics_images.py",
+      "source_image_inputs": [
+        {
+          "role": "owned_prior_revision",
+          "sha256": "8e4423e0ffec4e1cf4a76971fa3bc9c535d6fd18839899ffa7c20d29ea57826f"
+        }
+      ],
+      "role": "original_textbook_conceptual_schematic",
+      "width_px": 1659,
+      "height_px": 948,
+      "bytes": 1240135,
+      "sha256": "ed463d518f6712742a128523e6d9377da91d2cfdca76fc41a51c206ddc5df6be",
+      "primary_chapter": 5,
+      "scientific_review": {
+        "status": "accepted",
+        "checks": [
+          "shared depth state and tables are read-only inputs to every worker",
+          "five frequency workers and five disjoint full-column brackets are shown",
+          "each worker arrow lands at the top of a matching complete vertical column and no connector traverses an individual depth row",
+          "component assembly is explicitly outside prange"
+        ]
+      }
+    },
+    {
+      "path": "assets/schematics/textbook/ch05-two-grids-edge-triplet-v4.png",
+      "prompt_id": "ch05-two-grids-edge-triplet",
+      "prompt_source": "scripts/textbook_schematic_specs.py",
+      "generator": "openai-built-in-image-generation",
+      "style_rule_source": "scripts/textbook_schematic_specs.py:STYLE",
+      "website_aesthetic_source": "/Users/ysting/payne-zero-website/scripts/generate_physics_images.py",
+      "source_image_inputs": [
+        {
+          "role": "owned_prior_revision",
+          "sha256": "6b0de31ee8b3a8281067f19d6f2da92bae0256801932cd8eed19938d8f0e26af"
+        }
+      ],
+      "role": "original_textbook_conceptual_schematic",
+      "width_px": 1536,
+      "height_px": 1024,
+      "bytes": 1709712,
+      "sha256": "16328a8ac3bd3869262c46adaadf49bf9a0585abf1fd889ac6c4741cbba5765f",
+      "primary_chapter": 5,
+      "scientific_review": {
+        "status": "accepted",
+        "checks": [
+          "atmosphere is shown as thirty thousand direct CPU float64 evaluations",
+          "the atmosphere ruler uses only qualitative shorter- and longer-wavelength labels with no invented numerical scale",
+          "the input card identifies separate consumer views and owned tables and calls the fork conceptual",
+          "synthesis evaluates only three samples in used edge intervals before interpolation",
+          "the interval callout labels the one-sided lambda_L plus epsilon, midpoint, and lambda_R minus epsilon samples",
+          "a second interval is visible redward of the exact lambda_R boundary",
+          "the assignment arrow points to the exact lambda_R boundary and maps it to [lambda_R, lambda_(R+1))"
+        ]
+      }
+    },
+    {
+      "path": "assets/schematics/textbook/ch06-smooth-background-narrow-line-v1.png",
+      "prompt_id": "ch06-smooth-background-narrow-line",
+      "prompt_source": "scripts/textbook_schematic_specs.py",
+      "generated_at": "2026-07-30",
+      "generation_date_basis": "local asset creation date in the active built-in image-generation session",
+      "text_binding_convention": "SHA-256 of UTF-8 FigureSpec field after strip(), with no trailing newline",
+      "accepted_prompt_sha256": "32e88db172afc392bbe66fab702ccf5c00215452f73ee14b06010638b10a1729",
+      "accepted_alt_text_sha256": "4195cf24fbc99578a9c1da69b4c73d6eddfc4d609792c86e021adfa68e7579b2",
+      "accepted_caption_sha256": "be24c0d494264268f1c4ee92f6f9c2d60b23153512f0830e830b779536f9d393",
+      "prompt_registry_sha256_at_review": "07eee64c4af9586cd596e11dd1866c4e2536a202832e70dcb02a7ccc4d975535",
+      "prompt_binding_role": "accepted canonical regeneration prompt reviewed against the final asset; not asserted as a verbatim generator-request transcript",
+      "generator": "openai-built-in-image-generation",
+      "style_rule_source": "scripts/textbook_schematic_specs.py:STYLE",
+      "website_aesthetic_source": "/Users/ysting/payne-zero-website/scripts/generate_physics_images.py",
+      "source_image_inputs": [
+        {
+          "role": "website_style_reference_only",
+          "sha256": "6c7061aef963b97adbe5795aecf8da1db5bca8f8ed3218049968b58c9a5793a2"
+        }
+      ],
+      "role": "original_textbook_conceptual_schematic",
+      "width_px": 1536,
+      "height_px": 1024,
+      "bytes": 1106031,
+      "sha256": "9239713ac35d3c32b86067c7a613e560959500c1f84e9f35901659d6be2b7382",
+      "primary_chapter": 6,
+      "scientific_review": {
+        "status": "accepted_with_caption_guard",
+        "checks": [
+          "continuum mass extinction and line mass absorption are separate labeled curves",
+          "one broad smooth background is contrasted with exactly one narrow localized line contribution",
+          "off-line and line-center wavelengths are marked without a numerical scale",
+          "the narrow contribution points causally to exactly two bound energy levels",
+          "the caption must state that both curves are conceptual opacities rather than observed or emergent flux"
+        ]
+      }
+    },
+    {
+      "path": "assets/schematics/textbook/ch06-two-levels-one-photon-v1.png",
+      "prompt_id": "ch06-two-levels-one-photon",
+      "prompt_source": "scripts/textbook_schematic_specs.py",
+      "generated_at": "2026-07-30",
+      "generation_date_basis": "local asset creation date in the active built-in image-generation session",
+      "text_binding_convention": "SHA-256 of UTF-8 FigureSpec field after strip(), with no trailing newline",
+      "accepted_prompt_sha256": "cbe115195cc88c9516c84e40f14ff9e1fe790df8446f0034b271cfdb6765842b",
+      "accepted_alt_text_sha256": "f782bd8cc03f7801d3a887e04887c0a4aa23436e6d7baa28a83e1396060b4d6d",
+      "accepted_caption_sha256": "8d8f3166b403be9953b141491ee267a75e619cfb36579947f5ebc6ba5949b8a8",
+      "prompt_registry_sha256_at_review": "07eee64c4af9586cd596e11dd1866c4e2536a202832e70dcb02a7ccc4d975535",
+      "prompt_binding_role": "accepted canonical regeneration prompt reviewed against the final asset; not asserted as a verbatim generator-request transcript",
+      "generator": "openai-built-in-image-generation",
+      "style_rule_source": "scripts/textbook_schematic_specs.py:STYLE",
+      "website_aesthetic_source": "/Users/ysting/payne-zero-website/scripts/generate_physics_images.py",
+      "source_image_inputs": [
+        {
+          "role": "website_style_reference_only",
+          "sha256": "6c7061aef963b97adbe5795aecf8da1db5bca8f8ed3218049968b58c9a5793a2"
+        }
+      ],
+      "role": "original_textbook_conceptual_schematic",
+      "width_px": 1774,
+      "height_px": 887,
+      "bytes": 1066672,
+      "sha256": "8c91501a6dad98564ae72fc44bd1840397223d7359184bc9af02cfebc6a82e09",
+      "primary_chapter": 6,
+      "scientific_review": {
+        "status": "accepted_with_caption_guard",
+        "checks": [
+          "exactly two bound energy levels are connected by one resonant photon",
+          "particles are shown on the lower level before absorption",
+          "the energy separation is connected to one narrow rest-wavelength marker",
+          "the caption declares that spacing, particle count, and marker width are conceptual"
+        ]
+      }
+    },
+    {
+      "path": "assets/schematics/textbook/ch06-core-wings-convolution-v1.png",
+      "prompt_id": "ch06-core-wings-convolution",
+      "prompt_source": "scripts/textbook_schematic_specs.py",
+      "generated_at": "2026-07-30",
+      "generation_date_basis": "local asset creation date in the active built-in image-generation session",
+      "text_binding_convention": "SHA-256 of UTF-8 FigureSpec field after strip(), with no trailing newline",
+      "accepted_prompt_sha256": "8462a44992c2e0a7e580aae33877e08c9ccad60d00828c62b5e80dcc70688433",
+      "accepted_alt_text_sha256": "8a572e68b0d2ff1a538ad2e62e8dea577c47b4fe05ddac084f294a4f1d5cf2af",
+      "accepted_caption_sha256": "586d53d05995dc2b9e24938a0d69fbdf23eeb122f0cdeafe335c754175beb90d",
+      "prompt_registry_sha256_at_review": "07eee64c4af9586cd596e11dd1866c4e2536a202832e70dcb02a7ccc4d975535",
+      "prompt_binding_role": "accepted canonical regeneration prompt reviewed against the final asset; not asserted as a verbatim generator-request transcript",
+      "generator": "openai-built-in-image-generation",
+      "style_rule_source": "scripts/textbook_schematic_specs.py:STYLE",
+      "website_aesthetic_source": "/Users/ysting/payne-zero-website/scripts/generate_physics_images.py",
+      "source_image_inputs": [
+        {
+          "role": "website_style_reference_only",
+          "sha256": "6c7061aef963b97adbe5795aecf8da1db5bca8f8ed3218049968b58c9a5793a2"
+        }
+      ],
+      "role": "original_textbook_conceptual_schematic",
+      "width_px": 1619,
+      "height_px": 971,
+      "bytes": 988019,
+      "sha256": "86ce5dec27b1de45e47e8484c5c4a11ea212a50a79739a26097ee6e6637f1ec4",
+      "primary_chapter": 6,
+      "scientific_review": {
+        "status": "accepted_with_caption_guard",
+        "checks": [
+          "thermal and microturbulent velocities feed only the Gaussian branch",
+          "radiative, electron, and neutral perturbers feed only the damping branch",
+          "the two independent branches meet at one convolution mark",
+          "the output labels a core and two wings",
+          "equal area is explicitly restricted to ideal continuous profiles by the caption"
+        ]
+      }
+    },
+    {
+      "path": "assets/schematics/textbook/ch06-one-record-many-depths-v2.png",
+      "prompt_id": "ch06-one-record-many-depths",
+      "prompt_source": "scripts/textbook_schematic_specs.py",
+      "generated_at": "2026-07-30",
+      "generation_date_basis": "local asset creation date in the active built-in image-generation session",
+      "text_binding_convention": "SHA-256 of UTF-8 FigureSpec field after strip(), with no trailing newline",
+      "accepted_prompt_sha256": "64cfd8c938ab32cc2f7b0841e5ee2c2da9a3854939ca33ec4497064fe6c629c4",
+      "accepted_alt_text_sha256": "5012fc1de3f9ec3169f5fa49a4b2f34ae2a1fbe1931227a9df2a21c1853fa653",
+      "accepted_caption_sha256": "2958a759f6ac28627a2f6f53b4d3b8e678a449eccc0a731bbffbbde6d2b2d92d",
+      "prompt_registry_sha256_at_review": "07eee64c4af9586cd596e11dd1866c4e2536a202832e70dcb02a7ccc4d975535",
+      "prompt_binding_role": "accepted canonical edit prompt reviewed against the final asset and its owned prior revision",
+      "generator": "openai-built-in-image-generation",
+      "style_rule_source": "scripts/textbook_schematic_specs.py:STYLE",
+      "website_aesthetic_source": "/Users/ysting/payne-zero-website/scripts/generate_physics_images.py",
+      "source_image_inputs": [
+        {
+          "role": "owned_prior_revision",
+          "sha256": "f68927c95ef0990e7a1a7817de0d012b3c5a8a9e276046c4db212b695752978e"
+        }
+      ],
+      "role": "original_textbook_conceptual_schematic",
+      "width_px": 1684,
+      "height_px": 934,
+      "bytes": 1280525,
+      "sha256": "aae76239340b257f508e5f9b61e778c8cd29ef640825f70d9e767ffd75368e62",
+      "primary_chapter": 6,
+      "scientific_review": {
+        "status": "accepted_with_caption_guard",
+        "independent_audit": "design/chapter06_schematics_independent_audit.md",
+        "independent_audit_sha256": "006144c31e849e04be599744dc272719463dc40a75d714913cc6a3274c3e62e6",
+        "checks": [
+          "one immutable line record fans to every atmospheric layer",
+          "the record card distinguishes stored tilde E_l in cm^-1 from conceptual energy E_l",
+          "outer-to-inner ordering is explicit across exactly six conceptual layers",
+          "each layer carries local temperature, density, electron, perturber, population, and width tokens",
+          "all profile rows share one center guide while height, core width, and wing extent change",
+          "the right-hand product is labelled as depth by wavelength line opacity",
+          "the caption declares all row shapes and colors conceptual rather than parity data"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+"""Canonical textbook construction package."""

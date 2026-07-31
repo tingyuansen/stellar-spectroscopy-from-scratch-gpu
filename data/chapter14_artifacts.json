@@ -1,0 +1,414 @@
+{
+  "artifacts": {
+    "data/fixtures/chapter14_initializer_inputs.npz": {
+      "arrays": {
+        "centidex_half_step_probe": {
+          "dtype": "float64",
+          "sha256": "b711a6da196a55b6b4456bb402786149d8d1027c40a62b447943735f0c2cf508",
+          "shape": [
+            6
+          ],
+          "unit": "dex"
+        },
+        "cno8_label_values": {
+          "dtype": "float64",
+          "sha256": "39695098fd1314db9c986776bd9b9a39c729cead093872ac06f1f361198b21d4",
+          "shape": [
+            8
+          ],
+          "unit": "ordered public physical labels"
+        },
+        "direct_public_atomic_numbers": {
+          "dtype": "int16",
+          "sha256": "b13ed8bcf3b20ffa2f97cefb6d6ab7a9cad9486d8db6b2210bf890dd91aa5cf3",
+          "shape": [
+            81
+          ],
+          "unit": "atomic number"
+        },
+        "direct_public_xh": {
+          "dtype": "float64",
+          "sha256": "3a3fa86efb5bc0d39f16e7a6e367a26d345766260bce0585db2718b52ac4d357",
+          "shape": [
+            81
+          ],
+          "unit": "dex [X/H]"
+        },
+        "five_label_values": {
+          "dtype": "float64",
+          "sha256": "051229593a21aa387c9a3aaba41125d1a16c26e2ea79ddef966716748c71c9ad",
+          "shape": [
+            5
+          ],
+          "unit": "ordered public physical labels"
+        },
+        "pca_sentinel_indices": {
+          "dtype": "int16",
+          "sha256": "446e8bb7a40f99773349a36e77c5bf23be8dcb81a7e73b60a5d215377c211fe0",
+          "shape": [
+            3
+          ],
+          "unit": "component, layer, field index"
+        }
+      },
+      "builder": "scripts/build_chapter14_artifacts.py",
+      "bytes": 2506,
+      "format": "npz",
+      "role": "fixture",
+      "sha256": "0964df01d4adc144bc748aef953133fb0ebe3400b95764d16548d7ea333f3255"
+    },
+    "data/golden/payne_zero/chapter14/chapter14_initializer_outputs.npz": {
+      "arrays": {
+        "cno_decoded_column_mass": {
+          "dtype": "float64",
+          "sha256": "ba922f1473c430d54c166dd71c38dd7c2e008b4151a8b77ef14b4824cc092147",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "cno_decoded_electron_density": {
+          "dtype": "float64",
+          "sha256": "f7cc97f8e0668e26898e9f4e2d4de3024c415a2e0edf93fc3b17aa15c9e77b0e",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "cno_decoded_gas_pressure": {
+          "dtype": "float64",
+          "sha256": "b4f4ecd0f8fd2b1ed96b63675a40c87610392f3bd7a5618fbba4e62214621902",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "cno_decoded_radiative_acceleration": {
+          "dtype": "float64",
+          "sha256": "b1a62b6986e6c4ab2eee78eb4ac45c786e0756440dea3d29293b3659f6f09954",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "cno_decoded_rosseland_opacity": {
+          "dtype": "float64",
+          "sha256": "feb4b3563b78f02e20285540751146e0da3b60b444567e74f9a1c2b4fb9b0b6f",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "cno_decoded_temperature": {
+          "dtype": "float64",
+          "sha256": "77a0410b3f14147040608e531208531601c2c51bc89a6bf64a1a7fb85b7391ce",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "cno_quantized_column_mass": {
+          "dtype": "float64",
+          "sha256": "5eaf0ad11d6eb2f72883866343aea268515f22cfcf8ef1c9c89be9f6ed22e241",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "cno_quantized_electron_density": {
+          "dtype": "float64",
+          "sha256": "75d781ef3215c8e38d3ba8b19a52bd8617d5097e2ef424fa9a3817ba7b709d72",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "cno_quantized_gas_pressure": {
+          "dtype": "float64",
+          "sha256": "3155bcd135c4be786b2035e09861c1fc35f487b5ba92d91e21c169a1a99ec401",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "cno_quantized_radiative_acceleration": {
+          "dtype": "float64",
+          "sha256": "2600c0e4e20af35dcd9f6276cbbbb1d030f6baacc23398dd27dc0f646ed22946",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "cno_quantized_rosseland_opacity": {
+          "dtype": "float64",
+          "sha256": "c838e1971df988c486e553c052dcc4e9e440bfef3b32419d86ad1d024f8c1569",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "cno_quantized_temperature": {
+          "dtype": "float64",
+          "sha256": "f51f80e4cdb590e7b72fd3c0af8cbe163578a92e6215230e5af1247c1f16ab24",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "cno_standardized_coefficients": {
+          "dtype": "float32",
+          "sha256": "168e5d6b548577f440613bd8cd0f4786ebc67155598e0e8dc89a86268ba1381e",
+          "shape": [
+            160
+          ],
+          "unit": "standardized PCA coefficient"
+        },
+        "direct_decoded_column_mass": {
+          "dtype": "float64",
+          "sha256": "de27e32e788b2fedcbda2f8388e3a2021adf3af207504fd4c7eba07ef8670ea9",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "direct_decoded_electron_density": {
+          "dtype": "float64",
+          "sha256": "e602050a7bba2ede302cedde9f4dbf43a82cb3c24923308ff759dfa77b5c7e9e",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "direct_decoded_gas_pressure": {
+          "dtype": "float64",
+          "sha256": "d9900a93388b9eba51041dffa5b818403654c6349b81933e9fe99e3844734edd",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "direct_decoded_radiative_acceleration": {
+          "dtype": "float64",
+          "sha256": "ce4b9e8bfc1a130ed8a4e5645fe1f7f1ce123e80d9c57099283d09eee4627709",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "direct_decoded_rosseland_opacity": {
+          "dtype": "float64",
+          "sha256": "7759e599f6dcdf26d54c896e50383b2182dd5388d3c0ba11ede8aea8c581e758",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "direct_decoded_temperature": {
+          "dtype": "float64",
+          "sha256": "f3ced53fff587f2cef786cc88597c3ac514e283f5561108ff11dbafcc1377530",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "direct_exact_mixture": {
+          "dtype": "float64",
+          "sha256": "9203ddfe6415e82e4bc551f31f7f23dd75c1c05756d3452d793107f7759b615f",
+          "shape": [
+            97
+          ],
+          "unit": "dex [X/H]"
+        },
+        "direct_feature_vector": {
+          "dtype": "float64",
+          "sha256": "0fd4d52177e28bb3f60652992cc1fcd2f87a3d6feaa9668e659f5292e74f019f",
+          "shape": [
+            84
+          ],
+          "unit": "dex or dimensionless network feature"
+        },
+        "direct_quantized_column_mass": {
+          "dtype": "float64",
+          "sha256": "9bbcb231dcc6b3c7d7a497381da188a7e7ced6a4b5778b762c4a84ae97541d0e",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "direct_quantized_electron_density": {
+          "dtype": "float64",
+          "sha256": "c358d5cec96a0160a8448bf477cb848eeb6fb476d99f7c3a62cea57964ef9e51",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "direct_quantized_gas_pressure": {
+          "dtype": "float64",
+          "sha256": "802a9fcdf4936c8a5f6314ccdcbbb5494cce064178eae386426c938e1b356d37",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "direct_quantized_radiative_acceleration": {
+          "dtype": "float64",
+          "sha256": "3f080fb2a69a3e0fb729f786a3075aa790aea3ab58449df3d46468677dd71789",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "direct_quantized_rosseland_opacity": {
+          "dtype": "float64",
+          "sha256": "4aeaa0da2234391b7d52aa13d409ea6902f3fd760cf88b14039c7b389a313f8b",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "direct_quantized_temperature": {
+          "dtype": "float64",
+          "sha256": "b8be6e3fd2ce0c78f77ff83a89a4fcdf015d0df67b7187c0bca718e59c07834e",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "direct_standardized_coefficients": {
+          "dtype": "float32",
+          "sha256": "ba73b2c86ccab50bd6b09e93dba5bc94b718d35a9a9a7bdf3e5070955935cce1",
+          "shape": [
+            160
+          ],
+          "unit": "standardized PCA coefficient"
+        },
+        "five_decoded_column_mass": {
+          "dtype": "float64",
+          "sha256": "aed9406239455810ac374273ad39cb0ba8bda97621661bf59e391e61ec07c2f2",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "five_decoded_electron_density": {
+          "dtype": "float64",
+          "sha256": "ce8da3c411629409dbba6127f4b7d6543d9a17d890481ed57130130dc91e5439",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "five_decoded_gas_pressure": {
+          "dtype": "float64",
+          "sha256": "9cda7c700f29df05b78cd4e4b167dceb43fc12ab0216e9dbc386523245f8fa25",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "five_decoded_radiative_acceleration": {
+          "dtype": "float64",
+          "sha256": "f36f1da6bd80da8149c63a43e39e97bf956cc46bfa25ff560d59f9ab0989c80f",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "five_decoded_rosseland_opacity": {
+          "dtype": "float64",
+          "sha256": "c9d94b46556daed84678b0c2bba67e84bb6376a65089e1f2a076464d0a92e869",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "five_decoded_temperature": {
+          "dtype": "float64",
+          "sha256": "378ff576be54f0f6e919d3d109e3fa67b789c95f5b678ebd607206d14f9cd15c",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "five_quantized_column_mass": {
+          "dtype": "float64",
+          "sha256": "7fe7b1ea91f9e1575ae2205425403fd8ca5e1b0cd69cfe5d5f79456dd93df2e7",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "five_quantized_electron_density": {
+          "dtype": "float64",
+          "sha256": "f77c166a50617cf8291119ca0f07dee1c33ffde6545465105b463b7356ba8918",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "five_quantized_gas_pressure": {
+          "dtype": "float64",
+          "sha256": "bed489c5b5988fe5d045525941cf111242d6b5a0011063b0babfadb6638769bd",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "five_quantized_radiative_acceleration": {
+          "dtype": "float64",
+          "sha256": "23438f6f34e87da52e0daea6999fb5c5d1be7631945e0cfec4b4b9170dcdb504",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "five_quantized_rosseland_opacity": {
+          "dtype": "float64",
+          "sha256": "634864b8139ea917c1190fc943bf736489a2617d221538d67332db96e37adc35",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "five_quantized_temperature": {
+          "dtype": "float64",
+          "sha256": "6dc0c8be8c88fdad610f454783e5cb47faf16769a95b6536d3b545a7ad027fb7",
+          "shape": [
+            80
+          ],
+          "unit": "profile field in source-declared cgs units"
+        },
+        "five_standardized_coefficients": {
+          "dtype": "float32",
+          "sha256": "877bc57fa6ead41429eb84ae926ec0789e68a1343d8a03837e7f0f805534e933",
+          "shape": [
+            160
+          ],
+          "unit": "standardized PCA coefficient"
+        }
+      },
+      "builder": "scripts/build_chapter14_artifacts.py",
+      "bytes": 37486,
+      "fixture_sha256": "0964df01d4adc144bc748aef953133fb0ebe3400b95764d16548d7ea333f3255",
+      "format": "npz",
+      "role": "golden",
+      "sha256": "2b3ccd5e95d6b2c96a38d062c45f997de028304f4905d39a7ca5593bb23cea92"
+    }
+  },
+  "exact_restart_status": "ready",
+  "payne_zero_commit": "9c44001feae40b85146630499e6f8a5fed42e5af",
+  "schema_version": 1,
+  "scope": "Chapter 14 inference, decoder, quantized-seed, and direct-layout parity; training corpora excluded",
+  "source_sha256": {
+    "src/payne_zero_atmosphere/direct_abundance.py": "ec65683eb344c4c3fd77340c084e780f58c6401e77c9f0d6db05ef6753131445",
+    "src/payne_zero_atmosphere/warm_start.py": "3a83af3d68be52a35bfc3f55f5912770661be8251cc28f28da3250b2e83e0ad3"
+  },
+  "static_asset_sha256": {
+    "data/static/atmosphere_emulator/cno8/checkpoint.pt": "be97c0b729490b9e18f092c59f836adb421e2e99359b44436edc3ae5632f8a02",
+    "data/static/atmosphere_emulator/direct_abundance/checkpoint.pt": "1b8e1db1514956dfbf890eb5ae96e01bd918acfc86be538b6b77230332104243",
+    "data/static/atmosphere_emulator/direct_abundance/manifest.json": "fb59da5e6bd3f8fcba06e0c4c284137e90aab5c4e93165daa74d8ce2ae268710",
+    "data/static/atmosphere_emulator/five_label/checkpoint.pt": "c32717016d4f9047ab37bc17b6900faf9c514de3407292a07a745c35a50784e5",
+    "data/static/atmosphere_emulator/release_manifest.json": "fe8093a6c0260f2524efd35a974790797e2cc8f921e9dd109477f03d845a789c"
+  }
+}

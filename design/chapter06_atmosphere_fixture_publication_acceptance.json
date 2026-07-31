@@ -1,0 +1,332 @@
+{
+  "schema_version": 1,
+  "record_kind": "chapter06_atmosphere_fixture_publication_acceptance",
+  "lane": "atmosphere_fixture",
+  "manifest_role": "fixture",
+  "payne_zero_commit": "9c44001feae40b85146630499e6f8a5fed42e5af",
+  "writer": {
+    "path": "scripts/chapter06_atmosphere_fixture_writer.py",
+    "sha256": "0c6a3300c6ce98e5d8b9a31fec1dec6783e9928f7f8df1ecccec33d9feda2538"
+  },
+  "writer_tests": {
+    "path": "tests/test_chapter06_atmosphere_fixture_writer.py",
+    "sha256": "c741d06abaae2e09c9fa0736d6abd26f609e01e9414cae131309bbc202e27a4a"
+  },
+  "writer_candidate": {
+    "path": "design/chapter06_atmosphere_fixture_writer_candidate.md",
+    "sha256": "e6d9bc2120eee12d5776e48953a64da68e8aa0e8812d6ce5e0b43c792f2571ee"
+  },
+  "writer_acceptance": {
+    "path": "design/chapter06_atmosphere_fixture_writer_independent_audit.md",
+    "sha256": "b946dcef0beeacf49a3da9ac036e21af7cd7b44d15092639cd3be744fb42f0f9"
+  },
+  "candidate_byte_acceptance": {
+    "path": "design/chapter06_atmosphere_fixture_byte_acceptance.md",
+    "sha256": "8298b9473cf89161441bbd72a881c744e38fba699aa088eb876014642c91ed71"
+  },
+  "publisher": {
+    "path": "scripts/build_chapter06_atmosphere_fixture.py",
+    "sha256": "5de0169339b8130d45c8e610684de67c2d6f3c6c62c5298610d0f705ebe0b363"
+  },
+  "publisher_tests": {
+    "path": "tests/test_chapter06_atmosphere_fixture_publisher.py",
+    "sha256": "00c09576b00420bfaa72f058a1b70fab1dedb4e85e04326ca83c7bac0b6ca876"
+  },
+  "publisher_contract": {
+    "path": "design/chapter06_lane_artifact_publisher_contract.md",
+    "sha256": "3a064f8291a9b7436ed4bc585b36f3459c3b46b4c9c48bed0d0852c83cf3d65b"
+  },
+  "publisher_contract_audit": {
+    "path": "design/chapter06_lane_artifact_publisher_contract_rebind_independent_audit.md",
+    "sha256": "fe48eb57f1f665a3f41756344c631a365a0b9260905918e80a1c2e58f8e335cc"
+  },
+  "publisher_acceptance": {
+    "path": "design/chapter06_atmosphere_fixture_publisher_independent_audit.md",
+    "sha256": "516109c364f6cdd8f74240c3f34ccbad34655690c60d2b1fc7e58917959b154c"
+  },
+  "artifact": {
+    "path": "data/fixtures/chapter06_atmosphere_one_line_inputs.npz",
+    "filename": "chapter06_atmosphere_one_line_inputs.npz",
+    "bytes": 363050,
+    "sha256": "1b72767192672ac102a1b8e4b89b4d1d316a3da747d5197a9b99eaff38c86bff",
+    "member_count": 19,
+    "archive_kind": "atmosphere_one_line_input_fixture",
+    "fixture_capture_schema_version": 1,
+    "archive_contains_embedded_schema_version": false,
+    "npy_member_format_version": "2.0",
+    "scientific_fixture_schema_digest": "f63ed611f144e6ca7aa2ad2663e15eb758fc540851fa4fc78b6ef819d7372698",
+    "scientific_payload_fingerprint": "f30bc9f15ed483aa864a92399fb13b53f655e8add55397c6fec6465377644663"
+  },
+  "manifest": {
+    "path": "data/MANIFEST.json",
+    "prepublication_sha256": "d8f30e25a415bd7b84fc486ffa878d56cbfb1af79ca3992bb8d3ec4976630a7a",
+    "schema_version": 1,
+    "payne_zero_commit": "9c44001feae40b85146630499e6f8a5fed42e5af",
+    "ordered_entry_path_sha256": "d63aa6dfd9209f21172c6ccf721cffc895835b8ee15a4ed160c5bebe0851b1aa",
+    "destination_entry_absent": true
+  },
+  "manifest_entry_template": {
+    "path": "data/fixtures/chapter06_atmosphere_one_line_inputs.npz",
+    "role": "fixture",
+    "source": "/Users/ysting/payne-zero",
+    "source_commit": "9c44001feae40b85146630499e6f8a5fed42e5af",
+    "scope": "Input-only 80-depth fixture for building the selected-line atmosphere kernel from scratch; contains no line-opacity output.",
+    "builder": "scripts/build_chapter06_atmosphere_fixture.py",
+    "publisher_sha256": "5de0169339b8130d45c8e610684de67c2d6f3c6c62c5298610d0f705ebe0b363",
+    "publisher_test_sha256": "00c09576b00420bfaa72f058a1b70fab1dedb4e85e04326ca83c7bac0b6ca876",
+    "writer_sha256": "0c6a3300c6ce98e5d8b9a31fec1dec6783e9928f7f8df1ecccec33d9feda2538",
+    "writer_test_sha256": "c741d06abaae2e09c9fa0736d6abd26f609e01e9414cae131309bbc202e27a4a",
+    "writer_candidate_sha256": "e6d9bc2120eee12d5776e48953a64da68e8aa0e8812d6ce5e0b43c792f2571ee",
+    "writer_acceptance_sha256": "b946dcef0beeacf49a3da9ac036e21af7cd7b44d15092639cd3be744fb42f0f9",
+    "publisher_contract_sha256": "3a064f8291a9b7436ed4bc585b36f3459c3b46b4c9c48bed0d0852c83cf3d65b",
+    "publisher_contract_audit_sha256": "fe48eb57f1f665a3f41756344c631a365a0b9260905918e80a1c2e58f8e335cc",
+    "candidate_byte_acceptance_sha256": "8298b9473cf89161441bbd72a881c744e38fba699aa088eb876014642c91ed71",
+    "publisher_acceptance_sha256": "516109c364f6cdd8f74240c3f34ccbad34655690c60d2b1fc7e58917959b154c",
+    "publication_acceptance_path": "design/chapter06_atmosphere_fixture_publication_acceptance.json",
+    "publication_acceptance_sha256": "__LATE_BOUND_AUTHORIZATION_SHA256__",
+    "publication_record_review_path": "design/chapter06_atmosphere_fixture_publication_record_review.json",
+    "publication_record_review_sha256": "__LATE_BOUND_RECORD_REVIEW_SHA256__",
+    "archive_kind": "atmosphere_one_line_input_fixture",
+    "fixture_capture_schema_version": 1,
+    "archive_contains_embedded_schema_version": false,
+    "npy_member_format_version": "2.0",
+    "member_count": 19,
+    "scientific_fixture_schema_digest": "f63ed611f144e6ca7aa2ad2663e15eb758fc540851fa4fc78b6ef819d7372698",
+    "scientific_payload_fingerprint": "f30bc9f15ed483aa864a92399fb13b53f655e8add55397c6fec6465377644663",
+    "capture_policy": "two unrelated top-level builds; each owns two fresh children and two distinct external caches with 1 directory + 18 .nbi + 18 .nbc",
+    "format": "npz",
+    "arrays": {
+      "actual_population_slot_indices": {
+        "shape": [
+          3
+        ],
+        "dtype": "int16",
+        "unit": "zero-based packed population slot",
+        "sha256": "eff6cc5c731be5128ac078be458469978b6ac7c823665abd47098485291a5af2",
+        "axes": [
+          "population_projection"
+        ],
+        "ownership": "atmosphere fixture owns this input member"
+      },
+      "actual_population_slot_values": {
+        "shape": [
+          80,
+          3
+        ],
+        "dtype": "float64",
+        "unit": "cm^-3 per partition function",
+        "sha256": "ae17c6b96dc9eb824051707d83eca2bbdb22483af4c143b18d832326292e86ce",
+        "axes": [
+          "depth",
+          "population_projection"
+        ],
+        "ownership": "atmosphere fixture owns this input member"
+      },
+      "continuum_line_selection_threshold": {
+        "shape": [
+          80,
+          344
+        ],
+        "dtype": "float32",
+        "unit": "cm^2 g^-1",
+        "sha256": "76cb7ef18554149b61b97e32f2a69bbcdba3eb8b7e6b7da8ba3c69b8775b7293",
+        "axes": [
+          "depth",
+          "wavelength_bin"
+        ],
+        "ownership": "atmosphere fixture owns this input member"
+      },
+      "effective_temperature": {
+        "shape": [],
+        "dtype": "float64",
+        "unit": "K",
+        "sha256": "0ae804feb5a3896c0d30fd25ee9853a10ee08fed330969967ce16a4d07a7329b",
+        "axes": [],
+        "ownership": "atmosphere fixture owns this input member"
+      },
+      "electron_density": {
+        "shape": [
+          80
+        ],
+        "dtype": "float64",
+        "unit": "cm^-3",
+        "sha256": "1e36bdf5aac263da2eac448f1b4c91e43e48a48afc133c8a8ec5e15735c85c18",
+        "axes": [
+          "depth"
+        ],
+        "ownership": "atmosphere fixture owns this input member"
+      },
+      "fractional_doppler_widths_at_line_slot": {
+        "shape": [
+          80
+        ],
+        "dtype": "float64",
+        "unit": "dimensionless Delta-lambda/lambda",
+        "sha256": "f8018929e269db3e6b9a572d36b528bc0577a3a93bcc25166b277824ffb2e785",
+        "axes": [
+          "depth"
+        ],
+        "ownership": "atmosphere fixture owns this input member"
+      },
+      "hc_over_kt": {
+        "shape": [
+          80
+        ],
+        "dtype": "float64",
+        "unit": "cm",
+        "sha256": "fdbd300b88163af886fe2905a883fa319c32abcc89db1099e4b0df7965d8174e",
+        "axes": [
+          "depth"
+        ],
+        "ownership": "atmosphere fixture owns this input member"
+      },
+      "line_population_slot_zero_based": {
+        "shape": [],
+        "dtype": "int16",
+        "unit": "zero-based packed population slot",
+        "sha256": "8d6dd9f330421e48e73e97c0819d55a9965bac90b1f2f36057b4c906d5791f05",
+        "axes": [],
+        "ownership": "atmosphere fixture owns this input member"
+      },
+      "log_strength_index": {
+        "shape": [
+          1
+        ],
+        "dtype": "int16",
+        "unit": "packed line-table integer",
+        "sha256": "3fe821d54660a0c51b42d19a42571e208791b3c5ff6bc0cac16b6553a226515a",
+        "axes": [
+          "selected_line"
+        ],
+        "ownership": "atmosphere fixture owns this input member"
+      },
+      "lower_excitation_index": {
+        "shape": [
+          1
+        ],
+        "dtype": "int16",
+        "unit": "packed line-table integer",
+        "sha256": "9b5bf0b74e2e212b57bcb2b9f2712eaab4c6169595f4e82767793f4534365648",
+        "axes": [
+          "selected_line"
+        ],
+        "ownership": "atmosphere fixture owns this input member"
+      },
+      "opacity_wavelength_grid_nm": {
+        "shape": [
+          30000
+        ],
+        "dtype": "float64",
+        "unit": "nm",
+        "sha256": "8944f1dd701ba27f50d37a16e48ab9375e1bef1b444ed405b671ba91fde8132b",
+        "axes": [
+          "opacity_wavelength"
+        ],
+        "ownership": "atmosphere fixture owns this input member"
+      },
+      "packed_species_slot": {
+        "shape": [
+          1
+        ],
+        "dtype": "int16",
+        "unit": "zero-based packed species slot",
+        "sha256": "c2126161f7488b7d198ea310da9a8694786a18a2317eea5e30379ee118d34743",
+        "axes": [
+          "selected_line"
+        ],
+        "ownership": "atmosphere fixture owns this input member"
+      },
+      "packed_wavelength_index": {
+        "shape": [
+          1
+        ],
+        "dtype": "int32",
+        "unit": "packed logarithmic wavelength integer",
+        "sha256": "c423f4ac4a3825c6fad5336a1e15c0038ab17087f930916ad550ad45b4990dfc",
+        "axes": [
+          "selected_line"
+        ],
+        "ownership": "atmosphere fixture owns this input member"
+      },
+      "partition_normalized_population_over_mass_density_and_fractional_doppler_width_at_line_slot": {
+        "shape": [
+          80
+        ],
+        "dtype": "float64",
+        "unit": "g^-1",
+        "sha256": "8625e8d942892d142384d51fc0625701374f79dfa471a78ff593d88479b3056f",
+        "axes": [
+          "depth"
+        ],
+        "ownership": "atmosphere fixture owns this input member"
+      },
+      "radiative_damping_index": {
+        "shape": [
+          1
+        ],
+        "dtype": "int16",
+        "unit": "packed line-table integer",
+        "sha256": "5cdf3b75730a5b45c3f24da2c1030103143981191d2844aa7374e948b9abaeea",
+        "axes": [
+          "selected_line"
+        ],
+        "ownership": "atmosphere fixture owns this input member"
+      },
+      "stark_damping_index": {
+        "shape": [
+          1
+        ],
+        "dtype": "int16",
+        "unit": "packed line-table integer",
+        "sha256": "91d82e7b89ae43b29bb673bb416697d005e093d0011c9d7af501630c6a502141",
+        "axes": [
+          "selected_line"
+        ],
+        "ownership": "atmosphere fixture owns this input member"
+      },
+      "temperature": {
+        "shape": [
+          80
+        ],
+        "dtype": "float64",
+        "unit": "K",
+        "sha256": "7b76410e731a6772cb6de12f923aea8a26e345778dbab67db3e8938278ce270f",
+        "axes": [
+          "depth"
+        ],
+        "ownership": "atmosphere fixture owns this input member"
+      },
+      "van_der_waals_damping_index": {
+        "shape": [
+          1
+        ],
+        "dtype": "int16",
+        "unit": "packed line-table integer",
+        "sha256": "c0346f09a0362e8e9d29c01a9fc7c292a7395b524a90319bb921608b9fdb1b60",
+        "axes": [
+          "selected_line"
+        ],
+        "ownership": "atmosphere fixture owns this input member"
+      },
+      "wavelength_bin_edges": {
+        "shape": [
+          344
+        ],
+        "dtype": "int64",
+        "unit": "zero-based opacity-wavelength boundary index",
+        "sha256": "ae50e9c0bafdcbfc39e242fd5029bf53b9e712d43008c6cb78a4493b89272cd5",
+        "axes": [
+          "wavelength_bin_edge"
+        ],
+        "ownership": "atmosphere fixture owns this input member"
+      }
+    },
+    "sha256": "1b72767192672ac102a1b8e4b89b4d1d316a3da747d5197a9b99eaff38c86bff",
+    "bytes": 363050
+  },
+  "manifest_entry_template_sha256": "9bbf7ac236d17331543addc489aee421dbe8c4731f5a87009bf4e083f8e78c08",
+  "source_snapshot_sha256": "d1ae2f87d2bb4156c006fc72c963bf806f2253d630e8735ef5ab0f557cfc9101",
+  "data_snapshot_sha256": "5be325c0200cf711ce13daa3dc96a47bdd8780c8de1640efe23827196de5b84a",
+  "destination_parent_policy": "existing data/fixtures directory only; publisher creates no directory",
+  "no_replace_primitive": "same-filesystem hard-link from create-exclusive stage"
+}

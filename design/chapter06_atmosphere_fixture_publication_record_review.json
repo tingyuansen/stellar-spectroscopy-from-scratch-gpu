@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "record_kind": "chapter06_atmosphere_fixture_publication_record_review",
+  "authorization_path": "design/chapter06_atmosphere_fixture_publication_acceptance.json",
+  "authorization_sha256": "a756fe395bbe9d598fcc4748e7b604920e615a4de9a2c2dabca5942e8a50b9eb",
+  "candidate_byte_acceptance_path": "design/chapter06_atmosphere_fixture_byte_acceptance.md",
+  "candidate_byte_acceptance_sha256": "8298b9473cf89161441bbd72a881c744e38fba699aa088eb876014642c91ed71",
+  "publisher_acceptance_path": "design/chapter06_atmosphere_fixture_publisher_independent_audit.md",
+  "publisher_acceptance_sha256": "516109c364f6cdd8f74240c3f34ccbad34655690c60d2b1fc7e58917959b154c",
+  "manifest_entry_template_sha256": "9bbf7ac236d17331543addc489aee421dbe8c4731f5a87009bf4e083f8e78c08",
+  "disposition": "ACCEPT"
+}

@@ -1,221 +1,519 @@
-# GPU textbook passdown
+# Payne Zero Textbook — Live Passdown
 
-Read this before touching the GPU textbook. This repo is the standalone torch/MPS textbook for
-the `kgpu` implementation in `~/pykurucz_gpu`: a reader should be able to reconstruct the
-production kernels from the lectures without importing `kgpu`, `pykurucz`, or the original NumPy
-book at runtime.
+**If you are a new agent, read this file first, then `BIBLE.md` (quality
+standard), `PLAN.md` (architecture and backlog), `COVERAGE.md` (scientific
+ledger), and `design/global_chapter_contracts.md` (chapter boundaries and
+notation).** Those five documents plus `design/pedagogical_flow_rubric.md` are
+sufficient to continue without any prior conversation.
 
-The hard quality order is:
+## Document ownership
 
-1. honest self-contained taught paths;
-2. parity with shipped reference targets to the documented float floor;
-3. faithful coverage of the production `kgpu` pieces;
-4. optimization only after the first three stay green.
+| File | Owns |
+|---|---|
+| `README.md` | Public entry: what the book is, how to build and read it |
+| `BIBLE.md` | Quality and pedagogical standard — the bar prose must clear |
+| `PLAN.md` | 15-chapter architecture, the six whole-book passes, backlog |
+| `COVERAGE.md` | Scientific completeness ledger against Payne Zero |
+| `PASSDOWN.md` | **This file** — live state and the next concrete actions |
 
-Reference files are allowed, but they must be classified honestly. A checked-in file can be a
-physical/static input, a scoped fixture used to keep an integration lesson honest, or a comparison
-target. It must not masquerade as a value computed by the notebook.
+Do not duplicate live state into `PLAN.md`; it belongs here.
 
-## Repository relationship
+## What this book is
 
-- `~/pykurucz` is read-only gold/reference code. Do not import it in taught lecture paths.
-- `~/Stellar_Spectroscopy_From_Scratch` is the read-only NumPy reference textbook and parity oracle,
-  not a dependency or framing device for this book.
-- `~/pykurucz_gpu` is the production torch/MPS product. It is useful for implementation clues, but
-  the textbook must remain independently readable and debuggable.
-- This repo is the GPU textbook. Lecture code should be torch-native where practical, pedagogical,
-  and explicit about precision floors, fixture boundaries, and parity checks.
+A from-scratch stellar spectroscopy textbook for a final-year undergraduate or
+first-year graduate student, anchored on the working Payne Zero implementation.
+Scope is **atmosphere + synthesis + the atmosphere emulator. Fitting is out of
+scope.** The reader must be able to rebuild Payne Zero's atmosphere and
+synthesis pathways from the book's own code and data, ending with output
+identical to Payne Zero.
 
-## Current state
+Non-negotiable style rules live in `BIBLE.md`. The short form: explain all the
+physics, assume only basic maths and physics, bite-size code cells, no large
+code blocks inside Markdown, no source-file tours, professional one-panel plots,
+schematics in the payne-zero-website aesthetic, every chapter closes with a
+summary and a next-chapter link, no exercises, self-contained rather than
+constantly deferring to Payne Zero, and Payne Zero's own notation throughout.
 
-Lectures 1-16 build and render. The local site is currently running at
-`http://localhost:8081/`; GitHub Pages is pushed. The active GPU builders and generated pages no
-longer carry stale collaborator/API/title-page framing.
+## Read-only external authority
 
-### Per-lecture closure matrix
+Never modify either tree.
 
-Legend: checked means the current lecture has been audited against the criterion and no known
-blocking miss remains. Unchecked means it is the next fix target, not a vague concern.
+- `/Users/ysting/payne-zero` — pinned commit
+  `9c44001feae40b85146630499e6f8a5fed42e5af`
+- `/Users/ysting/Source_Files_Not_For_Review` — the paper; `main.tex` SHA-256
+  `e11507b9150550b246f6664debf22e540aa92d8261eb40daabb594da91bd8e0d`
+- `/Users/ysting/payne-zero-website` — schematic generation code and aesthetic;
+  regenerate original schematics from the same `.py` approach rather than
+  copying website assets.
 
-Public site numbering is now logical: **L14 EOS state -> L15 line blanketing -> L16 spectrum
-capstone**. Some source filenames remain legacy-stable for git/history:
-`content/Lecture16.*` is public L14, `content/Lecture15.*` is public L15, and
-`content/Lecture14.*` is public L16. Keep this mapping in mind when running builders/verifiers.
+## Cadence
 
-| Lecture | NumPy/material coverage | Self-contained / honest inputs | Logical flow | Readable names | Dense-code pedagogy | GPU/vectorized taught path | Gate |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| L1 | [x] | [x] | [x] | [x] | [x] | [x] | [x] build |
-| L2 | [x] | [x] | [x] | [x] | [x] | [x] | [x] build |
-| L3 | [x] | [x] | [x] | [x] | [x] split fp64 twin from validation/reporting block | [x] | [x] `verify_kapp.py` |
-| L4 | [x] | [x] | [x] | [x] | [x] | [x] | [x] build plus downstream line gates |
-| L5 | [x] | [x] | [x] | [x] | [x] split Harris precision helper and helium merge/stop helper | [x] | [x] `verify_full_lines.py`, `verify_linetypes.py` |
-| L6 | [x] | [x] | [x] | [x] | [x] split fp64 Stark-profile island from Balmer opacity driver | [x] | [x] `verify_josh.py` |
-| L7 | [x] | [x] | [x] | [x] | [x] | [x] | [x] `verify_josh.py` |
-| L8 | [x] | [x] opacity from `L6.npz`; fixed JOSH operator tables documented as static method constants | [x] | [x] | [x] split PARCOE/INTEG and JOSH/spectrum wrappers | [x] | [x] `verify_josh.py` |
-| L9 | [x] | [x] | [x] | [x] | [x] | [x] | [x] build/downstream atmosphere gates |
-| L10 | [x] | [x] | [x] | [x] | [x] split physical-grid thin-layer recurrence from JOSH profile driver | [x] | [x] `verify_converged.py` |
-| L11 | [x] | [x] comparison oracles are local verifier modules, not taught inputs | [x] | [x] | [x] | [x] | [x] `verify_convec_gaps.py`, `verify_converged.py` |
-| L12 | [x] | [x] | [x] | [x] | [x] | [x] | [x] `verify_molecules.py` |
-| L13 | [x] | [x] | [x] | [x] | [x] split one-depth Newton solve from pressure-continuation driver | [x] | [x] `verify_nmolec.py`, `verify_mol_continuum.py` |
-| L14 | [x] | [ ] loaded solar atmosphere fixture; helper-backed state cells remain | [x] public first finale lecture | [x] | [x] | [ ] helper-backed NumPy islands remain | [x] `build.py 14` via public/site mapping |
-| L15 | [x] | [ ] still consumes production-derived atmosphere/EOS/window/continuum/full-grid blanket fixtures | [x] | [x] | [x] | [ ] exact accepted teaching-window recurrence is scalar for parity; torch approximation is not the accepted gate | [x] `verify_lineblanket.py` |
-| L16 | [x] | [ ] loads atmosphere/EOS/population/Doppler state; not yet stellar-parameters-to-spectrum | [x] public capstone | [x] partial | [x] split continuum, line, molecular, JOSH, and TCORR helpers below 100-line threshold | [ ] capstone is not yet torch/MPS throughout | [x] `verify_leankurucz.py` |
+**End-to-end first.** Keep a complete, runnable, rendered 15-chapter book after
+every revision wave. Do not perfect one chapter behind acceptance ceremony while
+later chapters stay thin. Scientific discrepancies block the affected claim;
+metadata ceremony does not block unrelated chapters.
 
-### Honest remaining blockers
+The live reader is `http://127.0.0.1:8765/reader.html`.
 
-- Parked on `kgpu`: do not try to fully close public L14/L15 inside the textbook before the production
-  line-blanketed atmosphere convergence path is corrected/squeezed. L15's exact scalar LINOP1
-  teaching-window recurrence and public L14's `max_iter=1` live-smoke boundary are the honest
-  current representation. The final all-local, GPU-native finale closure should follow the kgpu
-  solver fix, then be ported back here with parity gates.
-- Dense pedagogical code cells are closed under the current `>=100` line audit: no lecture has a
-  code cell at or above this threshold. A stricter readability pass can still target 80-99 line
-  cells, led by L14 and followed by L15/L13/L11/L9/L6/L5; this is not a current parity blocker.
-- Public L16 is numerically honest but not the final capstone. It computes opacity + JOSH spectra from a
-  supplied atmosphere/EOS/population/Doppler state. It does not yet regenerate the stellar
-  atmosphere and EOS state from stellar parameters inside the capstone, and it is not yet a
-  torch/MPS builder throughout. The stellar-parameters-to-spectrum version depends on the parked
-  public L14/L15/`kgpu` convergence closure.
-- L15 still consumes production-derived fixtures for the converged atmosphere, per-iteration
-  EOS/window state, continuum opacity/scattering/source arrays, and full-grid line blanket.
-- Public L14 is scientifically scoped but not final atmosphere closure. Keep the live atmosphere code, when
-  added to the notebook, as a **runnable one-iteration smoke gate** (`max_iter=1`) so readers can
-  execute it. The converged solar gate remains future work: target a 12.3-class / pyk exact-LINOP
-  `RHOX=12.1439331` solar base after the kgpu squeeze makes the loop fast enough for pedagogy. When
-  resumed, use `~/pykurucz_gpu/bench/converge_kgpu_port.py` and `kgpu.atlas_loop.converge_atmosphere`
-  only as the reference design to rewrite locally; the textbook must not import `kgpu`.
-- Naming is now an explicit quality track. `BIBLE.md` contains the shared glossary; keep raw
-  fixture/table keys stable at boundaries and translate to readable names in taught code. Continue
-  aggressive local-name cleanup in small gated slices before calling readability closed.
+## Verified state — 2026-07-31
 
-## Public L16 Capstone Status
+- `scripts/verify_pinned_source_fragments.py` **passes**: all chapter-stage
+  fragments match Payne Zero `9c44001`. 58 staged modules.
+- 711 tests collect. A per-file sweep of all 55 test files accounts for every
+  one of them: **709 passed, 2 skipped, 0 failed** after this session's fixes.
+  The 2026-07-30 ledger entry of "9 failed, 26 errors" is superseded — those
+  were repaired by later waves. The only failures the sweep found were the 10
+  this session introduced and then fixed (8 summary-heading assertions plus 2
+  molecular-lane anchors). The sweep was re-run after all the prose work below
+  and still reports 0 failed.
+- `python scripts/check_section_references.py` passes: all 228 section headings
+  are defined and every `§N.M` cross-reference resolves.
+- `tests/test_symbol_coverage.py` is **slow, not hung**: 42 tests in 799 s
+  (13 min) at 100 % CPU. It is the sole reason a plain `python -m pytest`
+  appears to stall. Give it its own generous budget and run the other 54 files
+  per-file when you need a fast signal.
+- All 15 chapter sources, notebooks, HTML fragments, and registry entries exist;
+  the reader publishes Chapters 1–15.
+- All 15 generated notebooks match their canonical Python cell sources.
+- Chapters 11 → 12 → 13 pass an exact live-state atmosphere handoff.
+- The exact solar physical atmosphere converges on pass four; deep-layer
+  relative temperature change `4.778548e-4 < 5e-4`.
+- Three exact solar atmosphere runs — staged, staged repeat, and pinned
+  read-only oracle — produce identical 27 arrays and byte-identical source
+  archives, SHA-256
+  `14e552717e0bbf5eb263deec043c16d3ef796708b5328d822f8a2e2e06fb1fbc`.
+- Their four physical spectrum arrays are bitwise-identical; timing-free payload
+  SHA-256 `5e2b65add5326a9bfa0442216b8198b225305bc1ed0a05325858b34b2f345f27`.
+- The render pipeline was verified after relocation (see Cleanup below): a fresh
+  render of `content/Chapter01.ipynb` is byte-faithful to the committed HTML.
 
-Public L16 has been repaired away from the stale continuum-only Sun bundle. Its current solar capstone
-uses the Part-VI line-blanketed solar atmosphere as an input:
+Not yet evaluated, and must stay visibly absent rather than assumed:
 
-- base `RHOX = 12.1439331`
-- base `T = 11425 K`
+- flux-error and hydrostatic-residual acceptance thresholds for the retained
+  solar product;
+- a separately retained standard-optical-grid acceptance record;
+- full physical trajectories for the hot dwarf, low-gravity giant, and cool
+  molecule-rich capstone requests.
 
-Be precise about this number. `12.1439331` is the pyk exact-LINOP solar atmosphere target currently
-loaded into L14 as a solar atmosphere input. It does not prove that `kgpu` has already closed the
-exact-LINOP atmosphere build. The old `RHOX=10.5357` bundle is stale and should remain only as a
-guardrail against regression.
+## Completed 2026-07-31 — repository cleanup
 
-`python _pipeline/verify_leankurucz.py` passes:
+(Book-content work from the same date is under *Completed 2026-07-31* below.)
 
-- hot dwarf max rel `1.28e-07`
-- Sun max rel `1.02e-08`
-- giant max rel `2.15e-08`
-- M dwarf max rel `1.06e-08`
-- tamper check: Fe I population x1.01 moves the spectrum by `4.867e-03`
+Removed, all recoverable via `git checkout HEAD~1 -- <path>` — every one was
+verified unreferenced by live code before deletion:
 
-The final public L16 target is stricter: inline or call the public L14/L15 line-blanketed atmosphere
-and EOS-state path so the Sun state is regenerated from stellar parameters, then feed that state into the
-synthesis path.
+- `_pipeline/` — 72 legacy build/verify scripts from the superseded
+  Lecture-based book. The single live file, `render_fragment.js`, moved to
+  `scripts/render_fragment.js`; `scripts/build_book.py` updated.
+- `content/Lecture1–16.{ipynb,html}` — superseded by `Chapter01–15`.
+- `reference/` (369 MB) and `resources/` — legacy data and figures for the old
+  book.
+- Committed `.pytest_cache` / `.ruff_cache`; `.gitignore` simplified.
 
-Public L16's title has been narrowed to **"A Spectrum from an Atmosphere, End to End"**. Do not
-restore "from stellar parameters" until the atmosphere and EOS state are actually regenerated in
-the capstone path. The public/site reading order is now normal `N-1/N+1`: L14 EOS state, L15 line
-blanketing and ATLAS12 correction, L16 atmosphere-to-spectrum SYNTHE capstone. If the capstone
-remains much longer than the other lectures, split it naturally into synthesis ingredients/opacity
-and transfer plus HR comparison.
+Working tree is ~310 MB, down from ~690 MB. Root now holds only the five
+Markdown documents, the reader entry points, and the live source trees.
 
-## Checks just run
+## The dominant open gap — per-chapter design contracts for Ch7–15
 
-- Full notebook execution/render:
-  `python _pipeline/build.py 1 2 3 4 5 6 7 8`
-  and
-  `python _pipeline/build.py 9 10 11 12 13 14 15 16`.
-- Code-cell hygiene audit: `total bad=0` for leading/trailing blank code cells.
-- Function-docstring audit: `lowdoc>=20 = 0` under the current rule (functions/classes at least
-  20 lines must have useful docstrings).
-- Long-cell audit using the current blocking `>=100` line threshold: zero code cells at or above
-  this threshold across L1-L16. A non-blocking stricter pass now tracks 80-99 line cells.
-- `git diff --check`: clean.
-- `python _pipeline/build_lecture3_gpu.py && python _pipeline/build.py 3 &&
-  python _pipeline/verify_kapp.py`: L3 stricter KAPP naming pass is green; KAPP verifier reports
-  continuum absorption max rel `9.015e-05`, scattering max rel `2.061e-07`, and photosphere max rel
-  `0.000e+00`.
-- `python _pipeline/build_lecture5_gpu.py && python _pipeline/build.py 5 &&
-  python _pipeline/verify_full_lines.py && python _pipeline/verify_linetypes.py`: L5 stricter
-  line-opacity naming pass is green; full-line max rel `2.254e-15`, special TYPE=1/81 records
-  bit-exact.
-- `python _pipeline/build_lecture6_gpu.py && python _pipeline/build.py 6 &&
-  python _pipeline/verify_josh.py`: L6 stricter HPROF4 naming pass is green; inline Planck source
-  max `2.62e-15`, normalized spectrum max `8.94e-09`, median `1.13e-11`.
-- `python _pipeline/build_lecture13_gpu.py && python _pipeline/build.py 13 &&
-  python _pipeline/verify_nmolec.py && python _pipeline/verify_mol_continuum.py`: L13 stricter
-  molecular-equilibrium solver naming pass is green; NMOLEC max rel `9.920e-14`, molecular
-  continuum max rel `0.000e+00`.
-- `python _pipeline/build_lecture16.py && python _pipeline/build_lecture15_gpu.py &&
-  python _pipeline/build_lecture14.py && python _pipeline/build.py 16 15 14 &&
-  python _pipeline/verify_lineblanket.py && python _pipeline/verify_leankurucz.py &&
-  python _pipeline/verify_converged.py`: finale read-order/prose restructure is green. L15 PASS;
-  L14 four-star capstone PASS with Sun base `RHOX=12.1439`, base `T=11425.0 K`; L11 converged
-  verifier PASS.
-- `python _pipeline/verify_josh.py`: normalised spectrum max `8.94e-09`, median `1.13e-11`.
-- `python _pipeline/verify_lineblanket.py`: PASS, values listed above.
-- `python _pipeline/verify_leankurucz.py`: PASS, values listed above.
-- `python _pipeline/verify_molecules.py`: TiO band spectrum max rel `1.063e-08`, median
-  `1.679e-13`; after the L12 readability rename, molecular opacity max rel `4.069e-11`, spectrum
-  max rel `1.063e-08`.
-- `python _pipeline/verify_nmolec.py`: all molecular densities max rel `9.920e-14`.
-- `python _pipeline/verify_mol_continuum.py`: molecular continuum max rel `0.000e+00`.
-- `python _pipeline/verify_convec_gaps.py`: PASS with sabotage checks.
-- `python _pipeline/verify_converged.py`: PASS; convection flux `2.376e-10`, one-step T
-  `9.160e-09`, one-step RHOX `4.714e-08`.
+Chapters 2–6 were built to a per-chapter contract standard. Chapters 7–15 were
+carried end-to-end first and each still have only a `first_pass_contract`. This
+is the main structured backlog, not bloat to be pruned.
 
-## Editing standard
+| Chapter | design files | Missing core artifacts |
+|---|---:|---|
+| 1 | 3 | exact_source_contract, causal_outline, acceptance |
+| 2 | 7 | — |
+| 3 | 5 | — |
+| 4 | 12 | causal_outline |
+| 5 | 15 | acceptance |
+| 6 | 49 | acceptance |
+| 7 | 1 | exact_source_contract, causal_outline, acceptance |
+| 8 | 1 | exact_source_contract, causal_outline, acceptance |
+| 9 | 1 | exact_source_contract, causal_outline, acceptance |
+| 10 | 1 | exact_source_contract, causal_outline, acceptance |
+| 11 | 2 | exact_source_contract, causal_outline, acceptance |
+| 12 | 1 | exact_source_contract, causal_outline, acceptance |
+| 13 | 1 | exact_source_contract, causal_outline, acceptance |
+| 14 | 1 | exact_source_contract, causal_outline, acceptance |
+| 15 | 1 | exact_source_contract, causal_outline, acceptance |
 
-- Do not upgrade any claim from "loaded fixture" or "comparison target" to "computed here" unless
-  the notebook actually computes it in the taught path.
-- Every nontrivial function should have a useful docstring covering inputs, outputs, precision
-  caveats, and fixture boundaries.
-- Code cells should have enough comments for a reader to follow the physics and tensor shape
-  changes without reading production code.
-- Audit `for`/`while`/`if` blocks and `[i]`/`[i+1]` slicing. Prefer torch vectorization,
-  `gather`, `searchsorted`, masks, and batched reductions where parity allows. Keep scalar loops
-  only for structural recurrences, table parsers, boundary stencils, or exact-order parity paths,
-  and say why.
-- Avoid leading/trailing blank lines in generated code cells.
-- After any readability/vectorization change, rerun the smallest matching parity gate; after
-  builder/reference changes, rerun the full notebook ledger.
+Use Chapter 3 as the template — it is the cleanest complete example at 5 files
+without Chapter 6's over-build. Chapter 6's 49 files are not the target; they
+are an artifact of iterating hardest there.
 
-## Final-mile closure criteria
+**Anatomy of the three missing artifacts**, measured from Chapter 3. These are
+substantial documents, not checklists — budget roughly one focused session per
+chapter, and do one chapter at a time rather than starting all nine.
 
-Do not delete the plan/passdown until each lecture has been audited against this checklist and any
-misses have either been fixed with a passing gate or explicitly marked as a real boundary:
+- `chapterNN_causal_outline.md` (~1,400 lines). Sections: central question and
+  earned claim; neighbour handoff and no-repeat contract; how the source-contract
+  movements map onto chapter sections; terminology and notation ladder; then one
+  subsection per numbered chapter section (`### N.M <section title>`) recording
+  what that section may assume, what it earns, and what it must not pre-empt.
+- `chapterNN_exact_source_contract.md` (~1,900 lines). The pinned Payne Zero
+  symbols the chapter stages and the exact-match obligations on each.
+- `chapterNN_acceptance.md` (~70 lines). Sections: Outcome; Gates passed;
+  Independent-audit closure. Unevaluated gates stay visibly `None` — never
+  promote a check that was not performed.
 
-1. **Self-contained taught path:** the lecture imports no `kgpu`, `pykurucz`, or NumPy-textbook code;
-   static inputs, fixtures, and comparison targets are named honestly.
-2. **Logical flow:** the lecture connects from the previous lecture and toward the next one without
-   stale numbering, outside-code framing, or unsupported closure claims.
-3. **Readable code:** functions and local variables use physical names where possible; canonical
-   Kurucz names remain only at fixture/table/reference boundaries.
-4. **Pedagogical code cells:** dense code cells are split or interleaved with comments/docstrings
-   enough for a reader to follow the physics, tensor shape, precision boundary, and loop reason.
-5. **GPU-native/vectorized where feasible:** taught compute uses torch/device tensors and batched
-   operations where the algorithm allows; scalar loops are justified as recurrences, exact-order
-   parity paths, small heterogeneous tables, or host setup.
-6. **Parity gate:** the lecture's build/render plus its narrow verifier still pass after edits; the
-   comparison is self-contained inside this repo.
+Each of Ch7–15 already has a `chapterNN_first_pass_contract.md` (Ch7's is 1,249
+lines); that is the raw material, not a substitute.
 
-## Next useful work
+## Known pedagogical defects — re-verified 2026-07-31
 
-1. Textbook-only closeout before the parked kgpu round: run the final-mile closure audit for every
-   lecture (L1-L16) against the checklist above; fix
-   misses in gated slices and record the result lecture by lecture.
-2. Break up or add reader-walkthrough comments to the remaining 80-99 line cells, starting with the
-   capstone and L15, and rerun parity after each chunk.
-3. Continue the shared naming pass: use the `BIBLE.md` glossary, avoid destructive fixture/schema
-   renames, and verify each pure readability slice with the touched lecture's builder/verifier.
-4. After kgpu convergence is fixed/squeezed, return to the parked finale closure:
-   - promote public L16 to a torch/MPS builder and true stellar-parameters-to-spectrum capstone;
-   - replace L15's production-derived atmosphere/EOS/window/continuum/full-grid blanket fixtures
-     with computed lecture cells;
-   - move public L14 helper-backed clean-room NumPy pieces into pedagogical torch cells where practical;
-   - extend the local public L14 loop beyond the `max_iter=1` live-smoke gate, with no runtime
-     `kgpu` import, targeting the 12.3-class / `RHOX=12.1439331` solar base before wiring public
-     L14/L15 into public L16.
-5. Use the exact-LINOP public L14/L15 material to design the future `kgpu` squeeze from the 12.3-class
-   coarse-deposit fixed point toward the pyk exact-LINOP `RHOX=12.1439331` target.
+The 2026-07-30 whole-book audit is **partly stale**; several of its findings had
+already been repaired by later waves. Always re-measure before acting on an
+audit note. Current measured state, per generated notebook:
+
+| ch | prose words | visible cells | code lines | cells over 30-line *target* | figures |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 4991 | 15 | 252 | 1 | 5 |
+| 2 | 4516 | 21 | 453 | 3 | 2 |
+| 3 | 6058 | 21 | 585 | 10 | 3 |
+| 4 | 5668 | 17 | 480 | 10 | 2 |
+| 5 | 5342 | 16 | 451 | 6 | 6 |
+| 6 | 3358 | 15 | 339 | 3 | 4 |
+| 7 | 3576 | 18 | 372 | 1 | 6 |
+| 8 | 3893 | 17 | 375 | 3 | 4 |
+| 9 | 3250 | 18 | 449 | 4 | 5 |
+| 10 | 4618 | 18 | 296 | 1 | 2 |
+| 11 | 2732 | 18 | 173 | 0 | 1 |
+| 12 | 3361 | 21 | 248 | 0 | 2 |
+| 13 | 2333 | 15 | 259 | 0 | 4 |
+| 14 | 2492 | 20 | 267 | 0 | 6 |
+| 15 | 2993 | 15 | 241 | 1 | 1 |
+
+Regenerate this table after substantive edits: count markdown words, visible
+code cells, nonblank code lines, and `image/png` outputs per
+`content/ChapterNN.ipynb`. Note the fourth column counts cells over the 10–30
+line *target*, **not** violations — `BIBLE.md:219` puts the soft ceiling at 60
+and the hard ceiling at 80, and nothing in the book exceeds either.
+
+**Verified fixed 2026-07-31 — do not re-report.** Each was checked against the
+current source, not assumed:
+
+- Ch12 title mismatch — `chapter_12.py:8` and `registry.py:130` now agree.
+- Ch10→Ch11 "converged" contradiction — Ch11 now opens "Chapter 10 deliberately
+  accepted a supplied, schema-valid atmosphere … It did not claim that the
+  supplied structure was converged."
+- Ch1 naming late API concepts early — no occurrence of `Payne Zero`,
+  `InitializedAtmosphere`, or `Chapter 11–14` remains in `chapter_01.py`.
+- Ch2 teaching Ch14–15 material early — no `centidex`, `InitializedAtmosphere`,
+  97-slot, 81-abundance, or 25-array/schema-v4 material remains in
+  `chapter_02.py`. Density also fell from 5,490→4,516 words, 31→21 cells,
+  734→453 lines.
+- Ch15 "has no plot or schematic" — false. §15.9 already carries a one-panel
+  four-regime normalized-flux comparison, and §15.2 embeds the
+  `ch15-two-workflow-gates-v1` schematic.
+- Ch12/Ch15 thinness — partly resolved: 1,228→3,259 and 966→2,518 words.
+- Closing-heading drift — fixed this session, see *Completed* below.
+
+**Resolved scope question (author decision, 2026-07-31):** equivalent width,
+saturation, and the curve of growth **are in scope**, even though Payne Zero does
+not compute them, because they explain the spectra the book synthesizes. Now
+taught in Ch9 §9.14. Precedent: physics needed to *understand* the output may be
+taught as a clearly-labelled controlled limit, provided the production path still
+computes the real thing.
+
+**Open — all measured, not inherited:**
+
+1. **Density imbalance — much reduced, not gone.** The spread was 1,846–6,058
+   prose words; it is now 2,333–6,058 after the atmosphere-arc pass. The
+   remaining outliers are Ch3 (6,058) at the top and Ch13 (2,333), Ch9 (2,456),
+   and Ch14 (2,492) at the bottom. **Ch9 is now the worst prose-to-code ratio in
+   the book** — 2,456 words carrying 427 code lines — and is a better target
+   than raw word count suggests. Do not change the 15-chapter count.
+2. **Cell length — a mild target overshoot, not a violation.** `BIBLE.md:219`
+   sets the target at 10–30 lines with a **soft ceiling of 60 and a hard ceiling
+   of 80**. Measured across all 264 visible code cells: 43 exceed the 30-line
+   target, but **zero exceed either ceiling**. The largest cell in the book is
+   46 lines (Ch8); Ch3 and Ch4's ten "oversize" cells each sit at 31–35. Earlier
+   audits reported this as a bite-size failure by counting against the target
+   rather than the ceiling. Treat it as low-priority polish: split a cell only
+   where it genuinely carries two ideas, not to satisfy a line count.
+3. **Figure starvation.** Ch12 now has two (a Schwarzschild-criterion panel was
+   added alongside the new derivation); **Ch11 and Ch15 still have one each**.
+   Ch15's capstone figure also spans only a 0.2 nm window (498.95–499.15 nm),
+   narrow for a four-regime comparison — consider a wider or second panel
+   showing where the regimes visibly diverge, now that §15.10 explains what to
+   look for.
+4. **Display-math inconsistency.** Ch1 uses `$$`; Ch5/9/11/12/13 use `\[ \]`.
+   Both render under KaTeX, but the book should pick one — `\[ \]` is the
+   majority convention.
+5. **Ch12 is the only chapter using `## Act` / `### N.N` nesting**; every other
+   chapter is flat `## N.N`. This is part of why it reads differently from its
+   neighbours. Consider flattening.
+
+**Method note.** Five of the eight findings in the 2026-07-30 audit were
+already repaired by the time they were acted on. Re-measure before editing;
+prefer a grep or a notebook measurement over trusting any inherited defect
+list, including this one.
+
+## Completed 2026-07-31 — book content
+
+- **Repository cleanup** — see *Completed 2026-07-31 — repository cleanup*
+  above.
+- **Chapter summary headings normalized.** Chapters 7–15 used
+  `### Chapter summary`, violating the `## N.N Chapter summary` requirement at
+  `design/global_chapter_contracts.md:751-764`. All nine now carry correct
+  numbered headings (7.18, 8.18, 9.15, 10.12, 11.13, 12.24, 13.10, 14.8, 15.17).
+  The eight `tests/test_chapterNN_runtime.py` assertions that encoded the *old*
+  wrong convention were updated to match the contract. All nine chapters were
+  rebuilt so stored notebooks carry no drift.
+- **Chapter 12 convection physics derived, not asserted.** Added §12.19
+  (Schwarzschild criterion, derived from the buoyancy argument via the parcel
+  displacement), §12.20 (adiabatic gradient from the first law,
+  \(\nabla_{\rm ad}=(\gamma-1)/\gamma=2/5\) for a monatomic ideal gas, why
+  partial ionization lowers it, and the pressure scale height from Chapter 1's
+  hydrostatic balance), and §12.21 (temperature excess, buoyant velocity, and the
+  \((\nabla-\nabla_{\rm ad})^{3/2}\) enthalpy flux). This also supplies the
+  causal link that was missing between the perturbed-EOS machinery of
+  §§12.14–12.18 and convection: those derivatives exist precisely to give
+  \(c_P\) and \(\nabla_{\rm ad}\). Ch12 prose 2,493 → 3,259 words; the chapter
+  rebuilds with zero execution errors.
+- **Chapter 13 temperature correction derived, not listed.** §13.2 previously
+  introduced the three correction terms as a bullet list of implementation
+  field names. Added §13.2 (deep layers: the Eddington closure and
+  \(dJ/d\tau_{\rm R}=3H\) give
+  \(\Delta T=\tfrac{3\pi}{4\sigma T^3}\int_0^{\tau}[H_\star-H]\,d\tau'\), so the
+  flux term is necessarily an *integral* — one bad layer misplaces every layer
+  beneath it) and §13.3 (shallow layers: the diffusion argument fails, radiative
+  equilibrium \(\int\kappa_\nu(J_\nu-S_\nu)d\nu=0\) is what survives, and
+  keeping only the diagonal \(\Lambda_{dd}\) of the lambda operator yields the
+  local Newton step — hence why the outermost layer needs a third, separate
+  boundary repair, and why all three are linearizations that the §13.5
+  safeguards must protect). Old §§13.2–13.9 renumbered to 13.4–13.11, summary to
+  13.12, with the matching test assertion updated. Ch13 prose 1,846 → 2,333
+  words; rebuilds with zero execution errors; 20 chapter tests pass.
+- **Chapter 14 PCA explained, not asserted.** §14.2 previously stated that PCA
+  keeps 160 of 480 coordinates without saying what PCA does — unacceptable when
+  `BIBLE.md` assumes no prior machine-learning knowledge. Added a new §14.2
+  deriving it: the 480 numbers are not independent because the preceding
+  thirteen chapters *are* the constraints among them (grey temperature law,
+  hydrostatic balance, EOS), so a real atmosphere lies on a thin surface;
+  covariance eigenvectors ordered by variance give the best linear \(k\)-summary,
+  and the network only predicts the coefficients. The section closes on the
+  caveat that carries the chapter: discarded directions are negligible *for the
+  training distribution only*, so an out-of-distribution request returns a
+  confident, smooth, wrong profile with no internal warning — which is what makes
+  the §14.8 closure requirement mandatory rather than procedural. Old §§14.2–14.8
+  renumbered to 14.3–14.9 with the matching test assertion updated. Ch14 prose
+  2,009 → 2,492 words; zero execution errors; 46 tests pass.
+- **Chapter 11 backwarming derived.** §11.12 previously disposed of line
+  blanketing in one sentence — "photons blocked in those frequencies must escape
+  elsewhere" — and the word *backwarming* did not appear in the chapter at all.
+  Added a new §11.12 that runs the flux constraint through: every layer must
+  still carry \(\sigma_{\rm SB}T_{\rm eff}^4\); the harmonic Rosseland mean is
+  dominated by transparent windows, which lines close, so \(\kappa_R\) rises;
+  at fixed flux the diffusion relation then forces a steeper \(|dT/dr|\), so
+  every deep layer is hotter than its grey twin. Includes the companion surface
+  cooling, and closes by naming blanketing as the reason Chapter 13's correction
+  must exist — the blanketed opacity changes the flux the next pass measures, and
+  that gap *is* \(\delta_H\). Old §11.12 became §11.13, summary 11.14, test
+  assertion updated. Ch11 prose 2,282 → 2,732 words; zero execution errors;
+  11 tests pass.
+- **Chapter 15 capstone made physical.** §15.3 asserted one sentence per regime
+  and H\(^-\) — the dominant optical continuum opacity in solar-type and cooler
+  stars — appeared nowhere in the chapter. Added §15.10, a physical reading of
+  the four-star figure: the solar continuum as H\(^-\), needing neutral H *and*
+  metal-donated electrons (Chapter 3 Saha); the hot dwarf ionizing hydrogen and
+  so destroying H\(^-\)'s partner while thinning the neutral-metal forest; the
+  giant's \(P=gm\) (§1.10) lowering electron density and narrowing collisional
+  damping wings (Chapter 7), which *derives* the luminosity-class diagnostic
+  rather than asserting it; and the cool dwarf's TiO/water bands making the
+  continuum notional and driving convection through §12.19's criterion. Old
+  §§15.10–15.16 renumbered to 15.11–15.17, summary 15.18, test updated. Ch15
+  prose 2,518 → 2,993 words; zero execution errors; 17 tests pass.
+- **Chapter 12 Schwarzschild figure added.** The checkpoint already exposed
+  `logarithmic_gradient` and `adiabatic_gradient`, so §12.19 now evaluates the
+  criterion visually instead of asserting it. On the six-layer teaching fixture
+  it correctly reports 0 unstable layers of 6, which the following prose
+  explains rather than hides. Ch12 figures 1 → 2, visible cells 20 → 21 (the
+  `test_..._twenty_cell_spine` assertion was a snapshot, not a contract limit;
+  the contract's >18 is a review trigger). Ch12 is now the densest chapter at 21
+  visible cells — watch it before adding more.
+- **Chapter 9 scattering physics derived.** The chapter said "scattering" 46
+  times without once stating the full source function or naming a
+  thermalization depth. Added §9.2: combining the two fates of a removed photon
+  gives \(S_\nu=(1-\alpha_\nu)S_{\nu,\rm th}+\alpha_\nu J_\nu\); the
+  \(J_\nu\) term is what makes the problem nonlocal and is *why* §9.7 must
+  iterate; the random-walk argument gives
+  \(\tau_{\rm th}\sim(1-\alpha_\nu)^{-1/2}\) and the
+  \(\sqrt{1-\alpha_\nu}\,S_{\rm th}\) surface law, which is why a
+  scattering-dominated line is darker than pure absorption predicts and why
+  §9.11 needs a separate diffusion route when the surface saturates. Uses the
+  book's own \(\alpha_\nu\) rather than introducing \(\epsilon\). Old
+  §§9.2–9.14 renumbered to 9.3–9.15, summary 9.16, test updated. Ch9 prose
+  2,456 → 2,769 words; zero execution errors; 16 tests pass.
+- **Chapter 6 Lorentzian derived.** §6.6 listed three damping mechanisms and
+  summed their rates into one \(\gamma\) without justifying either the
+  Lorentzian shape or the summation, and §6.7 then asserted a "Lorentzian
+  damping branch". Added the classical damped-oscillator argument: a finite
+  lifetime makes \(E(t)\propto e^{-\gamma t/2}e^{-2\pi i\nu_l t}\), whose
+  Fourier transform is a Lorentzian of FWHM \(\gamma/2\pi\); the quantum
+  \(\Delta E\,\Delta t\) route gives the same width; and the
+  \((\nu-\nu_l)^{-2}\) tail is why the damping branch always wins far from
+  line centre however small \(\gamma\) is. A second short passage explains why
+  three distinct mechanisms may be *added* — each independently terminates the
+  same wave train, so the rates sum and one Lorentzian describes the result.
+  Ch6 prose 3,138 → 3,358 words; zero execution errors; 21 tests pass.
+- **Chapter 7 Inglis–Teller exponent derived.** §7.15 stated
+  \(n_{\rm IT}=1600\,n_e^{-2/15}\) with the \(2/15\) unexplained, which reads
+  as a fitted constant. Added the two-length comparison it comes from: level
+  spacing falls as \(n^{-3}\); hydrogen's linear Stark effect splits a level by
+  \(n^2E\); the microfield from mean separation \(d\sim n_e^{-1/3}\) is
+  \(E\propto n_e^{2/3}\); setting splitting equal to spacing gives
+  \(n^5\sim n_e^{-2/3}\), so \(n\propto n_e^{-2/15}\). The exponent is
+  \(2/3\) divided by \(5\), not a fit. Ch7 prose 3,405 → 3,576 words; zero
+  execution errors; 15 tests pass.
+- **Chapter 9 equivalent width and curve of growth added** (author-approved
+  scope extension — see the resolved scope question below). This could not go in
+  Chapter 6: §6.8 states plainly that line opacity "is still not a flux dip", and
+  equivalent width needs *emergent* flux. New §9.14 therefore sits right after the
+  first synthesized normalized-flux window. It defines
+  \(W_\lambda=\int(1-F_\lambda/F_{\lambda,c})d\lambda\), notes that measuring
+  area makes it immune to instrument smearing, measures it on the book's own
+  window (1.206401e-2 nm), then derives all three regimes from one integral in a
+  Schuster–Schwarzschild slab — a controlled limit in the spirit of Chapter 1's
+  grey atmosphere — and states explicitly that the slab explains the answer
+  rather than producing it. Verified numerically: \(W/(\sqrt\pi\tau_0)\to1.0\)
+  for \(\tau_0\le0.1\) (linear); \(W\) grows only 3.4→9.4 while \(\tau_0\)
+  goes \(10^1\to10^3\) (saturated); \(W/\sqrt{\tau_0}\approx0.26\) for
+  \(\tau_0\ge10^4\) (damping). Old §§9.14–9.16 renumbered to 9.15–9.17; test
+  summary heading and visible-cell count (17 → 18) updated. `continuous_voigt_h`
+  is now imported from `book.chapter06_runtime` — the first cross-chapter use of
+  that helper; the offset grid is dense through the core and logarithmic across
+  the wings because the reference Voigt convolves per sample. Ch9 prose
+  2,769 → 3,250 words, figures 4 → 5; zero execution errors; 43 tests pass.
+
+## Immediate sequence
+
+1. Continue deepening the thin chapters (open defect 1). Ch9 (2,456 → 2,769),
+   Ch11 (2,282 → 2,732), Ch13 (1,846 → 2,333), Ch14 (2,009 → 2,492), and Ch15
+   (2,518 → 2,993) are done, as are Ch6 (3,138 → 3,358) and Ch7
+   (3,405 → 3,576) — the whole atmosphere arc, transfer, and the line chapters.
+   **The remaining thin end is Ch13 (2,333), Ch14 (2,492), and Ch11 (2,732)**,
+   all of which have already had one pass; a second pass should look for
+   under-explained *implementation* narrative rather than missing physics.
+
+   The pattern that has now worked five times: find where a chapter *names* a
+   quantity the implementation computes, and derive it instead. Worked examples
+   — Ch9 §9.2 (scattering source function), Ch11 §11.12 (backwarming),
+   Ch12 §§12.19–12.21 (Schwarzschild, adiabatic gradient, enthalpy flux),
+   Ch13 §§13.2–13.3 (temperature correction), Ch15 §15.10 (why the four regimes
+   differ). Each also closed a causal gap between neighbouring chapters, which
+   matters more than the word count.
+2. Give Ch11 and Ch15 a second figure each (open defect 3) — they are the only
+   chapters left with one. Ch11's would naturally show lines raising the
+   Rosseland mean, but `BlanketingCheckpoint` does not currently expose the
+   layer temperature needed for the \(\partial B_\nu/\partial T\) weighting;
+   add that field rather than plotting an unweighted proxy.
+3. Write `causal_outline` + `exact_source_contract` + `acceptance` for Ch7–15,
+   one chapter at a time, using Chapter 3 as the template.
+4. Settle the display-math and heading-nesting inconsistencies (defects 4, 5)
+   in a single mechanical pass once prose work has settled.
+
+After each step: rebuild the affected chapters with `scripts/build_book.py`,
+re-run `verify_pinned_source_fragments.py`, run the affected tests, and update
+this file's Verified state, Completed, and Immediate sequence so the next agent
+can resume cold.
+
+## Traps that have already cost time
+
+- **Governance anchors are verbatim.** `tests/test_global_molecular_lane_language.py`
+  requires exact text blocks in `PASSDOWN.md`, `PLAN.md`, and `BIBLE.md`
+  (anchors `passdown-resolved-lane-boundary`, `plan-resolved-lane-boundary`,
+  `bible-active-selectors`). Paraphrasing them fails the suite. Edit those
+  paragraphs only by copying the required string out of the test.
+- **Editing `book/chapters/*.py` creates notebook drift** until you rebuild.
+  Always run `scripts/build_book.py <n>` for every chapter you touch.
+- **Some `tests/test_chapterNN_runtime.py` assertions encode chapter prose**
+  (exact headings, visible code-cell counts). Changing structure means updating
+  the matching assertion — check whether the test or the chapter is wrong
+  against `design/global_chapter_contracts.md` before assuming the test is right.
+- **Renumbering a chapter silently breaks cross-references.** Inserting a
+  section shifts every later number, and `§13.5`-style references elsewhere in
+  the book keep pointing at the old slot — invisible in the rendered output.
+  Run `python scripts/check_section_references.py` after any renumber; it is
+  cheap and covers all 227 sections.
+- **`python -m pytest`, never bare `pytest`** — the latter omits the repo root
+  from `sys.path`.
+- **The full suite can stall.** Run per-file with a watchdog if `python -m pytest`
+  appears to hang at 0% CPU; that isolates the offending file instead of losing
+  the whole run.
+
+## Commands
+
+Build and execute selected chapters:
+
+```bash
+python scripts/build_book.py 12 15
+```
+
+Build the full reader:
+
+```bash
+python scripts/build_book.py
+```
+
+Verify exact staged source against pinned Payne Zero:
+
+```bash
+python scripts/verify_pinned_source_fragments.py
+```
+
+Verify every `§N.M` / `Section N.M` cross-reference still resolves — run this
+after any chapter renumbering:
+
+```bash
+python scripts/check_section_references.py
+```
+
+Run the tests — use `python -m pytest`, not bare `pytest`, so the repository
+root is on `sys.path`:
+
+```bash
+python -m pytest -q
+```
+
+Serve the reader locally:
+
+```bash
+python -m http.server 8765
+```
+
+Jupyter execution needs permission to bind local kernel ports in restricted
+environments. Never replace execution with an unexecuted render.
+
+## Role boundaries that must remain visible
+
+1. **Resolved boundary:** H2O compiler parity is retained and verified, while
+   the pinned standard synthesis pipeline continues to compile text bands plus
+   TiO rather than H2O. This synthesis boundary does not apply to the standard
+   atmosphere water selection/deposition path.
+
+- static inputs, computed fixtures, and golden comparison outputs are different
+  data roles;
+- initializer predictions are starting proposals, never converged atmosphere
+  products;
+- schema validity proves an interface contract, not physical closure;
+- synthesis proves the consequence of a supplied atmosphere, not that
+  atmosphere's convergence;
+- `r_grid` and `resolution` are interface-specific names and are never silently
+  merged;
+- standard synthesis omits the separate H2O compiler path, even though Chapter 8
+  implements and verifies H2O compiler parity — see the resolved boundary above;
+- the direct-abundance initializer remains experimental and requires exact
+  physical closure;
+- fixed-thread reproducibility is the strict atmosphere target; regrouped
+  reductions may move final bits;
+- timings are performance observations, not physical identity.
+
+## Integration rule
+
+Subagents may take bounded, nonoverlapping chapters. The primary agent owns
+final integration and must recheck global notation, prerequisites, single
+ownership of repeated concepts, neighbouring chapter transitions, exact runtime
+claims, and rendered output. No subagent draft is accepted solely because its
+local tests pass. Preserve unrelated user changes; never clean the tree with
+destructive Git commands.

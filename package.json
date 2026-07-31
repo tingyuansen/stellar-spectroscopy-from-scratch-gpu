@@ -1,13 +1,22 @@
 {
   "name": "stellar_spectroscopy_from_scratch",
-  "version": "1.0.0",
-  "description": "A multi-lecture, build-from-scratch course that rebuilds a synthetic stellar spectrum from first principles — equation of state, opacity, and radiative transfer — in short, readable NumPy, with **every step benchmarked against [pykurucz](https://github.com/tingyuansen/pykurucz)** (a pure-Python ATLAS12 & SYNTHE) until the from-scratch flux matches the production code to machine precision.",
-  "main": "index.js",
+  "version": "2.0.0",
+  "description": "A self-contained executable textbook that builds the atmosphere and synthesis physics of Payne Zero from scratch.",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "python3 scripts/build_book.py",
+    "coverage": "python3 scripts/audit_paynezero_source.py && python3 scripts/build_symbol_coverage.py",
+    "source-parity": "python3 scripts/verify_pinned_source_fragments.py",
+    "serve": "python3 -m http.server 8899",
+    "test": "python3 scripts/verify_pinned_source_fragments.py && python3 -m pytest"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "stellar-spectroscopy",
+    "stellar-atmospheres",
+    "payne-zero",
+    "numba",
+    "pytorch"
+  ],
+  "author": "Yuan-Sen Ting",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {

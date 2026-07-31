@@ -25,9 +25,9 @@
   <!-- Sidebar -->
   <aside class="sidebar" id="sidebar">
     <div class="sb-head">
-      <p class="sb-eyebrow">A build-from-scratch course</p>
+      <p class="sb-eyebrow">An executable physics textbook</p>
       <h1 class="sb-title"><a href="index.html">Stellar Spectroscopy from Scratch</a></h1>
-      <p class="sb-sub">rebuilding a synthetic stellar spectrum</p>
+      <p class="sb-sub">physics · code · verification</p>
     </div>
     <nav class="sb-scroll" id="sbNav"></nav>
   </aside>
@@ -66,7 +66,9 @@
     if (window.BOOK.parts.length > 1) sbHtml += `<div class="sb-part-label"><span class="pt">${part.name}</span><span>${part.title}</span></div>`;
     for (const c of part.chapters) {
       const active = c.n === n ? ' active' : '';
-      sbHtml += `<a class="sb-link${active}" href="reader.html?ch=${c.n}"><span class="num">${String(c.n).padStart(2,'0')}</span><span>${c.title}</span></a>`;
+      sbHtml += c.available
+        ? `<a class="sb-link${active}" href="reader.html?ch=${c.n}"><span class="num">${String(c.n).padStart(2,'0')}</span><span>${c.title}</span></a>`
+        : `<span class="sb-link planned"><span class="num">${String(c.n).padStart(2,'0')}</span><span>${c.title}</span></span>`;
     }
     sbHtml += `</div>`;
   }
@@ -90,7 +92,7 @@
   /* ---- chapter header ---- */
   function headerHtml(m) {
     return `<header class="ch-head">
-      <div class="ch-kicker"><span>Lecture ${m.n}</span></div>
+      <div class="ch-kicker"><span>Chapter ${m.n}</span></div>
       <h1 class="ch-title">${m.title}</h1>
       <div class="ch-byline">
         <span class="lect">${m.lecturer}</span>
@@ -101,8 +103,8 @@
         ${m.kit ? `<a class="dl" href="${m.kit}" download>${m.kitLabel} ↓</a>` : ''}
       </div>
       ${m.slides ? `<details class="slides-embed" open>
-        <summary>Lecture slides — view inline</summary>
-        <div class="slides-frame"><iframe loading="lazy" src="${m.slides}" allow="fullscreen" title="Session ${m.n} slides"></iframe></div>
+        <summary>Chapter slides — view inline</summary>
+        <div class="slides-frame"><iframe loading="lazy" src="${m.slides}" allow="fullscreen" title="Chapter ${m.n} slides"></iframe></div>
       </details>` : ''}
       <div class="ch-rule"></div>
     </header>`;
@@ -110,8 +112,9 @@
 
   /* ---- footer nav ---- */
   function navHtml(m) {
-    const prev = window.BOOK.byN[m.n - 1];
-    const next = window.BOOK.byN[m.n + 1];
+    const index = window.BOOK.available.findIndex(chapter => chapter.n === m.n);
+    const prev = window.BOOK.available[index - 1];
+    const next = window.BOOK.available[index + 1];
     const a = (c, dir, cls) => c
       ? `<a class="${cls}" href="reader.html?ch=${c.n}"><span class="dir">${dir}</span><span class="nm">${c.title}</span></a>`
       : `<a class="${cls} disabled"></a>`;
@@ -120,6 +123,18 @@
 
   /* ---- load + render ---- */
   const content = document.getElementById('content');
+  if (!meta.available) {
+    const latest = window.BOOK.available[window.BOOK.available.length - 1];
+    document.title = `${meta.n}. ${meta.title} · In construction`;
+    content.innerHTML = headerHtml(meta) +
+      `<div class="callout"><p class="callout-title">Chapter in construction</p>` +
+      `<p>This chapter has a fixed place in the course, but its executable notebook has not ` +
+      `yet passed the scientific and pedagogical gates required for publication.</p>` +
+      `<p><a href="reader.html?ch=${latest.n}">Return to the latest accepted chapter: ` +
+      `${latest.title}</a></p></div>`;
+    document.getElementById('rail').innerHTML = '';
+    return;
+  }
   const ext = meta.type === 'md' ? 'md' : (meta.type === 'html' ? 'html' : 'ipynb');
   document.title = `${meta.n}. ${meta.title} · Stellar Spectroscopy from Scratch`;
 

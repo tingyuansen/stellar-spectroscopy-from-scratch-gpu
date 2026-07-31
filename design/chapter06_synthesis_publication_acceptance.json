@@ -1,0 +1,2403 @@
+{
+  "schema_version": 1,
+  "record_kind": "chapter06_synthesis_publication_acceptance",
+  "lane": "synthesis",
+  "role": "golden",
+  "payne_zero_commit": "9c44001feae40b85146630499e6f8a5fed42e5af",
+  "identities": {
+    "fixture_oracle_plan": {
+      "path": "design/chapter06_synthesis_fixture_oracle_plan.md",
+      "sha256": "413d86b6cb671912418d3a19848e3953614d3ac294bf71d6464b9abd8fc11856"
+    },
+    "phase1_candidate": {
+      "path": "design/chapter06_synthesis_plan_rebind_candidate.md",
+      "sha256": "dd64b85aa204bcac7e936de45e021b5ee2069046e50b47bf531b702959457b93"
+    },
+    "phase1_audit": {
+      "path": "design/chapter06_synthesis_plan_rebind_independent_audit.md",
+      "sha256": "9441ab9128b6cb204a7c26088f441b9700fecebfc687a29539a3012063f235b7"
+    },
+    "worker": {
+      "path": "scripts/chapter06_synthesis_oracle_worker.py",
+      "sha256": "36275193118cb7a7c37e91f240e42bb30992d777856154825d6eba5211cc6c68"
+    },
+    "worker_tests": {
+      "path": "tests/test_chapter06_synthesis_oracle_worker.py",
+      "sha256": "1109739338095716dc9f2e2752b6693e74aeedef72b28556eaea4716b00a8189"
+    },
+    "worker_audit": {
+      "path": "design/chapter06_synthesis_worker_independent_audit.md",
+      "sha256": "a54689e0a83ff139b2a893effe91cfe90b1ebeda9bbd4730125029c618c84334"
+    },
+    "assembler": {
+      "path": "scripts/chapter06_synthesis_compact_assembler.py",
+      "sha256": "583734a5843eb671e7ab7c4d598697bd53a569bef537b1806726b6bb360ca7a8"
+    },
+    "assembler_tests": {
+      "path": "tests/test_chapter06_synthesis_compact_assembler.py",
+      "sha256": "25e371da6fa5c2f86dfd5b2e5847c054103944d3fc5b205036b99d1b875a0153"
+    },
+    "phase2_candidate": {
+      "path": "design/chapter06_synthesis_compact_rebind_candidate.md",
+      "sha256": "54a9f327b7492897679e3e188d46dc4fb11f66727ed5a3e53a542cf382eac42c"
+    },
+    "phase2_audit": {
+      "path": "design/chapter06_synthesis_compact_rebind_independent_audit.md",
+      "sha256": "739854db2b5c4c0c0fe5e9db71d8a52958ce401ded7e7a80a8ab90e15172ddcb"
+    },
+    "writer": {
+      "path": "scripts/chapter06_synthesis_compact_writer.py",
+      "sha256": "57aa7147afee4a7366cb2a075715d3607fa20507c23c07ec978b0698368ae47b"
+    },
+    "writer_tests": {
+      "path": "tests/test_chapter06_synthesis_compact_writer.py",
+      "sha256": "7c41a74f9d2e38a23d988c990af4040ac262a8066cb3cd9feae4e29f0bdc0a4e"
+    },
+    "writer_candidate": {
+      "path": "design/chapter06_synthesis_writer_rebind_candidate.md",
+      "sha256": "6ab1f346a409b0302550a0923c35b71a84d6b2899f2c356070c8d76aa8145e5a"
+    },
+    "writer_acceptance": {
+      "path": "design/chapter06_synthesis_writer_rebind_independent_audit.md",
+      "sha256": "467fdc810f14302dba80f0dd18ba34239dfedb7579b48280899f6f9b6e3b3653"
+    },
+    "publisher_contract": {
+      "path": "design/chapter06_lane_artifact_publisher_contract.md",
+      "sha256": "3a064f8291a9b7436ed4bc585b36f3459c3b46b4c9c48bed0d0852c83cf3d65b"
+    },
+    "publisher_contract_acceptance": {
+      "path": "design/chapter06_lane_artifact_publisher_contract_rebind_independent_audit.md",
+      "sha256": "fe48eb57f1f665a3f41756344c631a365a0b9260905918e80a1c2e58f8e335cc"
+    },
+    "candidate_byte_acceptance": {
+      "path": "design/chapter06_synthesis_candidate_byte_acceptance.md",
+      "sha256": "434088cff95ed60d65dc6c9749d18c2e74e45d114787c03728ed7ae9cf0bd9c9"
+    },
+    "atmosphere_candidate_byte_acceptance": {
+      "path": "design/chapter06_atmosphere_fixture_byte_acceptance.md",
+      "sha256": "8298b9473cf89161441bbd72a881c744e38fba699aa088eb876014642c91ed71"
+    },
+    "publisher": {
+      "path": "scripts/build_chapter06_synthesis_golden.py",
+      "sha256": "a9cc41f6b0862aa6857b0fdc060c6b6e22b6a2bd094c5cf1b9bc9b04463f6469"
+    },
+    "publisher_tests": {
+      "path": "tests/test_chapter06_synthesis_golden_publisher.py",
+      "sha256": "2d7fef267bbf3e71cd4267d7cdb8ddd1c0f1047b92cf212fef909fdce15e00b3"
+    },
+    "publisher_acceptance": {
+      "path": "design/chapter06_synthesis_golden_publisher_independent_audit.md",
+      "sha256": "fac18abc0b86cee71663506a100aed35bf4c24620c6e602792a1f21dd3c188cd"
+    }
+  },
+  "artifact": {
+    "path": "data/golden/payne_zero/chapter06/synthesis/chapter06_synthesis_one_line_cpu_float64_work_float32_accumulation.npz",
+    "filename": "chapter06_synthesis_one_line_cpu_float64_work_float32_accumulation.npz",
+    "role": "golden",
+    "purpose": "comparison-only",
+    "bytes": 1294865,
+    "sha256": "a4b1ffa44bf22d05bf4a680cb8e5d600f09f15ab4544cf4e6fa801641bc0a955",
+    "member_count": 213,
+    "archive_kind": "synthesis_one_line_comparison_candidate",
+    "comparison_only": true,
+    "compact_schema_version": 1,
+    "npy_member_format_version": "2.0",
+    "schema_digest": "911d06d931b8210154761badfc923962793dfdb77905b1c02051100633190bde",
+    "payload_fingerprint": "e4eeb8b02fcbcf283ade84e39a492e92756f4c2c0be62951f9a7b697c419368b",
+    "raw_ownership_digest": "5594db24db26f726606078449a6e5e48f5b9d8d1be8732f5e676c43fd7382675",
+    "raw_member_count": 754,
+    "raw_schema_digest": "d9d2d2424e9503fae7cb796db995d5a2ed1c73a31e85a707a10e173b2ef95178",
+    "raw_physical_fingerprint": "51371e5c0db1fa7eaefc1d4ef40c9c90393aac86239cbdb5b6e6c7f4b279b1fc",
+    "raw_full_fingerprint": "8e75e3582a3624110086e4a28c630f8c01ae7efee3bb78d2fd500b3f4926b893",
+    "contains_copied_input_state": false,
+    "contains_atmosphere_lane_members": false
+  },
+  "prepublication_manifest": {
+    "path": "data/MANIFEST.json",
+    "sha256": "b86959d1bf34607b121d9ac336a7443d966c82f8b55599e45f885ca961f815d9",
+    "schema_version": 1,
+    "payne_zero_commit": "9c44001feae40b85146630499e6f8a5fed42e5af",
+    "ordered_entry_path_digest": "6c48e8e946702fc962bd86572828b971beb3a70a3fdfca079cf6709735c44f68",
+    "destination_entry_absent": true,
+    "atmosphere_phase": "M1_registered_fixture",
+    "atmosphere_entry_path": "data/fixtures/chapter06_atmosphere_one_line_inputs.npz",
+    "atmosphere_artifact_sha256": "1b72767192672ac102a1b8e4b89b4d1d316a3da747d5197a9b99eaff38c86bff",
+    "atmosphere_entry_digest": "cfaf118c11c76a7b97198cb7fe7e3c0f78863f5eee71ea04bbe78c223d3653af"
+  },
+  "manifest_entry_template": {
+    "path": "data/golden/payne_zero/chapter06/synthesis/chapter06_synthesis_one_line_cpu_float64_work_float32_accumulation.npz",
+    "role": "golden",
+    "format": "npz",
+    "scope": "Comparison-only Chapter 6 synthesis one-line oracle; opened only after the reader-built result exists.",
+    "builder": "scripts/build_chapter06_synthesis_golden.py",
+    "builder_sha256": "a9cc41f6b0862aa6857b0fdc060c6b6e22b6a2bd094c5cf1b9bc9b04463f6469",
+    "publisher_contract_sha256": "3a064f8291a9b7436ed4bc585b36f3459c3b46b4c9c48bed0d0852c83cf3d65b",
+    "publisher_contract_acceptance_sha256": "fe48eb57f1f665a3f41756344c631a365a0b9260905918e80a1c2e58f8e335cc",
+    "candidate_byte_acceptance_sha256": "434088cff95ed60d65dc6c9749d18c2e74e45d114787c03728ed7ae9cf0bd9c9",
+    "atmosphere_candidate_byte_acceptance_sha256": "8298b9473cf89161441bbd72a881c744e38fba699aa088eb876014642c91ed71",
+    "publisher_acceptance_sha256": "fac18abc0b86cee71663506a100aed35bf4c24620c6e602792a1f21dd3c188cd",
+    "writer": "scripts/chapter06_synthesis_compact_writer.py",
+    "writer_sha256": "57aa7147afee4a7366cb2a075715d3607fa20507c23c07ec978b0698368ae47b",
+    "writer_tests_sha256": "7c41a74f9d2e38a23d988c990af4040ac262a8066cb3cd9feae4e29f0bdc0a4e",
+    "writer_candidate_sha256": "6ab1f346a409b0302550a0923c35b71a84d6b2899f2c356070c8d76aa8145e5a",
+    "writer_acceptance_sha256": "467fdc810f14302dba80f0dd18ba34239dfedb7579b48280899f6f9b6e3b3653",
+    "publication_acceptance_sha256": "__LATE_BOUND_AUTHORIZATION_SHA256__",
+    "publication_record_review_sha256": "__LATE_BOUND_RECORD_REVIEW_SHA256__",
+    "payne_zero_commit": "9c44001feae40b85146630499e6f8a5fed42e5af",
+    "source_data_snapshot_sha256": "9d802e5dd96d9dbbb7e71c9a4e769e2959860ca5b2330f7796376dad2cd05ce2",
+    "archive_kind": "synthesis_one_line_comparison_candidate",
+    "comparison_only": true,
+    "compact_schema_version": 1,
+    "npy_member_format_version": "2.0",
+    "compact_schema_digest": "911d06d931b8210154761badfc923962793dfdb77905b1c02051100633190bde",
+    "compact_payload_fingerprint": "e4eeb8b02fcbcf283ade84e39a492e92756f4c2c0be62951f9a7b697c419368b",
+    "raw_ownership_digest": "5594db24db26f726606078449a6e5e48f5b9d8d1be8732f5e676c43fd7382675",
+    "raw_member_count": 754,
+    "raw_schema_digest": "d9d2d2424e9503fae7cb796db995d5a2ed1c73a31e85a707a10e173b2ef95178",
+    "raw_physical_fingerprint": "51371e5c0db1fa7eaefc1d4ef40c9c90393aac86239cbdb5b6e6c7f4b279b1fc",
+    "raw_full_fingerprint": "8e75e3582a3624110086e4a28c630f8c01ae7efee3bb78d2fd500b3f4926b893",
+    "upstream_identities": {
+      "fixture_oracle_plan": {
+        "path": "design/chapter06_synthesis_fixture_oracle_plan.md",
+        "sha256": "413d86b6cb671912418d3a19848e3953614d3ac294bf71d6464b9abd8fc11856"
+      },
+      "phase1_candidate": {
+        "path": "design/chapter06_synthesis_plan_rebind_candidate.md",
+        "sha256": "dd64b85aa204bcac7e936de45e021b5ee2069046e50b47bf531b702959457b93"
+      },
+      "phase1_audit": {
+        "path": "design/chapter06_synthesis_plan_rebind_independent_audit.md",
+        "sha256": "9441ab9128b6cb204a7c26088f441b9700fecebfc687a29539a3012063f235b7"
+      },
+      "worker": {
+        "path": "scripts/chapter06_synthesis_oracle_worker.py",
+        "sha256": "36275193118cb7a7c37e91f240e42bb30992d777856154825d6eba5211cc6c68"
+      },
+      "worker_tests": {
+        "path": "tests/test_chapter06_synthesis_oracle_worker.py",
+        "sha256": "1109739338095716dc9f2e2752b6693e74aeedef72b28556eaea4716b00a8189"
+      },
+      "worker_audit": {
+        "path": "design/chapter06_synthesis_worker_independent_audit.md",
+        "sha256": "a54689e0a83ff139b2a893effe91cfe90b1ebeda9bbd4730125029c618c84334"
+      },
+      "assembler": {
+        "path": "scripts/chapter06_synthesis_compact_assembler.py",
+        "sha256": "583734a5843eb671e7ab7c4d598697bd53a569bef537b1806726b6bb360ca7a8"
+      },
+      "assembler_tests": {
+        "path": "tests/test_chapter06_synthesis_compact_assembler.py",
+        "sha256": "25e371da6fa5c2f86dfd5b2e5847c054103944d3fc5b205036b99d1b875a0153"
+      },
+      "phase2_candidate": {
+        "path": "design/chapter06_synthesis_compact_rebind_candidate.md",
+        "sha256": "54a9f327b7492897679e3e188d46dc4fb11f66727ed5a3e53a542cf382eac42c"
+      },
+      "phase2_audit": {
+        "path": "design/chapter06_synthesis_compact_rebind_independent_audit.md",
+        "sha256": "739854db2b5c4c0c0fe5e9db71d8a52958ce401ded7e7a80a8ab90e15172ddcb"
+      },
+      "writer": {
+        "path": "scripts/chapter06_synthesis_compact_writer.py",
+        "sha256": "57aa7147afee4a7366cb2a075715d3607fa20507c23c07ec978b0698368ae47b"
+      },
+      "writer_tests": {
+        "path": "tests/test_chapter06_synthesis_compact_writer.py",
+        "sha256": "7c41a74f9d2e38a23d988c990af4040ac262a8066cb3cd9feae4e29f0bdc0a4e"
+      },
+      "writer_candidate": {
+        "path": "design/chapter06_synthesis_writer_rebind_candidate.md",
+        "sha256": "6ab1f346a409b0302550a0923c35b71a84d6b2899f2c356070c8d76aa8145e5a"
+      },
+      "writer_acceptance": {
+        "path": "design/chapter06_synthesis_writer_rebind_independent_audit.md",
+        "sha256": "467fdc810f14302dba80f0dd18ba34239dfedb7579b48280899f6f9b6e3b3653"
+      },
+      "publisher_contract": {
+        "path": "design/chapter06_lane_artifact_publisher_contract.md",
+        "sha256": "3a064f8291a9b7436ed4bc585b36f3459c3b46b4c9c48bed0d0852c83cf3d65b"
+      },
+      "publisher_contract_acceptance": {
+        "path": "design/chapter06_lane_artifact_publisher_contract_rebind_independent_audit.md",
+        "sha256": "fe48eb57f1f665a3f41756344c631a365a0b9260905918e80a1c2e58f8e335cc"
+      },
+      "candidate_byte_acceptance": {
+        "path": "design/chapter06_synthesis_candidate_byte_acceptance.md",
+        "sha256": "434088cff95ed60d65dc6c9749d18c2e74e45d114787c03728ed7ae9cf0bd9c9"
+      },
+      "atmosphere_candidate_byte_acceptance": {
+        "path": "design/chapter06_atmosphere_fixture_byte_acceptance.md",
+        "sha256": "8298b9473cf89161441bbd72a881c744e38fba699aa088eb876014642c91ed71"
+      }
+    },
+    "reproducibility_environment": {
+      "LC_ALL": "C",
+      "MKL_DYNAMIC": "FALSE",
+      "MKL_NUM_THREADS": "1",
+      "NUMBA_NUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "PYTHONHASHSEED": "0",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "PYTHONNOUSERSITE": "1",
+      "TZ": "UTC",
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "cpu_only": true,
+      "work_dtype": "torch.float64",
+      "accumulation_dtype": "torch.float32",
+      "archive_compression": "ZIP_STORED",
+      "npy_member_format_version": "2.0"
+    },
+    "arrays": {
+      "activity__post_cutoff_mask": {
+        "shape": [
+          4,
+          6
+        ],
+        "dtype": "bool",
+        "unit": "boolean",
+        "sha256": "680bd0ba34d09ced4bf1529525b04fe6bf623aa6c971e1840314e089a47fe546",
+        "axes": [
+          "regime",
+          "depth"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "axis__depth_index": {
+        "shape": [
+          6
+        ],
+        "dtype": "int64",
+        "unit": "zero-based index",
+        "sha256": "f190072c5052f4f440d4a607c25f5bced487c420806c9aab4ca5b0653e72da61",
+        "axes": [
+          "depth"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "axis__regime_name": {
+        "shape": [
+          4
+        ],
+        "dtype": "<U18",
+        "unit": "regime label",
+        "sha256": "9c24abefed2e02628c1921a7905edbde06320ea354f3b07de31c28711f3a90f2",
+        "axes": [
+          "regime"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "axis__wavelength_nm": {
+        "shape": [
+          6000
+        ],
+        "dtype": "float64",
+        "unit": "nm",
+        "sha256": "f3490c4bdeba51f4c917086494572b6854da3b4045cf7659b3deec2b18100c35",
+        "axes": [
+          "wavelength"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "coarse__activity_mask": {
+        "shape": [
+          4,
+          6
+        ],
+        "dtype": "bool",
+        "unit": "boolean",
+        "sha256": "680bd0ba34d09ced4bf1529525b04fe6bf623aa6c971e1840314e089a47fe546",
+        "axes": [
+          "regime",
+          "depth"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "coarse__first_wavelength_nm": {
+        "shape": [],
+        "dtype": "float64",
+        "unit": "nm",
+        "sha256": "c15a12faf636091c60ea543b6ecee612a918cbb48a1c07181ee4968ee4bf887c",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "coarse__grid_count": {
+        "shape": [],
+        "dtype": "int64",
+        "unit": "count",
+        "sha256": "1e7be6b7b822671624a11e5bad13b99f401945b10fce09c9b3a6e746970c1ad3",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "coarse__grid_resolution": {
+        "shape": [],
+        "dtype": "float64",
+        "unit": "dimensionless resolving power",
+        "sha256": "e43f24d4176f2d757bdbe75b0e27d4d8522a202101643aec12bf6a9d485fe578",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "coarse__grid_sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 wavelength-axis identity",
+        "sha256": "fd33b969ae4dd7a1eb643e8ac0b09b16299562de8bd07de9a0aa6a87042df2ca",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "coarse__gross_peak_float32": {
+        "shape": [
+          4
+        ],
+        "dtype": "float32",
+        "unit": "cm^2 g^-1",
+        "sha256": "e3b967c0516b11e88e88d48e598bf4b5f24f4dfda5fc8cc1abea3460192fc67f",
+        "axes": [
+          "regime"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "coarse__last_wavelength_nm": {
+        "shape": [],
+        "dtype": "float64",
+        "unit": "nm",
+        "sha256": "7a8410c028ddf9b29a69f29d9b61e5cb2300f512addd1a4b3acc5a55d0668d8a",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "coarse__line_center_index": {
+        "shape": [],
+        "dtype": "int64",
+        "unit": "zero-based index",
+        "sha256": "b758be755d4bb02ea508b84c6265403c5f2f7f3b5dc5919c41ee44f019af4fbe",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "coarse__line_center_wavelength_nm": {
+        "shape": [],
+        "dtype": "float64",
+        "unit": "nm",
+        "sha256": "6e9d599220e3c9dd3f3613121cb041b6a6761f67098d5c9331150434732b3df7",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "coarse__line_wing_index": {
+        "shape": [],
+        "dtype": "int64",
+        "unit": "zero-based index",
+        "sha256": "b758be755d4bb02ea508b84c6265403c5f2f7f3b5dc5919c41ee44f019af4fbe",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "coarse__net_peak_float32": {
+        "shape": [
+          4
+        ],
+        "dtype": "float32",
+        "unit": "cm^2 g^-1",
+        "sha256": "df5f0d2c371f4c0e6a04de7bbff168558fa054064167feed105bdc381722cbde",
+        "axes": [
+          "regime"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "coarse__nonzero_count_maximum": {
+        "shape": [
+          4
+        ],
+        "dtype": "int64",
+        "unit": "count",
+        "sha256": "1fe7840aeb081332c4b79df964567d02271b71c6919e29dfc7dc54f33109256b",
+        "axes": [
+          "regime"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "coarse__nonzero_count_minimum": {
+        "shape": [
+          4
+        ],
+        "dtype": "int64",
+        "unit": "count",
+        "sha256": "6b3a99ee1b8a5bfeb760821bd488260899e0fcb3dbd1a22fda54c3969950756f",
+        "axes": [
+          "regime"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "coarse__wing_reach_maximum": {
+        "shape": [
+          4
+        ],
+        "dtype": "int64",
+        "unit": "count",
+        "sha256": "04592ca85bdbd1a52a40e0df22701c15febbc414128f4baa46de15ba3520dc82",
+        "axes": [
+          "regime"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "coarse__wing_reach_minimum": {
+        "shape": [
+          4
+        ],
+        "dtype": "int64",
+        "unit": "count",
+        "sha256": "4ff8ce1dd9258ef46321f9fb12e38f4efed2eb402d51db622746dd58b3c91c9a",
+        "axes": [
+          "regime"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "continuum__canonical__continuum_absorption_float64_sha256": {
+        "shape": [
+          4
+        ],
+        "dtype": "<U64",
+        "unit": "SHA-256 member identity over dtype, shape, and bytes",
+        "sha256": "0e71f5ef6b5357d1df891691d0e4bbbd81b8f89c4f08e2c4d34772ed07fd22b5",
+        "axes": [
+          "regime"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "continuum__canonical__continuum_line_input_float32_sha256": {
+        "shape": [
+          4
+        ],
+        "dtype": "<U64",
+        "unit": "SHA-256 member identity over dtype, shape, and bytes",
+        "sha256": "ce400751e40203538d826dfe24336b8a331959d9c4e0b69a3b18464dad0946c2",
+        "axes": [
+          "regime"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "continuum__canonical__continuum_scattering_float64_sha256": {
+        "shape": [
+          4
+        ],
+        "dtype": "<U64",
+        "unit": "SHA-256 member identity over dtype, shape, and bytes",
+        "sha256": "dc4cdfa4f2832dcd01c8f2bfd4d9541cbf488a5006128826f457d90923869982",
+        "axes": [
+          "regime"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "continuum__canonical__continuum_total_float64_sha256": {
+        "shape": [
+          4
+        ],
+        "dtype": "<U64",
+        "unit": "SHA-256 member identity over dtype, shape, and bytes",
+        "sha256": "4716f4c30d69257b71561273a56e51a4c7dc76d423ca13ad496fa8e0bf6bb2ac",
+        "axes": [
+          "regime"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "continuum__center_float32": {
+        "shape": [
+          4,
+          6
+        ],
+        "dtype": "float32",
+        "unit": "cm^2 g^-1",
+        "sha256": "301547340da67412867fa1057523b8a883a095676818e41f7c2e6c6c7f38dd64",
+        "axes": [
+          "regime",
+          "depth"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "continuum__coarse__continuum_absorption_float64_sha256": {
+        "shape": [
+          4
+        ],
+        "dtype": "<U64",
+        "unit": "SHA-256 member identity over dtype, shape, and bytes",
+        "sha256": "dd0199b5a39dbb52d446e667c99d2d0d79fb1a7aea1703d504706bcbe6bc8d79",
+        "axes": [
+          "regime"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "continuum__coarse__continuum_line_input_float32_sha256": {
+        "shape": [
+          4
+        ],
+        "dtype": "<U64",
+        "unit": "SHA-256 member identity over dtype, shape, and bytes",
+        "sha256": "906d2de7179d2ab2b9977208fc5e756ecde5a549e00f92e34ef6bf455dc99f6e",
+        "axes": [
+          "regime"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "continuum__coarse__continuum_scattering_float64_sha256": {
+        "shape": [
+          4
+        ],
+        "dtype": "<U64",
+        "unit": "SHA-256 member identity over dtype, shape, and bytes",
+        "sha256": "ed30da3885ee9255648657dbe0e3a272b06ac6d3103f2984dd6802ccfb313c7e",
+        "axes": [
+          "regime"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "continuum__coarse__continuum_total_float64_sha256": {
+        "shape": [
+          4
+        ],
+        "dtype": "<U64",
+        "unit": "SHA-256 member identity over dtype, shape, and bytes",
+        "sha256": "ccf761bf8a2be104eb27d73dd36446fa4186ac774b7c5893044eb64c088be9ef",
+        "axes": [
+          "regime"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "continuum__wing_float32": {
+        "shape": [
+          4,
+          6
+        ],
+        "dtype": "float32",
+        "unit": "cm^2 g^-1",
+        "sha256": "301547340da67412867fa1057523b8a883a095676818e41f7c2e6c6c7f38dd64",
+        "axes": [
+          "regime",
+          "depth"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "grid__canonical_line_center_index": {
+        "shape": [],
+        "dtype": "int64",
+        "unit": "zero-based index",
+        "sha256": "9a68c3147745d0cf6444649bfcb0f290fb2e1ee4a2055e9f7942ad8e4512745a",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "grid__canonical_line_wing_index": {
+        "shape": [],
+        "dtype": "int64",
+        "unit": "zero-based index",
+        "sha256": "9a68c3147745d0cf6444649bfcb0f290fb2e1ee4a2055e9f7942ad8e4512745a",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "grid__canonical_sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 wavelength-axis identity",
+        "sha256": "4244d8f5124a6e5582dd175602103b247644d452cdce75eeeef12ef076d0f48d",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__payne_zero_commit": {
+        "shape": [],
+        "dtype": "<U40",
+        "unit": "Git commit identity",
+        "sha256": "fece4f0bc575081001c3c70ebb168a7ccc39f43fa3f9d6a2cf3fdf87c78f83e0",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__source__payne_zero_synthesis/__init__.py__sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "aeb8b282f35c38498085e40b93d7cea6495646cefe20e41d409699888ebb29dc",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__source__payne_zero_synthesis/api.py__sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "3fad81d20767349eef5ae7a6a63608011e0dce7897f7abfbbead6b2333e1d99a",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__source__payne_zero_synthesis/atmosphere.py__sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "bc8fc4bcdbeb24771f899bd14d8fa52101c73868d9f1fd8d4a33e543a1c7f8af",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__source__payne_zero_synthesis/atomic_lines.py__sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "64a765ef7e364af6a4a44dbf2fc6fb3bbc7344ebbc5f5fc968ffde64ba2956e0",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__source__payne_zero_synthesis/constants.py__sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "e4bb8ec345dfb0c5f46a867879510b0ee5a5ea242046cd20de21f8f0b55b6600",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__source__payne_zero_synthesis/continuum.py__sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "0c4defab0825d0f9a235f4102bd0cd0395fb1ca902cae5723b46a4438fd04910",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__source__payne_zero_synthesis/device.py__sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "f1a6a78612d146d9da86e5465960bc10c4c2ebe0ceec36c2cf1aa8b920d85d4d",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__source__payne_zero_synthesis/equation_of_state.py__sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "367cc4c2f8795ed8003872aef59f05bde37f56642890e4881ed0a5d3fba8e04a",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__source__payne_zero_synthesis/ground_partition_table.py__sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "738de5ea1a61f60c10585f333158345a01385474414a824e904e44e803d4786b",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__source__payne_zero_synthesis/hydrogen_lines.py__sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "70d31d0223cdbcd37b0ec7c552b2e91cd97ea2482b97b647e2b8430b9c267eab",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__source__payne_zero_synthesis/line_opacity.py__sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "d5235c5f7c35dc121478c384ab4c4f80b468412fb2142a24e79d4e43b985955d",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__source__payne_zero_synthesis/molecular_equilibrium.py__sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "c045c61220966a461b60f5e257c405bc0a85d7d4aa41ce526ebc68de1f409dec",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__source__payne_zero_synthesis/molecular_lines.py__sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "7795a30837a2693ace6b23b2ed193ea125f0bf5fa61b2ad77d985e456deb42d9",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__source__payne_zero_synthesis/paths.py__sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "a1a92aef66dc06511deae8f289921ac9418c5b7d580eba531113b00509229dc7",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__source__payne_zero_synthesis/pipeline.py__sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "3416f691dcb6634e7b3031ccfe55ca8bab8a7e64700372bdbd7ba2813092c450",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__source__payne_zero_synthesis/radiative_transfer.py__sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "cea18425ddcf4d90a75ed1c403c253585dabb66d49672800b9be5abcaa2ce19f",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__source__payne_zero_synthesis/synthesis.py__sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "23a7da74c7dd25236d7138c015735a3d8654354d856b038ace529c433d7550e3",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__source_archive_sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "a1f34218be88ab44712364683012c57947ffaea6e2374c8a24e98989ed1c423c",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__staged_source__atomic_lines.py__sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "64a765ef7e364af6a4a44dbf2fc6fb3bbc7344ebbc5f5fc968ffde64ba2956e0",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__staged_source__constants.py__sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "e4bb8ec345dfb0c5f46a867879510b0ee5a5ea242046cd20de21f8f0b55b6600",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__staged_source__continuum.py__sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "0c4defab0825d0f9a235f4102bd0cd0395fb1ca902cae5723b46a4438fd04910",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__staged_source__device.py__sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "f1a6a78612d146d9da86e5465960bc10c4c2ebe0ceec36c2cf1aa8b920d85d4d",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__staged_source__line_opacity.py__sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "d5235c5f7c35dc121478c384ab4c4f80b468412fb2142a24e79d4e43b985955d",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__table__continuum_edge_grid__sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "5953ed657879a26e43f0f8f86c1690eb7937a9e4b81bd6d2987f560e2ae2b122",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__table__continuum_tables__sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "8c8c2dc85c4717f566ca2f0b493861041a07c7391a05a5328dcb13d953538871",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "identity__table__line_profile_tables__sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 identity",
+        "sha256": "6e02e35b061481e25afcddca120fdbc34e78234f9c94f205110e60efbeabef48",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__auto_catalog_index": {
+        "shape": [
+          0
+        ],
+        "dtype": "int64",
+        "unit": "zero-based index",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "axes": [
+          "auto_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__auto_center_clamped": {
+        "shape": [
+          0
+        ],
+        "dtype": "int64",
+        "unit": "zero-based index",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "axes": [
+          "auto_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__auto_center_index": {
+        "shape": [
+          0
+        ],
+        "dtype": "int64",
+        "unit": "zero-based index",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "axes": [
+          "auto_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__auto_lower_excitation_cm": {
+        "shape": [
+          0
+        ],
+        "dtype": "float64",
+        "unit": "cm^-1",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "axes": [
+          "auto_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__auto_oscillator_strength": {
+        "shape": [
+          0
+        ],
+        "dtype": "float32",
+        "unit": "dimensionless gf",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "axes": [
+          "auto_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__auto_population_element_index": {
+        "shape": [
+          0
+        ],
+        "dtype": "int64",
+        "unit": "zero-based index",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "axes": [
+          "auto_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__auto_population_ion_stage_index": {
+        "shape": [
+          0
+        ],
+        "dtype": "int64",
+        "unit": "zero-based index",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "axes": [
+          "auto_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__auto_radiative_damping": {
+        "shape": [
+          0
+        ],
+        "dtype": "float32",
+        "unit": "s^-1",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "axes": [
+          "auto_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__auto_stark_damping": {
+        "shape": [
+          0
+        ],
+        "dtype": "float32",
+        "unit": "cm^3 s^-1",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "axes": [
+          "auto_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__auto_van_der_waals_damping": {
+        "shape": [
+          0
+        ],
+        "dtype": "float32",
+        "unit": "cm^3 s^-1",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "axes": [
+          "auto_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__auto_wavelength_nm": {
+        "shape": [
+          0
+        ],
+        "dtype": "float64",
+        "unit": "nm",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "axes": [
+          "auto_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__grid_resolution": {
+        "shape": [],
+        "dtype": "float64",
+        "unit": "dimensionless resolving power",
+        "sha256": "b2632ab4d6e2a55ccab487cb592718ec2cdc7a5679a3b66c211ec33f8b880f1a",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__helium_center_index": {
+        "shape": [
+          0
+        ],
+        "dtype": "int64",
+        "unit": "zero-based index",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "axes": [
+          "helium_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__helium_classical_strength": {
+        "shape": [
+          0
+        ],
+        "dtype": "float32",
+        "unit": "cm^2",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "axes": [
+          "helium_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__helium_cutoff": {
+        "shape": [],
+        "dtype": "float64",
+        "unit": "dimensionless",
+        "sha256": "cb529eddce2ef8826d77d57b8acb0f1b648ed6a4b1b5358696939aab6ee2b17c",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__helium_line_type": {
+        "shape": [
+          0
+        ],
+        "dtype": "int64",
+        "unit": "type code",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "axes": [
+          "helium_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__helium_lower_excitation_cm": {
+        "shape": [
+          0
+        ],
+        "dtype": "float64",
+        "unit": "cm^-1",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "axes": [
+          "helium_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__helium_population_element_index": {
+        "shape": [
+          0
+        ],
+        "dtype": "int64",
+        "unit": "zero-based index",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "axes": [
+          "helium_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__helium_population_ion_stage_index": {
+        "shape": [
+          0
+        ],
+        "dtype": "int64",
+        "unit": "zero-based index",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "axes": [
+          "helium_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__helium_radiative_damping": {
+        "shape": [
+          0
+        ],
+        "dtype": "float32",
+        "unit": "dimensionless normalized by 12.5664*frequency_hz",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "axes": [
+          "helium_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__helium_stark_damping": {
+        "shape": [
+          0
+        ],
+        "dtype": "float32",
+        "unit": "cm^3 normalized by 12.5664*frequency_hz",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "axes": [
+          "helium_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__helium_van_der_waals_damping": {
+        "shape": [
+          0
+        ],
+        "dtype": "float32",
+        "unit": "cm^3 normalized by 12.5664*frequency_hz",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "axes": [
+          "helium_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__helium_wavelength_nm": {
+        "shape": [
+          0
+        ],
+        "dtype": "float64",
+        "unit": "nm",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "axes": [
+          "helium_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__metal_catalog_index": {
+        "shape": [
+          1
+        ],
+        "dtype": "int64",
+        "unit": "zero-based index",
+        "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+        "axes": [
+          "metal_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__metal_center_clamped": {
+        "shape": [
+          1
+        ],
+        "dtype": "int64",
+        "unit": "zero-based index",
+        "sha256": "9a68c3147745d0cf6444649bfcb0f290fb2e1ee4a2055e9f7942ad8e4512745a",
+        "axes": [
+          "metal_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__metal_center_index": {
+        "shape": [
+          1
+        ],
+        "dtype": "int64",
+        "unit": "zero-based index",
+        "sha256": "9a68c3147745d0cf6444649bfcb0f290fb2e1ee4a2055e9f7942ad8e4512745a",
+        "axes": [
+          "metal_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__metal_classical_strength": {
+        "shape": [
+          1
+        ],
+        "dtype": "float32",
+        "unit": "cm^2",
+        "sha256": "d0c1367e6fa5cce185ce28da54eeb73a44f0dc41aeada4d250130547b29c2934",
+        "axes": [
+          "metal_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__metal_lower_excitation_cm": {
+        "shape": [
+          1
+        ],
+        "dtype": "float64",
+        "unit": "cm^-1",
+        "sha256": "ef9a8270a5e2864fb9289b4675af97de765560f9c33498e5be04df2095e6d4c4",
+        "axes": [
+          "metal_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__metal_population_element_index": {
+        "shape": [
+          1
+        ],
+        "dtype": "int64",
+        "unit": "zero-based index",
+        "sha256": "bf5b0e89f1caed18c8d6ff15d17ecc5c6e0c89510b4bc6d7b4b51d4ed30999cb",
+        "axes": [
+          "metal_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__metal_population_ion_stage_index": {
+        "shape": [
+          1
+        ],
+        "dtype": "int64",
+        "unit": "zero-based index",
+        "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+        "axes": [
+          "metal_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__metal_radiative_damping": {
+        "shape": [
+          1
+        ],
+        "dtype": "float32",
+        "unit": "dimensionless normalized by 12.5664*frequency_hz",
+        "sha256": "150c187ab0665d332580fb4cd122a846e4bc14b507ec6c3a5c2c7c234a678ded",
+        "axes": [
+          "metal_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__metal_stark_damping": {
+        "shape": [
+          1
+        ],
+        "dtype": "float32",
+        "unit": "cm^3 normalized by 12.5664*frequency_hz",
+        "sha256": "666c13f5a8c21890b5c65a458951a3e51b315753ce37cad17210a770f19fc128",
+        "axes": [
+          "metal_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__metal_van_der_waals_damping": {
+        "shape": [
+          1
+        ],
+        "dtype": "float32",
+        "unit": "cm^3 normalized by 12.5664*frequency_hz",
+        "sha256": "4d0a97e8264d287e4a98a7ef63c6a7fc2cfeea8c583fd3341a219d37bee8e397",
+        "axes": [
+          "metal_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__metal_wavelength_nm": {
+        "shape": [
+          1
+        ],
+        "dtype": "float64",
+        "unit": "nm",
+        "sha256": "688ad6f74cda43957bcc6a9bb84963003278a35e44a0a248991f2523debb819b",
+        "axes": [
+          "metal_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__metal_wing_clamped": {
+        "shape": [
+          1
+        ],
+        "dtype": "int64",
+        "unit": "zero-based index",
+        "sha256": "9a68c3147745d0cf6444649bfcb0f290fb2e1ee4a2055e9f7942ad8e4512745a",
+        "axes": [
+          "metal_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__metal_wing_index": {
+        "shape": [
+          1
+        ],
+        "dtype": "int64",
+        "unit": "zero-based index",
+        "sha256": "9a68c3147745d0cf6444649bfcb0f290fb2e1ee4a2055e9f7942ad8e4512745a",
+        "axes": [
+          "metal_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "invariant__n_wavelengths": {
+        "shape": [],
+        "dtype": "int64",
+        "unit": "count",
+        "sha256": "903ee41995fa9aad796b1927aa72bc25afb27c2597dde2d4883a10fdb240c4ca",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "ledger__center_cutoff_work_float64": {
+        "shape": [
+          4,
+          6
+        ],
+        "dtype": "float64",
+        "unit": "cm^2 g^-1",
+        "sha256": "e5fca9184b0977e0072065cc42a48d0da0b9d55ae681efa3e4345341e834f3c7",
+        "axes": [
+          "regime",
+          "depth"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "ledger__center_profile": {
+        "shape": [
+          4,
+          6
+        ],
+        "dtype": "float64",
+        "unit": "dimensionless Harris value",
+        "sha256": "4fdaa3a83582dfad4a2c3f8bdd35d221092b3ea62e2c8595979b18fbf67e4eda",
+        "axes": [
+          "regime",
+          "depth"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "ledger__damping_ratio": {
+        "shape": [
+          4,
+          6
+        ],
+        "dtype": "float64",
+        "unit": "dimensionless",
+        "sha256": "f79358f052c2d97d5f09d0bd2781149571c6aea641d1f7f7a5aebcea0eaa73f0",
+        "axes": [
+          "regime",
+          "depth"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "ledger__fastex_weight": {
+        "shape": [
+          4,
+          6
+        ],
+        "dtype": "float64",
+        "unit": "dimensionless",
+        "sha256": "7bafa5f39d36c2fb4f75106a504b2fb9bfdee103f90216fe172471785aa07d04",
+        "axes": [
+          "regime",
+          "depth"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "ledger__gross_center_opacity_float32": {
+        "shape": [
+          4,
+          6
+        ],
+        "dtype": "float32",
+        "unit": "cm^2 g^-1",
+        "sha256": "1087a623089136e84428b3542371f5e05e1a0f520c4775281c831001eac949b7",
+        "axes": [
+          "regime",
+          "depth"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "ledger__lower_excitation_exponent": {
+        "shape": [
+          4,
+          6
+        ],
+        "dtype": "float64",
+        "unit": "dimensionless",
+        "sha256": "cf09e1b84427dbf3a395e60a895c4b270d8669943b8321ecdc9b9f962ee0bf29",
+        "axes": [
+          "regime",
+          "depth"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "ledger__net_center_opacity_float32": {
+        "shape": [
+          4,
+          6
+        ],
+        "dtype": "float32",
+        "unit": "cm^2 g^-1",
+        "sha256": "f01e03248b0b965d8f5565a700660728df7784e6ea94c8d02fba3d6197a0b331",
+        "axes": [
+          "regime",
+          "depth"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "ledger__nonzero_count": {
+        "shape": [
+          4,
+          6
+        ],
+        "dtype": "int64",
+        "unit": "count",
+        "sha256": "546ecac3c9768f7667301cbb86d755ab1a6ba5d7f29430099850546e3a42370f",
+        "axes": [
+          "regime",
+          "depth"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "ledger__post_fastex_line_amplitude": {
+        "shape": [
+          4,
+          6
+        ],
+        "dtype": "float64",
+        "unit": "cm^2 g^-1 pre-profile scale",
+        "sha256": "4e0c8bd37f6b08294f729dd9df17ea67023be4060e8d8b8cecb475e1eae8b216",
+        "axes": [
+          "regime",
+          "depth"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "ledger__pre_cutoff_active": {
+        "shape": [
+          4,
+          6
+        ],
+        "dtype": "bool",
+        "unit": "boolean",
+        "sha256": "bf8d52844464c4233d212e98dadd9d77357d9461459b36ea4d81aa50f8a9a0c1",
+        "axes": [
+          "regime",
+          "depth"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "ledger__pre_excitation_strength": {
+        "shape": [
+          4,
+          6
+        ],
+        "dtype": "float64",
+        "unit": "cm^2 g^-1 pre-profile scale",
+        "sha256": "ca9a595245a9c951151d65edf9ca54f865849632a1de847648da6b2914de006b",
+        "axes": [
+          "regime",
+          "depth"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "ledger__radiative_damping_term": {
+        "shape": [
+          4,
+          6
+        ],
+        "dtype": "float64",
+        "unit": "dimensionless",
+        "sha256": "ff25783b1cae9bdd8a5787749515074a9be14dcdfefb07d97ff577a87482b85c",
+        "axes": [
+          "regime",
+          "depth"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "ledger__stark_damping_term": {
+        "shape": [
+          4,
+          6
+        ],
+        "dtype": "float64",
+        "unit": "dimensionless",
+        "sha256": "6540d09cb9eb5fe9e8b6c7e8a90f80c47417a419ac572527348452a88ba73895",
+        "axes": [
+          "regime",
+          "depth"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "ledger__stimulated_center_factor_float32": {
+        "shape": [
+          4,
+          6
+        ],
+        "dtype": "float32",
+        "unit": "dimensionless",
+        "sha256": "62cec50f1f04b7db89cc2f837dc17cfc4dabe17a70efc2e5d7da600d24221607",
+        "axes": [
+          "regime",
+          "depth"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "ledger__total_damping": {
+        "shape": [
+          4,
+          6
+        ],
+        "dtype": "float64",
+        "unit": "dimensionless",
+        "sha256": "1cc68679907377ca072d9bf2953effbded6d52f6457d59203ccf7fd4a0583f00",
+        "axes": [
+          "regime",
+          "depth"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "ledger__van_der_waals_damping_term": {
+        "shape": [
+          4,
+          6
+        ],
+        "dtype": "float64",
+        "unit": "dimensionless",
+        "sha256": "3a209f8deae2ece8d5f4d0f999b4e90ad8e1332aa17b2927394be3cefdcedb4f",
+        "axes": [
+          "regime",
+          "depth"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "ledger__wing_reach": {
+        "shape": [
+          4,
+          6
+        ],
+        "dtype": "int64",
+        "unit": "count",
+        "sha256": "723358457b0e90967658fb9e0178db4035518528e9585c2eb67841d82fd86712",
+        "axes": [
+          "regime",
+          "depth"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "mapping__atomic_number": {
+        "shape": [
+          1
+        ],
+        "dtype": "int64",
+        "unit": "atomic number",
+        "sha256": "0eb4151526e178c1eb80712010d8f2da558857531afdbac4b4a508f62cb23318",
+        "axes": [
+          "line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "mapping__helium_line_center_cutoff_ratio": {
+        "shape": [],
+        "dtype": "float64",
+        "unit": "dimensionless",
+        "sha256": "cb529eddce2ef8826d77d57b8acb0f1b648ed6a4b1b5358696939aab6ee2b17c",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "mapping__helium_line_type": {
+        "shape": [
+          0
+        ],
+        "dtype": "int64",
+        "unit": "type code",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "axes": [
+          "helium_line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "mapping__index_wavelength_nm": {
+        "shape": [
+          1
+        ],
+        "dtype": "float64",
+        "unit": "nm",
+        "sha256": "688ad6f74cda43957bcc6a9bb84963003278a35e44a0a248991f2523debb819b",
+        "axes": [
+          "line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "mapping__ion_stage": {
+        "shape": [
+          1
+        ],
+        "dtype": "int64",
+        "unit": "one-based ion stage",
+        "sha256": "7c9fa136d4413fa6173637e883b6998d32e1d675f88cddff9dcbcf331820f4b8",
+        "axes": [
+          "line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "mapping__line_type": {
+        "shape": [
+          1
+        ],
+        "dtype": "int64",
+        "unit": "type code",
+        "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+        "axes": [
+          "line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "mapping__lower_excitation_cm": {
+        "shape": [
+          1
+        ],
+        "dtype": "float64",
+        "unit": "cm^-1",
+        "sha256": "ef9a8270a5e2864fb9289b4675af97de765560f9c33498e5be04df2095e6d4c4",
+        "axes": [
+          "line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "mapping__oscillator_strength": {
+        "shape": [
+          1
+        ],
+        "dtype": "float64",
+        "unit": "dimensionless gf",
+        "sha256": "b848f3a9ab42b8483c7fdd69e3e3e79b647345dd4a4fa016807fa131c1d4c394",
+        "axes": [
+          "line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "mapping__radiative_damping": {
+        "shape": [
+          1
+        ],
+        "dtype": "float64",
+        "unit": "dimensionless normalized by 12.5664*frequency_hz",
+        "sha256": "e58d23298d7fa0350cfd99516448a4951e3e6912ebc69fab7480e3b98ac269fb",
+        "axes": [
+          "line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "mapping__raw_radiative_damping_log": {
+        "shape": [
+          1
+        ],
+        "dtype": "float64",
+        "unit": "log10(s^-1)",
+        "sha256": "ee0ce0242f5c0ed25ae5f54b6ab132d1853309cab09f9f66200be78a2b1fb894",
+        "axes": [
+          "line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "mapping__raw_stark_damping_log": {
+        "shape": [
+          1
+        ],
+        "dtype": "float64",
+        "unit": "log10(cm^3 s^-1)",
+        "sha256": "d1ba2ec051c21d63816e82d2914c3592a163c577b8e0c45b40f8dd03ad9bb756",
+        "axes": [
+          "line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "mapping__raw_van_der_waals_damping_log": {
+        "shape": [
+          1
+        ],
+        "dtype": "float64",
+        "unit": "log10(cm^3 s^-1)",
+        "sha256": "c2ec04a974a7505b93aeefc19577c68143db027ed8471958abdcbc3f453ee7b2",
+        "axes": [
+          "line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "mapping__stark_damping": {
+        "shape": [
+          1
+        ],
+        "dtype": "float64",
+        "unit": "cm^3 normalized by 12.5664*frequency_hz",
+        "sha256": "1bb3adf2fc1a51f83ff8b604d30ddba4bc80836e0b8c2d148d880d7a9a39605d",
+        "axes": [
+          "line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "mapping__van_der_waals_damping": {
+        "shape": [
+          1
+        ],
+        "dtype": "float64",
+        "unit": "cm^3 normalized by 12.5664*frequency_hz",
+        "sha256": "d8b5e882645edcc5263fd3fba9b4b045984adf96575ec615487f77754f217297",
+        "axes": [
+          "line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "mapping__wavelength_nm": {
+        "shape": [
+          1
+        ],
+        "dtype": "float64",
+        "unit": "nm",
+        "sha256": "688ad6f74cda43957bcc6a9bb84963003278a35e44a0a248991f2523debb819b",
+        "axes": [
+          "line"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__architecture": {
+        "shape": [],
+        "dtype": "<U5",
+        "unit": "metadata",
+        "sha256": "640a9e19faa04d198d15f9f5bbff7dd1909389cfcac857bf7529bbe76ea2651e",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__archive_kind": {
+        "shape": [],
+        "dtype": "<U39",
+        "unit": "metadata",
+        "sha256": "f34dc670187a06b10108fd4dd07584a1bb0dd75e2ad85f677532ee0be535a25d",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__assembler_sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 source identity",
+        "sha256": "9fda687099cece241f20b14ab2e09192c5aaf6b91e33d20896596627995b529a",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__capture_schema_digest": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "metadata",
+        "sha256": "88814e38af7dd76fe35242a4821d648a07a0d9aef6a94ace62906aba0e891d08",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__capture_schema_version": {
+        "shape": [],
+        "dtype": "int64",
+        "unit": "metadata",
+        "sha256": "7c9fa136d4413fa6173637e883b6998d32e1d675f88cddff9dcbcf331820f4b8",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__capture_scope": {
+        "shape": [],
+        "dtype": "<U128",
+        "unit": "metadata",
+        "sha256": "f5b7c08525e9167704e136247a40509b3ffbb48ce59d188f7833e7b120a7f0ca",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__capture_scope_complete": {
+        "shape": [],
+        "dtype": "bool",
+        "unit": "metadata",
+        "sha256": "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__catalog_line_fields": {
+        "shape": [
+          13
+        ],
+        "dtype": "<U29",
+        "unit": "metadata",
+        "sha256": "aee216613cb4fcec39afa853e7d36e77e07d55e7b98f4a87bf303a3339be9af3",
+        "axes": [
+          "metadata_entry"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__catalog_support_fields": {
+        "shape": [
+          5
+        ],
+        "dtype": "<U31",
+        "unit": "metadata",
+        "sha256": "3a7dc453b4f5278d29e64ab351021b43d32335d25e3ea0439c28a4bb9680f41e",
+        "axes": [
+          "metadata_entry"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__compact_key_count": {
+        "shape": [],
+        "dtype": "int64",
+        "unit": "count",
+        "sha256": "4c11dd754eaf239befb8257873ec75d32e24f0682c793f2c4c62234a9c65f6c8",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__compact_payload_fingerprint": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 payload identity",
+        "sha256": "3bf4e2b12b08c797fef190f1d3f635a3cc7ae0c580eada0312605e892dee80f9",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__compact_schema_digest": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 schema identity",
+        "sha256": "ce2e73e6e125e9190810aebeda4b8e8ce577c8f33337b8d3537e40227f88953d",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__compact_schema_version": {
+        "shape": [],
+        "dtype": "int64",
+        "unit": "schema version",
+        "sha256": "7c9fa136d4413fa6173637e883b6998d32e1d675f88cddff9dcbcf331820f4b8",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__continuum_edge_grid_relative_path": {
+        "shape": [],
+        "dtype": "<U52",
+        "unit": "metadata",
+        "sha256": "38dac9ddc1a53aec0a9f57f6f17c3d6912077c09d2e5c8ac92ce8f1e1234611d",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__continuum_table_relative_path": {
+        "shape": [],
+        "dtype": "<U49",
+        "unit": "metadata",
+        "sha256": "86f2104b7d74c7317edf01ac6677f933b84e806508ec22a1a9a5fd04a465a047",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__design_sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "metadata",
+        "sha256": "96d7b7dfabd27de62e184d60e3f5d708e39b81aa7513a9a4da784fe0032db5df",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__environment__accumulation_dtype": {
+        "shape": [],
+        "dtype": "<U13",
+        "unit": "metadata",
+        "sha256": "bc9f1eed6a316e960368ee8b2d714916dd6b40035fe395e9e1c23785191c8773",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__environment__cache_policy": {
+        "shape": [],
+        "dtype": "<U44",
+        "unit": "metadata",
+        "sha256": "17fd802810917ae2cc22e9758531feed99d7f8f569aea1ad777cd588cfbdab3e",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__environment__cpu_only": {
+        "shape": [],
+        "dtype": "bool",
+        "unit": "metadata",
+        "sha256": "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__environment__lc_all": {
+        "shape": [],
+        "dtype": "<U1",
+        "unit": "metadata",
+        "sha256": "d23f96d836ebed25ad1d3d2b9d92362252cc8a347a98312a75284f7f6d08bd02",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__environment__mkl_dynamic": {
+        "shape": [],
+        "dtype": "<U5",
+        "unit": "metadata",
+        "sha256": "554aa0d2cf3fe04e02d36f51d503ed75b45e36143912a43a5e0e13a529a37805",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__environment__mkl_num_threads": {
+        "shape": [],
+        "dtype": "<U1",
+        "unit": "metadata",
+        "sha256": "60864aae264519399c7a7379382e411d40a3bd0f1641e669fb73183d223f6bd0",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__environment__numba_num_threads": {
+        "shape": [],
+        "dtype": "<U1",
+        "unit": "metadata",
+        "sha256": "60864aae264519399c7a7379382e411d40a3bd0f1641e669fb73183d223f6bd0",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__environment__numexpr_num_threads": {
+        "shape": [],
+        "dtype": "<U1",
+        "unit": "metadata",
+        "sha256": "60864aae264519399c7a7379382e411d40a3bd0f1641e669fb73183d223f6bd0",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__environment__omp_num_threads": {
+        "shape": [],
+        "dtype": "<U1",
+        "unit": "metadata",
+        "sha256": "60864aae264519399c7a7379382e411d40a3bd0f1641e669fb73183d223f6bd0",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__environment__openblas_num_threads": {
+        "shape": [],
+        "dtype": "<U1",
+        "unit": "metadata",
+        "sha256": "60864aae264519399c7a7379382e411d40a3bd0f1641e669fb73183d223f6bd0",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__environment__pythondontwritebytecode": {
+        "shape": [],
+        "dtype": "<U1",
+        "unit": "metadata",
+        "sha256": "60864aae264519399c7a7379382e411d40a3bd0f1641e669fb73183d223f6bd0",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__environment__pythonhashseed": {
+        "shape": [],
+        "dtype": "<U1",
+        "unit": "metadata",
+        "sha256": "4f8320d91e97d546dc799848e8d218e18050af7a7964e0414de9e5479006d7e3",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__environment__pythonnousersite": {
+        "shape": [],
+        "dtype": "<U1",
+        "unit": "metadata",
+        "sha256": "60864aae264519399c7a7379382e411d40a3bd0f1641e669fb73183d223f6bd0",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__environment__tz": {
+        "shape": [],
+        "dtype": "<U3",
+        "unit": "metadata",
+        "sha256": "1e2fc65c2b89eef9c9875277fd05b29d3e7c2b649ee4fb678770d5f3d758a106",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__environment__veclib_maximum_threads": {
+        "shape": [],
+        "dtype": "<U1",
+        "unit": "metadata",
+        "sha256": "60864aae264519399c7a7379382e411d40a3bd0f1641e669fb73183d223f6bd0",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__environment__work_dtype": {
+        "shape": [],
+        "dtype": "<U13",
+        "unit": "metadata",
+        "sha256": "3838fbfc5ed640f0fdd32f29954d6408726f1ce4e92593a55e17be18a216fd5d",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__fixture_key_count": {
+        "shape": [],
+        "dtype": "int64",
+        "unit": "metadata",
+        "sha256": "8105c697426f8ce7331928a148d75911735c19622ad5552c914c1a5cd925f33d",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__fixture_payload_digest": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "metadata",
+        "sha256": "1ebf2ffeae13cc2cb01101883f2edf9cffc524d8e9884850f9b4e217f7f2d4b4",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__fixture_relative_path": {
+        "shape": [],
+        "dtype": "<U44",
+        "unit": "metadata",
+        "sha256": "4cef21d0f65aa989e0ec2a767d7ad0463ae093f36630d32a0f47c4fc619e6b16",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__fixture_sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "metadata",
+        "sha256": "cad2615c0e5f5cadd8e2e25c7ab5efd80651443d25ef26de1d78d16d4fb41b6b",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__full_capture_fingerprint": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "metadata",
+        "sha256": "19468e78702fa6eefc61243087357689673a299b5dd5925c70aa36fc6d043f41",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__golden_publication_performed": {
+        "shape": [],
+        "dtype": "bool",
+        "unit": "boolean",
+        "sha256": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__line_profile_table_relative_path": {
+        "shape": [],
+        "dtype": "<U52",
+        "unit": "metadata",
+        "sha256": "721ac4f3d766e57fe4e385269bdbe2f60197bcd96cff06031a7466af6e2b0522",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__loaded_pinned_python_manifest_digest": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "metadata",
+        "sha256": "91f4eae02df30becf18007755bbb929fc5ca9b9c916c3643a152de105987809b",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__loaded_pinned_python_source_count": {
+        "shape": [],
+        "dtype": "int64",
+        "unit": "metadata",
+        "sha256": "35e3a6176b50da27fcb868bf840f0e76290bd9bf55c40545e67bac66353d0674",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__numba_thread_count": {
+        "shape": [],
+        "dtype": "int64",
+        "unit": "metadata",
+        "sha256": "7c9fa136d4413fa6173637e883b6998d32e1d675f88cddff9dcbcf331820f4b8",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__numba_version": {
+        "shape": [],
+        "dtype": "<U6",
+        "unit": "metadata",
+        "sha256": "4447804ac85232d947fa8ffc0f9966d17d9b87ec2be3408a47e946c806cab064",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__numpy_version": {
+        "shape": [],
+        "dtype": "<U5",
+        "unit": "metadata",
+        "sha256": "62c47ae287566f2c9c0d35f9333c861dddac10324143b6b6a1bda7cbc93e5216",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__physical_payload_fingerprint": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "metadata",
+        "sha256": "a752dd1c495be5cbca0a30d57ceb73dbdb14f429d17b3a6501132f1193c29d02",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__pipeline_continuum_fields": {
+        "shape": [
+          18
+        ],
+        "dtype": "<U51",
+        "unit": "metadata",
+        "sha256": "3b3d27dc0d5b52d0ec90a82010cc2285fecddb2b79200653e97e744773f35d5f",
+        "axes": [
+          "metadata_entry"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__platform": {
+        "shape": [],
+        "dtype": "<U35",
+        "unit": "metadata",
+        "sha256": "00113ba8830389ae180732ab3991f4260d23996d901d853a2d0f9f7909d11f61",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__post_lane_loaded_manifest_digest": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "metadata",
+        "sha256": "91f4eae02df30becf18007755bbb929fc5ca9b9c916c3643a152de105987809b",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__post_lane_loaded_manifest_verified": {
+        "shape": [],
+        "dtype": "bool",
+        "unit": "metadata",
+        "sha256": "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__post_lane_loaded_source_count": {
+        "shape": [],
+        "dtype": "int64",
+        "unit": "metadata",
+        "sha256": "35e3a6176b50da27fcb868bf840f0e76290bd9bf55c40545e67bac66353d0674",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__processor": {
+        "shape": [],
+        "dtype": "<U3",
+        "unit": "metadata",
+        "sha256": "7fd0263f5f7f8c92147e7e5ea3f6a430367b09ee51b47abd77dde07f8cd3b02e",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__publication_authorized": {
+        "shape": [],
+        "dtype": "bool",
+        "unit": "boolean",
+        "sha256": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__python_version": {
+        "shape": [],
+        "dtype": "<U6",
+        "unit": "metadata",
+        "sha256": "a56bab8a2259663b634ea272e0f66fd738d3cdf97d551815220a1ea6ea0954a9",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__raw_capture_key_count": {
+        "shape": [],
+        "dtype": "int64",
+        "unit": "count",
+        "sha256": "5cb8200802cd5d4ec2ebc9f7f18c8b968a9e84d796e8e9eb58fcc9fa471bd581",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__raw_ownership_complete": {
+        "shape": [],
+        "dtype": "bool",
+        "unit": "boolean",
+        "sha256": "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__raw_ownership_count__derived_digest_only": {
+        "shape": [],
+        "dtype": "int64",
+        "unit": "count",
+        "sha256": "4f319987a786107dc63b2b70115b3734cb9880b099b70c463c5e1b05521ab764",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__raw_ownership_count__final": {
+        "shape": [],
+        "dtype": "int64",
+        "unit": "count",
+        "sha256": "4e8e14f0ac28d4a6840065d73ba438653d810ecc41ec9b7509615e009a5f3da4",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__raw_ownership_count__intentionally_ephemeral": {
+        "shape": [],
+        "dtype": "int64",
+        "unit": "count",
+        "sha256": "0261e63fd77972c703cef56ee190eaa418c77a6db130ae5ae982f1aa3404928f",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__raw_ownership_digest": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 logical ownership identity",
+        "sha256": "288ccc7e1a2095334436bb7a411dad476c0bcc3442d8e0ba055d235d4edb25e2",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__source_contract_sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "metadata",
+        "sha256": "5e0ddd1a2f2e62ac8fe094b0d11dac00430ff11e0cb7b468e0a0749a0e7ae87a",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__source_row_index": {
+        "shape": [],
+        "dtype": "int64",
+        "unit": "metadata",
+        "sha256": "aa281b430df2cdcc25f7a63aa64eb65663f053a73d47c0d13e852b5f082a6362",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__subset_key_count": {
+        "shape": [],
+        "dtype": "int64",
+        "unit": "metadata",
+        "sha256": "4d159113222bfeb85fbe717cc2393ee8a6a85b7ce5ac1791c4eade5e3dd6de41",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__subset_payload_digest": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 content digest",
+        "sha256": "8872f9a27c9b384681c4b203a722e273b57c844e3ba6469952a7ef819a9c64d6",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__subset_relative_path": {
+        "shape": [],
+        "dtype": "<U49",
+        "unit": "metadata",
+        "sha256": "3b4a99496c73cd543f6ae4540470464c885d1f9142baac8f14c03a3d1056937c",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__subset_sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "metadata",
+        "sha256": "fd133a11ad3bcaacd26946cafca7ab38d852beea5a82bc60dcd74f179c32b7a2",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__system_byteorder": {
+        "shape": [],
+        "dtype": "<U6",
+        "unit": "metadata",
+        "sha256": "705cf356ee2a138514fbb41c5ba67a787a770398d203f414cf86d92a7c15be5a",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__torch_cpu_interop_thread_count": {
+        "shape": [],
+        "dtype": "int64",
+        "unit": "metadata",
+        "sha256": "7c9fa136d4413fa6173637e883b6998d32e1d675f88cddff9dcbcf331820f4b8",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__torch_cpu_thread_count": {
+        "shape": [],
+        "dtype": "int64",
+        "unit": "metadata",
+        "sha256": "7c9fa136d4413fa6173637e883b6998d32e1d675f88cddff9dcbcf331820f4b8",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__torch_deterministic_algorithms": {
+        "shape": [],
+        "dtype": "bool",
+        "unit": "metadata",
+        "sha256": "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__torch_version": {
+        "shape": [],
+        "dtype": "<U6",
+        "unit": "metadata",
+        "sha256": "72a7085a8d804c4a49e53089ad14dd20a58c28748adb563ec6435e5c2f4ce7d6",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "meta__worker_sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "metadata",
+        "sha256": "e9f729be345e2d03dc34888f67e831557874ee470af36b69cfdf1c745297ba9e",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "opacity__gross_float32": {
+        "shape": [
+          4,
+          6,
+          6000
+        ],
+        "dtype": "float32",
+        "unit": "cm^2 g^-1 sampled kappa_nu(c/lambda_i), not per nm",
+        "sha256": "60645fc3b44fb4a4d872a3018659cd8bfd1b72988aa541784cf726d2da5c6b7f",
+        "axes": [
+          "regime",
+          "depth",
+          "wavelength"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "opacity__net_float32": {
+        "shape": [
+          4,
+          6,
+          6000
+        ],
+        "dtype": "float32",
+        "unit": "cm^2 g^-1 sampled kappa_nu(c/lambda_i), not per nm",
+        "sha256": "194690d9a75e1f9da405fb8c6178d0a64709e7bd117e855a6b25155cc8e5b73a",
+        "axes": [
+          "regime",
+          "depth",
+          "wavelength"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "stimulation__canonical_batched_reconstruction_exact": {
+        "shape": [
+          4
+        ],
+        "dtype": "bool",
+        "unit": "boolean",
+        "sha256": "27ecd0a598e76f8a2fd264d427df0a119903e8eae384e478902541756f089dd1",
+        "axes": [
+          "regime"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "stimulation__canonical_factor_sha256": {
+        "shape": [
+          4
+        ],
+        "dtype": "<U64",
+        "unit": "SHA-256 member identity over dtype, shape, and bytes",
+        "sha256": "0e1c3d5f49022516ee813720d3a079859de0ba177f19c5a9c71be1cacb5f5e54",
+        "axes": [
+          "regime"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "stimulation__canonical_loop_reconstruction_exact": {
+        "shape": [
+          4
+        ],
+        "dtype": "bool",
+        "unit": "boolean",
+        "sha256": "27ecd0a598e76f8a2fd264d427df0a119903e8eae384e478902541756f089dd1",
+        "axes": [
+          "regime"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "stimulation__coarse_batched_reconstruction_exact": {
+        "shape": [
+          4
+        ],
+        "dtype": "bool",
+        "unit": "boolean",
+        "sha256": "27ecd0a598e76f8a2fd264d427df0a119903e8eae384e478902541756f089dd1",
+        "axes": [
+          "regime"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "stimulation__coarse_factor_sha256": {
+        "shape": [
+          4
+        ],
+        "dtype": "<U64",
+        "unit": "SHA-256 member identity over dtype, shape, and bytes",
+        "sha256": "8e968d0698612d0238305ce4552872146bf36249b59e5c5a7c56ed90d83eec3a",
+        "axes": [
+          "regime"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "stimulation__coarse_loop_reconstruction_exact": {
+        "shape": [
+          4
+        ],
+        "dtype": "bool",
+        "unit": "boolean",
+        "sha256": "27ecd0a598e76f8a2fd264d427df0a119903e8eae384e478902541756f089dd1",
+        "axes": [
+          "regime"
+        ],
+        "ownership": "synthesis comparison golden"
+      },
+      "support__exponential_fraction_table_sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 member identity over dtype, shape, and bytes",
+        "sha256": "dc3bb3f4caa54b7e643e7f02c1388c4f4cf0ac53392906dc4724866f1eb200f3",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "support__exponential_integer_table_sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 member identity over dtype, shape, and bytes",
+        "sha256": "fa4615722db6c7eb2bc136e253385af9b17f0068fb4ca77fd4c9fa09bae7405a",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "support__harris_profile_h0_table_sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 member identity over dtype, shape, and bytes",
+        "sha256": "737277405f4d29f27c230d2cc662e516387a00fd0dab1dd0a54101dfb2c3ef36",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "support__harris_profile_h1_table_sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 member identity over dtype, shape, and bytes",
+        "sha256": "8ad63f95807a6e3ab94871e30f5a541059cbf82d99de0ca2a88346117331e924",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "support__harris_profile_h2_table_sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 member identity over dtype, shape, and bytes",
+        "sha256": "ad574d7745548d4d0c29a44d683ae3b9d8384b0bd14532a3bf8bffdd5317fec6",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      },
+      "support__line_profile_table_archive_sha256": {
+        "shape": [],
+        "dtype": "<U64",
+        "unit": "SHA-256 file identity",
+        "sha256": "6e02e35b061481e25afcddca120fdbc34e78234f9c94f205110e60efbeabef48",
+        "axes": [],
+        "ownership": "synthesis comparison golden"
+      }
+    },
+    "sha256": "a4b1ffa44bf22d05bf4a680cb8e5d600f09f15ab4544cf4e6fa801641bc0a955",
+    "bytes": 1294865
+  },
+  "manifest_entry_template_sha256": "2b168dede934551740917665999eb97a18563efeafb7cbf6ce592942ccef21de",
+  "source_data_snapshot_sha256": "9d802e5dd96d9dbbb7e71c9a4e769e2959860ca5b2330f7796376dad2cd05ce2",
+  "destination_parent_policy": "create-only-missing-chapter06-then-synthesis-with-fsync",
+  "no_replace_primitive": "hard_link_from_same_filesystem_stage"
+}

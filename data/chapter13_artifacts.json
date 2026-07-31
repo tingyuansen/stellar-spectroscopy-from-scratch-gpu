@@ -1,0 +1,340 @@
+{
+  "artifacts": {
+    "data/fixtures/chapter13_correction_inputs.npz": {
+      "arrays": {
+        "absorption_heating_derivative": {
+          "dtype": "float64",
+          "sha256": "bc12172ac5502a01ae7340f6deb4680d8477413225d41aa7aaf2e76481d64527",
+          "shape": [
+            64
+          ]
+        },
+        "adiabatic_gradient": {
+          "dtype": "float64",
+          "sha256": "e069e7d0f2562338ef9c1e453814948f494e3bce75e558251fce817eae3a2d66",
+          "shape": [
+            64
+          ]
+        },
+        "column_mass": {
+          "dtype": "float64",
+          "sha256": "1d741ffa9ea262664a7f99433b3111e316537b0c7c0459f76507993da14b7a41",
+          "shape": [
+            64
+          ]
+        },
+        "convection_enabled": {
+          "dtype": "int32",
+          "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450",
+          "shape": [
+            1
+          ]
+        },
+        "convective_flux": {
+          "dtype": "float64",
+          "sha256": "c20fdf0fbebf628b756560e71e9c44a5dfe2720aa2c4105110a7c47f4353937c",
+          "shape": [
+            64
+          ]
+        },
+        "diagonal_lambda_accumulator": {
+          "dtype": "float64",
+          "sha256": "c84a85e17156e6f2d857b45fa2a48ff8da61b64ef34ff6ab69edbac66c911531",
+          "shape": [
+            64
+          ]
+        },
+        "effective_temperature": {
+          "dtype": "float64",
+          "sha256": "fa0c9e300f4a9d7b50d9a3a59f4a6fb27c06c8719b43794d71ab2dc596aeed3b",
+          "shape": [
+            1
+          ]
+        },
+        "frequency_count": {
+          "dtype": "int32",
+          "sha256": "8e3acc5e2838174aa91dec2dae4225eedbeb60550211fc84d39fddb306c49a08",
+          "shape": [
+            1
+          ]
+        },
+        "heat_capacity": {
+          "dtype": "float64",
+          "sha256": "67ddbb73f151f6ce2a8d1a59580dfd0e7d71148ff6f26e88856579b92c20db59",
+          "shape": [
+            64
+          ]
+        },
+        "integrated_eddington_flux": {
+          "dtype": "float64",
+          "sha256": "9ea6f9c6a4b508c7c13470eb73db490f1d78ed9b530d86d69e21ad3ccee60c77",
+          "shape": [
+            64
+          ]
+        },
+        "integrated_radiation_pressure": {
+          "dtype": "float64",
+          "sha256": "98adb37f8af69dbb747ce96a3621131642989c1e045c46732aa1a488ef1b3a83",
+          "shape": [
+            64
+          ]
+        },
+        "iteration_index": {
+          "dtype": "int32",
+          "sha256": "26b25d457597a7b0463f9620f666dd10aa2c4373a505967c7c8d70922a2d6ece",
+          "shape": [
+            1
+          ]
+        },
+        "log_density_temperature_derivative_at_constant_total_pressure": {
+          "dtype": "float64",
+          "sha256": "1b3a5f868a957cb10a10fe4ffce4e237c3c022e5278e07600f93da3c2ebd3aa4",
+          "shape": [
+            64
+          ]
+        },
+        "logarithmic_temperature_pressure_gradient": {
+          "dtype": "float64",
+          "sha256": "8dde9617e8d3cbdc304645b48ba99f0bcc145edc3818031e3d032e17f9f2522b",
+          "shape": [
+            64
+          ]
+        },
+        "lookup_gas_pressure": {
+          "dtype": "float64",
+          "sha256": "9c3d4d7dd79b147340dac84b00471c6190b46dc049958875ccc4d4b5e4334dec",
+          "shape": [
+            3,
+            64
+          ]
+        },
+        "lookup_rosseland_opacity": {
+          "dtype": "float64",
+          "sha256": "4f8d8b350b41d535de94dae7d0b38222dcc1eacbe84fc484a2f40de47fc6a4ee",
+          "shape": [
+            3,
+            64
+          ]
+        },
+        "lookup_temperature_k": {
+          "dtype": "float64",
+          "sha256": "9133d47985b4e008bc03ad919a52f7440e6cc1af644ba47130a64f6310b8ba42",
+          "shape": [
+            3,
+            64
+          ]
+        },
+        "mass_density": {
+          "dtype": "float64",
+          "sha256": "9cf5b2de2aa6e9e005e2dd83557fbcc558fb2825d6761923971e5d5edc6267c1",
+          "shape": [
+            64
+          ]
+        },
+        "mean_intensity_minus_source_integral": {
+          "dtype": "float64",
+          "sha256": "3bbe5091afb7996c90033044f4b1d29139e74e42f818aca3244abfd02a1e8ea7",
+          "shape": [
+            64
+          ]
+        },
+        "mixing_length": {
+          "dtype": "float64",
+          "sha256": "dbd4c1a79b2e521053ee9b910f06d6110e7169884cda62d8acf6b5f9dbf4b7dd",
+          "shape": [
+            1
+          ]
+        },
+        "pressure_scale_height": {
+          "dtype": "float64",
+          "sha256": "67ddbb73f151f6ce2a8d1a59580dfd0e7d71148ff6f26e88856579b92c20db59",
+          "shape": [
+            64
+          ]
+        },
+        "previous_convective_flux": {
+          "dtype": "float64",
+          "sha256": "076a27c79e5ace2a3d47f9dd2e83e4ff6ea8872b3c2218f66c92b89b55f36560",
+          "shape": [
+            64
+          ]
+        },
+        "previous_temperature_correction": {
+          "dtype": "float64",
+          "sha256": "9f0167b08871c18a5e85e1ba6a89c39d428db509d97fb87e8ed6b42375e9b890",
+          "shape": [
+            64
+          ]
+        },
+        "rosseland_opacity": {
+          "dtype": "float64",
+          "sha256": "88ac6fef560dc05560496e397b29fa0fc4fe94d27521f08dc752466c32c9be6f",
+          "shape": [
+            64
+          ]
+        },
+        "rosseland_optical_depth": {
+          "dtype": "float64",
+          "sha256": "d889487fb4a2fe43f7b5c297b0e1936556dfe69e968abedb7a41f0a22668f195",
+          "shape": [
+            64
+          ]
+        },
+        "smooth_start_layer": {
+          "dtype": "int32",
+          "sha256": "075de2b906dbd7066da008cab735bee896370154603579a50122f9b88545bd45",
+          "shape": [
+            1
+          ]
+        },
+        "smooth_stop_layer": {
+          "dtype": "int32",
+          "sha256": "0623ccb9b1619bd388284a438034d8cb6431964ba727d8b1c450303105735488",
+          "shape": [
+            1
+          ]
+        },
+        "surface_gravity_cgs": {
+          "dtype": "float64",
+          "sha256": "2d6351abbe718b4f19aa015c71600a1bb880f4633b6b00461fdf85004d3e5eff",
+          "shape": [
+            1
+          ]
+        },
+        "target_integrated_eddington_flux": {
+          "dtype": "float64",
+          "sha256": "fdb16c6e4f6295ec0a91a764c238d725c50586d7ea60c0f0287a00bedd0a5e8c",
+          "shape": [
+            1
+          ]
+        },
+        "temperature_k": {
+          "dtype": "float64",
+          "sha256": "590d22be2006eec6845177ffe1a0304400f83df28151f4f52489411e0c863803",
+          "shape": [
+            64
+          ]
+        },
+        "total_pressure": {
+          "dtype": "float64",
+          "sha256": "4cc0bf8c9522b75719b2223386ac27c81cac97f75544c10303e336e3a2c788e0",
+          "shape": [
+            64
+          ]
+        },
+        "turbulent_pressure": {
+          "dtype": "float64",
+          "sha256": "076a27c79e5ace2a3d47f9dd2e83e4ff6ea8872b3c2218f66c92b89b55f36560",
+          "shape": [
+            64
+          ]
+        }
+      },
+      "role": "analytic correction input fixture; contains no answer",
+      "sha256": "441064e05f780af6126e71cb529182f21b854cfd7e90238d1d3c8ab9812e835a"
+    },
+    "data/golden/payne_zero/chapter13/chapter13_correction_outputs.npz": {
+      "arrays": {
+        "column_mass": {
+          "dtype": "float64",
+          "sha256": "476cc08b4226ae632913867deb5f9e77a4ff6051e73b0386e3c50d774c603dbe",
+          "shape": [
+            64
+          ]
+        },
+        "column_mass_correction": {
+          "dtype": "float64",
+          "sha256": "0faa80d182741d6b0616ac57ecd2bb49ec0cdd3cc39c201052fe71fc10b8393e",
+          "shape": [
+            64
+          ]
+        },
+        "convective_flux": {
+          "dtype": "float64",
+          "sha256": "dd696db3adc8d11b1abf8f5d85bc81d21765fbb116a361da9c365cd0d3f481e5",
+          "shape": [
+            64
+          ]
+        },
+        "flux_derivative": {
+          "dtype": "float64",
+          "sha256": "3f0071b4b9905e926303749504e068aaccb278bc0e4a4d1aa52558a7ed24e4a9",
+          "shape": [
+            64
+          ]
+        },
+        "flux_error_percent": {
+          "dtype": "float64",
+          "sha256": "a446c0ba9b9321d5bf49636d1477f408da068a8c4f22e674120a526361da7dad",
+          "shape": [
+            64
+          ]
+        },
+        "flux_ratio": {
+          "dtype": "float64",
+          "sha256": "06d9d3b70ec848df4676301b8aa7d0dbb8ba5c573929762c1afeb43cc5096709",
+          "shape": [
+            64
+          ]
+        },
+        "flux_temperature_derivative": {
+          "dtype": "float64",
+          "sha256": "ffbe027c81cedf2987ad93a88e4e06b6e23e2f3338f68b249cfc0f9e930b6a40",
+          "shape": [
+            64
+          ]
+        },
+        "lambda_temperature_derivative": {
+          "dtype": "float64",
+          "sha256": "a4080403f149263de414d12226258e1ddeb712157e63f8a7ad08e7f9c532b50b",
+          "shape": [
+            64
+          ]
+        },
+        "state_previous_temperature_correction": {
+          "dtype": "float64",
+          "sha256": "afd11c57e7449dca6c2bfe6f87bd41510c0967fb2b66201f049b7db1d7a61dcb",
+          "shape": [
+            64
+          ]
+        },
+        "state_rosseland_entry_count": {
+          "dtype": "int32",
+          "sha256": "60f2e332c71bcda81951ea38d3c52d4a9b1a2056b334f99001f41c588afd0892",
+          "shape": [
+            1
+          ]
+        },
+        "surface_temperature_derivative": {
+          "dtype": "float64",
+          "sha256": "b8d17433aad097d8d6e1c331e6f6c20a33f30155484af2279e36d2e5140c4662",
+          "shape": [
+            64
+          ]
+        },
+        "temperature": {
+          "dtype": "float64",
+          "sha256": "1c8a77258e94dc3b0b9aa7f775d4a57886883387cc43722d724166fb7f50e093",
+          "shape": [
+            64
+          ]
+        },
+        "temperature_correction": {
+          "dtype": "float64",
+          "sha256": "afd11c57e7449dca6c2bfe6f87bd41510c0967fb2b66201f049b7db1d7a61dcb",
+          "shape": [
+            64
+          ]
+        }
+      },
+      "role": "comparison-only exact mode-3 correction output",
+      "sha256": "6b35f23b279fd51bea7ce7936186e1bd7b28727a0f09a38ed6a6bffe030171bc"
+    }
+  },
+  "payne_zero_commit": "9c44001feae40b85146630499e6f8a5fed42e5af",
+  "schema_version": 1,
+  "source_sha256": {
+    "src/payne_zero_atmosphere/convergence.py": "6b4c674deda148baab6fd90e8a25eed2921581ce7d4bace489c024bc1c2748cb",
+    "src/payne_zero_atmosphere/temperature_correction.py": "67728389ba857511979d0f82ea59f0bf41ee635b8151ae26673dace02b195d21"
+  }
+}

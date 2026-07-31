@@ -1,0 +1,398 @@
+{
+  "builder": "scripts/build_chapter08_molecular_subsets.py",
+  "full_sources": {
+    "diatomic_lines.npy": {
+      "path": "/Users/ysting/payne-zero/source_data_files/source_catalogs/lines/diatomic_lines.npy",
+      "sha256": "3980781fa73d9b4e39d9fa5e53dbdf5ad326447753f6146d9040c33036a7ad67",
+      "size_bytes": 199813280
+    },
+    "manifest.json": {
+      "path": "/Users/ysting/payne-zero/source_data_files/source_catalogs/molecules/manifest.json",
+      "sha256": "65131b3c07f093f062afed5547875b969da1e607dc46e3120332758d5e1c32c6",
+      "size_bytes": 3884
+    },
+    "molecular_band_lines.npz": {
+      "path": "/Users/ysting/payne-zero/source_data_files/source_catalogs/molecules/molecular_band_lines.npz",
+      "sha256": "39cb02310e109eca28190b41d82148173e8000ad6a968cc65ec14e6d2f6bd7df",
+      "size_bytes": 1275603984
+    },
+    "titanium_oxide_lines.npy": {
+      "path": "/Users/ysting/payne-zero/source_data_files/source_catalogs/molecules/titanium_oxide_lines.npy",
+      "sha256": "7def3a02828fba3a917581343f0cdbc11d97fb335a69c69098d348a344d38ca8",
+      "size_bytes": 603912368
+    },
+    "water_lines.npy": {
+      "path": "/Users/ysting/payne-zero/source_data_files/source_catalogs/molecules/water_lines.npy",
+      "sha256": "3fd5f26886c8af68a1910606790358e4971b3d8831b3d0c1be493ca73f615442",
+      "size_bytes": 527299104
+    }
+  },
+  "outputs": {
+    "atmosphere_diatomic_subset": {
+      "path": "/Users/ysting/stellar-spectroscopy-from-scratch-gpu/data/subsets/chapter08_atmosphere_diatomic_subset.npy",
+      "record_count": 96,
+      "sha256": "ebc43f107b8e046cf6494eb587a4234fa791e2d85b4a05817cd1935f969e45db",
+      "source_rows": [
+        4568401,
+        4568496
+      ]
+    },
+    "h2o_subset": {
+      "path": "/Users/ysting/stellar-spectroscopy-from-scratch-gpu/data/subsets/chapter08_h2o_subset.npy",
+      "record_count": 28,
+      "sha256": "26bf33be3859dcd3ed601f820a88f7bf66fe7fc132a69ada0ad2aefba2b43409",
+      "sign_case_source_rows": [
+        0,
+        89021,
+        90173,
+        2282093
+      ],
+      "source_rows": [
+        0,
+        556,
+        557,
+        558,
+        559,
+        560,
+        561,
+        562,
+        563,
+        564,
+        565,
+        566,
+        567,
+        568,
+        569,
+        570,
+        571,
+        572,
+        573,
+        574,
+        575,
+        576,
+        577,
+        578,
+        579,
+        89021,
+        90173,
+        2282093
+      ]
+    },
+    "h3plus_explicit_path_probe": {
+      "meaning": "explicit-path routing control copied from two diatomic source records; not an H3+ scientific catalog",
+      "path": "/Users/ysting/stellar-spectroscopy-from-scratch-gpu/data/fixtures/chapter08_h3plus_path_probe.npy",
+      "role": "fixture",
+      "sha256": "6557eb0c8c7042ee4d0858ae528b5b7faf2408b744fd784c4e0acc2d5017a59f"
+    },
+    "static_manifest": {
+      "path": "/Users/ysting/stellar-spectroscopy-from-scratch-gpu/data/static/molecular_sources/manifest.json",
+      "sha256": "65131b3c07f093f062afed5547875b969da1e607dc46e3120332758d5e1c32c6"
+    },
+    "text_subset": {
+      "bands": 32,
+      "path": "/Users/ysting/stellar-spectroscopy-from-scratch-gpu/data/subsets/chapter08_molecular_text_subset.npz",
+      "rows_by_band": {
+        "alo_patrascu": [
+          0,
+          1971191,
+          1971791,
+          1972732,
+          1973501,
+          1973663,
+          1974225,
+          1974618,
+          1975262,
+          6396405,
+          6396749,
+          6397638,
+          6398849,
+          6399085,
+          6400350
+        ],
+        "c2_ax_band": [
+          0
+        ],
+        "c2_ba_band": [
+          0,
+          483609,
+          483899,
+          484242
+        ],
+        "c2_da_band": [
+          0,
+          320907,
+          320908,
+          320933,
+          321150,
+          321151,
+          321340,
+          321341,
+          321387
+        ],
+        "c2_ea_band": [
+          0
+        ],
+        "cah": [
+          0,
+          8359,
+          8360,
+          8361,
+          8362,
+          8363,
+          8364,
+          8368,
+          8378,
+          60056,
+          60061,
+          60065,
+          60090,
+          60091,
+          60095
+        ],
+        "ch_jorgensen": [
+          0,
+          38585,
+          38592,
+          38595,
+          38623,
+          38649,
+          38650,
+          38651,
+          38699,
+          99397,
+          99398,
+          99404,
+          99407,
+          99597,
+          99605
+        ],
+        "cn_ax_band": [
+          0,
+          253765,
+          253871,
+          254010,
+          254035,
+          254050,
+          254068,
+          254162,
+          254224,
+          742119,
+          742163,
+          742246,
+          742564,
+          742590,
+          742657
+        ],
+        "cn_bx_band": [
+          0,
+          317012,
+          317020,
+          317021,
+          317025,
+          317027,
+          317150,
+          317155,
+          317157
+        ],
+        "cn_xx_12c_brooke": [
+          0,
+          2239,
+          2240,
+          2241,
+          2242,
+          2243,
+          2244
+        ],
+        "co_ax_band": [
+          0
+        ],
+        "co_xx_band": [
+          0,
+          531,
+          534,
+          540,
+          542,
+          548,
+          562
+        ],
+        "crh_ax_band": [
+          0,
+          6942,
+          6943,
+          6948,
+          6951,
+          6956,
+          6967
+        ],
+        "feh_fx_band": [
+          0,
+          34796,
+          34802,
+          34814,
+          34823,
+          34824,
+          34854
+        ],
+        "h2_bx_band": [
+          0,
+          30
+        ],
+        "h2_cx_band": [
+          0,
+          29
+        ],
+        "h2_xx_band": [
+          0,
+          742,
+          743,
+          2094,
+          2095
+        ],
+        "hd_xx_band": [
+          0,
+          1960,
+          1961,
+          1962
+        ],
+        "mgh": [
+          0,
+          10460,
+          10461,
+          10464,
+          10466,
+          10470,
+          10471,
+          10481,
+          10493,
+          39958,
+          39959,
+          39960,
+          39961,
+          39962,
+          39963
+        ],
+        "mgo_daily": [
+          0
+        ],
+        "nah": [
+          0,
+          16962,
+          16963,
+          16965,
+          16969,
+          16971,
+          16977,
+          16985,
+          16986,
+          57269,
+          57273,
+          57275,
+          57279,
+          57281,
+          57286
+        ],
+        "nh_ax_band": [
+          0
+        ],
+        "nh_ca_band": [
+          0
+        ],
+        "oh_ax_band": [
+          0,
+          39117,
+          39118,
+          39124,
+          39126,
+          39131,
+          39133
+        ],
+        "oh_xx_band": [
+          0,
+          12768,
+          12769,
+          12775,
+          12777,
+          12782,
+          12784
+        ],
+        "sih_ax_band": [
+          0,
+          47728,
+          47735
+        ],
+        "sio_ax_band": [
+          0
+        ],
+        "sio_ex_band": [
+          0
+        ],
+        "sio_xx_band": [
+          0,
+          76
+        ],
+        "vo_ax_band": [
+          0,
+          108605,
+          636918,
+          637150,
+          637364,
+          637823,
+          637847,
+          638101
+        ],
+        "vo_bx_band": [
+          0,
+          25493,
+          25560,
+          25646,
+          25726,
+          25801,
+          25871,
+          25950,
+          25979,
+          160642,
+          1293074,
+          1293142,
+          1293198,
+          1293522,
+          1293917,
+          1294338
+        ],
+        "vo_cx_band": [
+          0,
+          498,
+          223532,
+          223598,
+          223703,
+          223729,
+          223823,
+          223936,
+          223965,
+          223971,
+          976510,
+          976526,
+          976721,
+          976751,
+          976890,
+          976979
+        ]
+      },
+      "sha256": "c264db732dcab4f29cb29be2395f3f6af4af28749706cf4f967205bf4e3feea5",
+      "total_rows": 220
+    },
+    "tio_subset": {
+      "path": "/Users/ysting/stellar-spectroscopy-from-scratch-gpu/data/subsets/chapter08_tio_subset.npy",
+      "record_count": 64,
+      "sha256": "204c2aa286b173c7a8125e7aa67139155522f7594acb44eabc1adac11bb6ab13",
+      "source_rows": [
+        3581045,
+        3581108
+      ]
+    }
+  },
+  "payne_zero_commit": "9c44001feae40b85146630499e6f8a5fed42e5af",
+  "teaching_window_nm": [
+    498.95,
+    499.15
+  ]
+}

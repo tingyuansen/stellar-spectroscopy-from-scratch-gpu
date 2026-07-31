@@ -26,6 +26,52 @@
       .replace(/[^\w\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').slice(0, 60);
   }
 
+  function openFigureLightbox(sourceImage) {
+    const previous = document.querySelector('.figure-lightbox');
+    if (previous) previous.remove();
+
+    const overlay = document.createElement('div');
+    overlay.className = 'figure-lightbox';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', 'Full-resolution figure');
+
+    const closeButton = document.createElement('button');
+    closeButton.className = 'figure-lightbox-close';
+    closeButton.type = 'button';
+    closeButton.setAttribute('aria-label', 'Close full-resolution figure');
+    closeButton.textContent = 'Close';
+
+    const canvas = document.createElement('div');
+    canvas.className = 'figure-lightbox-canvas';
+    const image = document.createElement('img');
+    image.src = sourceImage.currentSrc || sourceImage.src;
+    image.alt = sourceImage.alt || '';
+    image.addEventListener('load', () => {
+      image.style.width = `${image.naturalWidth}px`;
+    });
+    canvas.appendChild(image);
+    overlay.append(closeButton, canvas);
+
+    const close = () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.body.classList.remove('figure-lightbox-open');
+      overlay.remove();
+      sourceImage.focus({ preventScroll: true });
+    };
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') close();
+    };
+    closeButton.addEventListener('click', close);
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) close();
+    });
+    document.addEventListener('keydown', onKeyDown);
+    document.body.classList.add('figure-lightbox-open');
+    document.body.appendChild(overlay);
+    closeButton.focus();
+  }
+
   /* ---------- code highlighting ---------- */
   function highlight(code, lang) {
     try {
@@ -165,8 +211,8 @@
 
   function extractIntro(md) {
     md = md.replace(/^\uFEFF?\s*#\s+[^\n]*\n+/, '');      // leading H1 title (the page header supplies it)
-    md = md.replace(/^\s*\*[^\n]*\*\s*\n+/, '');           // series / edition italic meta line
-    md = md.replace(/^\s*\*[^\n]*\*\s*\n+/, '');           // author italic meta line
+    md = md.replace(/^\s*\*(?!\*)[^\n]*\*(?!\*)\s*\n+/, ''); // series / edition italic meta line
+    md = md.replace(/^\s*\*(?!\*)[^\n]*\*(?!\*)\s*\n+/, ''); // author italic meta line
     const ex = extractObjectives(md);
     md = ex.md;
     md = md.replace(/^\s*---\s*\n/, '');
@@ -203,8 +249,13 @@
         } else if (cell.cell_type === 'code') {
           flush();
           const code = joinSrc(cell.source);
+          const tags = (cell.metadata && Array.isArray(cell.metadata.tags))
+            ? cell.metadata.tags : [];
+          const hideInput = tags.includes('hide-input');
           let cellHtml = '';
-          if (code.trim() !== '') cellHtml += codeCard(code, 'python', cell.execution_count);
+          if (!hideInput && code.trim() !== '') {
+            cellHtml += codeCard(code, 'python', cell.execution_count);
+          }
           const outs = renderOutputs(cell.outputs);
           if (outs) cellHtml += `<div class="nb-out">${outs}</div>`;
           // wrap code+output as one unit when there's a card
@@ -264,6 +315,16 @@
         note.style.cssText = 'padding:1.4rem;border:1px dashed var(--rule);border-radius:8px;background:var(--paper-2)';
         note.textContent = 'figure — ' + (img.getAttribute('alt') || 'external image unavailable offline');
         img.replaceWith(note);
+      });
+      img.tabIndex = 0;
+      img.setAttribute('role', 'button');
+      img.setAttribute('aria-label', `Open full-resolution figure: ${img.alt || 'figure'}`);
+      img.addEventListener('click', () => openFigureLightbox(img));
+      img.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openFigureLightbox(img);
+        }
       });
     });
 

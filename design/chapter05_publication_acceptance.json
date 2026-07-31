@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "record_kind": "chapter05_publication_acceptance",
+  "publisher": {
+    "path": "scripts/build_chapter05_payne_zero_goldens.py",
+    "sha256": "6e5ed476cbcd64b1599c9f369bf5ed746d9f561f9bd77c13db8b9ec1c1cdad81"
+  },
+  "publisher_contract": {
+    "path": "design/chapter05_publisher_contract.md",
+    "sha256": "8a58866b315b2cdd1ca769436aa0ccdbed3b08e4ef180bd309179d6cc7e04c08"
+  },
+  "manifest": {
+    "path": "data/MANIFEST.json",
+    "prepublication_sha256": "d010889f565f4bbf739f2839fdd2f2e69fc9354f689a92388d940be0e1bf8a78",
+    "schema_version": 1,
+    "payne_zero_commit": "9c44001feae40b85146630499e6f8a5fed42e5af",
+    "chapter05_golden_paths": [
+      "data/golden/payne_zero/chapter05/chapter05_continuum_reader_cpu_float64.npz",
+      "data/golden/payne_zero/chapter05/chapter05_continuum_integration_cpu_float64.npz"
+    ],
+    "chapter05_entries_present": false
+  },
+  "artifacts": {
+    "reader": {
+      "name": "chapter05_continuum_reader_cpu_float64.npz",
+      "relative_path": "data/golden/payne_zero/chapter05/chapter05_continuum_reader_cpu_float64.npz",
+      "sha256": "84e3e764b2d9be8d409b0db0271decdd90e07b8e716f5c589fbdbb1b9e2ae39f",
+      "bytes": 1022580,
+      "archive_kind": "continuum_reader",
+      "archive_schema_version": 1,
+      "key_count": 257,
+      "schema_digest": "058389fcd0e944dd4c1ad1208adbaac44d53ab35e61e5366d37a8a141ad91f88"
+    },
+    "integration": {
+      "name": "chapter05_continuum_integration_cpu_float64.npz",
+      "relative_path": "data/golden/payne_zero/chapter05/chapter05_continuum_integration_cpu_float64.npz",
+      "sha256": "5ce6805353ed760dc42c42ce6bd59472a3b7a7443a486aded175caf755fbff73",
+      "bytes": 21608505,
+      "archive_kind": "continuum_integration",
+      "archive_schema_version": 1,
+      "key_count": 1079,
+      "schema_digest": "e09a8932d97f8a2756aca2b779c4b8fdd822ca239197fd908ee575d09df081ca"
+    }
+  }
+}

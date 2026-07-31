@@ -96,14 +96,14 @@
 <div class="cover">
 
   <section class="hero">
-    <p class="hero-eyebrow"><span class="line"></span>From-scratch stellar spectra in torch</p>
+    <p class="hero-eyebrow"><span class="line"></span>Build stellar spectra from first principles</p>
     <h1>Stellar Spectroscopy from Scratch</h1>
-    <p class="lede">A self-contained textbook that rebuilds the Kurucz ATLAS12/SYNTHE pipeline in clean, depth-batched <code>torch</code>: equation of state, opacity, radiative transfer, model-atmosphere structure, and synthetic spectra. The notebooks run on Apple MPS or CUDA when available, fall back to CPU, and validate each computed result against shipped reference data at the documented float floor. Written for physical scientists who code.</p>
+    <p class="lede">Build a modern stellar-atmosphere and spectrum-synthesis calculation from physical principles. The fifteen-chapter course develops the physics, readable code, multicore Numba atmosphere solver, GPU synthesis engine, and learned atmosphere initializers used by Payne Zero.</p>
     <div class="hero-meta">
-      <div class="stat"><div class="v">GPU-native</div><div class="k">torch / MPS, depth-batched</div></div>
-      <div class="stat"><div class="v">Validated</div><div class="k">Per part vs shipped references</div></div>
-      <div class="stat"><div class="v">Runnable</div><div class="k">Code &amp; Outputs</div></div>
-      <div class="stat"><div class="v">Float-floor parity</div><div class="k">fp32 GPU ↔ fp64 NumPy</div></div>
+      <div class="stat"><div class="v">15 chapters</div><div class="k">A half-semester course</div></div>
+      <div class="stat"><div class="v">From scratch</div><div class="k">Physics before optimization</div></div>
+      <div class="stat"><div class="v">CPU + GPU</div><div class="k">Numba atmosphere · Torch synthesis</div></div>
+      <div class="stat"><div class="v">Verified</div><div class="k">Checks, provenance, pinned parity</div></div>
     </div>
     <div class="hero-cta">
       <a class="btn btn-primary" href="reader.html?ch=1">Start reading
@@ -116,8 +116,8 @@
   <section class="about">
     <div class="about-label">About this book</div>
     <div>
-      <p>This book rebuilds a synthetic stellar spectrum from first principles, benchmarked through shipped references produced by the independent NumPy/pykurucz validation chain. The taught code is a clean, pedagogical <code>torch</code> implementation: vectorized over the physical batch axes, runnable on Apple MPS or CUDA, and readable enough that the production <code>kgpu</code> engine can be reconstructed from the lectures.</p>
-      <p>The discipline is simple: every lecture computes the thing it teaches, then ends with a <strong>comparison cell</strong> that reports the maximum relative deviation against the shipped reference. Reference files provide physical data tables and comparison answers; they are not hidden imports of completed computations.</p>
+      <p>The reader is assumed to know basic calculus, physics, and ordinary Python—nothing about spectroscopy, radiative transfer, statistical mechanics, Numba, GPUs, or neural networks. Each new idea begins with a physical question and a limiting case before equations and bite-sized code.</p>
+      <p>Original conceptual schematics use a consistent hand-sketched visual language. Numerical figures come from executed chapter code. Every non-redundant atmosphere and synthesis source module is assigned to a chapter and a verification gate.</p>
     </div>
   </section>
 
@@ -132,49 +132,25 @@
       <ul class="people-list" style="list-style:none;margin:0;padding:0;">
         <li class="person-row" style="display:flex;justify-content:space-between;gap:1rem;align-items:baseline;padding:.65rem 0;border-bottom:1px solid var(--rule);"><span class="person-name" style="font-weight:600;color:var(--ink);">Yuan-Sen Ting</span><span class="person-meta" style="font-family:var(--font-sans);font-size:12.5px;color:var(--muted);">Max Planck Institute for Astronomy &amp; The Ohio State University</span></li>
       </ul>
-      <p style="font-family:var(--font-sans); font-size:13.5px; color:var(--muted); margin:1.1rem 0 0; max-width:34rem; line-height:1.5;">The physics and the benchmark code follow <a href="https://arxiv.org/abs/2603.11693" target="_blank" rel="noopener">Kim &amp; Ting (2026), pykurucz</a>, after Kurucz's ATLAS12 and SYNTHE.</p>
+      <p style="font-family:var(--font-sans); font-size:13.5px; color:var(--muted); margin:1.1rem 0 0; max-width:34rem; line-height:1.5;">The book is anchored in the working Payne Zero atmosphere, synthesis, and initializer implementation and in its accompanying paper.</p>
     </div>
   </section>
 
   <footer>
-    <p><em>Stellar Spectroscopy from Scratch</em> — a self-contained torch/MPS/CUDA textbook for Kurucz-style stellar spectra, with each part validated against shipped references to the documented float floor. By Yuan-Sen Ting (Max Planck Institute for Astronomy &amp; The Ohio State University). Rendered with runnable code and outputs. Dedicated to the memory of Robert L. Kurucz (1944–2025).</p>
+    <p><em>Stellar Spectroscopy from Scratch</em> — a self-contained, executable textbook. By Yuan-Sen Ting (Max Planck Institute for Astronomy &amp; The Ohio State University). Dedicated to the memory of Robert L. Kurucz (1944–2025).</p>
   </footer>
 
 </div>
 
 <script src="assets/book-data.js"></script>
 <script>
-  // Full planned arc (built lectures come from book-data.js; the rest render muted)
-  const PLANNED = [
-    { name: "Part I", title: "Foundations & Microphysics", chapters: [
-      { n: 1, title: "Overview & a First Model Atmosphere" },
-      { n: 2, title: "The Equation of State" },
-      { n: 3, title: "Continuous Opacity" } ] },
-    { name: "Part II", title: "Line Opacity", chapters: [
-      { n: 4, title: "Line Opacity I: A Single Line" },
-      { n: 5, title: "Line Opacity II: The Line List" },
-      { n: 6, title: "Hydrogen Lines: Stark Broadening" } ] },
-    { name: "Part III", title: "Radiative Transfer", chapters: [
-      { n: 7, title: "Radiative Transfer & the Emergent Spectrum" },
-      { n: 8, title: "The JOSH Solver: Production Radiative Transfer" } ] },
-    { name: "Part IV", title: "Building the Atmosphere", chapters: [
-      { n: 9, title: "Hydrostatic Equilibrium & Temperature Structure" },
-      { n: 10, title: "Radiative Equilibrium & Temperature Correction" },
-      { n: 11, title: "Convection & the Converged Atmosphere" } ] },
-    { name: "Part V", title: "Cool-Star Chemistry", chapters: [
-      { n: 12, title: "Molecular Equilibrium & Molecular Bands" },
-      { n: 13, title: "Molecular Chemistry: the Coupled Equilibrium and Continuous Opacity" } ] },
-    { name: "Part VI", title: "Line Blanketing & the Synthesis Finale", chapters: [
-      { n: 14, title: "EOS State for Line-Blanketed Convergence" },
-      { n: 15, title: "Line Blanketing: LINOP1 and the Atmosphere Correction" },
-      { n: 16, title: "A Spectrum from an Atmosphere, End to End" } ] }
-  ];
-  const built = window.BOOK.byN;  // n -> built chapter meta
+  const built = window.BOOK.byN;
   let html = '';
-  for (const part of PLANNED) {
+  for (const part of window.BOOK.parts) {
     html += `<div class="part"><div class="part-head">
         <span class="part-num">${part.name.replace('Part ','')}</span>
         <span class="part-title">${part.title}</span>
+        <span class="part-blurb">${part.blurb}</span>
       </div><div class="ch-grid">`;
     for (const c of part.chapters) {
       const b = built[c.n];
@@ -182,7 +158,7 @@
         html += `<a class="ch-row" href="reader.html?ch=${c.n}">
           <span class="cn">${String(c.n).padStart(2,'0')}</span>
           <span class="cb"><span class="ct">${b.title}</span>
-            <span class="cl">${b.lecturer} <span class="tag">Notebook</span></span></span></a>`;
+            <span class="cl">${b.lecturer} <span class="tag">Runnable chapter</span></span></span></a>`;
       } else {
         html += `<a class="ch-row planned">
           <span class="cn">${String(c.n).padStart(2,'0')}</span>

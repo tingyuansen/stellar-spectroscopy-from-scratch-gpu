@@ -1,0 +1,352 @@
+{
+  "source_root": "/Users/ysting/payne-zero",
+  "payne_zero_commit": "9c44001feae40b85146630499e6f8a5fed42e5af",
+  "policy": "Chapter-stage modules preserve exact pinned definitions and grow until they reproduce the complete in-scope packages. scripts/verify_pinned_source_fragments.py is the executable gate.",
+  "entries": [
+    {
+      "local_path": "src/payne_zero_synthesis/__init__.py",
+      "source_path": "payne_zero_synthesis/__init__.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "7e94560ab51be3baa3950a93e8b6f998c849a6d1d78356c5f662f6cfaba927db",
+      "scope": "Chapter 10 assembles the complete public structured-atmosphere synthesis API."
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/line_profile_math.py",
+      "source_path": "payne_zero_atmosphere/line_profile_math.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "9a5794140f00ff3c3fb6c2e3b28461bbc22b471f962d275055c066ad7f8acd15"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/line_catalog.py",
+      "source_path": "payne_zero_atmosphere/line_catalog.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "2ad08f866ae1917a8327d2cf54115d7afe407a5e09645bb12b70e762082d1d92"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/line_selection.py",
+      "source_path": "payne_zero_atmosphere/line_selection.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "b2c62fdf5e1fe43f33022184bfeff88985b13331354e3c745c7dab3a6b634fef"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/hydrogen_line_profile.py",
+      "source_path": "payne_zero_atmosphere/hydrogen_line_profile.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "6a48f43afee9e326d2f86282f22f44f5654e243a335cc0490c99f86c41451be0",
+      "scope": "Import dependency only; hydrogen-profile tables and teaching remain deferred to Chapter 7."
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/line_opacity.py",
+      "source_path": "payne_zero_atmosphere/line_opacity.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "d0f9c43919be58a42547e12b7abc22161a7558bf17abbcd375ab04ccf57d7cc6"
+    },
+    {
+      "local_path": "src/payne_zero_synthesis/atomic_lines.py",
+      "source_path": "payne_zero_synthesis/atomic_lines.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "0fa52833fb16487da1d5bfaaf5628a46751f888c1a57894a5037daa6d6667ab0"
+    },
+    {
+      "local_path": "src/payne_zero_synthesis/line_opacity.py",
+      "source_path": "payne_zero_synthesis/line_opacity.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "639b95c3812f1a7d227b797fa89a4d6ef9725d5f0e1284f3d49cf86844278275"
+    },
+    {
+      "local_path": "src/payne_zero_synthesis/hydrogen_lines.py",
+      "source_path": "payne_zero_synthesis/hydrogen_lines.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "81ab3ee2ca9ecd1994ddde8f01e09535c5b74f7beec5afe98a3c63b44677dcca"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/continuum_opacity.py",
+      "source_path": "payne_zero_atmosphere/continuum_opacity.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "1ff81cf6acd974b495f734a7c464faa3c25823e5957e301e1606af07258c0e81"
+    },
+    {
+      "local_path": "src/payne_zero_synthesis/continuum.py",
+      "source_path": "payne_zero_synthesis/continuum.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "ab0d4eb771ee04101f6936253f633ed60d845e2816854a06b1b059e8b91dce1b"
+    },
+    {
+      "local_path": "src/payne_zero_synthesis/constants.py",
+      "source_path": "payne_zero_synthesis/constants.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "ed58004196790f9fb4a2871044c9cd36bf7bc42046a923f9314f7b8ea7456798"
+    },
+    {
+      "local_path": "src/payne_zero_synthesis/radiative_transfer.py",
+      "source_path": "payne_zero_synthesis/radiative_transfer.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "52e0d1a0c4a2713294ce1b43130c5d900e54c4cf1f8b2b05058fc2d6831ff62b"
+    },
+    {
+      "local_path": "src/payne_zero_synthesis/api.py",
+      "source_path": "payne_zero_synthesis/api.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "77718303c1e0052a520ece7fab277b3b1922c21d09b35a288596592d03310940",
+      "scope": "Chapter 10 assembles the public structured-atmosphere synthesis API; label initialization is used later."
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/run_setup.py",
+      "source_path": "payne_zero_atmosphere/run_setup.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "de7cf08b936585dbcfa2e572c026fafa3f10282a99c27b834b62db0f3f2888c9"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/hydrostatic.py",
+      "source_path": "payne_zero_atmosphere/hydrostatic.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "f59f7b807152b74f1cf85ed208c612454aa82f62369f5d7baebe3d1a46740fef"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/microturbulence.py",
+      "source_path": "payne_zero_atmosphere/microturbulence.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "3692062f1d6877e745ed84bba4fc2fdf04c60a7c52bc27856fc696416a0283cb"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/runner.py",
+      "source_path": "payne_zero_atmosphere/runner.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "05bd3d9976b20dd83259b3d77a88fdd9b1262bb11bd342008e7e5115e797a2d7"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/radiative_transfer.py",
+      "source_path": "payne_zero_atmosphere/radiative_transfer.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "df8970ca629487537a7c4849278eab5d755b527002d8fc58360c9264a3aa45db"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/transfer_kernels.py",
+      "source_path": "payne_zero_atmosphere/transfer_kernels.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "50e759a085e6aefdb7819a3dbe3ef5e83405834f4b07e0a4de2f3c0e7354d3b9"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/_numba_cache.py",
+      "source_path": "payne_zero_atmosphere/_numba_cache.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "b8988812ea92fd5db1e7f092d06ce685e13fbda3b0b7910eba937eb7a4ddeb82"
+    },
+    {
+      "local_path": "src/payne_zero_synthesis/device.py",
+      "source_path": "payne_zero_synthesis/device.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "22e769ebed60ad3a0f2060264247e469a99afd20ec5cadb69a01b6e5fa82ea3c"
+    },
+    {
+      "local_path": "src/payne_zero_synthesis/atmosphere.py",
+      "source_path": "payne_zero_synthesis/atmosphere.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "06b79770e4d9472093655022d53ee7fddf7cc6727206f34c0f60c57151e2cf9b"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/data_files.py",
+      "source_path": "payne_zero_atmosphere/data_files.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "bf89c32977fc2db0454cf597718d99b3f3d15487529ecddbacf717ad6dc245c2"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/source_catalogs.py",
+      "source_path": "payne_zero_atmosphere/source_catalogs.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "a9ea21735c9d4964b785d76c89c9fc976a30ed75f8b6f9d4f7c6aaa4e77dae36"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/atmosphere_io.py",
+      "source_path": "payne_zero_atmosphere/atmosphere_io.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "95c4d2cab230f6925e9404639ecb05b25af8c0c85755ac1ca70d760156a8683e"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/config.py",
+      "source_path": "payne_zero_atmosphere/config.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "51e19846fb81c832ae57334faf3da2c1e4fc2ef9edf6e08467ef7296e4640b45"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/warm_start.py",
+      "source_path": "payne_zero_atmosphere/warm_start.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "3a83af3d68be52a35bfc3f55f5912770661be8251cc28f28da3250b2e83e0ad3"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/direct_abundance.py",
+      "source_path": "payne_zero_atmosphere/direct_abundance.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "ec65683eb344c4c3fd77340c084e780f58c6401e77c9f0d6db05ef6753131445"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/constants.py",
+      "source_path": "payne_zero_atmosphere/constants.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "ac1f1fbd345dc816eb3e70a8f97ebebc7a4c744fd2759b32ec19f8c88d987036"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/equation_of_state.py",
+      "source_path": "payne_zero_atmosphere/equation_of_state.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "719b316327fd6fb76dfa5267a2c9022d1384c269a0fa20d5b2ec733671ae3fa2"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/population_layout.py",
+      "source_path": "payne_zero_atmosphere/population_layout.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "36736f3095bfd7ee173e159dfde5a37aac995557893292b7bac8e794286a2ef0"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/runtime_state.py",
+      "source_path": "payne_zero_atmosphere/runtime_state.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "fae240ec00f6f89d7c2a7ef721ce6e6539be234e523291fd6e8a096d731430e8"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/doppler.py",
+      "source_path": "payne_zero_atmosphere/doppler.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "e118a78bf5250ef5e1f77d652c9e78fbb7b92acf5c069f717faed7a3b3ea98f0"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/specific_internal_energy.py",
+      "source_path": "payne_zero_atmosphere/specific_internal_energy.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "de06ba732ce1333d111a52223e39f5b4f80eece8cfc4ff2f30de9739e16d7ec5"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/synthesis_bridge.py",
+      "source_path": "payne_zero_atmosphere/synthesis_bridge.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "142a960b5e710823754b02766803b3c1dd8c48c9945fdfabe560b4ee7e1acb50"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/molecular_data.py",
+      "source_path": "payne_zero_atmosphere/molecular_data.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "705c3072d79c8019c948ce0fa2c82052f232816d453e10a7c8e5fc5a8f5ce249"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/molecular_equilibrium.py",
+      "source_path": "payne_zero_atmosphere/molecular_equilibrium.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "4c9665148a57fadf4837f193c9f4247fbab44b788e7fb76ef3cae7ebdb3c3d86"
+    },
+    {
+      "local_path": "src/payne_zero_synthesis/equation_of_state.py",
+      "source_path": "payne_zero_synthesis/equation_of_state.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "6497c29abb954e0b55d918cc22fa7b660952812c548faf1d7b1053345ef13562"
+    },
+    {
+      "local_path": "src/payne_zero_synthesis/molecular_equilibrium.py",
+      "source_path": "payne_zero_synthesis/molecular_equilibrium.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "df01757c160b2bff4390cc2148cff9d1ba6e5a2bc7cab4515b46f38e868d2714"
+    },
+    {
+      "local_path": "src/payne_zero_synthesis/source_catalog_molecular_compiler.py",
+      "source_path": "payne_zero_synthesis/source_catalog_molecular_compiler.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "b3e64b36f76228f9602490a927d7443dd701a36098573365da33e008436f633a"
+    },
+    {
+      "local_path": "src/payne_zero_synthesis/molecular_lines.py",
+      "source_path": "payne_zero_synthesis/molecular_lines.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "14c9d07e431fa73e6d6938e9db2d11c6688e52348234e0aac37cc76e8be3dc32"
+    },
+    {
+      "local_path": "src/payne_zero_synthesis/ground_partition_table.py",
+      "source_path": "payne_zero_synthesis/ground_partition_table.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "6950686c89ea51e301b4b11256d9413dad58d82741a51580f3547aa012ade832"
+    },
+    {
+      "local_path": "src/payne_zero_synthesis/paths.py",
+      "source_path": "payne_zero_synthesis/paths.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "2bca3284eb1765449ab3fc87439eb603e3941213d9c1205c71aee3fd1ad30b5d"
+    },
+    {
+      "local_path": "src/payne_zero_synthesis/pipeline.py",
+      "source_path": "payne_zero_synthesis/pipeline.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "465118980d73cbf549d29ee3f33adf82788708cc2b286e5dddb8eb288c933f22"
+    },
+    {
+      "local_path": "src/payne_zero_synthesis/synthesis.py",
+      "source_path": "payne_zero_synthesis/synthesis.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "590e430b6582fbcf601a52b721d8f65073432903773a99238073a1d821fe0d0c"
+    },
+    {
+      "local_path": "src/payne_zero_synthesis/prewarm.py",
+      "source_path": "payne_zero_synthesis/prewarm.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "d8831e4dd342a979d261325185460b564db78c9b4dc7e908e0cb9cb9c8e5ca86"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/__init__.py",
+      "source_path": "payne_zero_atmosphere/__init__.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "dbb7734cab4f3e98b9b88d1f1b5ec27afd02fd7fd003ba7931b43d3750049d61"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/__main__.py",
+      "source_path": "payne_zero_atmosphere/__main__.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "ed83ec96940c9c15560300a9889dcd8795e82a2fc29c6d7396e5f5a933a8be9c"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/cli.py",
+      "source_path": "payne_zero_atmosphere/cli.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "62974d80798faefbe91f76f2785543303d8d9875866adb9617d21d50e33416ac"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/prewarm.py",
+      "source_path": "payne_zero_atmosphere/prewarm.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "061162d18b569a248f4dcf158b205ffc53369340f35f25b9d535f9615a138d66"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/install_runtime_data.py",
+      "source_path": "payne_zero_atmosphere/install_runtime_data.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "aa1b12da92d1857e15f43e960c4760e62237772128fb0a7143c024ba865d7d18"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/convergence.py",
+      "source_path": "payne_zero_atmosphere/convergence.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "6b4c674deda148baab6fd90e8a25eed2921581ce7d4bace489c024bc1c2748cb"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/convection.py",
+      "source_path": "payne_zero_atmosphere/convection.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "9099af3ce97123a88cfee554cefb55b2b47a52085e3cb6cda19e6869e0fef9fd"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/radiative_pressure.py",
+      "source_path": "payne_zero_atmosphere/radiative_pressure.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "c61a256892282d9a0d6cb19714ea5ce6135f1b6f7f573e5761d216d552f321ec"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/rosseland_mean.py",
+      "source_path": "payne_zero_atmosphere/rosseland_mean.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "91071248fd903e05322b7163d37566e9f894daefc1d7ba018d4850d362f1fc86"
+    },
+    {
+      "local_path": "src/payne_zero_atmosphere/temperature_correction.py",
+      "source_path": "payne_zero_atmosphere/temperature_correction.py",
+      "copy_mode": "byte-identical file",
+      "source_file_sha256": "67728389ba857511979d0f82ea59f0bf41ee635b8151ae26673dace02b195d21"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "record_kind": "chapter06_synthesis_publication_record_review",
+  "authorization_path": "design/chapter06_synthesis_publication_acceptance.json",
+  "authorization_sha256": "ff46aa082226ae29ad7bc488a6e15f92596bfd005cc144077b1d477a117c0200",
+  "candidate_byte_acceptance_path": "design/chapter06_synthesis_candidate_byte_acceptance.md",
+  "candidate_byte_acceptance_sha256": "434088cff95ed60d65dc6c9749d18c2e74e45d114787c03728ed7ae9cf0bd9c9",
+  "publisher_acceptance_path": "design/chapter06_synthesis_golden_publisher_independent_audit.md",
+  "publisher_acceptance_sha256": "fac18abc0b86cee71663506a100aed35bf4c24620c6e602792a1f21dd3c188cd",
+  "manifest_entry_template_sha256": "2b168dede934551740917665999eb97a18563efeafb7cbf6ce592942ccef21de",
+  "disposition": "ACCEPT"
+}

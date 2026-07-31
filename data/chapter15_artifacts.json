@@ -1,0 +1,64 @@
+{
+  "schema": "chapter15_artifacts_v1",
+  "pinned_payne_zero_commit": "9c44001feae40b85146630499e6f8a5fed42e5af",
+  "artifacts": {
+    "data/fixtures/chapter15_case_requests.json": {
+      "role": "four immutable capstone requests",
+      "sha256": "b9cf4a66d8b446a62cee20cffa00b71dbd92f7fe8076b09f1321970bf58bde56"
+    },
+    "data/fixtures/chapter05_continuum_states.npz": {
+      "role": "compact Chapter 10 schema-v4 integration states",
+      "sha256": "ef246acd1e7dbf0b6c781613dad8c67c1cfd2c1f27c4ce1b8639ce2318bbb7ae"
+    },
+    "data/static/atmosphere_emulator/release_manifest.json": {
+      "role": "ordinary and CNO initializer manifest",
+      "sha256": "fe8093a6c0260f2524efd35a974790797e2cc8f921e9dd109477f03d845a789c"
+    },
+    "data/static/atmosphere_emulator/direct_abundance/manifest.json": {
+      "role": "experimental direct-abundance manifest",
+      "sha256": "fb59da5e6bd3f8fcba06e0c4c284137e90aab5c4e93165daa74d8ce2ae268710"
+    },
+    "data/static/atmosphere_emulator/five_label/checkpoint.pt": {
+      "role": "five-label initializer checkpoint",
+      "sha256": "c32717016d4f9047ab37bc17b6900faf9c514de3407292a07a745c35a50784e5"
+    },
+    "data/static/atmosphere_emulator/cno8/checkpoint.pt": {
+      "role": "CNO-aware initializer checkpoint",
+      "sha256": "be97c0b729490b9e18f092c59f836adb421e2e99359b44436edc3ae5632f8a02"
+    },
+    "data/static/atmosphere_emulator/direct_abundance/checkpoint.pt": {
+      "role": "experimental direct-abundance initializer checkpoint",
+      "sha256": "1b8e1db1514956dfbf890eb5ae96e01bd918acfc86be538b6b77230332104243"
+    },
+    "data/static/schemas/atmosphere_schema.json": {
+      "role": "schema-v4 declaration",
+      "sha256": "2ba8d637e613be12ff43ce319a752616323f0341ea69f8e2391c3c244939777a"
+    },
+    "src/payne_zero_synthesis/api.py": {
+      "role": "exact exploratory and synthesis public API",
+      "sha256": "77718303c1e0052a520ece7fab277b3b1922c21d09b35a288596592d03310940"
+    },
+    "src/payne_zero_synthesis/atmosphere.py": {
+      "role": "exact schema load and validation API",
+      "sha256": "06b79770e4d9472093655022d53ee7fddf7cc6727206f34c0f60c57151e2cf9b"
+    },
+    "src/payne_zero_atmosphere/warm_start.py": {
+      "role": "exact ordinary and CNO initializer source",
+      "sha256": "3a83af3d68be52a35bfc3f55f5912770661be8251cc28f28da3250b2e83e0ad3"
+    },
+    "src/payne_zero_atmosphere/direct_abundance.py": {
+      "role": "exact direct-abundance initializer source",
+      "sha256": "ec65683eb344c4c3fd77340c084e780f58c6401e77c9f0d6db05ef6753131445"
+    }
+  },
+  "tolerance_profile": {
+    "normalized_flux_ratio_rtol": 3e-07,
+    "normalized_flux_ratio_atol": 0.0,
+    "request_float_atol": 0.0
+  },
+  "availability_semantics": {
+    "passed": true,
+    "failed": false,
+    "blocked_or_not_applicable": null
+  }
+}

@@ -1,155 +1,76 @@
 # Stellar Spectroscopy from Scratch
 
-A self-contained, GPU-native textbook that rebuilds the Kurucz ATLAS12/SYNTHE stellar-spectrum
-pipeline from first principles in readable `torch`: model atmosphere, equation of state, opacity,
-radiative transfer, and finally synthetic spectra. Each lecture is written as a small, executable
-notebook that runs on Apple **MPS** or **CUDA** when available, with a CPU fallback for the
-high-precision reference path.
+This is a self-contained, executable textbook for building the atmosphere and spectral-synthesis
+parts of Payne Zero from physical principles. It is written for a final-year undergraduate or
+first-year graduate student who knows basic mathematics, physics, and Python but has not studied
+stellar spectroscopy, radiative transfer, Numba, GPUs, or machine-learning initializers.
 
-The standard is not "looks plausible"; every lecture computes a result and validates it against
-shipped reference data at the documented float floor. Those references are produced by the
-independent NumPy/pykurucz validation chain and are used here only as parity targets. The taught path
-does not import pykurucz and does not import the production `kgpu` package.
+The book is organized as a half-semester course of fifteen substantial chapters. A lossless
+29-unit internal map keeps every non-redundant physics branch, data boundary, implementation
+choice, and public Payne Zero source object assigned while the reader sees a coherent course.
 
-A stellar-atmosphere code has **two halves**, and the book now exposes both. The **atmosphere half**
-(Part VI, Lectures 14–15) rebuilds much of the per-iteration state and switches on the line blanket,
-including the exact line-deposit teaching window and EOS-derived species state. The **spectrum
-half** (Lecture 16) takes a model atmosphere and assembles the whole opacity-and-transfer stack into
-a lean synthesiser, run across the HR diagram (a hot dwarf, the Sun, a giant, an M dwarf). The
-remaining boundary is explicit: Lecture 14 is still partly helper-backed, Lecture 15 still consumes
-some line-blanketing fixtures, and Lecture 16 still consumes loaded atmosphere/EOS state. The book
-is therefore honest and parity-tested, but not yet a fully closed stellar-parameters-to-spectrum
-torch capstone.
+The implementation follows the working architecture:
 
-The notebooks are **self-contained**: each imports `torch`, `numpy`, `matplotlib`, and `pathlib`
-and loads small reference data files shipped beside it (`reference/*.npz`). They never import
-pykurucz, and they never import the production `kgpu` engine — the reference values are precomputed
-once and travel with the book, so a reader needs only `torch` + `numpy` to run, and to *validate*,
-every result.
+- NumPy and Numba on multicore CPUs for physical atmosphere iteration;
+- PyTorch on CUDA, Apple Metal, or CPU for broad spectral synthesis;
+- Torch atmosphere initializers that provide starting structures, never physical acceptance.
 
-*Yuan-Sen Ting — Max Planck Institute for Astronomy & The Ohio State University.*
+Every important idea follows the same rhythm: physical question, concrete limit, derivation with
+defined symbols, bite-sized canonical code, physical checks, and Payne Zero parity. Useful
+variations and debugging checks are resolved inside that teaching sequence; there are no detached
+exercise sets. Conceptual schematics use the hand-sketched visual language of the official Payne
+Zero website; quantitative figures are generated from executed chapter code.
 
-## The discipline
+## Current construction status
 
-The code is a **pedagogical reduction** of the production torch/MPS engine (`kgpu`): the same
-formulas, constants, numerical steps, and output, but stripped of production hardening a lecture does
-not need (custom kernels, residency bookkeeping, caching, defensive guards, CLI plumbing). It is
-**plain, readable `torch`** in bite-size cells, vectorized over depth so each tensor op processes all
-atmospheric layers at once.
+All fifteen chapters exist, execute, and render; the reader publishes Chapters 1–15. The source
+inventory maps 58 modules and 1,501 public exports, routines, classes, fields, and named source
+objects to a chapter and verification gate. The exact solar atmosphere converges and reproduces
+the pinned oracle bitwise. Remaining work is pedagogical depth and density balance rather than
+missing machinery.
 
-Each lecture ends with a **comparison cell**: it runs the taught computation, loads the shipped
-reference values, and reports the maximum relative deviation. The bar is the **documented float
-floor** — for the fp32 GPU path against the fp64 reference, a relative difference at the level of
-single-precision round-off (typically a few x 10^-6 for the equation of state and the opacities,
-tighter where the computation is a single reduction). On a CPU fallback the same code runs in fp64
-and recovers machine precision. The deviation is **quantified, not hidden**.
+`PASSDOWN.md` is authoritative for live state and is the correct entry point for anyone — human
+or agent — picking the project up.
 
-## The lectures
+Read these files in order:
 
-**Part I — Foundations**
-1. **Overview & a First Model Atmosphere** — the pipeline, units, the Planck function, optical depth, and a grey model atmosphere from `(Teff, log g)`.
-2. **The Equation of State** — Saha–Boltzmann ionization, partition functions, the electron density, and the full per-ion **PFSAHA** ionization core (bit-exact).
+1. [PASSDOWN.md](PASSDOWN.md) — live state, open defects, and the next concrete actions;
+2. [BIBLE.md](BIBLE.md) — pedagogical, scientific, visual, and verification standard;
+3. [PLAN.md](PLAN.md) — fifteen-chapter course and lossless detailed topic map;
+4. [COVERAGE.md](COVERAGE.md) — package/module/feature ownership.
 
-**Part II — Opacity**
-3. **Continuous Opacity** — H⁻, H, He and metal bound-free/free-free, Rayleigh and Thomson scattering: the KAPP engine reproduced from the atomic cross-section tables (machine precision through the photosphere).
-4. **Line Opacity I: A Single Line** — oscillator strength, the Boltzmann population, and the Voigt profile (bit-exact).
-5. **Line Opacity II: The Line List** — the full atomic line list (all Z + helium), the log-λ grid, the cutoff, the wing-accumulation kernel, and the autoionizing/merged-continuum line types (machine precision).
-6. **Hydrogen Lines: Stark Broadening** — the linear Stark effect and the HPROF4 engine; the Hβ wing reaching into the window (machine precision).
-
-**Part III — Radiative transfer**
-7. **Radiative Transfer & the Emergent Spectrum** — the transfer equation, the formal solution, Eddington–Barbier, and the assembled spectrum.
-8. **The JOSH Solver: Production Radiative Transfer** — the moment method with scattering, reproduced to machine precision.
-
-**Part IV — Building the atmosphere**
-9. **Hydrostatic Equilibrium & Temperature Structure** — the grey start and hydrostatic integration (TTAUP), bit-exact.
-10. **Radiative Equilibrium & Temperature Correction** — flux constancy, the Avrett–Krook/TCORR correction, the Rosseland mean, and the radiation-pressure moment.
-11. **Convection & the Converged Atmosphere** — mixing-length convection, overshoot, the EOS derivatives, and the converged *continuum-only* model (the line-blanketed finish is Part VI).
-
-**Part V — Cool-star chemistry**
-12. **Molecular Equilibrium & Molecular Bands** — dissociation equilibrium and the TiO band opacity of a cool dwarf (machine precision).
-13. **Molecular Chemistry: the Coupled Equilibrium and Continuous Opacity** — the coupled NMOLEC Newton solver and the molecular continuum (CH, OH, H₂ collision-induced absorption), from scratch.
-
-**Part VI — Line blanketing and the synthesis finale**
-The concepts flow from state, to blanketing, to the atmosphere-to-spectrum capstone.
-
-14. **EOS State for Line-Blanketed Convergence** — the per-iteration state the line deposit and continuum consume: the multi-element `POPSALL`/`NELECT` species slots, Doppler widths, van-der-Waals perturber number, continuum-cutoff bridge, molecular slots, and `EDENS` convective heat-capacity inputs. It recomputes this state for a loaded atmosphere fixture and documents the remaining helper-backed boundaries.
-15. **Line Blanketing: LINOP1 and the Atmosphere Correction** — the predicted line list and `SELECTLINES`, the `LINOP1` wing-walk deposit kernel (the asymmetric sub-pixel walk, the full Voigt, the cutoff reach) reproduced in a teaching window, the line-blanketed Rosseland mean, and the convergence-core precision audit. It still consumes loaded atmosphere/EOS/window/continuum/full-grid blanket fixtures, which are named in the lecture.
-16. **A Spectrum from an Atmosphere, End to End** — the **synthesis half**: the lean “kurucz” assembled from every component (EOS, continuum, atomic/hydrogen/helium lines, molecular bands, JOSH transfer) and run across the HR diagram, computing every spectrum from scratch given an atmosphere. *Atmosphere in, spectrum out.*
-
-## How to read this book
-
-- **Read it front to back.** Parts I–III build the microphysics (foundations, opacity, transfer)
-  treating the atmosphere as given; Part IV builds the atmosphere's structure; Part V adds cool-star
-  chemistry. Part VI then closes in natural order: Lecture 14 EOS state, Lecture 15 line blanketing
-  and atmosphere correction, Lecture 16 atmosphere-to-spectrum capstone.
-- **Each lecture is self-contained and stands alone.** Every notebook imports `torch`, `numpy`,
-  `matplotlib`, and `pathlib`, loads its own `reference/*.npz`, runs top to bottom on the GPU, and
-  ends by benchmarking its arrays to the shipped reference. You can open any one
-  lecture and understand what it achieves without flipping back; the cross-references are light
-  signposts, not prerequisites you must chase.
-- **The two halves of "end to end."** A stellar-atmosphere code is two halves. **Lectures 14–15**
-  are the *atmosphere-state* half: they build the per-iteration equation of state, switch the
-  blanket on, and show the correction machinery, but the live notebook gate intentionally stops at a
-  runnable one-iteration smoke boundary until the production convergence loop is fast enough to
-  teach cleanly. **Lecture 16** is the *spectrum* half — atmosphere in, spectrum out — assembled and
-  run from scratch across the HR diagram. Lecture 16 consumes the Part-VI line-blanketed solar state
-  for the Sun, while the hot dwarf, giant, and M dwarf remain documented emulator warm-starts.
-- **The boundaries are named, not hidden.** Out of scope, by design: full optical bandwidth (an
-  engineering problem of compiled kernels and parallelism — the physics is all here), and NLTE
-  statistical equilibrium (the real physics frontier). The geometry is 1D plane-parallel throughout,
-  matching the production code's own picture.
-
-## Viewing
-
-The rendered book is a static site. Serve the directory and open `index.html`:
+## Build and test
 
 ```bash
-python3 -m http.server 8899
-# then open http://127.0.0.1:8899/   (or reader.html?ch=N for a lecture)
+python3 -m pytest
+python3 scripts/verify_pinned_source_fragments.py
+python3 scripts/audit_paynezero_source.py
+python3 scripts/build_symbol_coverage.py
+python3 scripts/build_book.py
 ```
 
-The rendered `content/*.html` already embed all executed outputs and figures, so the site
-displays without running anything.
+`scripts/build_book.py` is the canonical source → notebook → executed notebook → HTML build. The
+same Python registry generates the web navigation. Available chapters are written to `content/`.
+The source-fragment gate verifies that code displayed as Payne Zero is AST-identical—or, for
+complete copied files, byte-identical—to the pinned read-only checkout.
 
-## Building from source
+To read the local site:
 
 ```bash
-python3 -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt               # numpy + matplotlib + torch + nbformat/nbconvert
-npm install                                   # marked / katex / highlight.js for rendering
-python _pipeline/build_lecture2_gpu.py         # assemble one notebook (content/Lecture2.ipynb)
-python _pipeline/build.py 2                     # execute it (MPS if available, else CPU) + render
-# or rebuild all:  python _pipeline/build.py 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
+python3 -m http.server 8765
 ```
 
-The notebooks select the device automatically: Apple **MPS** or **CUDA** if present, otherwise
-**CPU** (where the same code runs in fp64 and recovers machine precision). The `reference/*.npz`
-data files are shipped references — the gold standard each lecture validates against. They were
-generated once by the offline validation pipeline; this book never regenerates them and never imports
-pykurucz or the production `kgpu` engine in the taught path.
+Then open `http://127.0.0.1:8765/`.
 
-Read **[PASSDOWN.md](PASSDOWN.md)** first for the current handoff state, especially the Lecture 16
-line-blanketed Sun refresh and the no-`kgpu`/no-`pykurucz` self-containment rule. See
-**[PLAN.md](PLAN.md)** for the GPU-substitution roadmap. For L14-L16 reference-bundle edits, also
-read **[reference/MANIFEST_L14_L16.md](reference/MANIFEST_L14_L16.md)** so loaded computed state
-and comparison-only targets stay clearly separated.
+## Ground truth and scope
 
-## Layout
+The book is checked against the pinned Payne Zero source at commit
+`9c44001feae40b85146630499e6f8a5fed42e5af` and the pinned paper source recorded in `PLAN.md`.
+Those source trees are read-only and are never runtime dependencies of the taught path.
 
-```
-content/        executed notebooks (.ipynb) + rendered fragments (.html) — the chapters
-_pipeline/      build_lecture*_gpu.py (assemble), build.py (execute+render), verifiers
-reference/      shipped benchmark data (*.npz)
-resources/      figures and schematics
-assets/         render.js / style.css / book-data.js — the reader
-PASSDOWN.md     current handoff: relationship to kgpu, finale state, checks, delegation policy
-PLAN.md         the GPU-substitution roadmap (per-lecture pattern; now vs. deferred)
-BIBLE.md        lecture quality standard: GPU-native, pedagogical, parity-gated
-index.html      table of contents      reader.html  the lecture reader
-```
+Spectrum fitting is outside the main scope. The book covers the complete non-redundant atmosphere
+solver, atmosphere initializers, structured atmosphere interface, and synthesis calculation,
+including their data, precision, caching, thread/device, convergence, provenance, and failure-mode
+contracts.
 
-## Credits
-
-The book is a pedagogical reduction of the production `kgpu` torch/MPS engine; the physics follows
-Kurucz's ATLAS12 & SYNTHE and is validated through [Kim & Ting (2026), pykurucz](https://arxiv.org/abs/2603.11693).
-Dedicated to the memory of Robert L. Kurucz (1944–2025).
+Yuan-Sen Ting — Max Planck Institute for Astronomy & The Ohio State University.
