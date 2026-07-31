@@ -847,16 +847,18 @@ def build_notebook() -> dict:
             validator, whereas a mapping is copied directly.
 
             The transfer engine works with \(H_\nu\), but most users want
-            surface flux per nanometre. First, plane-parallel angular
-            integration gives \(F_\nu=4\pi H_\nu\). Next,
-            conservation of energy in corresponding intervals requires
-            \(F_\lambda\,d\lambda=-F_\nu\,d\nu\). Since
-            \(\nu=c/\lambda\), the magnitude of the Jacobian is
-            \(\left|d\nu/d\lambda\right|=c/\lambda^2\). With wavelength in nm,
-            public flux is
-            \(F_\lambda=4\pi H_\nu c_{\rm nm\,s^{-1}}/\lambda_{\rm nm}^2\).
-            `flux_total` and `flux_continuum` are therefore surface
-            \(F_\lambda\) per nm.
+            surface flux per nanometre. Section 9.15 already earned that
+            conversion — plane-parallel angular integration to
+            \(F_\nu=4\pi H_\nu\), then the frequency-to-wavelength Jacobian —
+            and arrived at
+
+            \[
+            F_\lambda=\frac{4\pi H_\nu\,c_{\rm nm\,s^{-1}}}
+                            {\lambda_{\rm nm}^2}.
+            \]
+
+            We invoke it here rather than rederive it. `flux_total` and
+            `flux_continuum` are therefore surface \(F_\lambda\) per nm.
 
             Both channels receive the same positive \(4\pi c/\lambda^2\)
             factor, so it cancels from

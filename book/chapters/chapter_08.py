@@ -744,7 +744,9 @@ def build_notebook() -> dict:
             \end{aligned}
             \]
 
-            This is a **structure of arrays**: millions of centers are contiguous
+            This is the same structure-of-arrays layout §7.6 adopted for the
+            atomic forest, now carrying molecular fields: millions of centers are
+            contiguous
             in one array, millions of strengths in another, and so on. It avoids
             millions of Python line objects and makes each large device operation
             regular.

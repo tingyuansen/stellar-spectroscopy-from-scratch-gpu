@@ -28,7 +28,10 @@ def build_notebook() -> dict:
             \mathbf{x}^{(n+1)}=\mathcal G(\mathbf{x}^{(n)}).
             \]
 
-            A converged atmosphere is a **fixed point**:
+            Section 3.6 met this idea already, where electron density had to be
+            left unchanged by its own update. The same statement now applies to
+            the entire atmospheric state: a converged atmosphere is a **fixed
+            point**,
 
             \[
             \mathbf{x}_\star=\mathcal G(\mathbf{x}_\star).

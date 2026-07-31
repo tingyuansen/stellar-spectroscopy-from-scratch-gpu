@@ -511,9 +511,9 @@ print(&quot;Timing is a performance observation; field equality is the proof.&qu
   van_der_waals_damping        exact=True
   margin_class                 exact=True
 
-readable scalar loop:      0.0063 s
-first compiled call here:  0.0077 s
-compiled-value cache hit:  0.0003 s
+readable scalar loop:      0.0061 s
+first compiled call here:  0.0081 s
+compiled-value cache hit:  0.0004 s
 
 The first timing may reuse an on-disk Numba signature.
 Timing is a performance observation; field equality is the proof.
@@ -971,7 +971,9 @@ arrays, but <code>MolecularLineCatalog</code> stores the seven physical fields;
     \texttt{log_grid_ratio}
   \right].
 \end{aligned}</span>
-<p>This is a <strong>structure of arrays</strong>: millions of centers are contiguous
+<p>This is the same structure-of-arrays layout §7.6 adopted for the
+atomic forest, now carrying molecular fields: millions of centers are
+contiguous
 in one array, millions of strengths in another, and so on. It avoids
 millions of Python line objects and makes each large device operation
 regular.</p>
