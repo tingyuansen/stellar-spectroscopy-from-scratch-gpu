@@ -175,7 +175,7 @@ def build_notebook() -> dict:
             public molecular lane is
 
             \[
-            \texttt{partition_normalized_populations[:, 5, :]}
+            \texttt{partition\_normalized\_populations[:, 5, :]}
             \quad [\mathrm{cm}^{-3}].
             \]
 
@@ -731,15 +731,15 @@ def build_notebook() -> dict:
 
             \[
             \begin{aligned}
-            \texttt{center_index}
-              &=\texttt{center_index_1based}-1,\\
-            \texttt{species_population_column}
-              &=\texttt{species_code}//6-1,\\
+            \texttt{center\_index}
+              &=\texttt{center\_index\_1based}-1,\\
+            \texttt{species\_population\_column}
+              &=\texttt{species\_code}//6-1,\\
             \lambda_l
               &=\exp\!\left[
-                (\texttt{center_index_1based}-1
-                 +\texttt{grid_origin_index})
-                \texttt{log_grid_ratio}
+                (\texttt{center\_index\_1based}-1
+                 +\texttt{grid\_origin\_index})
+                \texttt{log\_grid\_ratio}
               \right].
             \end{aligned}
             \]

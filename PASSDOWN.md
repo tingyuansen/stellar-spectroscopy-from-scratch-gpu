@@ -251,6 +251,13 @@ list, including this one.
   exact single-link mode-0600 artifact`. The contents are fine; only the
   permission bit is lost. Fix with `python scripts/restore_publication_modes.py`.
   This bit me after merging to `main` and cost real time to diagnose.
+- **A KaTeX failure is invisible to the test suite.** The notebook still
+  executes, every test still passes, and the only symptom is raw LaTeX shown in
+  red on the rendered page. Eight expressions in Chapter 8 shipped broken this
+  way and were found by eye. The specific trap: KaTeX reads `_` as a subscript
+  operator even inside `\texttt`, so `\texttt{species_code}` fails while
+  `\texttt{species\_code}` renders — and the unescaped form is legal in a code
+  cell, so it looks right. Run `python scripts/check_math_render.py`.
 - **`python -m pytest`, never bare `pytest`** — the latter omits the repo root
   from `sys.path`.
 - **The full suite can stall.** Run per-file with a watchdog if `python -m pytest`
@@ -282,6 +289,13 @@ after any chapter renumbering:
 
 ```bash
 python scripts/check_section_references.py
+```
+
+Verify no equation silently failed to render — run this after any prose edit
+that touches math:
+
+```bash
+python scripts/check_math_render.py
 ```
 
 Run the tests — use `python -m pytest`, not bare `pytest`, so the repository
