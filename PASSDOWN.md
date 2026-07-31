@@ -113,51 +113,43 @@ verified unreferenced by live code before deletion:
 Working tree is ~310 MB, down from ~690 MB. Root now holds only the five
 Markdown documents, the reader entry points, and the live source trees.
 
-## The dominant open gap — per-chapter design contracts for Ch7–15
+## Per-chapter design documents — corrected picture
 
-Chapters 2–6 were built to a per-chapter contract standard. Chapters 7–15 were
-carried end-to-end first and each still have only a `first_pass_contract`. This
-is the main structured backlog, not bloat to be pruned.
+An earlier reading of this gap was wrong and is corrected here. `design/` holds
+**two alternative formats from two eras**, not one complete set and one
+incomplete set:
 
-| Chapter | design files | Missing core artifacts |
-|---|---:|---|
-| 1 | 3 | exact_source_contract, causal_outline, acceptance |
-| 2 | 7 | — |
-| 3 | 5 | — |
-| 4 | 12 | causal_outline |
-| 5 | 15 | acceptance |
-| 6 | 49 | acceptance |
-| 7 | 1 | exact_source_contract, causal_outline, acceptance |
-| 8 | 1 | exact_source_contract, causal_outline, acceptance |
-| 9 | 1 | exact_source_contract, causal_outline, acceptance |
-| 10 | 1 | exact_source_contract, causal_outline, acceptance |
-| 11 | 2 | exact_source_contract, causal_outline, acceptance |
-| 12 | 1 | exact_source_contract, causal_outline, acceptance |
-| 13 | 1 | exact_source_contract, causal_outline, acceptance |
-| 14 | 1 | exact_source_contract, causal_outline, acceptance |
-| 15 | 1 | exact_source_contract, causal_outline, acceptance |
+| | Ch1 | Ch2–4 | Ch5–6 | Ch7–15 |
+|---|---|---|---|---|
+| `first_pass_contract` | — | — | — | ✅ |
+| `causal_outline` | — | ✅ | ✅ | — |
+| `exact_source_contract` | — | ✅ | ✅ | — |
+| `acceptance` | — | ✅ | — | ✅ *(added 2026-07-31)* |
 
-Use Chapter 3 as the template — it is the cleanest complete example at 5 files
-without Chapter 6's over-build. Chapter 6's 49 files are not the target; they
-are an artifact of iterating hardest there.
+Chapter 7's `first_pass_contract` is 1,249 lines and already covers what
+`causal_outline` covers — canonical placement and boundaries, the chapter's
+single question, reader promise and prerequisites, a notation and decision
+ledger, and per-movement section detail — **plus** a visible code-cell ledger
+and a figure/schematic contract that the older format lacks. Regenerating
+`causal_outline` for Ch7–15 would duplicate existing material in an older
+format, which is exactly the metadata ceremony the Cadence section warns
+against. Do not do it without a specific reason.
 
-**Anatomy of the three missing artifacts**, measured from Chapter 3. These are
-substantial documents, not checklists — budget roughly one focused session per
-chapter, and do one chapter at a time rather than starting all nine.
+**Remaining real gaps, in priority order:**
 
-- `chapterNN_causal_outline.md` (~1,400 lines). Sections: central question and
-  earned claim; neighbour handoff and no-repeat contract; how the source-contract
-  movements map onto chapter sections; terminology and notation ladder; then one
-  subsection per numbered chapter section (`### N.M <section title>`) recording
-  what that section may assume, what it earns, and what it must not pre-empt.
-- `chapterNN_exact_source_contract.md` (~1,900 lines). The pinned Payne Zero
-  symbols the chapter stages and the exact-match obligations on each.
-- `chapterNN_acceptance.md` (~70 lines). Sections: Outcome; Gates passed;
-  Independent-audit closure. Unevaluated gates stay visibly `None` — never
-  promote a check that was not performed.
-
-Each of Ch7–15 already has a `chapterNN_first_pass_contract.md` (Ch7's is 1,249
-lines); that is the raw material, not a substitute.
+1. **Ch5, Ch6, and Ch15 have no acceptance record.** Ch7–14 were written
+   2026-07-31; these three were not. Use `design/chapter13_acceptance.md` as the
+   template — measured gates only, with a *Not evaluated* section so the record
+   cannot be read as a stronger claim than the evidence supports.
+2. **Chapter 1 has no design document of any kind.**
+3. **Exact-source depth.** `first_pass_contract` is lighter here than
+   `exact_source_contract` was (Ch7 names the pinned packages 7 times against
+   Ch3's 19). This is descriptive rather than load-bearing, because
+   `verify_pinned_source_fragments.py` already enforces exactness mechanically
+   for every chapter — so treat it as low priority.
+4. **No independent pedagogy audit exists for Ch7–15.** Chapters 2–4 carry one.
+   Every Ch7–14 acceptance record states this openly in its *Not evaluated*
+   section. Closing it means running a genuine audit, not writing a document.
 
 ## Known pedagogical defects — re-verified 2026-07-31
 
@@ -456,8 +448,10 @@ errors; 70 tests pass.
    Rosseland mean, but `BlanketingCheckpoint` does not currently expose the
    layer temperature needed for the \(\partial B_\nu/\partial T\) weighting;
    add that field rather than plotting an unweighted proxy.
-3. Write `causal_outline` + `exact_source_contract` + `acceptance` for Ch7–15,
-   one chapter at a time, using Chapter 3 as the template.
+3. Write acceptance records for **Ch5, Ch6, and Ch15** — the three chapters
+   still without one — using `design/chapter13_acceptance.md` as the template.
+   Do *not* regenerate `causal_outline` for Ch7–15; see the corrected picture
+   above for why.
 4. Settle the display-math and heading-nesting inconsistencies (defects 4, 5)
    in a single mechanical pass once prose work has settled.
 
