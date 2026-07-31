@@ -174,7 +174,7 @@ audit note. Current measured state, per generated notebook:
 | 12 | 3361 | 21 | 248 | 0 | 2 |
 | 13 | 3009 | 15 | 259 | 0 | 4 |
 | 14 | 2758 | 20 | 267 | 0 | 6 |
-| 15 | 2993 | 15 | 241 | 1 | 1 |
+| 15 | 3293 | 16 | 274 | 1 | 2 |
 
 Regenerate this table after substantive edits: count markdown words, visible
 code cells, nonblank code lines, and `image/png` outputs per
@@ -224,8 +224,8 @@ computes the real thing.
    audits reported this as a bite-size failure by counting against the target
    rather than the ceiling. Treat it as low-priority polish: split a cell only
    where it genuinely carries two ideas, not to satisfy a line count.
-3. **Figure starvation.** Ch12 and Ch11 now have two each; **Ch15 still has
-   one**.
+3. **Figure starvation — closed.** Every chapter now has at least two figures.
+   Ch11, Ch12, and Ch15 each gained one during the 2026-07-31 wave.
    Ch15's capstone figure also spans only a 0.2 nm window (498.95–499.15 nm),
    narrow for a four-regime comparison — consider a wider or second panel
    showing where the regimes visibly diverge, now that §15.10 explains what to

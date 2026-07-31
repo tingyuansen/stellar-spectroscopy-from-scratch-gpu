@@ -358,7 +358,7 @@ def test_notebook_is_a_compact_capstone_with_four_case_cells() -> None:
         and "hide-input" not in cell.get("metadata", {}).get("tags", ())
         and "book-setup" not in cell.get("metadata", {}).get("tags", ())
     ]
-    assert len(visible) == 15
+    assert len(visible) == 16
     markdown_source = "\n".join(
         cell["source"]
         for cell in document["cells"]

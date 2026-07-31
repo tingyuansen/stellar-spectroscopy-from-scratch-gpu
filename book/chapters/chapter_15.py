@@ -469,6 +469,76 @@ def build_notebook() -> dict:
             regime-specific special case — the same algorithm produced all four
             curves.
 
+            The narrow window above was chosen to make individual metal lines
+            legible. One more window makes the regime argument directly visible,
+            because the grid reaches H\(\alpha\) at its red end.
+            """
+        ),
+        code(
+            """
+            fig, ax = single_panel()
+            for row in capstone.rows:
+                public = public_spectrum(row.name)
+                keep = public.wavelength_nm >= 654.5
+                ax.plot(
+                    public.wavelength_nm[keep],
+                    public.normalized_flux[keep],
+                    lw=1.6,
+                    label=row.name.replace("_", " "),
+                )
+            ax.set_xlabel("Wavelength [nm]")
+            ax.set_ylabel(r"Normalized flux $F_\\lambda/F_{\\lambda,c}$")
+            ax.set_title(r"H$\\alpha$ in four regimes")
+            add_quiet_grid(ax)
+            ax.legend()
+            plt.show()
+
+            print("case                  core depth   half-depth width [nm]")
+            for row in capstone.rows:
+                public = public_spectrum(row.name)
+                keep = public.wavelength_nm >= 654.5
+                flux = public.normalized_flux[keep]
+                grid = public.wavelength_nm[keep]
+                core = float(flux.min())
+                below = grid[flux < 1.0 - 0.5 * (1.0 - core)]
+                width = float(below.max() - below.min()) if below.size > 1 else 0.0
+                print(f"{row.name:22s}{core:10.4f}{width:20.4f}")
+            """,
+        ),
+        markdown(
+            r"""
+            One line, four very different answers, and every difference traces to
+            something the book already derived.
+
+            The **cool dwarf barely shows H\(\alpha\) at all** — a core depth of
+            0.93 in the most abundant element in the star. Absorbing H\(\alpha\)
+            requires hydrogen already in \(n=2\), and at 3800 K the Boltzmann
+            factor of Chapter 3 leaves almost none there. Abundance is not
+            opacity; excitation decides.
+
+            The **hot dwarf runs the argument in reverse**. At 9000 K there is
+            ample \(n=2\) hydrogen, and its line is not merely deep but roughly
+            ten times wider than the solar one, 0.98 nm against 0.10 nm at half
+            depth. Hydrogen's linear Stark effect — the same degeneracy that
+            produced the \(n_e^{-2/15}\) scaling in §7.15 — makes its levels
+            unusually sensitive to the surrounding plasma, so the wings spread
+            enormously.
+
+            The **giant has the deepest core of all four**, 0.16, despite being
+            1277 K cooler than the Sun. That is the continuum, not the line. At
+            \(\log g=2.0\) the pressure is far lower, so there are fewer free
+            electrons, so H\(^-\) is weaker and the continuum against which the
+            line is measured is fainter. A normalized line deepens when its
+            continuum recedes.
+
+            One caution, since the figure invites it: these four stars differ in
+            temperature as well as gravity, so this is **not** a controlled test
+            of pressure broadening. The giant's line is wider than the Sun's here,
+            which the damping argument alone would not predict; separating that
+            would need two stars at matched \(T_{\rm eff}\). The width diagnostic
+            described earlier in this section is a real effect, but this figure
+            does not isolate it.
+
             ## 15.11 Separate breadth from depth
 
             A trustworthy end-to-end test needs two complementary views.
