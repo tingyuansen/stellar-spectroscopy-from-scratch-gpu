@@ -124,7 +124,7 @@ incomplete set:
 | `first_pass_contract` | — | — | — | ✅ |
 | `causal_outline` | — | ✅ | ✅ | — |
 | `exact_source_contract` | — | ✅ | ✅ | — |
-| `acceptance` | — | ✅ | ✅ *(added 2026-07-31)* | ✅ *(added 2026-07-31)* |
+| `acceptance` | ✅ *(added 2026-07-31)* | ✅ | ✅ *(added 2026-07-31)* | ✅ *(added 2026-07-31)* |
 
 Chapter 7's `first_pass_contract` is 1,249 lines and already covers what
 `causal_outline` covers — canonical placement and boundaries, the chapter's
@@ -137,8 +137,12 @@ against. Do not do it without a specific reason.
 
 **Remaining real gaps, in priority order:**
 
-1. **Chapter 1 has no design document of any kind.** Every other chapter now
-   has at least an acceptance record.
+1. **Chapter 1's two audits predate the text they describe.**
+   `chapter01_rewrite_audit.md` and `chapter01_flow_audit.md` returned
+   conditional verdicts against an earlier draft. Their headline findings
+   measurably no longer apply — the rewrite audit counted 151 lines of source
+   across five Markdown cells, and the count is now zero — but "appears
+   addressed" is not a fresh ACCEPT. Re-run them, or mark them historical.
 2. **Exact-source depth.** `first_pass_contract` is lighter here than
    `exact_source_contract` was (Ch7 names the pinned packages 7 times against
    Ch3's 19). This is descriptive rather than load-bearing, because
@@ -445,9 +449,11 @@ errors; 70 tests pass.
    Rosseland mean, but `BlanketingCheckpoint` does not currently expose the
    layer temperature needed for the \(\partial B_\nu/\partial T\) weighting;
    add that field rather than plotting an unweighted proxy.
-3. Give **Chapter 1** a design document — it is the only chapter with none.
-   Do *not* regenerate `causal_outline` for Ch7–15; see the corrected picture
-   above for why.
+3. All 15 chapters now have an acceptance record. The remaining design work is
+   judgement, not filing: decide whether to re-run Chapter 1's stale audits and
+   whether the absent independent pedagogy audit for Ch5–15 is worth
+   commissioning. Do *not* regenerate `causal_outline` for Ch7–15; see the
+   corrected picture above for why.
 4. Settle the display-math and heading-nesting inconsistencies (defects 4, 5)
    in a single mechanical pass once prose work has settled.
 
