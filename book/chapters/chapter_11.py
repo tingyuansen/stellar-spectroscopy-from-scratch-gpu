@@ -777,6 +777,65 @@ def build_notebook() -> dict:
         ),
         markdown(
             r"""
+            The peak ratio above is large — the strongest line centres sit tens of
+            times above the continuum. It is worth asking what that does to the
+            harmonic Rosseland mean of §11.12, since that is the quantity the
+            temperature structure actually responds to.
+            """
+        ),
+        code(
+            """
+            ratio = (
+                blanketing.rosseland_blanketed
+                / blanketing.rosseland_continuum_only
+            )
+            covered = np.mean(
+                blanketing.blanketed_extinction
+                > 1.1 * blanketing.continuum_extinction
+            )
+
+            fig, ax = single_panel()
+            ax.plot(blanketing.temperature_k, ratio, marker=".", lw=1.2)
+            ax.axhline(1.0, color="#4d5966", lw=1.0, ls="--",
+                       label="continuum only")
+            ax.set_xlabel("Layer temperature [K]")
+            ax.set_ylabel(r"$\\kappa_R$ blanketed / continuum only")
+            ax.set_title("Strong lines, small effect on the harmonic mean")
+            add_quiet_grid(ax)
+            ax.legend()
+            plt.show()
+
+            print(f"largest kappa_R increase: {100 * (ratio.max() - 1):.3f}%")
+            print(f"sampled frequencies where lines exceed 10% of continuum:"
+                  f" {100 * covered:.3f}%")
+            """,
+        ),
+        markdown(
+            r"""
+            The ratio never drops below one — adding opacity cannot lower a
+            harmonic mean whose weight is positive everywhere, so the direction of
+            §11.12's argument is confirmed. But the size is only a fraction of a
+            percent, and the second printed number explains why: these lines
+            exceed the continuum across a very small share of the sampled
+            frequencies. A harmonic mean is dominated by its most transparent
+            windows, so opacity that is tall but narrow barely moves it.
+
+            That is a genuine property of the physics, not a defect of the
+            fixture, and it carries two lessons. Real line blanketing becomes
+            structurally important through *coverage* rather than peak height: it
+            takes a dense forest of millions of transitions, of the kind Chapters
+            7 and 8 build, to close enough windows to reshape the temperature
+            profile. And the same insensitivity is what makes opacity sampling
+            viable at all — a mean that shrugged at narrow features would be
+            hostage to exactly which 30,000 frequencies we happened to sample.
+
+            This compact state carries a selected subset, so read the figure as
+            the mechanism confirmed and bounded, not as the full blanketing of a
+            real stellar atmosphere.
+            """
+        ),
+        markdown(
+            r"""
             ## 11.14 Chapter summary
 
             A trustworthy atmosphere pass begins with boundaries, not with a

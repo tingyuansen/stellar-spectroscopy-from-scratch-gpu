@@ -244,6 +244,46 @@ class BlanketingCheckpoint:
     blanketed_extinction: np.ndarray
     depth_index: int
     line_to_continuum_peak_ratio: float
+    temperature_k: np.ndarray
+    rosseland_continuum_only: np.ndarray
+    rosseland_blanketed: np.ndarray
+
+
+def _rosseland_mean(
+    opacity: np.ndarray,
+    frequency_hz: np.ndarray,
+    frequency_weights: np.ndarray,
+    temperature_k: np.ndarray,
+) -> np.ndarray:
+    """Return the harmonic Rosseland mean of ``opacity`` at every depth.
+
+    The weight is the temperature derivative of the Planck function, so
+    transparent windows dominate. This is the same definition Chapter 12
+    finalizes; it is evaluated here only to show what line opacity does to it.
+    """
+
+    planck_h = 6.62607015e-27
+    boltzmann_k = 1.380649e-16
+    light_c = 2.99792458e10
+
+    exponent = (
+        planck_h * frequency_hz[None, :]
+        / (boltzmann_k * temperature_k[:, None])
+    )
+    # dB/dT, up to constants that cancel between numerator and denominator.
+    stable = np.exp(-exponent)
+    weight = (
+        frequency_hz[None, :] ** 4
+        * stable
+        / np.square(1.0 - stable)
+        / np.square(temperature_k[:, None])
+    )
+    weight = weight * frequency_weights[None, :] * (2.0 * planck_h**2 / (light_c**2 * boltzmann_k))
+
+    floor = np.finfo(np.float64).tiny
+    numerator = np.sum(weight / np.maximum(opacity, floor), axis=1)
+    denominator = np.sum(weight, axis=1)
+    return denominator / np.maximum(numerator, floor)
 
 
 def _sha256(path: Path) -> str:
@@ -770,10 +810,29 @@ def blanketing_checkpoint(
     ratio = np.max(
         blanketed / np.maximum(continuum, np.finfo(np.float64).tiny)
     )
+    temperature = load_seed_atmosphere().temperature
+    all_continuum = (
+        state.continuum_absorption + state.continuum_scattering
+    )
+    all_blanketed = (
+        all_continuum + state.line_opacity.line_mass_absorption_coefficient
+    )
+    rosseland_arguments = (
+        state.opacity_frequency_hz,
+        state.frequency_weights,
+        temperature,
+    )
     return BlanketingCheckpoint(
         wavelength_nm=state.opacity_wavelength_grid_nm[::step],
         continuum_extinction=continuum[::step],
         blanketed_extinction=blanketed[::step],
         depth_index=depth,
         line_to_continuum_peak_ratio=float(ratio),
+        temperature_k=temperature,
+        rosseland_continuum_only=_rosseland_mean(
+            all_continuum, *rosseland_arguments
+        ),
+        rosseland_blanketed=_rosseland_mean(
+            all_blanketed, *rosseland_arguments
+        ),
     )

@@ -215,7 +215,7 @@ def test_chapter_has_exactly_18_visible_cells_and_stops_before_transfer() -> Non
         if cell["cell_type"] == "markdown"
     )
     code_text = "\n".join(cell["source"] for cell in document["cells"])
-    assert len(visible) == 18
+    assert len(visible) == 19
     assert "## 11.14 Chapter summary" in markdown_text
     assert "/reader.html?ch=12" in markdown_text
     assert "exercise" not in markdown_text.lower()

@@ -170,7 +170,7 @@ audit note. Current measured state, per generated notebook:
 | 8 | 3893 | 17 | 375 | 3 | 4 |
 | 9 | 3250 | 18 | 449 | 4 | 5 |
 | 10 | 4618 | 18 | 296 | 1 | 2 |
-| 11 | 2935 | 18 | 173 | 0 | 1 |
+| 11 | 3172 | 19 | 196 | 0 | 2 |
 | 12 | 3361 | 21 | 248 | 0 | 2 |
 | 13 | 3009 | 15 | 259 | 0 | 4 |
 | 14 | 2758 | 20 | 267 | 0 | 6 |
@@ -224,8 +224,8 @@ computes the real thing.
    audits reported this as a bite-size failure by counting against the target
    rather than the ceiling. Treat it as low-priority polish: split a cell only
    where it genuinely carries two ideas, not to satisfy a line count.
-3. **Figure starvation.** Ch12 now has two (a Schwarzschild-criterion panel was
-   added alongside the new derivation); **Ch11 and Ch15 still have one each**.
+3. **Figure starvation.** Ch12 and Ch11 now have two each; **Ch15 still has
+   one**.
    Ch15's capstone figure also spans only a 0.2 nm window (498.95–499.15 nm),
    narrow for a four-regime comparison — consider a wider or second panel
    showing where the regimes visibly diverge, now that §15.10 explains what to
