@@ -124,7 +124,7 @@ incomplete set:
 | `first_pass_contract` | — | — | — | ✅ |
 | `causal_outline` | — | ✅ | ✅ | — |
 | `exact_source_contract` | — | ✅ | ✅ | — |
-| `acceptance` | — | ✅ | — | ✅ *(added 2026-07-31)* |
+| `acceptance` | — | ✅ | ✅ *(added 2026-07-31)* | ✅ *(added 2026-07-31)* |
 
 Chapter 7's `first_pass_contract` is 1,249 lines and already covers what
 `causal_outline` covers — canonical placement and boundaries, the chapter's
@@ -137,17 +137,14 @@ against. Do not do it without a specific reason.
 
 **Remaining real gaps, in priority order:**
 
-1. **Ch5, Ch6, and Ch15 have no acceptance record.** Ch7–14 were written
-   2026-07-31; these three were not. Use `design/chapter13_acceptance.md` as the
-   template — measured gates only, with a *Not evaluated* section so the record
-   cannot be read as a stronger claim than the evidence supports.
-2. **Chapter 1 has no design document of any kind.**
-3. **Exact-source depth.** `first_pass_contract` is lighter here than
+1. **Chapter 1 has no design document of any kind.** Every other chapter now
+   has at least an acceptance record.
+2. **Exact-source depth.** `first_pass_contract` is lighter here than
    `exact_source_contract` was (Ch7 names the pinned packages 7 times against
    Ch3's 19). This is descriptive rather than load-bearing, because
    `verify_pinned_source_fragments.py` already enforces exactness mechanically
    for every chapter — so treat it as low priority.
-4. **No independent pedagogy audit exists for Ch7–15.** Chapters 2–4 carry one.
+3. **No independent pedagogy audit exists for Ch5–15.** Chapters 2–4 carry one.
    Every Ch7–14 acceptance record states this openly in its *Not evaluated*
    section. Closing it means running a genuine audit, not writing a document.
 
@@ -448,8 +445,7 @@ errors; 70 tests pass.
    Rosseland mean, but `BlanketingCheckpoint` does not currently expose the
    layer temperature needed for the \(\partial B_\nu/\partial T\) weighting;
    add that field rather than plotting an unweighted proxy.
-3. Write acceptance records for **Ch5, Ch6, and Ch15** — the three chapters
-   still without one — using `design/chapter13_acceptance.md` as the template.
+3. Give **Chapter 1** a design document — it is the only chapter with none.
    Do *not* regenerate `causal_outline` for Ch7–15; see the corrected picture
    above for why.
 4. Settle the display-math and heading-nesting inconsistencies (defects 4, 5)
@@ -478,6 +474,13 @@ can resume cold.
   the book keep pointing at the old slot — invisible in the rendered output.
   Run `python scripts/check_section_references.py` after any renumber; it is
   cheap and covers all 227 sections.
+- **Two published Chapter 6 artifacts require filesystem mode `0600`, which
+  git cannot record.** A fresh clone — or any `git checkout` that rewrites the
+  working tree, such as a branch merge — leaves them at the umask default and
+  6 publication-authority tests fail with `PublicationStateError: ... not the
+  exact single-link mode-0600 artifact`. The contents are fine; only the
+  permission bit is lost. Fix with `python scripts/restore_publication_modes.py`.
+  This bit me after merging to `main` and cost real time to diagnose.
 - **`python -m pytest`, never bare `pytest`** — the latter omits the repo root
   from `sys.path`.
 - **The full suite can stall.** Run per-file with a watchdog if `python -m pytest`

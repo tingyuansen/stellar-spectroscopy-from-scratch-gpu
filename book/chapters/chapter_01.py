@@ -1114,7 +1114,8 @@ def build_notebook() -> dict:
                 )
             )
 
-            print("layer  log10(tau_Ross)   temperature [K]   gas pressure [dyn cm^-2]   column mass [g cm^-2]")
+            print("layer  log10(tau_Ross)   temperature [K]   "
+                  "gas pressure [dyn cm^-2]   column mass [g cm^-2]")
             for row in structure_sample:
                 print(
                     f"{int(row[0]):5d} {row[1]:16.3f} {row[2]:17.1f} "

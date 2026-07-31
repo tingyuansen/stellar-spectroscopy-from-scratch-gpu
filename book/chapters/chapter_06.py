@@ -241,10 +241,17 @@ def build_notebook() -> dict:
             print(f"temperature:                           {solar_state['temperature'][d]:.1f} K")
             print(f"catalog gf:                            {baseline_strength.oscillator_strength:.9f}")
             print(f"dimensionless excitation exponent:     {exponent:.6f}")
-            print(f"Boltzmann factor:                       {baseline_strength.lower_level_boltzmann_factor[d]:.6e}")
+            boltzmann = baseline_strength.lower_level_boltzmann_factor[d]
+            weighted = (
+                baseline_strength
+                .excitation_weighted_partition_normalized_population_cm3[d]
+            )
+            gf_weighted = baseline_strength.gf_weighted_excitation_factor_cm3[d]
+
+            print(f"Boltzmann factor:                       {boltzmann:.6e}")
             print(f"normalized Fe I population:             {fe_population[d]:.6e} cm^-3")
-            print(f"excitation-weighted normalized value:   {baseline_strength.excitation_weighted_partition_normalized_population_cm3[d]:.6e} cm^-3")
-            print(f"gf-weighted excitation factor:          {baseline_strength.gf_weighted_excitation_factor_cm3[d]:.6e} cm^-3")
+            print(f"excitation-weighted normalized value:   {weighted:.6e} cm^-3")
+            print(f"gf-weighted excitation factor:          {gf_weighted:.6e} cm^-3")
             """,
         ),
         markdown(
@@ -312,10 +319,13 @@ def build_notebook() -> dict:
             )
 
             reference = baseline_strength.integrated_strength_cm2_hz_per_g[d]
+            def strength_ratio(case):
+                return case.integrated_strength_cm2_hz_per_g[d] / reference
+
             print("change                         integrated-strength ratio")
-            print(f"gf x 2                         {doubled_gf.integrated_strength_cm2_hz_per_g[d] / reference:.6f}")
-            print(f"normalized population x 2      {doubled_population.integrated_strength_cm2_hz_per_g[d] / reference:.6f}")
-            print(f"mass density x 2                {doubled_density.integrated_strength_cm2_hz_per_g[d] / reference:.6f}")
+            print(f"gf x 2                         {strength_ratio(doubled_gf):.6f}")
+            print(f"normalized population x 2      {strength_ratio(doubled_population):.6f}")
+            print(f"mass density x 2               {strength_ratio(doubled_density):.6f}")
             print(f"baseline area scale              {reference:.6e} cm^2 Hz g^-1")
             """,
         ),
@@ -510,8 +520,13 @@ def build_notebook() -> dict:
             print(f"neutral van der Waals           {damping.van_der_waals_term[d]:.6e}")
             print(f"damping ratio a                 {damping.damping_ratio[d]:.6e}")
             print(f"Doppler width                   {width.doppler_width_km_per_s[d]:.6f} km/s")
-            print(f"Stark response to ne x 2        {more_electrons.stark_term[d] / damping.stark_term[d]:.6f}")
-            print(f"vdW response to npert x 2       {more_neutrals.van_der_waals_term[d] / damping.van_der_waals_term[d]:.6f}")
+            stark_ratio = more_electrons.stark_term[d] / damping.stark_term[d]
+            vdw_ratio = (
+                more_neutrals.van_der_waals_term[d]
+                / damping.van_der_waals_term[d]
+            )
+            print(f"Stark response to ne x 2        {stark_ratio:.6f}")
+            print(f"vdW response to npert x 2       {vdw_ratio:.6f}")
             """,
         ),
         markdown(
@@ -659,8 +674,11 @@ def build_notebook() -> dict:
             )
             center_i = int(np.argmin(np.abs(local_wavelength - transition.wavelength_nm)))
             print(f"continuum at center: {local_continuum[center_i]:.6e} cm^2 g^-1")
-            print(f"net line at center:  {readable_line.net_line_mass_absorption_coefficient[center_i]:.6e} cm^2 g^-1")
-            print(f"line / continuum:    {readable_line.net_line_mass_absorption_coefficient[center_i] / local_continuum[center_i]:.3f}")
+            net_center = (
+                readable_line.net_line_mass_absorption_coefficient[center_i]
+            )
+            print(f"net line at center:  {net_center:.6e} cm^2 g^-1")
+            print(f"line / continuum:    {net_center / local_continuum[center_i]:.3f}")
             """,
         ),
         markdown(
@@ -987,7 +1005,9 @@ def build_notebook() -> dict:
                  "atmosphere Harris", "later in transfer", "3 samples/depth here"),
                 ("synthesis CPU", f"{synthesis_cpu.work_dtype} -> {synthesis_cpu.accumulation_dtype}",
                  "Harris + ordinary shortcut", "inside accumulator", "cutoff wing walk"),
-                ("synthesis default", f"{synthesis_default.work_dtype} -> {synthesis_default.accumulation_dtype}",
+                ("synthesis default",
+                 f"{synthesis_default.work_dtype} -> "
+                 f"{synthesis_default.accumulation_dtype}",
                  "same synthesis policy", "inside accumulator", "cutoff wing walk"),
             )
             print(f"{'route':22s} {'numeric owner':29s} {'profile':29s} {'stimulation':20s} support")
